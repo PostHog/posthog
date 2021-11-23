@@ -1,9 +1,10 @@
-import { Button, Card, Col, Row, Skeleton, Spin } from 'antd'
+import { Button, Card, Col, Row, Skeleton } from 'antd'
 import { useActions, useValues } from 'kea'
 import React, { useEffect, useState } from 'react'
 import { PlanInterface } from '~/types'
 import { billingLogic } from './billingLogic'
 import defaultImg from 'public/plan-default.svg'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 
 function Plan({ plan, onSubscribe }: { plan: PlanInterface; onSubscribe: (plan: PlanInterface) => void }): JSX.Element {
     const [detail, setDetail] = useState('')
@@ -73,9 +74,7 @@ export function BillingEnrollment(): JSX.Element | null {
                         {plans.map((plan: PlanInterface) => (
                             <Col sm={8} key={plan.key} className="text-center">
                                 {billingSubscriptionLoading ? (
-                                    <Spin>
-                                        <Plan plan={plan} onSubscribe={handleBillingSubscribe} />
-                                    </Spin>
+                                    <Spinner />
                                 ) : (
                                     <Plan plan={plan} onSubscribe={handleBillingSubscribe} />
                                 )}

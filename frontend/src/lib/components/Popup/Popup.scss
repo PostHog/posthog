@@ -1,10 +1,25 @@
 @import '~/vars';
 
-.popper-tooltip {
+.Popup {
     z-index: $z_popup;
-    box-shadow: 0 3px 6px -4px rgb(0 0 0 / 12%), 0 6px 16px 0 rgb(0 0 0 / 8%), 0 9px 28px 8px rgb(0 0 0 / 5%);
-    background: white;
-    padding: 10px;
-    border-radius: $radius;
+    box-shadow: $shadow_popup;
+    background: #fff;
+    padding: 0.5rem;
+    border-radius: var(--radius);
     border: 1px solid var(--border);
+    max-width: calc(100vw - 1rem);
+    max-height: calc(100vh - 6rem);
+    overflow: auto;
+    &--actionable {
+        border-color: var(--primary);
+    }
+    h5 {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--muted-alt);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin: 0.25rem 0.5rem;
+        line-height: 2;
+    }
 }

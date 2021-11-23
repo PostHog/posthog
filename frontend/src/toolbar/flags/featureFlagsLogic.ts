@@ -4,8 +4,10 @@ import { featureFlagsLogicType } from './featureFlagsLogicType'
 import { toolbarFetch } from '~/toolbar/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import Fuse from 'fuse.js'
+import { posthog } from '~/toolbar/posthog'
 
 export const featureFlagsLogic = kea<featureFlagsLogicType>({
+    path: ['toolbar', 'flags', 'featureFlagsLogic'],
     actions: {
         getUserFlags: true,
         setOverriddenUserFlag: (flagId: number, overrideValue: string | boolean) => ({ flagId, overrideValue }),
@@ -20,6 +22,12 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             {
                 getUserFlags: async (_, breakpoint) => {
                     const response = await toolbarFetch('/api/projects/@current/feature_flags/my_flags')
+
+                    if (response.status >= 400) {
+                        toolbarLogic.actions.tokenExpired()
+                        return []
+                    }
+
                     breakpoint()
                     if (!response.ok) {
                         return []
@@ -41,6 +49,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                     }
                     const results = await response.json()
 
+                    posthog.capture('toolbar feature flag overridden')
                     toolbarLogic.values.posthog?.featureFlags.reloadFeatureFlags()
                     return [...values.userFlags].map((userFlag) =>
                         userFlag.feature_flag.id === results.feature_flag
@@ -58,6 +67,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                         return []
                     }
 
+                    posthog.capture('toolbar feature flag override removed')
                     toolbarLogic.values.posthog?.featureFlags.reloadFeatureFlags()
                     return [...values.userFlags].map((userFlag) =>
                         userFlag?.override?.id === overrideId ? { ...userFlag, override: null } : userFlag
@@ -104,7 +114,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                 return searchTerm
                     ? new Fuse(userFlagsWithCalculatedInfo, {
                           threshold: 0.3,
-                          keys: ['feature_flag.name'],
+                          keys: ['feature_flag.key', 'feature_flag.name'],
                       })
                           .search(searchTerm)
                           .map(({ item }) => item)
@@ -116,14 +126,9 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
     events: ({ actions }) => ({
         afterMount: () => {
             actions.getUserFlags()
-            const { posthog } = toolbarLogic.values
-            if (posthog) {
-                posthog.onFeatureFlags((_, variants) => {
-                    if (variants) {
-                        toolbarLogic.actions.updateFeatureFlags(variants)
-                    }
-                })
-                const locallyOverrideFeatureFlags = posthog.get_property('$override_feature_flags')
+            const { posthog: clientPostHog } = toolbarLogic.values
+            if (clientPostHog) {
+                const locallyOverrideFeatureFlags = clientPostHog.get_property('$override_feature_flags')
                 if (locallyOverrideFeatureFlags) {
                     actions.setShowLocalFeatureFlagWarning(true)
                 }

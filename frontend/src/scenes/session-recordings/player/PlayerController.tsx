@@ -4,17 +4,15 @@ import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { Select, Switch } from 'antd'
+import { Select } from 'antd'
 import { SessionPlayerState } from '~/types'
 import { IconPause, IconPlay } from 'scenes/session-recordings/player/icons'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
-import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { Timestamp } from 'scenes/session-recordings/player/Timestamp'
 
 export function PlayerController(): JSX.Element {
     const { togglePlayPause, setSpeed } = useActions(sessionRecordingPlayerLogic)
-    const { currentPlayerState, speed } = useValues(sessionRecordingPlayerLogic)
-    const isSmallScreen = window.innerWidth < getBreakpoint('md')
+    const { currentPlayerState, speed, isSmallScreen } = useValues(sessionRecordingPlayerLogic)
 
     return (
         <div className="rrweb-controller">
@@ -51,10 +49,6 @@ export function PlayerController(): JSX.Element {
                     ))}
                 </Select.OptGroup>
             </Select>
-            <div className="rrweb-inactivity-toggle">
-                <span className="inactivity-label">Skip inactivity</span>
-                <Switch disabled size="small" />
-            </div>
         </div>
     )
 }

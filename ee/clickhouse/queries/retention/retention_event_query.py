@@ -1,6 +1,7 @@
-from typing import Any, Dict, Literal, Tuple
+from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.action import format_action_filter
+from ee.clickhouse.models.group import get_aggregation_target_field
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from ee.clickhouse.queries.util import get_trunc_func_ch
 from posthog.constants import (
@@ -29,7 +30,7 @@ class RetentionEventsQuery(ClickhouseEventQuery):
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         _fields = [
             self.get_timestamp_field(),
-            (f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else ""),
+            f"{get_aggregation_target_field(self._filter.aggregation_group_type_index, self.EVENT_TABLE_ALIAS, self.DISTINCT_ID_TABLE_ALIAS)} as target",
             (
                 f"argMin(e.uuid, {self._trunc_func}(e.timestamp)) as min_uuid"
                 if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME
@@ -61,15 +62,19 @@ class RetentionEventsQuery(ClickhouseEventQuery):
         person_query, person_params = self._get_person_query()
         self.params.update(person_params)
 
+        groups_query, groups_params = self._get_groups_query()
+        self.params.update(groups_params)
+
         query = f"""
             SELECT {','.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
-            {self._get_disintct_id_query()}
+            {self._get_distinct_id_query()}
             {person_query}
+            {groups_query}
             WHERE team_id = %(team_id)s
             {f"AND {entity_query}"}
             {f"AND {date_query}" if self._event_query_type != RetentionQueryType.TARGET_FIRST_TIME else ''}
             {prop_query}
-            {f"GROUP BY person_id HAVING {date_query}" if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME else ''}
+            {f"GROUP BY target HAVING {date_query}" if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME else ''}
         """
 
         return query, self.params

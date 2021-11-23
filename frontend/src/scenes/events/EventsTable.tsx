@@ -1,37 +1,30 @@
 import React, { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
-import dayjs from 'dayjs'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { DownloadOutlined, ExportOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
-import { Button, Col, Row, Spin } from 'antd'
+import { Button, Col, Row } from 'antd'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
-import { eventToName, toParams } from 'lib/utils'
+import { autoCaptureEventToDescription, toParams } from 'lib/utils'
 import './EventsTable.scss'
 import { eventsTableLogic } from './eventsTableLogic'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
-import relativeTime from 'dayjs/plugin/relativeTime'
-import LocalizedFormat from 'dayjs/plugin/localizedFormat'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { ResizableColumnType, ResizableTable, TableConfig } from 'lib/components/ResizableTable'
-import { ActionType, EventsTableRowItem, EventType, ViewType } from '~/types'
-import { PageHeader } from 'lib/components/PageHeader'
+import { ActionType, EventsTableRowItem, EventType, InsightType } from '~/types'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { EventName } from 'scenes/actions/EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { LabelledSwitch } from 'scenes/events/LabelledSwitch'
 import clsx from 'clsx'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
-import { SceneExport } from 'scenes/sceneTypes'
-import { EventsTab, EventsTabs } from 'scenes/events/EventsTabs'
-
-dayjs.extend(LocalizedFormat)
-dayjs.extend(relativeTime)
+import { EventsTab } from 'scenes/events/EventsTabs'
+import { urls } from 'scenes/urls'
+import { EventPageHeader } from './EventPageHeader'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 
 export interface FixedFilters {
     action_id?: ActionType['id']
@@ -44,12 +37,7 @@ interface EventsTable {
     filtersEnabled?: boolean
     pageKey?: string
     hidePersonColumn?: boolean
-}
-
-export const scene: SceneExport = {
-    component: EventsTable,
-    logic: eventsTableLogic,
-    paramsToProps: ({ params: { fixedFilters, pageKey } }) => ({ fixedFilters, key: pageKey }),
+    sceneUrl?: string
 }
 
 export function EventsTable({
@@ -57,8 +45,9 @@ export function EventsTable({
     filtersEnabled = true,
     pageKey,
     hidePersonColumn,
+    sceneUrl,
 }: EventsTable = {}): JSX.Element {
-    const logic = eventsTableLogic({ fixedFilters, key: pageKey })
+    const logic = eventsTableLogic({ fixedFilters, key: pageKey, sceneUrl: sceneUrl || urls.events() })
 
     const {
         properties,
@@ -71,12 +60,12 @@ export function EventsTable({
         automaticLoadEnabled,
         exportUrl,
         highlightEvents,
+        sceneIsEventsPage,
     } = useValues(logic)
     const { tableWidth, selectedColumns } = useValues(tableConfigLogic)
 
     const { propertyNames } = useValues(propertyDefinitionsModel)
     const { fetchNextEvents, prependNewEvents, setEventFilter, toggleAutomaticLoad } = useActions(logic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const showLinkToPerson = !fixedFilters?.person_id
     const newEventsRender = (item: Record<string, any>, colSpan: number): Record<string, any> => {
@@ -113,155 +102,147 @@ export function EventsTable({
         },
     }
 
-    const defaultColumns: ResizableColumnType<EventsTableRowItem>[] = useMemo(
-        () => {
-            const _localColumns = [
-                {
-                    title: `Event${eventFilter ? ` (${eventFilter})` : ''}`,
-                    key: 'event',
-                    span: 4,
-                    render: function render(item: EventsTableRowItem) {
-                        if (!item.event) {
-                            return newEventsRender(item, tableWidth)
-                        }
-                        const { event } = item
-                        return <PropertyKeyInfo value={eventToName(event)} />
-                    },
-                    ellipsis: true,
+    const defaultColumns: ResizableColumnType<EventsTableRowItem>[] = useMemo(() => {
+        const _localColumns = [
+            {
+                title: `Event${eventFilter ? ` (${eventFilter})` : ''}`,
+                key: 'event',
+                span: 4,
+                render: function render(item: EventsTableRowItem) {
+                    if (!item.event) {
+                        return newEventsRender(item, tableWidth)
+                    }
+                    const { event } = item
+                    return <PropertyKeyInfo value={autoCaptureEventToDescription(event)} />
                 },
-                {
-                    title: 'URL / Screen',
-                    key: 'url',
-                    eventProperties: ['$current_url', '$screen_name'],
-                    span: 4,
-                    render: function renderURL({ event }: EventsTableRowItem) {
-                        if (!event) {
-                            return { props: { colSpan: 0 } }
-                        }
-                        const param = event.properties['$current_url'] ? '$current_url' : '$screen_name'
-                        if (filtersEnabled) {
-                            return (
-                                <FilterPropertyLink
-                                    className="ph-no-capture"
-                                    property={param}
-                                    value={event.properties[param] as string}
-                                    filters={{ properties }}
-                                />
-                            )
-                        }
-                        return <Property value={event.properties[param]} />
-                    },
-                    ellipsis: true,
-                },
-                {
-                    title: 'Source',
-                    key: 'source',
-                    eventProperties: ['$lib'],
-                    span: 2,
-                    render: function renderSource({ event }: EventsTableRowItem) {
-                        if (!event) {
-                            return { props: { colSpan: 0 } }
-                        }
-                        if (filtersEnabled) {
-                            return (
-                                <FilterPropertyLink
-                                    property="$lib"
-                                    value={event.properties['$lib'] as string}
-                                    filters={{ properties }}
-                                />
-                            )
-                        }
-                        return <Property value={event.properties['$lib']} />
-                    },
-                },
-                {
-                    title: 'When',
-                    key: 'when',
-                    span: 3,
-                    render: function renderWhen({ event }: EventsTableRowItem) {
-                        if (!event) {
-                            return { props: { colSpan: 0 } }
-                        }
-                        return <TZLabel time={event.timestamp} showSeconds />
-                    },
-                    ellipsis: true,
-                },
-                {
-                    title: 'Usage',
-                    key: 'usage',
-                    span: 2,
-                    render: function renderWhen({ event }: EventsTableRowItem) {
-                        if (!event) {
-                            return { props: { colSpan: 0 } }
-                        }
-
-                        if (event.event === '$autocapture') {
-                            return <></>
-                        }
-
-                        let params
-                        if (event.event === '$pageview') {
-                            params = {
-                                insight: ViewType.TRENDS,
-                                interval: 'day',
-                                display: 'ActionsLineGraph',
-                                actions: [],
-                                events: [
-                                    {
-                                        id: '$pageview',
-                                        name: '$pageview',
-                                        type: 'events',
-                                        order: 0,
-                                        properties: [
-                                            {
-                                                key: '$current_url',
-                                                value: event.properties.$current_url,
-                                                type: 'event',
-                                            },
-                                        ],
-                                    },
-                                ],
-                            }
-                        } else {
-                            params = {
-                                insight: ViewType.TRENDS,
-                                interval: 'day',
-                                display: 'ActionsLineGraph',
-                                actions: [],
-                                events: [
-                                    {
-                                        id: event.event,
-                                        name: event.event,
-                                        type: 'events',
-                                        order: 0,
-                                        properties: [],
-                                    },
-                                ],
-                            }
-                        }
-                        const encodedParams = toParams(params)
-                        const eventLink = `/insights?${encodedParams}`
-
+                ellipsis: true,
+            },
+            {
+                title: 'URL / Screen',
+                key: 'url',
+                eventProperties: ['$current_url', '$screen_name'],
+                span: 4,
+                render: function renderURL({ event }: EventsTableRowItem) {
+                    if (!event) {
+                        return { props: { colSpan: 0 } }
+                    }
+                    const param = event.properties['$current_url'] ? '$current_url' : '$screen_name'
+                    if (filtersEnabled) {
                         return (
-                            <Link
-                                to={`${eventLink}#backTo=Events&backToURL=${window.location.pathname}`}
-                                data-attr="events-table-usage"
-                            >
-                                Insights <ExportOutlined />
-                            </Link>
+                            <FilterPropertyLink
+                                className="ph-no-capture"
+                                property={param}
+                                value={event.properties[param] as string}
+                                filters={{ properties }}
+                            />
                         )
-                    },
+                    }
+                    return <Property value={event.properties[param]} />
                 },
-            ] as ResizableColumnType<EventsTableRowItem>[]
-            if (!hidePersonColumn) {
-                _localColumns.splice(1, 0, personColumn)
-            }
-            return _localColumns
-        },
+                ellipsis: true,
+            },
+            {
+                title: 'Source',
+                key: 'source',
+                eventProperties: ['$lib'],
+                span: 2,
+                render: function renderSource({ event }: EventsTableRowItem) {
+                    if (!event) {
+                        return { props: { colSpan: 0 } }
+                    }
+                    if (filtersEnabled) {
+                        return (
+                            <FilterPropertyLink
+                                property="$lib"
+                                value={event.properties['$lib'] as string}
+                                filters={{ properties }}
+                            />
+                        )
+                    }
+                    return <Property value={event.properties['$lib']} />
+                },
+            },
+            {
+                title: 'When',
+                key: 'when',
+                span: 3,
+                render: function renderWhen({ event }: EventsTableRowItem) {
+                    if (!event) {
+                        return { props: { colSpan: 0 } }
+                    }
+                    return <TZLabel time={event.timestamp} showSeconds />
+                },
+                ellipsis: true,
+            },
+            {
+                title: 'Usage',
+                key: 'usage',
+                span: 2,
+                render: function renderWhen({ event }: EventsTableRowItem) {
+                    if (!event) {
+                        return { props: { colSpan: 0 } }
+                    }
 
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [eventFilter, tableWidth]
-    )
+                    if (event.event === '$autocapture') {
+                        return <></>
+                    }
+
+                    let params
+                    if (event.event === '$pageview') {
+                        params = {
+                            insight: InsightType.TRENDS,
+                            interval: 'day',
+                            display: 'ActionsLineGraph',
+                            actions: [],
+                            events: [
+                                {
+                                    id: '$pageview',
+                                    name: '$pageview',
+                                    type: 'events',
+                                    order: 0,
+                                    properties: [
+                                        {
+                                            key: '$current_url',
+                                            value: event.properties.$current_url,
+                                            type: 'event',
+                                        },
+                                    ],
+                                },
+                            ],
+                        }
+                    } else {
+                        params = {
+                            insight: InsightType.TRENDS,
+                            interval: 'day',
+                            display: 'ActionsLineGraph',
+                            actions: [],
+                            events: [
+                                {
+                                    id: event.event,
+                                    name: event.event,
+                                    type: 'events',
+                                    order: 0,
+                                    properties: [],
+                                },
+                            ],
+                        }
+                    }
+                    const encodedParams = toParams(params)
+                    const eventLink = `/insights?${encodedParams}`
+
+                    return (
+                        <Link to={eventLink} data-attr="events-table-usage">
+                            Insights <ExportOutlined />
+                        </Link>
+                    )
+                },
+            },
+        ] as ResizableColumnType<EventsTableRowItem>[]
+        if (!hidePersonColumn) {
+            _localColumns.splice(1, 0, personColumn)
+        }
+        return _localColumns
+    }, [eventFilter, tableWidth])
 
     const columns = useMemo(
         () =>
@@ -298,19 +279,13 @@ export function EventsTable({
                           }
                   ),
 
-        // eslint-disable-next-line react-hooks/exhaustive-deps
         [selectedColumns]
     )
 
     return (
-        <div data-attr="manage-events-table" style={{ paddingTop: 32 }}>
-            <EventsTabs tab={EventsTab.Events} />
+        <div data-attr="manage-events-table" style={sceneIsEventsPage ? { paddingTop: 16 } : undefined}>
             <div className="events" data-attr="events-table">
-                <PageHeader
-                    title="Events"
-                    caption="See events being sent to this project in near real time."
-                    style={{ marginTop: 0 }}
-                />
+                <EventPageHeader activeTab={EventsTab.Events} hideTabs={!sceneIsEventsPage} />
 
                 <Row gutter={[16, 16]}>
                     <Col xs={24} sm={12}>
@@ -346,15 +321,13 @@ export function EventsTable({
                             </Tooltip>
                         )}
                     </Col>
-                    {featureFlags[FEATURE_FLAGS.EVENT_COLUMN_CONFIG] && (
-                        <Col flex="0">
-                            <TableConfig
-                                availableColumns={propertyNames}
-                                immutableColumns={['event', 'person', 'when']}
-                                defaultColumns={defaultColumns.map((e) => e.key || '')}
-                            />
-                        </Col>
-                    )}
+                    <Col flex="0">
+                        <TableConfig
+                            availableColumns={propertyNames}
+                            immutableColumns={['event', 'person', 'when']}
+                            defaultColumns={defaultColumns.map((e) => e.key || '')}
+                        />
+                    </Col>
                 </Row>
 
                 <div>
@@ -410,8 +383,13 @@ export function EventsTable({
                             textAlign: 'center',
                         }}
                     >
-                        <Button type="primary" onClick={fetchNextEvents}>
-                            {isLoadingNext ? <Spin /> : 'Load more events'}
+                        <Button
+                            type="primary"
+                            onClick={fetchNextEvents}
+                            disabled={isLoadingNext}
+                            style={{ display: 'inline-flex', alignItems: 'center' }}
+                        >
+                            {isLoadingNext ? <Spinner size="sm" /> : 'Load more events'}
                         </Button>
                     </div>
                 </div>

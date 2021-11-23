@@ -2,7 +2,7 @@
 import { kea } from 'kea'
 import { encodeParams } from 'kea-router'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { elementToActionStep, elementToSelector, trimElement } from '~/toolbar/utils'
+import { elementToActionStep, elementToSelector, toolbarFetch, trimElement } from '~/toolbar/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { heatmapLogicType } from './heatmapLogicType'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
@@ -10,6 +10,7 @@ import { posthog } from '~/toolbar/posthog'
 import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
 
 export const heatmapLogic = kea<heatmapLogicType>({
+    path: ['toolbar', 'elements', 'heatmapLogic'],
     actions: {
         enableHeatmap: true,
         disableHeatmap: true,
@@ -64,12 +65,9 @@ export const heatmapLogic = kea<heatmapLogicType>({
                 ) => {
                     const params: Record<string, any> = {
                         properties: [{ key: '$current_url', value: $current_url }],
-                        temporary_token: toolbarLogic.values.temporaryToken,
                         ...values.heatmapFilter,
                     }
-
-                    const url = `${toolbarLogic.values.apiURL}/api/element/stats/${encodeParams(params, '?')}`
-                    const response = await fetch(url)
+                    const response = await toolbarFetch(`/api/element/stats/${encodeParams(params, '?')}`)
                     const results = await response.json()
 
                     if (response.status === 403) {

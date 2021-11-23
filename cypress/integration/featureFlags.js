@@ -26,13 +26,19 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click({ force: true })
 
+        // save the feature flag
         cy.get('[data-attr=feature-flag-submit]').click()
-        cy.get('.Toastify__toast-body').click() // clicking the toast gets you back to the list
+
+        // make sure the data is there as expected after a page reload!
+        cy.reload()
+
+        // click the sidebar item to go back to the list
+        cy.get('[data-attr=menu-item-featureflags]').click()
         cy.get('[data-attr=feature-flag-table]').should('contain', name)
         cy.get('[data-attr=feature-flag-table]').should('not.contain', '%') // By default it's released to everyone, if a % is not specified
         cy.get('[data-attr=feature-flag-table]').should('contain', 'is_demo')
 
-        cy.get(`[data-row-key=${name}]`).click()
+        cy.get(`[data-row-key=${name}]`).contains(name).click()
         cy.get('[data-attr=feature-flag-key]')
             .type('-updated')
             .should('have.value', name + '-updated')
@@ -40,7 +46,8 @@ describe('Feature Flags', () => {
         cy.get('.Toastify__toast-body').click() // clicking the toast gets you back to the list
         cy.get('[data-attr=feature-flag-table]').should('contain', name + '-updated')
 
-        cy.get(`[data-row-key=${name}-updated] [data-attr=usage]`).click()
+        cy.get(`[data-row-key=${name}-updated] [data-attr=more-button]`).click()
+        cy.contains(`Use in Insights`).click()
         cy.location().should((loc) => {
             expect(loc.pathname.toString()).to.contain('/insight')
         })
@@ -54,7 +61,7 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=feature-flag-submit]').click()
         cy.get('.Toastify__toast-body').click() // clicking the toast gets you back to the list
         cy.get('[data-attr=feature-flag-table]').should('contain', name)
-        cy.get('[data-row-key="' + name + '"]').click()
+        cy.get(`[data-row-key=${name}]`).contains(name).click()
         cy.get('[data-attr=delete-flag]').click()
         cy.contains('Click to undo').should('exist')
     })

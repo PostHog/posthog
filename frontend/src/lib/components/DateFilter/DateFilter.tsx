@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react'
 import { Select } from 'antd'
-import dayjs from 'dayjs'
 import { dateMapping, isDate, dateFilterToText } from 'lib/utils'
 import { DateFilterRange } from 'lib/components/DateFilter/DateFilterRange'
+import { dayjs } from 'lib/dayjs'
+import { dateMappingOption } from '~/types'
 
 export interface DateFilterProps {
     defaultValue: string
@@ -13,6 +14,7 @@ export interface DateFilterProps {
     onChange?: (fromDate: string, toDate: string) => void
     disabled?: boolean
     getPopupContainer?: (props: any) => HTMLElement
+    dateOptions?: Record<string, dateMappingOption>
 }
 
 interface RawDateFilterProps extends DateFilterProps {
@@ -31,6 +33,7 @@ export function DateFilter({
     getPopupContainer,
     dateFrom,
     dateTo,
+    dateOptions = dateMapping,
 }: RawDateFilterProps): JSX.Element {
     const [rangeDateFrom, setRangeDateFrom] = useState(
         dateFrom && isDate.test(dateFrom as string) ? dayjs(dateFrom) : undefined
@@ -55,7 +58,7 @@ export function DateFilter({
                 setDateRangeOpen(true)
             }
         } else {
-            setDate(dateMapping[v].values[0], dateMapping[v].values[1])
+            setDate(dateOptions[v].values[0], dateOptions[v].values[1])
         }
     }
 
@@ -86,7 +89,7 @@ export function DateFilter({
     }
 
     const parsedValue = useMemo(
-        () => dateFilterToText(dateFrom, dateTo, defaultValue),
+        () => dateFilterToText(dateFrom, dateTo, defaultValue, dateOptions),
         [dateFrom, dateTo, defaultValue]
     )
 
@@ -97,10 +100,7 @@ export function DateFilter({
             id="daterange_selector"
             value={parsedValue}
             onChange={_onChange}
-            style={{
-                marginRight: 4,
-                ...style,
-            }}
+            style={style}
             open={open || dateRangeOpen}
             onBlur={onBlur}
             onClick={onClick}
@@ -129,7 +129,7 @@ export function DateFilter({
             }}
         >
             {[
-                ...Object.entries(dateMapping).map(([key, { inactive }]) => {
+                ...Object.entries(dateOptions).map(([key, { inactive }]) => {
                     if (key === 'Custom' && !showCustom) {
                         return null
                     }

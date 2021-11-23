@@ -5,15 +5,15 @@ from collections import Counter
 from typing import Any, Dict, List, Tuple
 
 import posthoganalytics
+from django.conf import settings
 from django.db import connection
 from psycopg2 import sql
 
-from posthog.models import Event, Organization, Person, Team, User
+from posthog.models import Event, GroupTypeMapping, Person, Team, User
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.plugin import PluginConfig
 from posthog.models.utils import namedtuplefetchall
-from posthog.settings import EE_AVAILABLE
 from posthog.utils import (
     get_helm_info_env,
     get_instance_realm,
@@ -53,9 +53,9 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
 
     plugin_configs = PluginConfig.objects.select_related("plugin").all()
 
-    report["plugins_installed"] = Counter((plugin_config.plugin.name for plugin_config in plugin_configs))
+    report["plugins_installed"] = Counter(plugin_config.plugin.name for plugin_config in plugin_configs)
     report["plugins_enabled"] = Counter(
-        (plugin_config.plugin.name for plugin_config in plugin_configs if plugin_config.enabled)
+        plugin_config.plugin.name for plugin_config in plugin_configs if plugin_config.enabled
     )
 
     instance_usage_summary: Dict[str, int] = {
@@ -65,6 +65,7 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
         "events_count_total": 0,
         "dashboards_count": 0,
         "ff_count": 0,
+        "using_groups": False,
     }
 
     for team in Team.objects.exclude(organization__for_internal_metrics=True):
@@ -100,6 +101,10 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
 
                 team_report["duplicate_distinct_ids"] = count_duplicate_distinct_ids_for_team(team.id)
                 team_report["multiple_ids_per_person"] = count_total_persons_with_multiple_ids(team.id)
+                team_report["group_types_count"] = GroupTypeMapping.objects.filter(team_id=team.id).count()
+
+                if team_report["group_types_count"] > 0:
+                    instance_usage_summary["using_groups"] = True
             else:
                 # pull events stats from postgres
                 events_considered_total = Event.objects.filter(team_id=team.id)
@@ -151,12 +156,28 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
 def capture_event(name: str, report: Dict[str, Any], dry_run: bool) -> None:
     if not dry_run:
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
-        posthoganalytics.capture(get_machine_id(), name, {**report, "scope": "machine"})
+        posthoganalytics.capture(
+            get_machine_id(), name, {**report, "scope": "machine"}, groups={"instance": settings.SITE_URL}
+        )
+
+        if "instance_usage_summary" in report:
+            posthoganalytics.group_identify("instance", settings.SITE_URL, fetch_instance_params(report))
 
         for user in User.objects.all():
             posthoganalytics.capture(user.distinct_id, f"user {name}", {**report, "scope": "user"})
     else:
         print(name, json.dumps(report))  # noqa: T001
+
+
+def fetch_instance_params(report: Dict[str, Any]) -> dict:
+    return {
+        "site_url": settings.SITE_URL,
+        "machine_id": get_machine_id(),
+        "posthog_version": report["posthog_version"],
+        "deployment": report["deployment"],
+        "realm": report["realm"],
+        **report["instance_usage_summary"],
+    }
 
 
 def fetch_event_counts_by_lib(params: Tuple[Any, ...]) -> dict:
@@ -194,7 +215,7 @@ def fetch_sql(sql_: str, params: Tuple[Any, ...]) -> List[Any]:
 
 
 def get_instance_licenses() -> List[str]:
-    if EE_AVAILABLE:
+    if settings.EE_AVAILABLE:
         from ee.models import License
 
         return [license.key for license in License.objects.all()]

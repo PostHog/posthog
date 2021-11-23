@@ -2,14 +2,14 @@ import React, { useMemo, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { DownloadOutlined, UsergroupAddOutlined, UserOutlined } from '@ant-design/icons'
 import { Modal, Button, Input, Skeleton } from 'antd'
-import { FilterType, PersonType, ViewType } from '~/types'
+import { FilterType, PersonType, InsightType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis, pluralize } from 'lib/utils'
 import './PersonModal.scss'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { ExpandIcon, ExpandIconProps } from 'lib/components/ExpandIcon'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { PersonHeader } from '../persons/PersonHeader'
@@ -17,7 +17,7 @@ import api from '../../lib/api'
 
 export interface PersonModalProps {
     visible: boolean
-    view: ViewType
+    view: InsightType
     filters: Partial<FilterType>
     onSaveCohort: () => void
 }
@@ -46,14 +46,14 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                 </>
             ) : filters.display === 'ActionsBarValue' || filters.display === 'ActionsPie' ? (
                 <PropertyKeyInfo value={people?.label || ''} disablePopover />
-            ) : filters.insight === ViewType.FUNNELS ? (
+            ) : filters.insight === InsightType.FUNNELS ? (
                 <>
                     {(people?.funnelStep ?? 0) >= 0 ? 'Completed' : 'Dropped off at'} step{' '}
                     {Math.abs(people?.funnelStep ?? 0)} - <PropertyKeyInfo value={people?.label || ''} disablePopover />{' '}
                     {people?.breakdown_value !== undefined &&
                         `- ${people.breakdown_value ? people.breakdown_value : 'None'}`}
                 </>
-            ) : filters.insight === ViewType.PATHS ? (
+            ) : filters.insight === InsightType.PATHS ? (
                 <>
                     {people?.pathsDropoff ? 'Dropped off after' : 'Completed'} step{' '}
                     <PropertyKeyInfo value={people?.label.replace(/(^[0-9]+_)/, '') || ''} disablePopover />
@@ -67,7 +67,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
         [filters, people, isInitialLoad]
     )
 
-    const isDownloadCsvAvailable = view === ViewType.TRENDS
+    const isDownloadCsvAvailable = view === InsightType.TRENDS
     const isSaveAsCohortAvailable = clickhouseFeaturesEnabled
 
     return (

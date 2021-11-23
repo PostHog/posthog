@@ -1,5 +1,5 @@
 import inspect
-from typing import Any, Dict, Literal, Optional, Union
+from typing import Any, Counter, Dict, Literal, Optional, Union
 
 from django.conf import settings
 from rest_framework.exceptions import ValidationError
@@ -8,7 +8,23 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENT
 from posthog.models.action import Action
 from posthog.models.filters.mixins.funnel import FunnelFromToStepsMixin
 from posthog.models.filters.mixins.property import PropertyMixin
+from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.utils import sane_repr
+
+MATH_TYPE = Literal[
+    "total",
+    "dau",
+    "weekly_active",
+    "monthly_active",
+    "unique_group",
+    "sum",
+    "min",
+    "max",
+    "median",
+    "p90",
+    "p95",
+    "p99",
+]
 
 
 class Entity(PropertyMixin):
@@ -23,8 +39,9 @@ class Entity(PropertyMixin):
     order: Optional[int]
     name: Optional[str]
     custom_name: Optional[str]
-    math: Optional[str]
+    math: Optional[MATH_TYPE]
     math_property: Optional[str]
+    math_group_type_index: Optional[int]
     # Index is not set at all by default (meaning: access = AttributeError) - it's populated in EntitiesMixin.entities
     # Used for identifying entities within a single query during query building,
     # which generally uses Entity objects processed by EntitiesMixin
@@ -50,6 +67,9 @@ class Entity(PropertyMixin):
         self.custom_name = custom_name
         self.math = data.get("math")
         self.math_property = data.get("math_property")
+        self.math_group_type_index = validate_group_type_index(
+            "math_group_type_index", data.get("math_group_type_index")
+        )
 
         self._action: Optional[Action] = None
         self._data = data  # push data to instance object so mixins are handled properly
@@ -66,6 +86,7 @@ class Entity(PropertyMixin):
             "custom_name": self.custom_name,
             "math": self.math,
             "math_property": self.math_property,
+            "math_group_type_index": self.math_group_type_index,
             "properties": [prop.to_dict() for prop in self.properties],
         }
 
@@ -89,12 +110,10 @@ class Entity(PropertyMixin):
     def is_superset(self, other) -> bool:
         """ Checks if this entity is a superset version of other. The ids match and the properties of (this) is a subset of the properties of (other)"""
 
-        self_properties = sorted([str(prop) for prop in self.properties])
-        other_properties = sorted([str(prop) for prop in other.properties])
+        self_properties = Counter([str(prop) for prop in self.properties])
+        other_properties = Counter([str(prop) for prop in other.properties])
 
-        num_matched_props = sum([1 for x, y in zip(self_properties, other_properties) if x == y])
-
-        return self.id == other.id and num_matched_props == len(self_properties)
+        return self.id == other.id and len(self_properties - other_properties) == 0
 
     def get_action(self) -> Action:
         if self.type != TREND_FILTER_TYPE_ACTIONS:

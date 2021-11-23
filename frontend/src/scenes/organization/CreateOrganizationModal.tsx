@@ -6,31 +6,31 @@ import { organizationLogic } from 'scenes/organizationLogic'
 
 export function CreateOrganizationModal({
     isVisible,
-    setIsVisible,
+    onClose,
 }: {
     isVisible: boolean
-    setIsVisible?: (newValue: boolean) => void
+    onClose?: () => void
 }): JSX.Element {
     const { createOrganization } = useActions(organizationLogic)
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const inputRef = useRef<Input | null>(null)
 
     const closeModal: () => void = useCallback(() => {
-        if (setIsVisible) {
+        if (onClose) {
             setErrorMessage(null)
-            setIsVisible(false)
+            onClose()
             if (inputRef.current) {
                 inputRef.current.setValue('')
             }
         }
-    }, [inputRef, setIsVisible])
+    }, [inputRef, onClose])
 
     return (
         <Modal
-            title="Creating an Organization"
-            okText="Create Organization"
-            cancelButtonProps={setIsVisible ? undefined : { style: { display: 'none' } }}
-            closable={!!setIsVisible}
+            title="Creating an organization"
+            okText="Create organization"
+            cancelButtonProps={onClose ? undefined : { style: { display: 'none' } }}
+            closable={!!onClose}
             onOk={() => {
                 const name = inputRef.current?.state.value?.trim()
                 if (name) {
@@ -48,7 +48,17 @@ export function CreateOrganizationModal({
             onCancel={closeModal}
             visible={isVisible}
         >
-            <p>Organizations gather people building products together.</p>
+            <p>
+                Organizations gather people building products together.
+                <br />
+                <a
+                    href="https://posthog.com/docs/user-guides/organizations-and-projects"
+                    target="_blank"
+                    rel="noopener"
+                >
+                    Learn more about organizations in Docs.
+                </a>
+            </p>
             <Input
                 addonBefore="Name"
                 ref={inputRef}

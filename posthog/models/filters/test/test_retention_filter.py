@@ -1,6 +1,3 @@
-import json
-from typing import Any, Callable, Optional
-
 from dateutil.relativedelta import relativedelta
 from django.db.models import Q
 from freezegun.api import freeze_time
@@ -31,6 +28,7 @@ class TestFilter(BaseTest):
                     "id": "$pageview",
                     "math": None,
                     "math_property": None,
+                    "math_group_type_index": None,
                     "name": "$pageview",
                     "custom_name": None,
                     "order": None,
@@ -41,6 +39,7 @@ class TestFilter(BaseTest):
                     "id": "$pageview",
                     "math": None,
                     "math_property": None,
+                    "math_group_type_index": None,
                     "name": "$pageview",
                     "custom_name": None,
                     "order": None,
@@ -71,6 +70,7 @@ class TestFilter(BaseTest):
                     "id": "$pageview",
                     "math": None,
                     "math_property": None,
+                    "math_group_type_index": None,
                     "name": "$pageview",
                     "custom_name": None,
                     "order": None,
@@ -81,6 +81,7 @@ class TestFilter(BaseTest):
                     "id": "$pageview",
                     "math": None,
                     "math_property": None,
+                    "math_group_type_index": None,
                     "name": "$pageview",
                     "custom_name": None,
                     "order": None,

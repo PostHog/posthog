@@ -107,7 +107,8 @@ class ClickhouseInsightsViewSet(InsightViewSet):
                 ).run()
             }
         else:
-            return {"result": funnel_order_class(team=team, filter=filter).run()}
+            base_uri = request.build_absolute_uri("/")
+            return {"result": funnel_order_class(team=team, filter=filter, base_uri=base_uri).run()}
 
     # ******************************************
     # /projects/:id/insights/funnel/correlation
@@ -128,7 +129,8 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         team = self.team
         filter = Filter(request=request)
 
-        result = FunnelCorrelation(filter=filter, team=team).run()
+        base_uri = request.build_absolute_uri("/")
+        result = FunnelCorrelation(filter=filter, team=team, base_uri=base_uri).run()
 
         return {"result": result}
 
@@ -139,7 +141,8 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         if not request.GET.get("date_from"):
             data.update({"date_from": "-11d"})
         filter = RetentionFilter(data=data, request=request, team=self.team)
-        result = ClickhouseRetention().run(filter, team)
+        base_uri = request.build_absolute_uri("/")
+        result = ClickhouseRetention(base_uri=base_uri).run(filter, team)
         return {"result": result}
 
 

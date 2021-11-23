@@ -183,25 +183,19 @@ class TestPluginAPI(APIBaseTest):
 
     def test_plugin_private_token_url_unique(self, mock_get, mock_reload):
         repo_url = "https://gitlab.com/mariusandra/helloworldplugin"
-        response = self.client.post(
-            "/api/organizations/@current/plugins/", {"url": "{}?private_token=123".format(repo_url)}
-        )
+        response = self.client.post("/api/organizations/@current/plugins/", {"url": f"{repo_url}?private_token=123"})
         self.assertEqual(response.status_code, 201)
-        response = self.client.post(
-            "/api/organizations/@current/plugins/", {"url": "{}?private_token=123".format(repo_url)}
-        )
+        response = self.client.post("/api/organizations/@current/plugins/", {"url": f"{repo_url}?private_token=123"})
         self.assertEqual(response.status_code, 400)
         response = self.client.post("/api/organizations/@current/plugins/", {"url": repo_url})
         self.assertEqual(response.status_code, 400)
-        response = self.client.post(
-            "/api/organizations/@current/plugins/", {"url": "{}?private_token=567".format(repo_url)}
-        )
+        response = self.client.post("/api/organizations/@current/plugins/", {"url": f"{repo_url}?private_token=567"})
         self.assertEqual(response.status_code, 400)
 
-        response = self.client.post("/api/organizations/@current/plugins/", {"url": "{}-other".format(repo_url)})
+        response = self.client.post("/api/organizations/@current/plugins/", {"url": f"{repo_url}-other"})
         self.assertEqual(response.status_code, 201)
         response = self.client.post(
-            "/api/organizations/@current/plugins/", {"url": "{}-other?private_token=567".format(repo_url)}
+            "/api/organizations/@current/plugins/", {"url": f"{repo_url}-other?private_token=567"}
         )
         self.assertEqual(response.status_code, 400)
 
@@ -310,7 +304,7 @@ class TestPluginAPI(APIBaseTest):
         self.assertEqual(mock_reload.call_count, 0)
         response = self.client.post(
             "/api/organizations/@current/plugins/",
-            {"url": "https://github.com/PostHog/helloworldplugin/commit/{}".format(HELLO_WORLD_PLUGIN_GITHUB_ZIP[0])},
+            {"url": f"https://github.com/PostHog/helloworldplugin/commit/{HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]}"},
         )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(
@@ -521,34 +515,31 @@ class TestPluginAPI(APIBaseTest):
             name="FooBar2", plugins_access_level=Organization.PluginsAccessLevel.INSTALL
         )
         response = self.client.post(
-            "/api/organizations/{}/plugins/".format(my_org.id), {"url": "https://github.com/PostHog/helloworldplugin"},
+            f"/api/organizations/{my_org.id}/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"},
         )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Plugin.objects.count(), 1)
         response = self.client.post(
-            "/api/organizations/{}/plugins/".format(my_org.id), {"url": "https://github.com/PostHog/helloworldplugin"},
+            f"/api/organizations/{my_org.id}/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"},
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Plugin.objects.count(), 1)
 
         # try to save it for another org
         response = self.client.post(
-            "/api/organizations/{}/plugins/".format(other_org.id),
-            {"url": "https://github.com/PostHog/helloworldplugin"},
+            f"/api/organizations/{other_org.id}/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"},
         )
         self.assertEqual(response.status_code, 403)
         self.assertEqual(Plugin.objects.count(), 1)
 
         self.user.join(organization=other_org, level=OrganizationMembership.Level.OWNER)
         response = self.client.post(
-            "/api/organizations/{}/plugins/".format(other_org.id),
-            {"url": "https://github.com/PostHog/helloworldplugin"},
+            f"/api/organizations/{other_org.id}/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"},
         )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Plugin.objects.count(), 2)
         response = self.client.post(
-            "/api/organizations/{}/plugins/".format(other_org.id),
-            {"url": "https://github.com/PostHog/helloworldplugin"},
+            f"/api/organizations/{other_org.id}/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"},
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Plugin.objects.count(), 2)
@@ -594,7 +585,7 @@ class TestPluginAPI(APIBaseTest):
             },
         )
         response = self.client.patch(
-            "/api/plugin_config/{}".format(plugin_config_id),
+            f"/api/plugin_config/{plugin_config_id}",
             {"enabled": False, "order": 1, "config": json.dumps({"bar": "soup"})},
             format="multipart",
         )
@@ -612,7 +603,7 @@ class TestPluginAPI(APIBaseTest):
                 "team_id": self.team.pk,
             },
         )
-        self.client.delete("/api/plugin_config/{}".format(plugin_config_id))
+        self.client.delete(f"/api/plugin_config/{plugin_config_id}")
         self.assertEqual(Plugin.objects.count(), 1)
         self.assertEqual(PluginConfig.objects.count(), 1)
 
@@ -665,7 +656,7 @@ class TestPluginAPI(APIBaseTest):
             self.organization.plugins_access_level = level
             self.organization.save()
             response = self.client.patch(
-                "/api/plugin_config/{}".format(plugin_config_id),
+                f"/api/plugin_config/{plugin_config_id}",
                 {"enabled": False, "order": 1, "config": json.dumps({"bar": "soup"})},
                 format="multipart",
             )
@@ -674,7 +665,7 @@ class TestPluginAPI(APIBaseTest):
         self.organization.plugins_access_level = Organization.PluginsAccessLevel.NONE
         self.organization.save()
         response = self.client.patch(
-            "/api/plugin_config/{}".format(plugin_config_id),
+            f"/api/plugin_config/{plugin_config_id}",
             {"enabled": False, "order": 1, "config": json.dumps({"bar": "soup"})},
             format="multipart",
         )
@@ -694,7 +685,7 @@ class TestPluginAPI(APIBaseTest):
 
         self.organization.plugins_access_level = Organization.PluginsAccessLevel.NONE
         self.organization.save()
-        response = self.client.delete("/api/plugin_config/{}".format(plugin_config_id))
+        response = self.client.delete(f"/api/plugin_config/{plugin_config_id}")
         self.assertEqual(response.status_code, 404)
 
         for level in (
@@ -704,7 +695,7 @@ class TestPluginAPI(APIBaseTest):
         ):
             self.organization.plugins_access_level = level
             self.organization.save()
-            response = self.client.delete("/api/plugin_config/{}".format(plugin_config_id))
+            response = self.client.delete(f"/api/plugin_config/{plugin_config_id}")
             self.assertEqual(response.status_code, 204)
 
     def test_plugin_config_attachment(self, mock_get, mock_reload):
@@ -744,7 +735,7 @@ class TestPluginAPI(APIBaseTest):
         plugin_config_id = response.json()["id"]
         plugin_attachment_id = response.json()["config"]["foodb"]["uid"]
 
-        response = self.client.get("/api/plugin_config/{}".format(plugin_config_id))
+        response = self.client.get(f"/api/plugin_config/{plugin_config_id}")
         self.assertEqual(
             response.json()["config"],
             {
@@ -760,7 +751,7 @@ class TestPluginAPI(APIBaseTest):
         )
 
         response = self.client.patch(
-            "/api/plugin_config/{}".format(plugin_config_id), {"add_attachment[foodb]": tmp_file_2}, format="multipart",
+            f"/api/plugin_config/{plugin_config_id}", {"add_attachment[foodb]": tmp_file_2}, format="multipart",
         )
         self.assertEqual(PluginAttachment.objects.count(), 1)
 
@@ -779,7 +770,7 @@ class TestPluginAPI(APIBaseTest):
         )
 
         response = self.client.patch(
-            "/api/plugin_config/{}".format(plugin_config_id), {"remove_attachment[foodb]": True}, format="multipart",
+            f"/api/plugin_config/{plugin_config_id}", {"remove_attachment[foodb]": True}, format="multipart",
         )
         self.assertEqual(response.json()["config"], {"bar": "moop"})
         self.assertEqual(PluginAttachment.objects.count(), 0)
@@ -824,7 +815,7 @@ class TestPluginAPI(APIBaseTest):
 
         # Test a config change and that an empty config is returned to the client instead of the secret placeholder
         response = self.client.patch(
-            "/api/plugin_config/{}".format(plugin_config_id),
+            f"/api/plugin_config/{plugin_config_id}",
             {"enabled": False, "order": 1, "config": json.dumps({"bar": ""})},
             format="multipart",
         )
@@ -846,7 +837,7 @@ class TestPluginAPI(APIBaseTest):
 
         # Test that secret values are updated but never revealed
         response = self.client.patch(
-            "/api/plugin_config/{}".format(plugin_config_id),
+            f"/api/plugin_config/{plugin_config_id}",
             {"enabled": False, "order": 1, "config": json.dumps({"bar": "a new very secret value"})},
             format="multipart",
         )
@@ -879,7 +870,7 @@ class TestPluginAPI(APIBaseTest):
         )
         plugin_config_id = response.json()["id"]
         response = self.client.post(
-            "/api/plugin_config/{}/job".format(plugin_config_id),
+            f"/api/plugin_config/{plugin_config_id}/job",
             {"job": {"type": "myJob", "payload": {"a": 1}, "operation": "stop"}},
             format="json",
         )

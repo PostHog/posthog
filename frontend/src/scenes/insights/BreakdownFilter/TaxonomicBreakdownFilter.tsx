@@ -62,18 +62,19 @@ export function BreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilte
                 {hasSelectedBreakdown ? null : (
                     <TaxonomicBreakdownButton
                         breakdownType={breakdownType}
-                        onChange={(changedBreakdown, groupType) => {
+                        onChange={(changedBreakdown, taxonomicGroup) => {
                             const changedBreakdownType = taxonomicFilterTypeToPropertyFilterType(
-                                groupType
+                                taxonomicGroup.type
                             ) as BreakdownType
 
                             if (changedBreakdownType) {
                                 setFilters({
                                     breakdown:
-                                        groupType === TaxonomicFilterGroupType.CohortsWithAllUsers
+                                        taxonomicGroup.type === TaxonomicFilterGroupType.CohortsWithAllUsers
                                             ? [...breakdownParts, changedBreakdown]
                                             : changedBreakdown,
                                     breakdown_type: changedBreakdownType,
+                                    breakdown_group_type_index: taxonomicGroup.groupTypeIndex,
                                 })
                             }
                         }}

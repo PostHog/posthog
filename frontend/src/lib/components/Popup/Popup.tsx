@@ -1,17 +1,27 @@
 import './Popup.scss'
-import React, { ReactElement, useContext, useEffect, useMemo, useState } from 'react'
+import React, { MouseEventHandler, ReactElement, useContext, useEffect, useMemo, useState } from 'react'
 import ReactDOM from 'react-dom'
 import { usePopper } from 'react-popper'
 import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
-import { Placement } from '@popperjs/core'
+import { Modifier, Placement } from '@popperjs/core'
+import clsx from 'clsx'
 
-interface PopupProps {
+export interface PopupProps {
     visible?: boolean
     onClickOutside?: (event: Event) => void
+    onClickInside?: MouseEventHandler<HTMLDivElement>
+    /** Popover trigger element. */
     children: React.ReactChild | ((props: { setRef: (ref: HTMLElement | null) => void }) => JSX.Element)
+    /** Content of the overlay. */
     overlay: React.ReactNode
+    /** Where the popover should start relative to children. */
     placement?: Placement
+    /** Where the popover should start relative to children if there's insufficient space for original placement. */
     fallbackPlacements?: Placement[]
+    /** Whether the popover is actionable rather than just informative - actionable means a colored border. */
+    actionable?: boolean
+    /** Whether the popover's width should be synced with the children's width. */
+    sameWidth?: boolean
     className?: string
 }
 
@@ -26,9 +36,12 @@ export function Popup({
     overlay,
     visible,
     onClickOutside,
+    onClickInside,
     placement = 'bottom-start',
     fallbackPlacements = ['bottom-end', 'top-start', 'top-end'],
     className,
+    actionable = false,
+    sameWidth = false,
 }: PopupProps): JSX.Element {
     const popupId = useMemo(() => ++uniqueMemoizedIndex, [])
 
@@ -36,7 +49,7 @@ export function Popup({
     const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
 
     const parentPopupId = useContext(PopupContext)
-    const localRefs = [popperElement, referenceElement] as (HTMLElement | null)[]
+    const localRefs = [popperElement, referenceElement]
 
     useEffect(() => {
         if (visible) {
@@ -47,15 +60,24 @@ export function Popup({
         }
     }, [visible, parentPopupId])
 
-    useOutsideClickHandler(localRefs, (event) => {
-        if (visible && !disabledPopups.get(popupId)) {
-            onClickOutside?.(event)
-        }
-    })
+    useOutsideClickHandler(
+        localRefs,
+        (event) => {
+            if (visible && !disabledPopups.get(popupId)) {
+                onClickOutside?.(event)
+            }
+        },
+        [visible, disabledPopups]
+    )
 
-    const { styles, attributes } = usePopper(referenceElement, popperElement, {
-        placement: placement,
-        modifiers: [
+    const modifiers = useMemo<Partial<Modifier<any, any>>[]>(
+        () => [
+            {
+                name: 'offset',
+                options: {
+                    offset: [0, 4],
+                },
+            },
             fallbackPlacements
                 ? {
                       name: 'flip',
@@ -64,7 +86,24 @@ export function Popup({
                       },
                   }
                 : {},
+            sameWidth
+                ? {
+                      name: 'sameWidth',
+                      enabled: true,
+                      fn: ({ state }) => {
+                          state.styles.popper.width = `${state.rects.reference.width}px`
+                      },
+                      phase: 'beforeWrite',
+                      requires: ['computeStyles'],
+                  }
+                : {},
         ],
+        []
+    )
+
+    const { styles, attributes } = usePopper(referenceElement, popperElement, {
+        placement: placement,
+        modifiers,
     })
 
     const clonedChildren =
@@ -84,9 +123,10 @@ export function Popup({
             {visible
                 ? ReactDOM.createPortal(
                       <div
-                          className={className ? `popper-tooltip ${className}` : 'popper-tooltip'}
+                          className={clsx('Popup', actionable && 'Popup--actionable', className)}
                           ref={setPopperElement}
                           style={styles.popper}
+                          onClick={onClickInside}
                           {...attributes.popper}
                       >
                           <PopupContext.Provider value={popupId}>{overlay}</PopupContext.Provider>

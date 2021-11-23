@@ -45,6 +45,7 @@ export interface EntityFilterProps {
 export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFilterProps, LocalFilter>>({
     props: {} as EntityFilterProps,
     key: (props) => props.typeKey,
+    path: (key) => ['scenes', 'insights', 'ActionFilter', 'entityFilterLogic', key],
     connect: {
         values: [actionsModel, ['actions']],
     },
@@ -59,6 +60,7 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
             math: filter.math,
             math_property: filter.math_property,
             index: filter.index,
+            math_group_type_index: filter.math_group_type_index,
         }),
         updateFilter: (
             filter: EntityFilter & {
@@ -185,9 +187,9 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
                 values.localFilters.map((filter, i) => (i === index ? { ...filter, properties } : filter))
             )
         },
-        updateFilterMath: async ({ math, math_property, index }) => {
+        updateFilterMath: async ({ index, ...mathProperties }) => {
             actions.setFilters(
-                values.localFilters.map((filter, i) => (i === index ? { ...filter, math, math_property } : filter))
+                values.localFilters.map((filter, i) => (i === index ? { ...filter, ...mathProperties } : filter))
             )
         },
         removeLocalFilter: async ({ index }) => {

@@ -3,7 +3,7 @@ import { LineGraph } from '../../insights/LineGraph'
 import { getChartColors } from 'lib/colors'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { LineGraphEmptyState } from '../../insights/EmptyStates'
+import { InsightEmptyState } from '../../insights/EmptyStates'
 import { FilterType, TrendResultWithAggregate } from '~/types'
 import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -14,6 +14,7 @@ interface Props {
     color?: string
     inSharedMode?: boolean | null
     cachedResults?: any
+    showPersonsModal?: boolean
 }
 
 type DataSet = any
@@ -22,12 +23,13 @@ export function ActionsBarValueGraph({
     dashboardItemId = null,
     filters: filtersParam,
     color = 'white',
+    showPersonsModal = true,
 }: Props): JSX.Element | null {
     const [data, setData] = useState<DataSet[] | null>(null)
     const [total, setTotal] = useState(0)
     const { insightProps } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
-    const { loadPeople } = useActions(personsModalLogic)
+    const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
     const { results } = useValues(logic)
 
     function updateData(): void {
@@ -44,6 +46,7 @@ export function ActionsBarValueGraph({
                 labels: _data.map((item) => item.label),
                 data: _data.map((item) => item.aggregated_value),
                 actions: _data.map((item) => item.action),
+                persons: _data.map((item) => item.persons),
                 days,
                 breakdownValues: _data.map((item) => item.breakdown_value),
                 backgroundColor: colorList,
@@ -57,15 +60,11 @@ export function ActionsBarValueGraph({
         setTotal(_data.reduce((prev, item) => prev + item.aggregated_value, 0))
     }
 
-    useEffect(
-        () => {
-            if (results) {
-                updateData()
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [results, color]
-    )
+    useEffect(() => {
+        if (results) {
+            updateData()
+        }
+    }, [results, color])
 
     return data && total > 0 ? (
         <LineGraph
@@ -78,10 +77,10 @@ export function ActionsBarValueGraph({
             totalValue={total}
             interval={filtersParam?.interval}
             onClick={
-                dashboardItemId
+                dashboardItemId || filtersParam.formula || !showPersonsModal
                     ? null
                     : (point) => {
-                          const { dataset, value: pointValue } = point
+                          const { dataset, value: pointValue, index } = point
                           const action = dataset.actions[point.index]
                           const label = dataset.labels[point.index]
                           const date_from = filtersParam?.date_from || ''
@@ -89,7 +88,7 @@ export function ActionsBarValueGraph({
                           const breakdown_value = dataset.breakdownValues[point.index]
                               ? dataset.breakdownValues[point.index]
                               : null
-                          loadPeople({
+                          const params = {
                               action,
                               label,
                               date_from,
@@ -97,11 +96,19 @@ export function ActionsBarValueGraph({
                               filters: filtersParam,
                               breakdown_value,
                               pointValue,
-                          })
+                          }
+                          if (dataset.persons_urls?.[index].url) {
+                              loadPeopleFromUrl({
+                                  ...params,
+                                  url: dataset.persons_urls?.[index].url,
+                              })
+                          } else {
+                              loadPeople(params)
+                          }
                       }
             }
         />
     ) : (
-        <LineGraphEmptyState color={color} isDashboard={!!dashboardItemId} />
+        <InsightEmptyState color={color} isDashboard={!!dashboardItemId} />
     )
 }

@@ -1,0 +1,218 @@
+@import '~/vars';
+
+.player-events-container {
+    display: flex;
+    flex-direction: column;
+    background-color: $bg_light;
+    height: 100%;
+    border: 1px solid $border;
+    border-radius: $radius;
+    padding: $recording_spacing;
+
+    @media (max-width: $md) {
+        height: 100vh;
+    }
+
+    .event-list {
+        flex: 1;
+        margin-top: $recording_spacing;
+
+        .event-list-empty-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+
+            .ant-empty {
+                margin-bottom: 5rem;
+            }
+        }
+
+        .current-events-highlight-box {
+            position: absolute;
+            width: 100%;
+            transition: height 200ms ease-in-out, transform 300ms ease-in-out;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 0;
+            background-color: $recording_hover_event;
+            border-radius: $radius;
+            z-index: 0;
+        }
+
+        .current-events-position-finder {
+            display: none;
+            flex-direction: row;
+            justify-content: space-around;
+            position: absolute;
+            top: $recording_spacing;
+            left: 50%;
+            transform: translateX(-50%);
+            height: 35px;
+            width: 240px;
+            z-index: 10;
+            text-align: center;
+            overflow: hidden;
+
+            border-radius: 100px;
+            color: white;
+
+            &.visible {
+                display: flex;
+            }
+
+            .left {
+                cursor: pointer;
+                flex: 1;
+                background-color: $primary;
+                &:hover {
+                    background-color: lighten($primary, 10%);
+                }
+
+                span.anticon {
+                    margin: 0 $recording_spacing 0 $default_spacing;
+                }
+            }
+            .right {
+                cursor: pointer;
+                width: calc(35px + #{$recording_spacing} / 4);
+                background-color: lighten($primary, 5%);
+
+                &:hover {
+                    background-color: lighten($primary, 15%);
+                }
+
+                span.anticon {
+                    margin-right: $recording_spacing / 4;
+                }
+            }
+        }
+
+        .event-list-virtual {
+            scroll-behavior: smooth;
+        }
+
+        .event-list-item {
+            padding: $recording_spacing;
+            cursor: pointer;
+            border-radius: $radius;
+
+            &:hover,
+            &.current-event {
+                .event-item-icon {
+                    .event-item-icon-wrapper {
+                        background-color: $recording_hover_event_dark;
+
+                        svg {
+                            path {
+                                fill: $bg_light;
+                            }
+                        }
+                    }
+                }
+            }
+
+            &:hover {
+                background-color: $recording_hover_event;
+            }
+
+            &.current-event:hover {
+                background-color: $recording_hover_event_mid;
+            }
+
+            .event-item-icon {
+                display: flex;
+                margin-right: $recording_spacing;
+
+                .event-item-icon-wrapper {
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    transition: background-color 100ms;
+                    background-color: $bg_mid;
+                    border-radius: $radius;
+                    height: 44px;
+                    width: 44px;
+
+                    svg {
+                        width: 16px;
+                        height: 16px;
+
+                        path {
+                            transition: fill 100ms;
+                            fill: $bg_depth;
+                        }
+                    }
+                }
+            }
+
+            .event-item-content {
+                display: flex;
+                flex-direction: column;
+                flex: 1;
+                min-width: 0;
+
+                .event-item-content-top-row {
+                    justify-content: space-between;
+                    flex-wrap: nowrap;
+
+                    .event-item-content-title {
+                        font-weight: 600;
+                        padding-right: $recording_spacing / 2;
+                    }
+                }
+
+                .event-item-content-subtitle {
+                    .inner {
+                        overflow: hidden;
+                        white-space: nowrap;
+                        text-overflow: ellipsis;
+                        z-index: 2;
+                    }
+
+                    &.overflowing:hover {
+                        .inner {
+                            overflow: visible;
+                            white-space: unset;
+                            position: relative;
+
+                            @extend %mixin-elevated;
+                            background-color: white;
+                            padding: 1px 2px;
+                            top: -1px;
+                            left: -2px;
+                            border-radius: $radius;
+                        }
+                    }
+                }
+
+                .ant-skeleton {
+                    position: absolute;
+                    display: none;
+
+                    .ant-skeleton-paragraph {
+                        margin: 0;
+
+                        li:not(:first-child) {
+                            margin-top: 14px;
+                        }
+                    }
+                }
+
+                &.rendering {
+                    .event-item-content-title {
+                        visibility: hidden;
+                    }
+                    .event-item-content-subtitle {
+                        visibility: hidden;
+                    }
+                    .ant-skeleton {
+                        display: table;
+                    }
+                }
+            }
+        }
+    }
+}

@@ -313,6 +313,7 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
                 distinct_id="77",
                 timestamp=now() - relativedelta(minutes=76),
                 session_id="$ses_id",
+                window_id="$win_id",
                 snapshot_data={"type": 2},
             )
             session_recording_event_factory(
@@ -320,6 +321,7 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
                 distinct_id="77",
                 timestamp=now() - relativedelta(minutes=78),
                 session_id="$ses_id",
+                window_id="$win_id",
                 snapshot_data={"type": 2},
             )
 

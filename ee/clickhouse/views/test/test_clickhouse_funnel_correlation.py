@@ -1,7 +1,8 @@
 import dataclasses
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, Literal, Optional, TypedDict, Union
+from unittest.mock import ANY
 from uuid import uuid4
 
 import pytest
@@ -10,9 +11,12 @@ from django.test import Client
 from freezegun import freeze_time
 
 from ee.clickhouse.models.event import create_event
+from ee.clickhouse.queries.funnels.funnel_correlation import EventOddsRatioSerialized, FunnelCorrelation
+from ee.clickhouse.test.test_journeys import journeys_for, update_or_create_person
+from posthog.api.test.test_team import create_team
 from posthog.constants import FunnelCorrelationType
 from posthog.models.element import Element
-from posthog.models.person import Person
+from posthog.models.person import Person, PersonDistinctId
 from posthog.models.team import Team
 from posthog.test.base import BaseTest
 
@@ -81,7 +85,7 @@ class FunnelCorrelationTest(BaseTest):
                 ],
             }
 
-            create_events(events_by_person=events, team=self.team)
+            journeys_for(events_by_person=events, team=self.team)
 
             odds = get_funnel_correlation_ok(
                 client=self.client,
@@ -99,8 +103,10 @@ class FunnelCorrelationTest(BaseTest):
                 "events": [
                     {
                         "event": {"event": "watched video", "elements": [], "properties": {}},
-                        "success_count": 1,
                         "failure_count": 1,
+                        "success_count": 1,
+                        "success_people_url": ANY,
+                        "failure_people_url": ANY,
                         "odds_ratio": 1 / 2,
                         "correlation_type": "failure",
                     },
@@ -136,7 +142,7 @@ class FunnelCorrelationTest(BaseTest):
                 ],
             }
 
-            create_events(events_by_person=events, team=self.team)
+            journeys_for(events_by_person=events, team=self.team)
 
             odds_before = get_funnel_correlation_ok(
                 client=self.client,
@@ -148,7 +154,7 @@ class FunnelCorrelationTest(BaseTest):
             )
 
             other_team = create_team(organization=self.organization)
-            create_events(events_by_person=events, team=other_team)
+            journeys_for(events_by_person=events, team=other_team)
 
             # We need to make sure we clear the cache so we get the same results again
             cache.clear()
@@ -188,7 +194,7 @@ class FunnelCorrelationTest(BaseTest):
                 ],
             }
 
-            create_events(events_by_person=events, team=self.team)
+            journeys_for(events_by_person=events, team=self.team)
 
             # We need to make sure we clear the cache other tests that have run
             # done interfere with this test
@@ -230,7 +236,7 @@ class FunnelCorrelationTest(BaseTest):
             }
             # '' is a weird event name to have, but if it exists, our duty to report it
 
-            create_events(events_by_person=events, team=self.team)
+            journeys_for(events_by_person=events, team=self.team)
 
             # We need to make sure we clear the cache other tests that have run
             # done interfere with this test
@@ -258,11 +264,116 @@ class FunnelCorrelationTest(BaseTest):
                         "failure_count": 1,
                         "odds_ratio": 1 / 4,
                         "success_count": 0,
+                        "success_people_url": ANY,
+                        "failure_people_url": ANY,
                     }
                 ],
                 "skewed": False,
             },
         }
+
+    def test_events_correlation_endpoint_provides_people_drill_down_urls(self):
+        """
+        Here we are setting up three users, and looking to retrieve one
+        correlation for watched video, with a url we can use to retrieve people
+        that successfully completed the funnel AND watched the video, and
+        another for people that did not complete the funnel but also watched the
+        video.
+        """
+
+        with freeze_time("2020-01-01"):
+            self.client.force_login(self.user)
+
+            events = {
+                "Person 1": [
+                    # Failure / watched
+                    {"event": "signup", "timestamp": datetime(2020, 1, 1)},
+                    {"event": "watched video", "timestamp": datetime(2020, 1, 2)},
+                ],
+                "Person 2": [
+                    # Success / watched
+                    {"event": "signup", "timestamp": datetime(2020, 1, 1)},
+                    {"event": "watched video", "timestamp": datetime(2020, 1, 2)},
+                    {"event": "view insights", "timestamp": datetime(2020, 1, 3)},
+                ],
+                "Person 3": [
+                    # Success / did not watched. We don't expect to retrieve
+                    # this one as part of the
+                    {"event": "signup", "timestamp": datetime(2020, 1, 1)},
+                    {"event": "view insights", "timestamp": datetime(2020, 1, 3)},
+                ],
+            }
+
+            journeys_for(events_by_person=events, team=self.team)
+
+            odds = get_funnel_correlation_ok(
+                client=self.client,
+                team_id=self.team.pk,
+                request=FunnelCorrelationRequest(
+                    events=json.dumps([EventPattern(id="signup"), EventPattern(id="view insights")]),
+                    date_to="2020-04-04",
+                ),
+            )
+
+            assert odds["result"]["events"][0]["event"]["event"] == "watched video"
+            watched_video_correlation = odds["result"]["events"][0]
+
+            assert get_people_for_correlation_ok(client=self.client, correlation=watched_video_correlation) == {
+                "success": ["Person 2"],
+                "failure": ["Person 1"],
+            }
+
+    def test_events_with_properties_correlation_endpoint_provides_people_drill_down_urls(self):
+        with freeze_time("2020-01-01"):
+            self.client.force_login(self.user)
+
+            events = {
+                "Person 1": [
+                    # Failure / watched
+                    {"event": "signup", "timestamp": datetime(2020, 1, 1)},
+                    {"event": "watched video", "properties": {"$browser": "1"}, "timestamp": datetime(2020, 1, 2)},
+                ],
+                "Person 2": [
+                    # Success / watched
+                    {"event": "signup", "timestamp": datetime(2020, 1, 1)},
+                    {"event": "watched video", "properties": {"$browser": "1"}, "timestamp": datetime(2020, 1, 2)},
+                    {"event": "view insights", "timestamp": datetime(2020, 1, 3)},
+                ],
+                "Person 3": [
+                    # Success / watched. We need to have three event instances
+                    # for this test otherwise the endpoint doesn't return results
+                    {"event": "signup", "timestamp": datetime(2020, 1, 1)},
+                    {"event": "watched video", "properties": {"$browser": "1"}, "timestamp": datetime(2020, 1, 2)},
+                    {"event": "view insights", "timestamp": datetime(2020, 1, 3)},
+                ],
+                "Person 4": [
+                    # Success / didn't watch. Want to use this user to verify
+                    # that we don't pull in unrelated users erroneously
+                    {"event": "signup", "timestamp": datetime(2020, 1, 1)},
+                    {"event": "view insights", "timestamp": datetime(2020, 1, 3)},
+                ],
+            }
+
+            journeys_for(events_by_person=events, team=self.team)
+
+            odds = get_funnel_correlation_ok(
+                client=self.client,
+                team_id=self.team.pk,
+                request=FunnelCorrelationRequest(
+                    funnel_correlation_type=FunnelCorrelationType.EVENT_WITH_PROPERTIES,
+                    funnel_correlation_event_names=json.dumps(["watched video"]),
+                    events=json.dumps([EventPattern(id="signup"), EventPattern(id="view insights")]),
+                    date_to="2020-04-04",
+                ),
+            )
+
+            assert odds["result"]["events"][0]["event"]["event"] == "watched video::$browser::1"
+            watched_video_correlation = odds["result"]["events"][0]
+
+            assert get_people_for_correlation_ok(client=self.client, correlation=watched_video_correlation) == {
+                "success": ["Person 2", "Person 3"],
+                "failure": ["Person 1"],
+            }
 
     def test_correlation_endpoint_with_properties(self):
         self.client.force_login(self.user)
@@ -322,6 +433,8 @@ class FunnelCorrelationTest(BaseTest):
                     "event": {"event": "$browser::Positive", "elements": [], "properties": {}},
                     "success_count": 10,
                     "failure_count": 0,
+                    "success_people_url": ANY,
+                    "failure_people_url": ANY,
                     # "odds_ratio": 121.0,
                     "correlation_type": "success",
                 },
@@ -329,11 +442,77 @@ class FunnelCorrelationTest(BaseTest):
                     "event": {"event": "$browser::Negative", "elements": [], "properties": {}},
                     "success_count": 0,
                     "failure_count": 10,
+                    "success_people_url": ANY,
+                    "failure_people_url": ANY,
                     # "odds_ratio": 1 / 121,
                     "correlation_type": "failure",
                 },
             ],
         )
+
+    def test_properties_correlation_endpoint_provides_people_drill_down_urls(self):
+        """
+        Here we are setting up three users, two with a specified property but
+        differing values, and one with this property absent. We expect to be
+        able to use the correlation people drill down urls to retrieve the
+        associated people for each.
+        """
+
+        with freeze_time("2020-01-01"):
+            self.client.force_login(self.user)
+
+            update_or_create_person(distinct_ids=["Person 1"], team_id=self.team.pk, properties={"$browser": "1"})
+            update_or_create_person(distinct_ids=["Person 2"], team_id=self.team.pk, properties={"$browser": "1"})
+
+            events = {
+                "Person 1": [
+                    # Failure / $browser::1
+                    {"event": "signup", "timestamp": datetime(2020, 1, 1)},
+                ],
+                "Person 2": [
+                    # Success / $browser::1
+                    {"event": "signup", "timestamp": datetime(2020, 1, 1)},
+                    {"event": "view insights", "timestamp": datetime(2020, 1, 3)},
+                ],
+                "Person 3": [
+                    # Success / $browser not set
+                    {"event": "signup", "timestamp": datetime(2020, 1, 1)},
+                    {"event": "view insights", "timestamp": datetime(2020, 1, 3)},
+                ],
+            }
+
+            journeys_for(events_by_person=events, team=self.team)
+
+            odds = get_funnel_correlation_ok(
+                client=self.client,
+                team_id=self.team.pk,
+                request=FunnelCorrelationRequest(
+                    events=json.dumps([EventPattern(id="signup"), EventPattern(id="view insights")]),
+                    date_to="2020-04-04",
+                    funnel_correlation_type=FunnelCorrelationType.PROPERTIES,
+                    funnel_correlation_names=json.dumps(["$browser"]),
+                ),
+            )
+
+            (browser_correlation,) = [
+                correlation
+                for correlation in odds["result"]["events"]
+                if correlation["event"]["event"] == "$browser::1"
+            ]
+
+            (notset_correlation,) = [
+                correlation for correlation in odds["result"]["events"] if correlation["event"]["event"] == "$browser::"
+            ]
+
+            assert get_people_for_correlation_ok(client=self.client, correlation=browser_correlation) == {
+                "success": ["Person 2"],
+                "failure": ["Person 1"],
+            }
+
+            assert get_people_for_correlation_ok(client=self.client, correlation=notset_correlation) == {
+                "success": ["Person 3"],
+                "failure": [],
+            }
 
     def test_correlation_endpoint_request_with_no_steps_doesnt_fail(self):
         """
@@ -408,6 +587,8 @@ class FunnelCorrelationTest(BaseTest):
                     {
                         "success_count": 3,
                         "failure_count": 0,
+                        "success_people_url": ANY,
+                        "failure_people_url": ANY,
                         "odds_ratio": 8.0,
                         "correlation_type": "success",
                         "event": {
@@ -436,34 +617,20 @@ class FunnelCorrelationTest(BaseTest):
             "is_cached": False,
         }
 
+        assert get_people_for_correlation_ok(client=self.client, correlation=response["result"]["events"][0]) == {
+            "success": ["user_0", "user_1", "user_2"],
+            "failure": [],
+        }
+
 
 @pytest.fixture(autouse=True)
 def clear_django_cache():
     cache.clear()
 
 
-def create_team(organization):
-    return Team.objects.create(name="Test Team", organization=organization)
-
-
-def create_events(events_by_person, team: Team):
-    """
-    Helper for creating specific events for a team.
-    """
-    for distinct_id, events in events_by_person.items():
-        create_person(distinct_ids=[distinct_id], team=team)
-        for event in events:
-            _create_event(
-                team=team,
-                distinct_id=distinct_id,
-                event=event["event"],
-                timestamp=event["timestamp"],
-                properties=event.get("properties", {}),
-            )
-
-
-class EventPattern(TypedDict):
+class EventPattern(TypedDict, total=False):
     id: str
+    type: Union[Literal["events"], Literal["actions"]]
 
 
 @dataclasses.dataclass
@@ -489,13 +656,35 @@ def get_funnel_correlation(client: Client, team_id: int, request: FunnelCorrelat
 def get_funnel_correlation_ok(client: Client, team_id: int, request: FunnelCorrelationRequest) -> Dict[str, Any]:
     response = get_funnel_correlation(client=client, team_id=team_id, request=request)
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.content
     return response.json()
 
 
+def get_people_for_correlation_ok(client: Client, correlation: EventOddsRatioSerialized) -> Dict[str, Any]:
+    """
+    Helper for getting people for a correlation. Note we keep checking to just
+    inclusion of name, to make the stable to changes in other people props.
+    """
+    success_people_url = correlation["success_people_url"]
+    failure_people_url = correlation["failure_people_url"]
+
+    if not success_people_url or not failure_people_url:
+        return {}
+
+    success_people_response = client.get(success_people_url)
+    assert success_people_response.status_code == 200, success_people_response.content
+
+    failure_people_response = client.get(failure_people_url)
+    assert failure_people_response.status_code == 200, failure_people_response.content
+
+    return {
+        "success": [person["name"] for person in success_people_response.json()["results"][0]["people"]],
+        "failure": [person["name"] for person in failure_people_response.json()["results"][0]["people"]],
+    }
+
+
 def create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return person
+    return Person.objects.create(**kwargs)
 
 
 def _create_event(**kwargs):

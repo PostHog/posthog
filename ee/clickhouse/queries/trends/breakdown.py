@@ -1,3 +1,5 @@
+import json
+import urllib.parse
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from ee.clickhouse.models.action import format_action_filter
@@ -10,9 +12,16 @@ from ee.clickhouse.queries.breakdown_props import (
     get_breakdown_prop_values,
 )
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
+from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.trends.util import enumerate_time_range, get_active_user_params, parse_response, process_math
-from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
+from ee.clickhouse.queries.util import (
+    date_from_clause,
+    deep_dump_object,
+    get_time_diff,
+    get_trunc_func_ch,
+    parse_timestamps,
+)
 from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.sql.trends.breakdown import (
@@ -20,11 +29,18 @@ from ee.clickhouse.sql.trends.breakdown import (
     BREAKDOWN_ACTIVE_USER_INNER_SQL,
     BREAKDOWN_AGGREGATE_QUERY_SQL,
     BREAKDOWN_COHORT_JOIN_SQL,
+    BREAKDOWN_CUMULATIVE_INNER_SQL,
     BREAKDOWN_INNER_SQL,
     BREAKDOWN_PROP_JOIN_SQL,
     BREAKDOWN_QUERY_SQL,
 )
-from posthog.constants import MONTHLY_ACTIVE, TREND_FILTER_TYPE_ACTIONS, TRENDS_DISPLAY_BY_VALUE, WEEKLY_ACTIVE
+from posthog.constants import (
+    MONTHLY_ACTIVE,
+    TREND_FILTER_TYPE_ACTIONS,
+    TRENDS_CUMULATIVE,
+    TRENDS_DISPLAY_BY_VALUE,
+    WEEKLY_ACTIVE,
+)
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 
@@ -97,14 +113,18 @@ class ClickhouseTrendsBreakdown:
             )
 
         person_join_condition, person_join_params = self._person_join_condition()
-        self.params = {**self.params, **_params, **person_join_params}
+        groups_join_condition, groups_join_params = GroupsJoinQuery(
+            self.filter, self.team_id, self.column_optimizer
+        ).get_join_query()
+        self.params = {**self.params, **_params, **person_join_params, **groups_join_params}
         breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
 
         if self.filter.display in TRENDS_DISPLAY_BY_VALUE:
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
             content_sql = BREAKDOWN_AGGREGATE_QUERY_SQL.format(
                 breakdown_filter=breakdown_filter,
-                event_join=person_join_condition,
+                person_join=person_join_condition,
+                groups_join=groups_join_condition,
                 aggregate_operation=aggregate_operation,
                 breakdown_value=breakdown_value,
             )
@@ -127,7 +147,8 @@ class ClickhouseTrendsBreakdown:
                 )
                 inner_sql = BREAKDOWN_ACTIVE_USER_INNER_SQL.format(
                     breakdown_filter=breakdown_filter,
-                    event_join=person_join_condition,
+                    person_join=person_join_condition,
+                    groups_join=groups_join_condition,
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
@@ -136,10 +157,21 @@ class ClickhouseTrendsBreakdown:
                     **active_user_params,
                     **breakdown_filter_params,
                 )
+            elif self.filter.display == TRENDS_CUMULATIVE and self.entity.math == "dau":
+                inner_sql = BREAKDOWN_CUMULATIVE_INNER_SQL.format(
+                    breakdown_filter=breakdown_filter,
+                    person_join=person_join_condition,
+                    groups_join=groups_join_condition,
+                    aggregate_operation=aggregate_operation,
+                    interval_annotation=interval_annotation,
+                    breakdown_value=breakdown_value,
+                    **breakdown_filter_params,
+                )
             else:
                 inner_sql = BREAKDOWN_INNER_SQL.format(
                     breakdown_filter=breakdown_filter,
-                    event_join=person_join_condition,
+                    person_join=person_join_condition,
+                    groups_join=groups_join_condition,
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
@@ -179,6 +211,9 @@ class ClickhouseTrendsBreakdown:
 
         if self.filter.breakdown_type == "person":
             breakdown_value, _ = get_property_string_expr("person", self.filter.breakdown, "%(key)s", "person_props")
+        elif self.filter.breakdown_type == "group":
+            properties_field = f"group_properties_{self.filter.breakdown_group_type_index}"
+            breakdown_value, _ = get_property_string_expr("groups", self.filter.breakdown, "%(key)s", properties_field)
         else:
             breakdown_value, _ = get_property_string_expr("events", self.filter.breakdown, "%(key)s", "properties")
 
@@ -196,7 +231,24 @@ class ClickhouseTrendsBreakdown:
             parsed_results = []
             for idx, stats in enumerate(result):
                 result_descriptors = self._breakdown_result_descriptors(stats[1], filter, entity)
-                parsed_result = {"aggregated_value": stats[0], **result_descriptors, **additional_values}
+                filter_params = filter.to_params()
+                extra_params = {
+                    "entity_id": entity.id,
+                    "entity_type": entity.type,
+                    "breakdown_value": result_descriptors["breakdown_value"],
+                    "breakdown_type": filter.breakdown_type or "event",
+                }
+                parsed_params: Dict[str, Union[Any, int, str]] = {**filter_params, **extra_params}
+                parsed_result = {
+                    "aggregated_value": stats[0],
+                    "filter": filter_params,
+                    "persons": {
+                        "filter": extra_params,
+                        "url": f"api/projects/{self.team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
+                    },
+                    **result_descriptors,
+                    **additional_values,
+                }
                 parsed_results.append(parsed_result)
 
             return parsed_results
@@ -209,11 +261,41 @@ class ClickhouseTrendsBreakdown:
             for idx, stats in enumerate(result):
                 result_descriptors = self._breakdown_result_descriptors(stats[2], filter, entity)
                 parsed_result = parse_response(stats, filter, result_descriptors)
+                parsed_result.update(
+                    {
+                        "persons_urls": self._get_persons_url(
+                            filter, entity, self.team_id, parsed_result["days"], result_descriptors["breakdown_value"]
+                        )
+                    }
+                )
                 parsed_results.append(parsed_result)
-
+                parsed_result.update({"filter": filter.to_dict()})
             return sorted(parsed_results, key=lambda x: 0 if x.get("breakdown_value") != "all" else 1)
 
         return _parse
+
+    def _get_persons_url(
+        self, filter: Filter, entity: Entity, team_id: int, dates: List[str], breakdown_value: Union[str, int]
+    ) -> List[Dict[str, Any]]:
+        persons_url = []
+        for date in dates:
+            filter_params = filter.to_params()
+            extra_params = {
+                "entity_id": entity.id,
+                "entity_type": entity.type,
+                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else date,
+                "date_to": date,
+                "breakdown_value": breakdown_value,
+                "breakdown_type": filter.breakdown_type or "event",
+            }
+            parsed_params: Dict[str, Union[Any, int, str]] = {**filter_params, **extra_params}
+            persons_url.append(
+                {
+                    "filter": extra_params,
+                    "url": f"api/projects/{team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
+                }
+            )
+        return persons_url
 
     def _breakdown_result_descriptors(self, breakdown_value, filter: Filter, entity: Entity):
         extra_label = self._determine_breakdown_label(

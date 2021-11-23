@@ -17,6 +17,7 @@ interface EventsGroupedInterface {
 }
 
 export const eventDefinitionsModel = kea<eventDefinitionsModelType<EventDefinitionStorage, EventsGroupedInterface>>({
+    path: ['models', 'eventDefinitionsModel'],
     actions: () => ({
         updateDescription: (id: string, description: string | null, type: string) => ({ id, description, type }),
         updateEventDefinition: (eventDefinition: EventDefinition) => ({ eventDefinition }),

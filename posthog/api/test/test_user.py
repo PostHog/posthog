@@ -70,8 +70,14 @@ class TestUserAPI(APIBaseTest):
                     "id": str(self.organization.id),
                     "name": self.organization.name,
                     "slug": slugify(self.organization.name),
+                    "membership_level": 1,
                 },
-                {"id": str(self.new_org.id), "name": "New Organization", "slug": "new-organization"},
+                {
+                    "id": str(self.new_org.id),
+                    "name": "New Organization",
+                    "slug": "new-organization",
+                    "membership_level": 1,
+                },
             ],
         )
 
@@ -492,3 +498,12 @@ class TestLoginViews(APIBaseTest):
         User.objects.all().delete()
         response = self.client.get("/", follow=True)
         self.assertRedirects(response, "/preflight")
+
+
+def create_user(email: str, password: str, organization: Organization):
+    """
+    Helper that just creates a user. It currently uses the orm, but we
+    could use either the api, or django admin to create, to get better parity
+    with real world scenarios.
+    """
+    return User.objects.create_and_join(organization, email, password)

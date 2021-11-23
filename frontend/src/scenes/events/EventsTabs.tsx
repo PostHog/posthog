@@ -19,6 +19,7 @@ const tabUrls: Record<EventsTab, string> = {
 }
 
 const eventsTabsLogic = kea<eventsTabsLogicType<EventsTab>>({
+    path: ['scenes', 'events', 'eventsTabsLogic'],
     actions: {
         setTab: (tab: EventsTab) => ({ tab }),
     },
@@ -50,11 +51,17 @@ const eventsTabsLogic = kea<eventsTabsLogicType<EventsTab>>({
 export function EventsTabs({ tab }: { tab: EventsTab }): JSX.Element {
     const { setTab } = useActions(eventsTabsLogic)
     return (
-        <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={(t) => setTab(t as EventsTab)}>
+        <Tabs
+            tabPosition="top"
+            animated={false}
+            activeKey={tab}
+            onTabClick={(t) => setTab(t as EventsTab)}
+            style={{ marginBottom: 16 }}
+        >
             <Tabs.TabPane tab="Events" key="events" />
             <Tabs.TabPane tab={<span data-attr="events-actions-tab">Actions</span>} key="actions" />
-            <Tabs.TabPane tab="Events Stats" key="stats" />
-            <Tabs.TabPane tab="Properties Stats" key="properties" />
+            <Tabs.TabPane tab="Events stats" key="stats" />
+            <Tabs.TabPane tab="Properties stats" key="properties" />
         </Tabs>
     )
 }

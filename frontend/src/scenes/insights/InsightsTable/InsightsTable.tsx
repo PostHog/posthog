@@ -12,7 +12,7 @@ import { average, median, maybeAddCommasToInteger } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
-import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { DownOutlined, InfoCircleOutlined, EditOutlined } from '@ant-design/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { SeriesToggleWrapper } from './components/SeriesToggleWrapper'
@@ -20,10 +20,15 @@ import { ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_PIE_CHART, ACTIONS_TABLE, FEATUR
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { entityFilterLogic } from '../ActionFilter/entityFilterLogic'
+import './InsightsTable.scss'
+import clsx from 'clsx'
 
 interface InsightsTableProps {
     isLegend?: boolean // `true` -> Used as a supporting legend at the bottom of another graph; `false` -> used as it's own display
     showTotalCount?: boolean
+    filterKey: string // key for the entityFilterLogic
+    canEditSeriesNameInline?: boolean
 }
 
 const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
@@ -32,24 +37,43 @@ const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
     median: 'Median',
 }
 
-export function InsightsTable({ isLegend = true, showTotalCount = false }: InsightsTableProps): JSX.Element | null {
+export function InsightsTable({
+    isLegend = true,
+    showTotalCount = false,
+    filterKey,
+    canEditSeriesNameInline,
+}: InsightsTableProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { indexedResults, visibilityMap, filters, resultsLoading } = useValues(trendsLogic(insightProps))
-    const { toggleVisibility } = useActions(trendsLogic(insightProps))
+    const { toggleVisibility, setFilters } = useActions(trendsLogic(insightProps))
     const { cohorts } = useValues(cohortsModel)
     const { reportInsightsTableCalcToggled } = useActions(eventUsageLogic)
+
+    const _entityFilterLogic = entityFilterLogic({
+        setFilters,
+        filters,
+        typeKey: filterKey,
+    })
+    const { showModal, selectFilter } = useActions(_entityFilterLogic)
+
     const hasMathUniqueFilter = !!(
         filters.actions?.find(({ math }) => math === 'dau') || filters.events?.find(({ math }) => math === 'dau')
     )
     const logic = insightsTableLogic({ hasMathUniqueFilter })
     const { calcColumnState } = useValues(logic)
     const { setCalcColumnState } = useActions(logic)
-
     const { featureFlags } = useValues(featureFlagLogic)
 
     const isSingleEntity = indexedResults.length === 1
     const colorList = getChartColors('white')
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
+
+    const handleEditClick = (item: IndexedTrendResult): void => {
+        if (canEditSeriesNameInline) {
+            selectFilter(item.action)
+            showModal()
+        }
+    }
 
     const calcColumnMenu = (
         <Menu>
@@ -94,9 +118,10 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                 <PropertyKeyInfo disableIcon disablePopover value={filters.breakdown.toString() || 'Breakdown Value'} />
             ),
             render: function RenderBreakdownValue({}, item: IndexedTrendResult) {
+                const label = formatBreakdownLabel(item.breakdown_value, cohorts)
                 return (
                     <SeriesToggleWrapper id={item.id} toggleVisibility={toggleVisibility}>
-                        {formatBreakdownLabel(item.breakdown_value, cohorts)}
+                        <div title={label}>{label}</div>
                     </SeriesToggleWrapper>
                 )
             },
@@ -114,7 +139,12 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
         title: 'Event or Action',
         render: function RenderLabel({}, item: IndexedTrendResult): JSX.Element {
             return (
-                <SeriesToggleWrapper id={item.id} toggleVisibility={toggleVisibility}>
+                <div className="series-name-wrapper-col">
+                    {featureFlags[FEATURE_FLAGS.RENAME_FILTERS] && canEditSeriesNameInline && (
+                        <div className="edit-icon" onClick={() => handleEditClick(item)}>
+                            <EditOutlined />
+                        </div>
+                    )}
                     <InsightLabel
                         seriesColor={colorList[item.id]}
                         action={item.action}
@@ -125,8 +155,17 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                         hideBreakdown
                         hideIcon
                         useCustomName={!!featureFlags[FEATURE_FLAGS.RENAME_FILTERS]}
+                        className={clsx({
+                            editable: featureFlags[FEATURE_FLAGS.RENAME_FILTERS] && canEditSeriesNameInline,
+                        })}
+                        hideSeriesSubtitle
+                        onLabelClick={
+                            featureFlags[FEATURE_FLAGS.RENAME_FILTERS] && canEditSeriesNameInline
+                                ? () => handleEditClick(item)
+                                : undefined
+                        }
                     />
-                </SeriesToggleWrapper>
+                </div>
             )
         },
         fixed: 'left',

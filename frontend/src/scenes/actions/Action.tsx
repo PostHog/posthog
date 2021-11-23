@@ -4,20 +4,20 @@ import { kea, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 import api from 'lib/api'
-import { Spin } from 'antd'
 import { EventsTable } from 'scenes/events'
-import dayjs from 'dayjs'
 import { urls } from 'scenes/urls'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { ActionType } from '../../types'
-
+import { ActionType } from '~/types'
 import { actionLogicType } from './ActionType'
+import { dayjs } from 'lib/dayjs'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 interface ActionLogicProps {
     id?: ActionType['id']
     onComplete: () => void
 }
 
 const actionLogic = kea<actionLogicType<ActionLogicProps>>({
+    path: (key) => ['scenes', 'actions', 'actionLogic', key],
     props: {} as ActionLogicProps,
     key: (props) => props.id || 'new',
     actions: () => ({
@@ -77,8 +77,8 @@ export function Action({ id }: { id: ActionType['id'] }): JSX.Element {
     const fixedFilters = { action_id: id }
 
     const { push } = useActions(router)
-    const { fetchEvents } = useActions(eventsTableLogic({ fixedFilters }))
-    const { isComplete, action } = useValues(actionLogic({ id, onComplete: fetchEvents }))
+    const { fetchEvents } = useActions(eventsTableLogic({ fixedFilters, sceneUrl: urls.action(id) }))
+    const { action, isComplete } = useValues(actionLogic({ id, onComplete: fetchEvents }))
     const { loadAction } = useActions(actionLogic({ id, onComplete: fetchEvents }))
     const { preflight } = useValues(preflightLogic)
     const isClickHouseEnabled = !!preflight?.is_clickhouse_enabled
@@ -100,8 +100,10 @@ export function Action({ id }: { id: ActionType['id'] }): JSX.Element {
             {id && !isComplete && (
                 <div style={{ marginBottom: '10rem' }}>
                     <h2 className="subtitle">Events</h2>
-                    <Spin style={{ marginRight: 12 }} />
-                    Calculating action, please hold on.
+                    <div className="flex-center">
+                        <Spinner style={{ marginRight: 12 }} />
+                        Calculating action, please hold on.
+                    </div>
                 </div>
             )}
             {isComplete && (
@@ -125,7 +127,9 @@ export function Action({ id }: { id: ActionType['id'] }): JSX.Element {
                             </p>{' '}
                         </>
                     ) : null}
-                    {id && <EventsTable fixedFilters={fixedFilters} filtersEnabled={false} />}
+                    {id && (
+                        <EventsTable fixedFilters={fixedFilters} filtersEnabled={false} sceneUrl={urls.action(id)} />
+                    )}
                 </div>
             )}
         </div>

@@ -184,12 +184,12 @@ class Sessions(BaseQuery):
 
         time_series_data.update(
             {
-                "label": "Average Session Length ({})".format(avg_split[1]),
+                "label": f"Average Session Length ({avg_split[1]})",
                 "count": int(avg_split[0]),
                 "aggregated_value": int(avg_split[0]),
             }
         )
-        time_series_data.update({"chartLabel": "Average Session Length ({})".format(label)})
+        time_series_data.update({"chartLabel": f"Average Session Length ({label})"})
         result = [time_series_data]
         return result
 

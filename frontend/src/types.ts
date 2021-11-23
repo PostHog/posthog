@@ -22,6 +22,7 @@ import { PostHog } from 'posthog-js'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
+// Keep this in sync with backend constants (constants.py)
 export enum AvailableFeature {
     ZAPIER = 'zapier',
     ORGANIZATIONS_PROJECTS = 'organizations_projects',
@@ -31,6 +32,7 @@ export enum AvailableFeature {
     DASHBOARD_COLLABORATION = 'dashboard_collaboration',
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
     PATHS_ADVANCED = 'paths_advanced',
+    CORRELATION_ANALYSIS = 'correlation_analysis',
 }
 
 export type ColumnChoice = string[] | 'DEFAULT'
@@ -85,6 +87,7 @@ export interface OrganizationBasicType {
     id: string
     name: string
     slug: string
+    membership_level: OrganizationMembershipLevel | null
 }
 
 export interface OrganizationType extends OrganizationBasicType {
@@ -98,7 +101,6 @@ export interface OrganizationType extends OrganizationBasicType {
     available_features: AvailableFeature[]
     domain_whitelist: string[]
     is_member_join_email_enabled: boolean
-    membership_level: OrganizationMembershipLevel | null
 }
 
 /** Member properties relevant at both organization and project level. */
@@ -184,6 +186,14 @@ export interface TeamType extends TeamBasicType {
     test_account_filters: AnyPropertyFilter[]
     path_cleaning_filters: Record<string, any>[]
     data_attributes: string[]
+
+    // Uses to exclude person properties from correlation analysis results, for
+    // example can be used to exclude properties that have trivial causation
+    correlation_config: {
+        excluded_person_property_names?: string[]
+        excluded_event_property_names?: string[]
+        excluded_event_names?: string[]
+    }
 }
 
 export interface ActionType {
@@ -250,6 +260,7 @@ export interface EditorProps {
 
 export interface ToolbarProps extends EditorProps {
     posthog?: PostHog
+    disableExternalStyles?: boolean
 }
 
 export type PropertyFilterValue = string | number | (string | number)[] | null
@@ -259,6 +270,7 @@ export interface PropertyFilter {
     operator: PropertyOperator | null
     type: string
     value: PropertyFilterValue
+    group_type_index?: number | null
 }
 
 export type EmptyPropertyFilter = Partial<PropertyFilter>
@@ -320,12 +332,34 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
 
 export type SessionRecordingId = string
 
+export interface SessionRecordingMeta {
+    id: string
+    viewed: boolean
+    recording_duration: number
+    start_time: number
+    end_time: number
+    distinct_id: string
+}
+
+export interface LEGACY_SessionPlayerData {
+    snapshots: eventWithTime[]
+    person: PersonType | null
+    start_time: number
+    next: string | null
+    duration: number
+}
+
 export interface SessionPlayerData {
     snapshots: eventWithTime[]
     person: PersonType | null
-    start_time: string
-    next: string | null
-    duration: number
+    session_recording: SessionRecordingMeta
+    next?: string
+}
+
+export enum SessionRecordingUsageType {
+    VIEWED = 'viewed',
+    ANALYZED = 'analyzed',
+    LOADED = 'loaded',
 }
 
 export enum SessionPlayerState {
@@ -360,6 +394,7 @@ export interface RecordingFilters {
     date_to?: string | null
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
+    properties?: AnyPropertyFilter[]
     offset?: number
     session_recording_duration?: RecordingDurationFilter
 }
@@ -470,7 +505,7 @@ export interface InsightHistory {
     name?: string
     createdAt: string
     saved: boolean
-    type: ViewType
+    type: InsightType
 }
 
 export interface SavedFunnel extends InsightHistory {
@@ -504,12 +539,22 @@ export interface EventsTableAction {
 
 export interface EventType {
     elements: ElementType[]
-    elements_hash: string | null
+    elements_hash: string | null // Deprecated for elements_chain
+    elements_chain?: string | null
     id: number | string
     properties: Record<string, any>
     timestamp: string
+    zeroOffsetTime?: number // Used in session recording events that have a start time offset
+    colonTimestamp?: string // Used in session recording events list
     person?: Partial<PersonType> | null
     event: string
+}
+
+export interface RecordingEventType extends Omit<EventType, 'timestamp'> {
+    percentage: number
+    timestamp: number
+    queryValue?: string
+    colonTimestamp?: string
 }
 
 export interface EventsTableRowItem {
@@ -544,6 +589,11 @@ export interface SessionRecordingType {
     distinct_id?: string
     email?: string
     person?: PersonType
+}
+
+export interface SessionRecordingEvents {
+    next?: string
+    events: EventType[]
 }
 
 export interface BillingType {
@@ -608,7 +658,9 @@ export interface DashboardType {
     deleted: boolean
     filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
-    tags: string[] // TODO: To be implemented
+    tags: string[]
+    /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
+    _highlight?: boolean
 }
 
 export type DashboardLayoutSize = 'lg' | 'sm' | 'xs' | 'xxs'
@@ -720,14 +772,11 @@ export enum ChartDisplayType {
 }
 
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
-export type BreakdownType = 'cohort' | 'person' | 'event'
+export type BreakdownType = 'cohort' | 'person' | 'event' | 'group'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 export type SmoothingType = number
 
-// NB! Keep InsightType and ViewType in sync!
-export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
-
-export enum ViewType {
+export enum InsightType {
     TRENDS = 'TRENDS',
     STICKINESS = 'STICKINESS',
     LIFECYCLE = 'LIFECYCLE',
@@ -735,8 +784,6 @@ export enum ViewType {
     FUNNELS = 'FUNNELS',
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
-    // Views that are not insights:
-    HISTORY = 'HISTORY',
 }
 
 export enum PathType {
@@ -778,6 +825,7 @@ export interface FilterType {
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
     breakdown_value?: string | number
+    breakdown_group_type_index?: number | null
     shown_as?: ShownAsType
     session?: string
     period?: string
@@ -830,6 +878,11 @@ export interface FilterType {
     funnel_correlation_person_entity?: Record<string, any> // Funnel Correlation Persons Filter
     funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
     funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
+    aggregation_group_type_index?: number | undefined // Groups aggregation
+}
+
+export interface RecordingEventsFilters {
+    query: string
 }
 
 export interface SystemStatusSubrows {
@@ -899,6 +952,7 @@ export type SetupState = EnabledSetupState | DisabledSetupState
 export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
+    math_group_type_index?: number | null
     properties: PropertyFilter[]
     type: EntityType
 }
@@ -918,6 +972,10 @@ export interface TrendResult {
 
 export interface TrendResultWithAggregate extends TrendResult {
     aggregated_value: number
+    persons: {
+        url: string
+        filter: Partial<FilterType>
+    }
 }
 
 export interface FunnelStep {
@@ -933,6 +991,12 @@ export interface FunnelStep {
     labels?: string[]
     breakdown?: BreakdownKeyType
     breakdown_value?: string | number
+
+    // Url that you can GET to retrieve the people that converted in this step
+    converted_people_url: string
+
+    // Url that you can GET to retrieve the people that dropped in this step
+    dropped_people_url: string
 }
 
 export interface FunnelStepWithNestedBreakdown extends FunnelStep {
@@ -1054,6 +1118,8 @@ export interface SetInsightOptions {
     shouldMergeWithExisting?: boolean
     /** this overrides the in-flight filters on the page, which may not equal the last returned API response */
     overrideFilter?: boolean
+    /** calling with this updates the "last saved" filters */
+    fromPersistentApi?: boolean
 }
 
 export interface FeatureFlagGroupType {
@@ -1084,7 +1150,7 @@ export interface FeatureFlagType {
     deleted: boolean
     active: boolean
     created_by: UserBasicType | null
-    created_at: string
+    created_at: string | null
     is_simple_flag: boolean
     rollout_percentage: number | null
 }
@@ -1116,6 +1182,11 @@ interface AuthBackends {
     saml?: boolean
 }
 
+interface InstancePreferencesInterface {
+    debug_queries: boolean /** Whether debug queries option should be shown on the command palette. */
+    disable_paid_fs: boolean /** Whether paid features showcasing / upsells are completely disabled throughout the app. */
+}
+
 export interface PreflightStatus {
     // Attributes that accept undefined values (i.e. `?`) are not received when unauthenticated
     django: boolean
@@ -1145,8 +1216,7 @@ export interface PreflightStatus {
     is_event_property_usage_enabled?: boolean
     licensed_users_available?: number | null
     site_url?: string
-    /** Whether debug queries option should be shown on the command palette. */
-    debug_queries?: boolean
+    instance_preferences?: InstancePreferencesInterface
 }
 
 export enum ItemMode { // todo: consolidate this and dashboardmode
@@ -1236,6 +1306,20 @@ export interface PersonProperty {
     count: number
 }
 
+export interface GroupType {
+    group_type: string
+    group_type_index: number
+}
+
+export type GroupTypeProperties = Record<number, Array<PersonProperty>>
+
+export interface Group {
+    group_type_index: number
+    group_key: string
+    created_at: string
+    group_properties: Record<string, any>
+}
+
 export interface SelectOption {
     value: string
     label?: string
@@ -1292,7 +1376,9 @@ export interface FunnelCorrelation {
     event: Pick<EventType, 'elements' | 'event' | 'properties'>
     odds_ratio: number
     success_count: number
+    success_people_url: string
     failure_count: number
+    failure_people_url: string
     correlation_type: FunnelCorrelationType.Failure | FunnelCorrelationType.Success
     result_type:
         | FunnelCorrelationResultsType.Events
@@ -1313,6 +1399,17 @@ export enum FunnelCorrelationResultsType {
 
 export enum HelpType {
     Slack = 'slack',
+    GitHub = 'github',
     Email = 'email',
     Docs = 'docs',
+}
+
+export interface VersionType {
+    version: string
+    release_date?: string
+}
+
+export interface dateMappingOption {
+    inactive?: boolean // Options removed due to low usage (see relevant PR); will not show up for new insights but will be kept for existing
+    values: string[]
 }

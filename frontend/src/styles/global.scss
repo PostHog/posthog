@@ -15,11 +15,16 @@ NOTE: $medium is a SCSS var; not a keyword
 :root {
     --primary: #{$primary};
     --primary-alt: #{$primary_alt};
+    --primary-hover: #{$primary_hover};
+    --primary-active: #{$primary_active};
+    --primary-bg-hover: #{$primary_bg_hover};
+    --primary-bg-active: #{$primary_bg_active};
     --success: #{$success};
     --danger: #{$danger};
     --warning: #{$warning};
     --bg-menu: #{$bg_menu};
     --bg-mid: #{$bg_mid};
+    --bg-side: #{$bg_side};
     --bg-navy: #{$bg_navy};
     --bg-charcoal: #{$bg_charcoal};
     --bg-bridge: #{$bg_bridge};
@@ -36,11 +41,13 @@ NOTE: $medium is a SCSS var; not a keyword
     --radius: #{$radius};
     // Used for graph series
     --blue: #{$blue_500};
+    --blue-light: #{$blue_300};
     --purple: #{$purple_500};
+    --indigo: #{$purple_700};
+    --purple-light: #{$purple_300};
     --salmon: #ff906e;
     --yellow: #ffc035;
     --green: #{$success};
-    --indigo: #{$purple_700};
     --cyan: #17a2b8;
     --pink: #e83e8c;
     --white: #f4f6ff;
@@ -52,10 +59,6 @@ NOTE: $medium is a SCSS var; not a keyword
     --lime: #bfef45;
     --apricot: #ffd8b1;
     --brown: #9a6324;
-    // Purple
-    --purple-700: #{$purple_700};
-    --purple-500: #{$purple_500};
-    --purple-300: #{$purple_300};
     // Lifecycle series
     --lifecycle-new: #{$lifecycle_new};
     --lifecycle-returning: #{$lifecycle_returning};
@@ -68,6 +71,13 @@ NOTE: $medium is a SCSS var; not a keyword
 }
 
 // Text styles
+
+body b,
+body strong {
+    // body is specified to increase specificity – otherwise Ant Design's "bolder" takes precedence over "600"
+    font-weight: 600;
+}
+
 .text-default {
     color: $text_default;
     font-size: 14px;
@@ -91,7 +101,7 @@ NOTE: $medium is a SCSS var; not a keyword
 }
 
 .page-title-row {
-    margin-top: 16px;
+    margin-top: 0.5rem;
 }
 
 .page-title {
@@ -104,7 +114,12 @@ NOTE: $medium is a SCSS var; not a keyword
 .page-caption {
     @extend .text-default;
     max-width: 640px;
-    margin-bottom: 32px;
+    &.tabbed {
+        margin-bottom: 16px;
+    }
+    &:not(.tabbed) {
+        margin-bottom: 32px;
+    }
 }
 
 .subtitle-row {
@@ -163,6 +178,19 @@ NOTE: $medium is a SCSS var; not a keyword
 
 .primary {
     color: $primary;
+}
+
+mark {
+    background-color: $mark_color !important;
+    border-radius: $radius;
+}
+
+// Supplement text, such as email under user name
+.supplement {
+    text-overflow: ellipsis;
+    overflow: hidden;
+    color: var(--muted-alt);
+    font-size: 0.8125rem;
 }
 
 code.code {
@@ -278,16 +306,21 @@ code.code {
     justify-content: space-between;
 }
 
-.main-app-content {
-    /* top | horizontal | bottom */
-    padding: 0px $default_spacing * 3 $default_spacing * 3;
+.flex-center {
+    display: flex;
+    align-items: center;
+}
 
-    @media (min-width: 480px) and (max-width: 639px) {
-        padding: $default_spacing $default_spacing * 2 !important;
+.main-app-content {
+    min-width: 0;
+    padding: 0 2rem 2rem;
+
+    @media (min-width: $sm) and (max-width: $lg) {
+        padding: 0 1rem 2rem;
     }
 
-    @media (max-width: 480px) {
-        padding: $default_spacing $default_spacing !important;
+    @media (max-width: $sm) {
+        padding: 0 1rem;
     }
 }
 
@@ -323,12 +356,23 @@ code.code {
     animation: highlight 2000ms ease-out;
 }
 
+// Highlight background blink
 @keyframes highlight {
     0% {
         background-color: $yellow_50;
     }
     100% {
         background-color: initial;
+    }
+}
+
+// Generic 360 spin
+@keyframes spin {
+    0% {
+        transform: rotateZ(0deg);
+    }
+    100% {
+        transform: rotateZ(360deg);
     }
 }
 
@@ -720,4 +764,18 @@ code.code {
 }
 .fullscreen-scroll {
     overflow-y: auto;
+}
+
+// AntD overrrides, placed inside #root to increase specifity (nicely avoiding the need for !important)
+#root {
+    // AntD uses its own border color for the bottom of tab lists, but we want to use `var(--border)`
+    .ant-tabs-top,
+    .ant-tabs-bottom {
+        &,
+        & > div {
+            & > .ant-tabs-nav::before {
+                border-bottom-color: var(--border);
+            }
+        }
+    }
 }

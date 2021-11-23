@@ -2,12 +2,13 @@ import { kea } from 'kea'
 import { errorToast, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import dayjs from 'dayjs'
 import { eventsTableLogicType } from './eventsTableLogicType'
 import { FixedFilters } from 'scenes/events/EventsTable'
 import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter } from '~/types'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { teamLogic } from '../teamLogic'
+import { urls } from 'scenes/urls'
+import { dayjs } from 'lib/dayjs'
 
 const POLL_TIMEOUT = 5000
 
@@ -37,6 +38,7 @@ const formatEvents = (events: EventType[], newEvents: EventType[]): EventsTableR
 export interface EventsTableLogicProps {
     fixedFilters?: FixedFilters
     key?: string
+    sceneUrl: string
 }
 
 export interface OnFetchEventsSuccess {
@@ -53,18 +55,23 @@ export interface ApiError {
 }
 
 export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess>>({
+    path: (key) => ['scenes', 'events', 'eventsTableLogic', key],
     props: {} as EventsTableLogicProps,
     // Set a unique key based on the fixed filters.
     // This way if we move back/forward between /events and /person/ID, the logic is reloaded.
     key: (props) =>
-        [props.fixedFilters ? JSON.stringify(props.fixedFilters) : 'all', props.key]
+        [props.fixedFilters ? JSON.stringify(props.fixedFilters) : 'all', props.key, props.sceneUrl]
             .filter((keyPart) => !!keyPart)
             .join('-'),
     connect: {
         values: [teamLogic, ['currentTeamId']],
     },
     actions: {
-        setProperties: (properties: AnyPropertyFilter[] | AnyPropertyFilter): { properties: AnyPropertyFilter[] } => {
+        setProperties: (
+            properties: AnyPropertyFilter[] | AnyPropertyFilter
+        ): {
+            properties: AnyPropertyFilter[]
+        } => {
             // there seem to be multiple representations of "empty" properties
             // the page does not work with some of those representations
             // this action normalises them
@@ -94,10 +101,8 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         noop: (s) => s,
     },
 
-    reducers: {
-        // save the pathname that was used when this logic was mounted
-        // we use it to NOT update the filters when the user moves away from this path, yet the scene is still active
-        initialPathname: [(state: string) => router.selectors.location(state).pathname, { noop: (_, s) => s }],
+    reducers: ({ props }) => ({
+        sceneIsEventsPage: [props.sceneUrl ? props.sceneUrl === urls.events() : false, {}],
         properties: [
             [] as PropertyFilter[],
             {
@@ -181,7 +186,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 toggleAutomaticLoad: (_, { automaticLoadEnabled }) => automaticLoadEnabled,
             },
         ],
-    },
+    }),
 
     selectors: ({ selectors, props }) => ({
         eventsFormatted: [
@@ -198,15 +203,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                     orderBy: [orderBy],
                 })}`,
         ],
-    }),
-
-    events: ({ values }) => ({
-        // No afterMount necessary because actionToUrl will call
-        beforeUnmount: () => {
-            if (values.pollTimeout !== null) {
-                clearTimeout(values.pollTimeout)
-            }
-        },
     }),
 
     actionToUrl: ({ values }) => ({
@@ -245,19 +241,8 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         },
     }),
 
-    urlToAction: ({ actions, values }) => ({
-        '*': (_, searchParams) => {
-            try {
-                // if the url changed, but we are not anymore on the page we were at when the logic was mounted
-                if (router.values.location.pathname !== values.initialPathname) {
-                    return
-                }
-            } catch (error) {
-                // since this is a catch-all route, this code might run during or after the logic was unmounted
-                // if we have an error accessing the filter value, the logic is gone and we should return
-                return
-            }
-
+    urlToAction: ({ actions, values, props }) => ({
+        [props.sceneUrl]: (_: Record<string, any>, searchParams: Record<string, any>): void => {
             actions.setProperties(searchParams.properties || values.properties || {})
 
             if (searchParams.autoload) {
@@ -268,6 +253,10 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 actions.setEventFilter(searchParams.eventFilter)
             }
         },
+    }),
+
+    events: ({ values }) => ({
+        beforeUnmount: () => clearTimeout(values.pollTimeout || undefined),
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -329,6 +318,10 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         pollEvents: async (_, breakpoint) => {
             // Poll events when they are ordered in ascending order based on timestamp
             if (values.orderBy !== '-timestamp') {
+                return
+            }
+            // Do not poll if the scene is in the background
+            if (props.sceneUrl !== router.values.location.pathname) {
                 return
             }
 

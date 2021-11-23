@@ -13,8 +13,6 @@ import { EllipsisOutlined, SaveOutlined } from '@ant-design/icons'
 import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { usePrevious } from 'lib/hooks/usePrevious'
-import dayjs from 'dayjs'
-import relativeTime from 'dayjs/plugin/relativeTime'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { SaveModal } from 'scenes/insights/SaveModal'
@@ -24,7 +22,7 @@ import {
     DashboardMode,
     DashboardType,
     ChartDisplayType,
-    ViewType,
+    InsightType,
     FilterType,
     InsightLogicProps,
 } from '~/types'
@@ -33,11 +31,11 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { Tooltip } from 'lib/components/Tooltip'
 import {
-    ErrorMessage,
-    FunnelEmptyState,
-    FunnelInvalidExclusionFiltersEmptyState,
-    FunnelInvalidFiltersEmptyState,
-    TimeOut,
+    InsightEmptyState,
+    FunnelInvalidExclusionState,
+    FunnelSingleStepState,
+    InsightErrorState,
+    InsightTimeoutState,
 } from 'scenes/insights/EmptyStates'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -46,8 +44,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LinkButton } from 'lib/components/LinkButton'
 import { DiveIcon } from 'lib/components/icons'
 import { teamLogic } from '../teamLogic'
-
-dayjs.extend(relativeTime)
+import { dayjs } from 'lib/dayjs'
 
 interface Props {
     item: DashboardItemType
@@ -131,7 +128,7 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
             return combineUrl(
                 `/insights`,
-                { insight: ViewType.FUNNELS, ...filters },
+                { insight: InsightType.FUNNELS, ...filters },
                 { fromItem: id, fromItemName: name, fromDashboard: dashboard }
             ).url
         },
@@ -143,7 +140,7 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
             return combineUrl(
                 `/insights`,
-                { insight: ViewType.RETENTION, ...filters },
+                { insight: InsightType.RETENTION, ...filters },
                 { fromItem: id, fromItemName: name, fromDashboard: dashboard }
             ).url
         },
@@ -155,7 +152,7 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
             return combineUrl(
                 `/insights`,
-                { insight: ViewType.PATHS, ...filters },
+                { insight: InsightType.PATHS, ...filters },
                 { fromItem: id, fromItemName: name, fromDashboard: dashboard }
             ).url
         },
@@ -164,11 +161,11 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
 
 export function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
     return (
-        filters.insight === ViewType.RETENTION
+        filters.insight === InsightType.RETENTION
             ? 'RetentionContainer'
-            : filters.insight === ViewType.PATHS
+            : filters.insight === InsightType.PATHS
             ? 'PathsViz'
-            : filters.insight === ViewType.FUNNELS
+            : filters.insight === InsightType.FUNNELS
             ? 'FunnelViz'
             : filters.display || 'ActionsLineGraph'
     ) as DisplayedType
@@ -210,15 +207,15 @@ export function DashboardItem({
     const _type = getDisplayedType(item.filters)
 
     const insightTypeDisplayName =
-        item.filters.insight === ViewType.RETENTION
+        item.filters.insight === InsightType.RETENTION
             ? 'Retention'
-            : item.filters.insight === ViewType.PATHS
+            : item.filters.insight === InsightType.PATHS
             ? 'Paths'
-            : item.filters.insight === ViewType.FUNNELS
+            : item.filters.insight === InsightType.FUNNELS
             ? 'Funnel'
-            : item.filters.insight === ViewType.SESSIONS
+            : item.filters.insight === InsightType.SESSIONS
             ? 'Sessions'
-            : item.filters.insight === ViewType.STICKINESS
+            : item.filters.insight === InsightType.STICKINESS
             ? 'Stickiness'
             : 'Trends'
 
@@ -255,37 +252,33 @@ export function DashboardItem({
     const diveDashboard = item.dive_dashboard ? getDashboard(item.dive_dashboard) : null
 
     // if a load is performed and returns that is not the initial load, we refresh dashboard item to update timestamp
-    useEffect(
-        () => {
-            if (previousLoading && !insightLoading && !initialLoaded) {
-                setInitialLoaded(true)
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [insightLoading]
-    )
+    useEffect(() => {
+        if (previousLoading && !insightLoading && !initialLoaded) {
+            setInitialLoaded(true)
+        }
+    }, [insightLoading])
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
         // Insight specific empty states - note order is important here
-        if (item.filters.insight === ViewType.FUNNELS) {
+        if (item.filters.insight === InsightType.FUNNELS) {
             if (!areFiltersValid) {
-                return <FunnelInvalidFiltersEmptyState />
+                return <FunnelSingleStepState />
             }
             if (!areExclusionFiltersValid) {
-                return <FunnelInvalidExclusionFiltersEmptyState />
+                return <FunnelInvalidExclusionState />
             }
             if (!isValidFunnel && !(insightLoading || isLoading)) {
-                return <FunnelEmptyState />
+                return <InsightEmptyState />
             }
         }
 
         // Insight agnostic empty states
         if (showErrorMessage) {
-            return <ErrorMessage />
+            return <InsightErrorState />
         }
         if (showTimeoutMessage) {
-            return <TimeOut isLoading={isLoading} />
+            return <InsightTimeoutState isLoading={isLoading} />
         }
 
         return null
@@ -307,7 +300,7 @@ export function DashboardItem({
             } ph-no-capture`}
             {...longPressProps}
             data-attr={'dashboard-item-' + index}
-            style={{ border: isHighlighted ? '2px solid var(--primary)' : undefined, opacity: isReloading ? 0.5 : 1 }}
+            style={{ border: isHighlighted ? '1px solid var(--primary)' : undefined, opacity: isReloading ? 0.5 : 1 }}
         >
             <div className={`dashboard-item-container ${className}`}>
                 <div className="dashboard-item-header" style={{ cursor: isOnEditMode ? 'move' : 'inherit' }}>

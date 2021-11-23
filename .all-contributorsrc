@@ -1680,6 +1680,69 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "Nishant-Sagar",
+      "name": "Nishant Sagar",
+      "avatar_url": "https://avatars.githubusercontent.com/u/66466895?v=4",
+      "profile": "https://github.com/Nishant-Sagar",
+      "contributions": [
+        "content"
+      ]
+    },
+    {
+      "login": "romj",
+      "name": "Jean Roman",
+      "avatar_url": "https://avatars.githubusercontent.com/u/44766458?v=4",
+      "profile": "https://github.com/romj",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "pixlwave",
+      "name": "Doug",
+      "avatar_url": "https://avatars.githubusercontent.com/u/6060466?v=4",
+      "profile": "https://pixlwave.uk/",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "chasovskiy",
+      "name": "chasovskiy",
+      "avatar_url": "https://avatars.githubusercontent.com/u/25323740?v=4",
+      "profile": "https://github.com/chasovskiy",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "hjweddie",
+      "name": "StackoverFrog",
+      "avatar_url": "https://avatars.githubusercontent.com/u/5867477?v=4",
+      "profile": "https://github.com/hjweddie",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "maxmue",
+      "name": "Maximilian Ferdinand Müller",
+      "avatar_url": "https://avatars.githubusercontent.com/u/4235114?v=4",
+      "profile": "https://github.com/maxmue",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "ajsharp",
+      "name": "Alex Sharp",
+      "avatar_url": "https://avatars.githubusercontent.com/u/12774?v=4",
+      "profile": "https://ajsharp.com",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

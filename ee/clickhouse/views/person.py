@@ -13,6 +13,8 @@ from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels import ClickhouseFunnelPersons, ClickhouseFunnelTrendsPersons
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationPersons
+from ee.clickhouse.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictPersons
+from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedPersons
 from ee.clickhouse.queries.paths import ClickhousePathsPersons
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
@@ -63,10 +65,18 @@ class ClickhousePersonViewSet(PersonViewSet):
             return {"result": ([], None, None)}
 
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
-        funnel_class: Callable = ClickhouseFunnelPersons
+
+        funnel_class: Callable
 
         if filter.funnel_viz_type == FunnelVizType.TRENDS:
             funnel_class = ClickhouseFunnelTrendsPersons
+        else:
+            if filter.funnel_order_type == "unordered":
+                funnel_class = ClickhouseFunnelUnorderedPersons
+            elif filter.funnel_order_type == "strict":
+                funnel_class = ClickhouseFunnelStrictPersons
+            else:
+                funnel_class = ClickhouseFunnelPersons
 
         people, should_paginate = funnel_class(filter, self.team).run()
         limit = filter.limit if filter.limit else 100
@@ -106,7 +116,8 @@ class ClickhousePersonViewSet(PersonViewSet):
             return {"result": ([], None, None)}
 
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
-        people, should_paginate = FunnelCorrelationPersons(filter=filter, team=self.team).run()
+        base_uri = request.build_absolute_uri("/")
+        people, should_paginate = FunnelCorrelationPersons(filter=filter, team=self.team, base_uri=base_uri).run()
 
         limit = filter.correlation_person_limit if filter.correlation_person_limit else 100
         next_url = (

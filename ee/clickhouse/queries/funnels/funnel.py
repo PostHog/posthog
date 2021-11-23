@@ -1,3 +1,4 @@
+import urllib.parse
 from typing import List, Tuple, cast
 
 from ee.clickhouse.queries.breakdown_props import get_breakdown_cohort_name
@@ -34,19 +35,10 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         breakdown_clause = self._get_breakdown_prop()
 
         return f"""
-        SELECT {self._get_count_columns(max_steps)} {self._get_people_columns(max_steps)} {self._get_step_time_avgs(max_steps)} {self._get_step_time_median(max_steps)} {breakdown_clause} FROM (
+        SELECT {self._get_count_columns(max_steps)} {self._get_step_time_avgs(max_steps)} {self._get_step_time_median(max_steps)} {breakdown_clause} FROM (
                 {self.get_step_counts_query()}
         ) {'GROUP BY prop' if breakdown_clause != '' else ''} SETTINGS allow_experimental_window_functions = 1
         """
-
-    def _get_people_columns(self, max_steps: int):
-        cols: List[str] = []
-
-        for i in range(max_steps):
-            cols.append(f"groupArrayIf(100)(DISTINCT person_id, steps = {i + 1}) step_people_{i + 1}")
-
-        formatted = ", ".join(cols)
-        return f", {formatted}" if formatted else ""
 
     def get_step_counts_query(self):
         steps_per_person_query = self.get_step_counts_without_aggregation_query()
@@ -55,11 +47,11 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         inner_timestamps, outer_timestamps = self._get_timestamp_selects()
 
         return f"""
-            SELECT person_id, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause} {outer_timestamps} FROM (
-                SELECT person_id, steps, max(steps) over (PARTITION BY person_id {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} {inner_timestamps} FROM (
+            SELECT aggregation_target, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause} {outer_timestamps} FROM (
+                SELECT aggregation_target, steps, max(steps) over (PARTITION BY aggregation_target {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} {inner_timestamps} FROM (
                         {steps_per_person_query}
                 )
-            ) GROUP BY person_id, steps {breakdown_clause}
+            ) GROUP BY aggregation_target, steps {breakdown_clause}
             HAVING steps = max_steps
             SETTINGS allow_experimental_window_functions = 1
         """
@@ -76,7 +68,6 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
     def _format_single_funnel(self, result, with_breakdown=False):
         # Format of this is [step order, person count (that reached that step), array of person uuids]
         steps = []
-        relevant_people = []
         total_people = 0
 
         num_entities = len(self._filter.entities)
@@ -85,18 +76,25 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
 
             if result and len(result) > 0:
                 total_people += result[step.order]
-                relevant_people += result[cast(int, step.order) + num_entities]
 
-            serialized_result = self._serialize_step(step, total_people, relevant_people[0:100])
+            serialized_result = self._serialize_step(step, total_people, [])  # persons not needed on initial return
             if cast(int, step.order) > 0:
+
                 serialized_result.update(
                     {
-                        "average_conversion_time": result[cast(int, step.order) + num_entities * 2 - 1],
-                        "median_conversion_time": result[cast(int, step.order) + num_entities * 3 - 2],
+                        "average_conversion_time": result[cast(int, step.order) + num_entities * 1 - 1],
+                        "median_conversion_time": result[cast(int, step.order) + num_entities * 2 - 2],
                     }
                 )
             else:
                 serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
+
+            # Construct converted and dropped people urls. Previously this logic was
+            # part of
+            # https://github.com/PostHog/posthog/blob/e8d7b2fe6047f5b31f704572cd3bebadddf50e0f/frontend/src/scenes/insights/InsightTabs/FunnelTab/FunnelStepTable.tsx#L483:L483
+            funnel_step = step.index + 1
+            converted_people_filter = self._filter.with_data({"funnel_step": funnel_step})
+            dropped_people_filter = self._filter.with_data({"funnel_step": -funnel_step})
 
             if with_breakdown:
                 # breakdown will return a display ready value
@@ -109,7 +107,26 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
                         "breakdown_value": result[-1],
                     }
                 )
-                # important to not try and modify this value any how - as these are keys for fetching persons
+                # important to not try and modify this value any how - as these
+                # are keys for fetching persons
+
+                # Add in the breakdown to people urls as well
+                converted_people_filter = converted_people_filter.with_data({"funnel_step_breakdown": result[-1]})
+                dropped_people_filter = dropped_people_filter.with_data({"funnel_step_breakdown": result[-1]})
+
+            serialized_result.update(
+                {
+                    "converted_people_url": f"{self._base_uri}api/person/funnel/?{urllib.parse.urlencode(converted_people_filter.to_params())}",
+                    "dropped_people_url": (
+                        f"{self._base_uri}api/person/funnel/?{urllib.parse.urlencode(dropped_people_filter.to_params())}"
+                        # NOTE: If we are looking at the first step, there is no drop off,
+                        # everyone converted, otherwise they would not have been
+                        # included in the funnel.
+                        if step.index > 0
+                        else None
+                    ),
+                }
+            )
 
             steps.append(serialized_result)
 
@@ -173,7 +190,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         if level_index >= max_steps:
             return f"""
             SELECT
-            person_id,
+            aggregation_target,
             timestamp,
             {self._get_partition_cols(1, max_steps)}
             {self._get_breakdown_prop(group_remaining=True)}
@@ -182,13 +199,13 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         else:
             return f"""
             SELECT
-            person_id,
+            aggregation_target,
             timestamp,
             {self._get_partition_cols(level_index, max_steps)}
             {self._get_breakdown_prop()}
             FROM (
                 SELECT
-                person_id,
+                aggregation_target,
                 timestamp,
                 {self.get_comparison_cols(level_index, max_steps)}
                 {self._get_breakdown_prop()}

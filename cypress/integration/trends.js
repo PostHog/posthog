@@ -12,13 +12,6 @@ describe('Trends', () => {
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
 
-    it('Insight History Panel Rendered', () => {
-        cy.get('.insights-page').should('exist')
-        cy.wait(500)
-        cy.get('[data-attr=insight-history-button]').click()
-        cy.get('[data-attr=insight-history-panel]').should('exist')
-    })
-
     it('Add a pageview action filter', () => {
         // when
         cy.contains('Add graph series').click()
@@ -107,7 +100,7 @@ describe('Trends', () => {
         cy.get('[data-attr=date-filter]').click()
         cy.contains('Last 30 days').click()
 
-        cy.get('[data-attr=trend-line-graph]').should('exist')
+        cy.get('[data-attr=trend-line-graph]', { timeout: 8000 }).should('exist')
     })
 
     it('Apply property breakdown', () => {
@@ -125,10 +118,9 @@ describe('Trends', () => {
 
     it('Save to dashboard', () => {
         cy.get('[data-attr=save-to-dashboard-button]').click()
-        cy.get('.ant-input').type('Home page views')
         cy.get('form > .ant-select > .ant-select-selector').click()
         cy.get(':nth-child(1) > .ant-select-item-option-content').click()
-        cy.contains('Add panel to dashboard').click()
+        cy.contains('Add insight to dashboard').click()
         cy.wait(300) // not ideal but toast has a delay render
         cy.get('[data-attr=success-toast]').should('exist')
     })

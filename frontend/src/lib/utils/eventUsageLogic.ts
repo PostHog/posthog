@@ -1,6 +1,6 @@
 /* This file contains the logic to report custom frontend events */
 import { kea } from 'kea'
-import { isPostHogProp, keyMapping } from 'lib/components/PropertyKeyInfo'
+import { isPostHogProp, keyMappingKeys } from 'lib/components/PropertyKeyInfo'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogicType } from './eventUsageLogicType'
@@ -14,19 +14,18 @@ import {
     GlobalHotKeys,
     EntityType,
     DashboardItemType,
-    ViewType,
     InsightType,
     PropertyFilter,
     HelpType,
     SessionPlayerData,
     AvailableFeature,
+    SessionRecordingUsageType,
+    FunnelCorrelation,
 } from '~/types'
 import { Dayjs } from 'dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { PersonModalParams } from 'scenes/trends/personsModalLogic'
+import type { PersonModalParams } from 'scenes/trends/personsModalLogic'
 import { EventIndex } from '@posthog/react-rrweb-player'
-
-const keyMappingKeys = Object.keys(keyMapping.event)
 
 export enum DashboardEventSource {
     LongPress = 'long_press',
@@ -69,7 +68,8 @@ interface RecordingViewedProps {
     delay: number // Not reported: Number of delayed **seconds** to report event (useful to measure insights where users don't navigate immediately away)
     load_time: number // How much time it took to load the session (backend) (milliseconds)
     duration: number // How long is the total recording (milliseconds)
-    start_time?: string // Start time of the session
+    start_time?: number // Start timestamp of the session
+    end_time?: number // End timestamp of the session
     page_change_events_length: number
     recording_width?: number
     user_is_identified?: boolean
@@ -145,7 +145,8 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
 export const eventUsageLogic = kea<
     eventUsageLogicType<DashboardEventSource, GraphSeriesAddedSource, RecordingWatchedSource>
 >({
-    connect: [preflightLogic],
+    path: ['lib', 'utils', 'eventUsageLogic'],
+    connect: () => [preflightLogic],
     actions: {
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
@@ -259,21 +260,37 @@ export const eventUsageLogic = kea<
         reportCreatedDashboardFromModal: true,
         reportSavedInsightToDashboard: true,
         reportInsightsTabReset: true,
-        reportInsightsControlsCollapseToggle: (collapsed: boolean) => ({ collapsed }),
         reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
         reportInsightShortUrlVisited: (valid: boolean, insight: InsightType | null) => ({ valid, insight }),
+        reportSavedInsightTabChanged: (tab: string) => ({ tab }),
+        reportSavedInsightFilterUsed: (filterKeys: string[]) => ({ filterKeys }),
+        reportSavedInsightLayoutChanged: (layout: string) => ({ layout }),
+        reportSavedInsightNewInsightClicked: (insightType: string) => ({ insightType }),
         reportPayGateShown: (identifier: AvailableFeature) => ({ identifier }),
         reportPayGateDismissed: (identifier: AvailableFeature) => ({ identifier }),
         reportPersonMerged: (merge_count: number) => ({ merge_count }),
         reportPersonSplit: (merge_count: number) => ({ merge_count }),
-        reportRecordingViewed: (
+        reportRecording: (
             recordingData: SessionPlayerData,
             source: RecordingWatchedSource,
             loadTime: number,
-            delay: number
-        ) => ({ recordingData, source, loadTime, delay }),
+            type: SessionRecordingUsageType,
+            delay?: number
+        ) => ({ recordingData, source, loadTime, type, delay }),
+        reportRecordingScrollTo: (rowIndex: number) => ({ rowIndex }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
+        reportCorrelationViewed: (filters: Partial<FilterType>, delay?: number, propertiesTable?: boolean) => ({
+            filters,
+            delay, // Number of delayed seconds to report event (useful to measure insights where users don't navigate immediately away)
+            propertiesTable,
+        }),
+        reportCorrelationInteraction: (
+            correlationType: FunnelCorrelation['result_type'],
+            action: string,
+            props?: Record<string, any>
+        ) => ({ correlationType, action, props }),
+        reportRecordingEventsFetched: (numEvents: number, loadTime: number) => ({ numEvents, loadTime }),
         reportCorrelationAnalysisFeedback: (rating: number) => ({ rating }),
         reportCorrelationAnalysisDetailedFeedback: (rating: number, comments: string) => ({ rating, comments }),
     },
@@ -424,7 +441,7 @@ export const eventUsageLogic = kea<
             }
 
             for (const item of dashboard.items) {
-                const key = `${item.filters?.insight?.toLowerCase() || ViewType.TRENDS}_count`
+                const key = `${item.filters?.insight?.toLowerCase() || InsightType.TRENDS}_count`
                 if (!properties[key]) {
                     properties[key] = 1
                 } else {
@@ -607,27 +624,44 @@ export const eventUsageLogic = kea<
         reportInsightsTabReset: async () => {
             posthog.capture('insights tab reset')
         },
-        reportInsightsControlsCollapseToggle: async (payload) => {
-            posthog.capture('insight controls collapse toggled', payload)
-        },
         reportInsightsTableCalcToggled: async (payload) => {
             posthog.capture('insights table calc toggled', payload)
         },
         reportInsightShortUrlVisited: (props) => {
             posthog.capture('insight short url visited', props)
         },
-        reportRecordingViewed: ({ recordingData, source, loadTime, delay }) => {
+        reportSavedInsightFilterUsed: ({ filterKeys }) => {
+            posthog.capture('saved insights list page filter used', { filter_keys: filterKeys })
+        },
+        reportSavedInsightTabChanged: ({ tab }) => {
+            posthog.capture('saved insights list page tab changed', { tab })
+        },
+        reportSavedInsightLayoutChanged: ({ layout }) => {
+            posthog.capture('saved insights list page layout changed', { layout })
+        },
+        reportSavedInsightNewInsightClicked: ({ insightType }) => {
+            posthog.capture('saved insights new insight clicked', { insight_type: insightType })
+        },
+        reportRecording: ({ recordingData, source, loadTime, type }) => {
+            // @ts-ignore
             const eventIndex = new EventIndex(recordingData?.snapshots || [])
             const payload: Partial<RecordingViewedProps> = {
                 load_time: loadTime,
                 duration: eventIndex.getDuration(),
-                start_time: recordingData?.start_time,
+                start_time: recordingData?.session_recording?.start_time,
+                end_time: recordingData?.session_recording?.end_time,
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingMetadata(0)[0]?.width,
                 user_is_identified: recordingData.person?.is_identified,
                 source: source,
             }
-            posthog.capture(`recording ${delay ? 'analyzed' : 'viewed'}`, payload)
+            posthog.capture(`recording ${type}`, payload)
+        },
+        reportRecordingEventsFetched: ({ numEvents, loadTime }) => {
+            posthog.capture(`recording events fetched`, { num_events: numEvents, load_time: loadTime })
+        },
+        reportRecordingScrollTo: ({ rowIndex }) => {
+            posthog.capture(`recording event list scrolled to row index ${rowIndex ?? -1}`)
         },
         reportPayGateShown: (props) => {
             posthog.capture('pay gate shown', props)
@@ -652,6 +686,19 @@ export const eventUsageLogic = kea<
         },
         reportCorrelationAnalysisDetailedFeedback: (props) => {
             posthog.capture('correlation analysis detailed feedback', props)
+        },
+        reportCorrelationInteraction: ({ correlationType, action, props }) => {
+            posthog.capture('correlation interaction', { correlation_type: correlationType, action, ...props })
+        },
+        reportCorrelationViewed: ({ delay, filters, propertiesTable }) => {
+            if (delay === 0) {
+                posthog.capture(`correlation${propertiesTable ? ' properties' : ''} viewed`, { filters })
+            } else {
+                posthog.capture(`correlation${propertiesTable ? ' properties' : ''} analyzed`, {
+                    filters,
+                    delay,
+                })
+            }
         },
     },
 })

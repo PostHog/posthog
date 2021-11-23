@@ -13,6 +13,7 @@ class AvailableFeature(str, Enum):
     DASHBOARD_COLLABORATION = "dashboard_collaboration"
     INGESTION_TAXONOMY = "ingestion_taxonomy"
     PATHS_ADVANCED = "paths_advanced"
+    CORRELATION_ANALYSIS = "correlation_analysis"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -85,10 +86,12 @@ SHOWN_AS = "shown_as"
 FILTER_TEST_ACCOUNTS = "filter_test_accounts"
 BREAKDOWN_TYPE = "breakdown_type"
 BREAKDOWN_VALUE = "breakdown_value"
+BREAKDOWN_GROUP_TYPE_INDEX = "breakdown_group_type_index"
 COMPARE = "compare"
 INSIGHT = "insight"
 SESSION = "session"
 BREAKDOWN = "breakdown"
+BREAKDOWNS = "breakdowns"
 BREAKDOWN_LIMIT = "breakdown_limit"
 FROM_DASHBOARD = "from_dashboard"
 PATH_TYPE = "path_type"
@@ -120,8 +123,11 @@ FUNNEL_LAYOUT = "layout"
 FUNNEL_ORDER_TYPE = "funnel_order_type"
 FUNNEL_VIZ_TYPE = "funnel_viz_type"
 FUNNEL_CORRELATION_TYPE = "funnel_correlation_type"
+# Funnel Correlation Properties
 FUNNEL_CORRELATION_NAMES = "funnel_correlation_names"
 FUNNEL_CORRELATION_EXCLUDE_NAMES = "funnel_correlation_exclude_names"
+FUNNEL_CORRELATION_PROPERTY_VALUES = "funnel_correlation_property_values"
+# Funnel Correlation Events
 FUNNEL_CORRELATION_EVENT_NAMES = "funnel_correlation_event_names"
 FUNNEL_CORRELATION_EXCLUDE_EVENT_NAMES = "funnel_correlation_exclude_event_names"
 FUNNEL_CORRELATION_EVENT_EXCLUDE_PROPERTY_NAMES = "funnel_correlation_event_exclude_property_names"
@@ -148,6 +154,7 @@ PATH_DROPOFF_KEY = "path_dropoff_key"
 PATH_EDGE_LIMIT = "edge_limit"
 PATH_MIN_EDGE_WEIGHT = "min_edge_weight"
 PATH_MAX_EDGE_WEIGHT = "max_edge_weight"
+AGGREGATION_GROUP_TYPE_INDEX = "aggregation_group_type_index"
 
 
 class FunnelOrderType(str, Enum):

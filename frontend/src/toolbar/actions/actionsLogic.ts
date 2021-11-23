@@ -1,11 +1,12 @@
 import { kea } from 'kea'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { encodeParams } from 'kea-router'
 import { actionsLogicType } from './actionsLogicType'
 import { ActionType } from '~/types'
 import Fuse from 'fuse.js'
+import { toolbarFetch } from '~/toolbar/utils'
 
 export const actionsLogic = kea<actionsLogicType>({
+    path: ['toolbar', 'actions', 'actionsLogic'],
     actions: {
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     },
@@ -23,14 +24,7 @@ export const actionsLogic = kea<actionsLogicType>({
             {
                 // eslint-disable-next-line
                 getActions: async (_ = null, breakpoint: () => void) => {
-                    const params = {
-                        temporary_token: toolbarLogic.values.temporaryToken,
-                    }
-                    const url = `${toolbarLogic.values.apiURL}/api/projects/@current/actions/${encodeParams(
-                        params,
-                        '?'
-                    )}`
-                    const response = await fetch(url)
+                    const response = await toolbarFetch('/api/projects/@current/actions/')
                     const results = await response.json()
 
                     if (response.status === 403) {

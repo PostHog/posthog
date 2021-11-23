@@ -211,6 +211,7 @@ $funnel_canvas_background: #fafafa;
 
         .funnel-step {
             width: 30%;
+            min-width: 200px;
             display: flex;
             flex-direction: column;
 

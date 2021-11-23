@@ -51,10 +51,19 @@
         border: 1px solid $border;
         border-radius: 4px;
         padding: 8px;
-    }
 
-    .ant-tabs-nav-wrap {
-        border-bottom: 1px solid $border;
+        .icon-column {
+            width: 32px;
+            padding-right: 0;
+            svg {
+                display: block;
+            }
+        }
+        .options-column {
+            width: 24px;
+            padding-left: 0;
+            padding-right: 10px;
+        }
     }
 
     .ant-table-footer {
@@ -148,35 +157,25 @@
     }
 }
 
-.ant-dropdown-menu.saved-insights-menu {
-    max-width: 272px;
-    border: 1px solid var(--primary);
-    padding: 0;
+.new-insight-overlay {
+    max-width: 18rem;
+}
 
-    .ant-dropdown-menu-item {
-        margin: 6px;
-        padding: 6px;
-        border-radius: 2px;
-        &.ant-dropdown-menu-item-active {
-            background: hsla(220, 100%, 96%, 1);
+.insight-type-icon-dropdown {
+    vertical-align: middle;
+}
+.insight-type-icon-wrapper {
+    display: flex;
+    align-items: center;
+    .icon-container {
+        height: 22px;
+        width: 22px;
+        margin-right: 8px;
+        position: relative;
+        .icon-container-inner {
+            position: absolute;
+            top: -6px;
+            left: -5px;
         }
-        .ant-row.icon-menu {
-            flex-flow: row;
-            .ant-col:first-child {
-                min-width: 38px;
-            }
-        }
-    }
-    strong {
-        font-weight: 600;
-        display: block;
-    }
-    p {
-        white-space: break-spaces;
-        margin: 0;
-        color: var(--text_default);
-        font-size: 13px;
-        font-weight: 400;
-        line-height: 21px;
     }
 }

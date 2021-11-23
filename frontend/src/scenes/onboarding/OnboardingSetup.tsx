@@ -289,7 +289,7 @@ export function OnboardingSetup(): JSX.Element {
                     </Collapse>
                     <CreateProjectModal
                         isVisible={projectModalShown}
-                        setIsVisible={setProjectModalShown}
+                        onClose={() => setProjectModalShown(false)}
                         title="Set up your first project"
                         caption={
                             <div className="mb">

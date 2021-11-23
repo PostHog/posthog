@@ -35,7 +35,7 @@ import {
     ApiOutlined,
     DatabaseOutlined,
 } from '@ant-design/icons'
-import { DashboardType, ViewType } from '~/types'
+import { DashboardType, InsightType } from '~/types'
 import api from 'lib/api'
 import { copyToClipboard, isMobile, isURL, sample, uniqueBy } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
@@ -121,6 +121,7 @@ export const commandPaletteLogic = kea<
         RegExpCommandPairs
     >
 >({
+    path: ['lib', 'components', 'CommandPalette', 'commandPaletteLogic'],
     connect: {
         actions: [personalAPIKeysLogic, ['createKey']],
         values: [teamLogic, ['currentTeam'], userLogic, ['user']],
@@ -429,7 +430,7 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Trends',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightView(ViewType.TRENDS))
+                            push(urls.newInsight(InsightType.TRENDS))
                         },
                     },
                     {
@@ -437,7 +438,7 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Sessions',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightView(ViewType.SESSIONS))
+                            push(urls.newInsight(InsightType.SESSIONS))
                         },
                     },
                     {
@@ -445,7 +446,7 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Funnels',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightView(ViewType.FUNNELS))
+                            push(urls.newInsight(InsightType.FUNNELS))
                         },
                     },
                     {
@@ -453,15 +454,15 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Retention',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightView(ViewType.RETENTION))
+                            push(urls.newInsight(InsightType.RETENTION))
                         },
                     },
                     {
                         icon: InteractionOutlined,
-                        display: 'Go to User Paths',
+                        display: 'Go to Paths',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightView(ViewType.PATHS))
+                            push(urls.newInsight(InsightType.PATHS))
                         },
                     },
                     {
@@ -476,13 +477,6 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Actions',
                         executor: () => {
                             push(urls.actions())
-                        },
-                    },
-                    {
-                        icon: ClockCircleOutlined,
-                        display: 'Go to Live Sessions',
-                        executor: () => {
-                            push(urls.sessions())
                         },
                     },
                     {
@@ -517,7 +511,7 @@ export const commandPaletteLogic = kea<
                     },
                     {
                         icon: TeamOutlined,
-                        display: 'Go to Team Members',
+                        display: 'Go to Team members',
                         synonyms: ['organization', 'members', 'invites', 'teammates'],
                         executor: () => {
                             push(urls.organizationSettings())
@@ -525,14 +519,14 @@ export const commandPaletteLogic = kea<
                     },
                     {
                         icon: ProjectOutlined,
-                        display: 'Go to Project Settings',
+                        display: 'Go to Project settings',
                         executor: () => {
                             push(urls.projectSettings())
                         },
                     },
                     {
                         icon: SmileOutlined,
-                        display: 'Go to My Settings',
+                        display: 'Go to My settings',
                         synonyms: ['account'],
                         executor: () => {
                             push(urls.mySettings())
@@ -548,7 +542,7 @@ export const commandPaletteLogic = kea<
                     },
                     {
                         icon: DatabaseOutlined,
-                        display: 'Go to System Status Page',
+                        display: 'Go to System status page',
                         synonyms: ['redis', 'celery', 'django', 'postgres', 'backend', 'service', 'online'],
                         executor: () => {
                             push(urls.systemStatus())
@@ -556,14 +550,14 @@ export const commandPaletteLogic = kea<
                     },
                     {
                         icon: PlusOutlined,
-                        display: 'Create Action',
+                        display: 'Create action',
                         executor: () => {
                             push(urls.createAction())
                         },
                     },
                     {
                         icon: LogoutOutlined,
-                        display: 'Log Out',
+                        display: 'Log out',
                         executor: () => {
                             userLogic.actions.logout()
                         },
@@ -578,7 +572,7 @@ export const commandPaletteLogic = kea<
                     userLogic.values.user?.is_staff ||
                     userLogic.values.user?.is_impersonated ||
                     preflightLogic.values.preflight?.is_debug ||
-                    preflightLogic.values.preflight?.debug_queries
+                    preflightLogic.values.preflight?.instance_preferences?.debug_queries
                         ? {
                               icon: PlusOutlined,
                               display: 'Debug queries (ClickHouse)',

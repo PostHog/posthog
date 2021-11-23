@@ -7,7 +7,7 @@ SELECT {id_column} FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE {query}
 """
 
 CREATE_COHORTPEOPLE_TABLE_SQL = """
-CREATE TABLE cohortpeople ON CLUSTER {cluster}
+CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER {cluster}
 (
     person_id UUID,
     cohort_id Int64,
@@ -20,6 +20,7 @@ Order By (team_id, cohort_id, person_id)
     cluster=CLICKHOUSE_CLUSTER, engine=table_engine("cohortpeople", "sign", COLLAPSING_MERGE_TREE), storage_policy=""
 )
 
+TRUNCATE_COHORTPEOPLE_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS cohortpeople ON CLUSTER {CLICKHOUSE_CLUSTER}"
 DROP_COHORTPEOPLE_TABLE_SQL = f"DROP TABLE IF EXISTS cohortpeople ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
 REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL = """
@@ -34,6 +35,17 @@ AND
     (
         person.is_deleted = 1 OR NOT person_id IN ({cohort_filter})
     )
+"""
+
+GET_COHORT_SIZE_SQL = """
+SELECT count(*)
+FROM (
+    SELECT 1
+    FROM cohortpeople
+    WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
+    GROUP BY person_id, cohort_id, team_id
+    HAVING sum(sign) > 0
+)
 """
 
 INSERT_PEOPLE_MATCHING_COHORT_ID_SQL = """

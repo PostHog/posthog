@@ -4,16 +4,17 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { prompt } from 'lib/logic/prompt'
 import { router } from 'kea-router'
 import { toast } from 'react-toastify'
-import { clearDOMTextSelection, editingToast, toParams } from 'lib/utils'
+import { clearDOMTextSelection, editingToast, setPageTitle, toParams } from 'lib/utils'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { PATHS_VIZ, ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { DashboardItemType, DashboardLayoutSize, DashboardMode, DashboardType, FilterType, ViewType } from '~/types'
+import { DashboardItemType, DashboardLayoutSize, DashboardMode, DashboardType, FilterType, InsightType } from '~/types'
 import { dashboardLogicType } from './dashboardLogicType'
 import React from 'react'
 import { Layout, Layouts } from 'react-grid-layout'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from '../teamLogic'
+import { urls } from 'scenes/urls'
 
 export interface DashboardLogicProps {
     id?: number
@@ -24,6 +25,7 @@ export interface DashboardLogicProps {
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 
 export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
+    path: (key) => ['scenes', 'dashboard', 'dashboardLogic', key],
     connect: {
         values: [teamLogic, ['currentTeamId']],
         logic: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
@@ -69,10 +71,9 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         deleteTag: (tag: string) => ({ tag }),
         saveNewTag: (tag: string) => ({ tag }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
-        setRefreshStatus: (id: number, loading = false) => ({ id, loading }), // id represents dashboardItem id's
-        setRefreshStatuses: (ids: number[], loading = false) => ({ ids, loading }), // id represents dashboardItem id's
+        setRefreshStatus: (id: number, loading = false) => ({ id, loading }),
+        setRefreshStatuses: (ids: number[], loading = false) => ({ ids, loading }),
         setRefreshError: (id: number) => ({ id }),
-        setPageTitle: (title: string) => ({ title }),
     },
 
     loaders: ({ actions, props }) => ({
@@ -100,7 +101,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                               })}`
                         const dashboard = await api.get(apiUrl)
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
-                        actions.setPageTitle(dashboard.name ? `${dashboard.name} • Dashboard` : 'Dashboard')
+                        setPageTitle(dashboard.name ? `${dashboard.name} • Dashboard` : 'Dashboard')
                         eventUsageLogic.actions.reportDashboardViewed(dashboard, !!props.shareToken)
                         return dashboard
                     } catch (error) {
@@ -227,7 +228,14 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 setRefreshStatuses: (_, { ids, loading }) =>
                     Object.fromEntries(
                         ids.map((id) => [id, loading ? { loading: true } : { refreshed: true }])
-                    ) as Record<number, { loading?: boolean; refreshed?: boolean; error?: boolean }>,
+                    ) as Record<
+                        number,
+                        {
+                            loading?: boolean
+                            refreshed?: boolean
+                            error?: boolean
+                        }
+                    >,
                 setRefreshError: (state, { id }) => ({
                     ...state,
                     [id]: { error: true },
@@ -284,6 +292,10 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             () => [selectors.refreshStatus],
             (refreshStatus) => (id: number) => !!refreshStatus[id]?.loading,
         ],
+        highlightedInsightId: [
+            () => [router.selectors.searchParams],
+            (searchParams) => searchParams.highlightInsightId || searchParams.dive_source_id,
+        ],
         lastRefreshed: [
             () => [selectors.items],
             (items) => {
@@ -328,7 +340,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         ?.filter((i) => !i.deleted)
                         .map((item) => {
                             const isRetention =
-                                item.filters.insight === ViewType.RETENTION &&
+                                item.filters.insight === InsightType.RETENTION &&
                                 item.filters.display === ACTIONS_LINE_GRAPH_LINEAR
                             const defaultWidth = isRetention || item.filters.display === PATHS_VIZ ? 8 : 6
                             const defaultHeight = isRetention ? 8 : item.filters.display === PATHS_VIZ ? 12.5 : 5
@@ -532,7 +544,10 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                             filters: dashboardItem.filters,
                             cachedResults: refreshedDashboardItem.result,
                         })
-                        itemResultLogic.actions.setInsight({ ...dashboardItem, result: refreshedDashboardItem.result })
+                        itemResultLogic.actions.setInsight(
+                            { ...dashboardItem, result: refreshedDashboardItem.result },
+                            { fromPersistentApi: true }
+                        )
                     }
 
                     dashboardsModel.actions.updateDashboardItem(refreshedDashboardItem)
@@ -596,11 +611,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         },
         addGraph: () => {
             if (values.dashboard) {
-                router.actions.push(
-                    `/insights?insight=TRENDS#backTo=${encodeURIComponent(
-                        values.dashboard.name
-                    )}&backToURL=/dashboard/${values.dashboard.id}`
-                )
+                router.actions.push(urls.newInsight(InsightType.TRENDS))
             }
         },
         saveNewTag: ({ tag }) => {
@@ -634,9 +645,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     actions.refreshAllDashboardItems()
                 }, values.autoRefresh.interval * 1000)
             }
-        },
-        setPageTitle: ({ title }) => {
-            document.title = title ? `${title} • PostHog` : 'PostHog'
         },
         loadDashboardItemsSuccess: () => {
             // Initial load of actual data for dashboard items after general dashboard is fetched

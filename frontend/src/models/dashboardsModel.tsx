@@ -1,24 +1,24 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { delay, idToKey } from 'lib/utils'
+import { delay, idToKey, setPageTitle } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import { toast } from 'react-toastify'
 import { dashboardsModelType } from './dashboardsModelType'
 import { DashboardItemType, DashboardType } from '~/types'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { teamLogic } from '../scenes/teamLogic'
 
 export const dashboardsModel = kea<dashboardsModelType>({
+    path: ['models', 'dashboardsModel'],
     actions: () => ({
         delayedDeleteDashboard: (id: number) => ({ id }),
         setDiveSourceId: (id: number | null) => ({ id }),
         setLastDashboardId: (id: number) => ({ id }),
         // this is moved out of dashboardLogic, so that you can click "undo" on a item move when already
         // on another dashboard - both dashboards can listen to and share this event, even if one is not yet mounted
-        updateDashboardItem: (item: DashboardItemType) => ({ item }),
+        updateDashboardItem: (item: Partial<DashboardItemType>) => ({ item }),
         // a side effect on this action exists in dashboardLogic so that individual refresh statuses can be bubbled up
         // to dashboard items in dashboards
         updateDashboardRefreshStatus: (
@@ -95,7 +95,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
                         payload[updatedAttribute].length
                     )
                     if (updatedAttribute === 'name') {
-                        sceneLogic.actions.setPageTitle(response.name ? `${response.name} • Dashboard` : 'Dashboard')
+                        setPageTitle(response.name ? `${response.name} • Dashboard` : 'Dashboard')
                     }
                 }
                 return response
@@ -167,7 +167,10 @@ export const dashboardsModel = kea<dashboardsModelType>({
             },
             pinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             unpinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
-            duplicateDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
+            duplicateDashboardSuccess: (state, { dashboard }) => ({
+                ...state,
+                [dashboard.id]: { ...dashboard, _highlight: true },
+            }),
         },
         lastDashboardId: [
             null as null | number,

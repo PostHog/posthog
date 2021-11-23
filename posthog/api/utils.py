@@ -1,4 +1,6 @@
-from typing import Any, Optional, Tuple, Union
+import json
+from enum import Enum, auto
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from rest_framework import request, status
 from sentry_sdk import capture_exception
@@ -12,32 +14,59 @@ from posthog.models.user import User
 from posthog.utils import cors_response, is_clickhouse_enabled, load_data_from_request
 
 
+class PaginationMode(Enum):
+    next = auto()
+    previous = auto()
+
+
 def get_target_entity(request: request.Request) -> Entity:
-    entity_id = request.GET.get(ENTITY_ID)
+    entity_id: Optional[Union[int, str]] = request.GET.get(ENTITY_ID)
+    events = request.GET.get("events", "[]")
+    actions = request.GET.get("actions", "[]")
     entity_type = request.GET.get(ENTITY_TYPE)
     entity_math = request.GET.get(ENTITY_MATH, None)
 
-    if entity_id and entity_type:
+    if not entity_id:
+        raise ValueError("An entity id must be provided to determine an entity")
+
+    possible_entity = retrieve_entity_from(entity_id, json.loads(events), json.loads(actions))
+    if possible_entity:
+        return Entity(data=possible_entity)
+    elif entity_type:
         return Entity({"id": entity_id, "type": entity_type, "math": entity_math})
     else:
         raise ValueError("An entity must be provided for target entity to be determined")
 
 
-def format_next_url(request: request.Request, offset: int, page_size: int):
-    next_url = request.get_full_path()
-    if not next_url:
+def retrieve_entity_from(entity_id: Union[str, int], events: List[Dict], actions: List[Dict]) -> Optional[Dict]:
+    """
+    Retrieves the entity from the events and actions.
+    """
+    for event in events:
+        if event.get("id") == entity_id:
+            return event
+    for action in actions:
+        if action.get("id") == entity_id:
+            return action
+    return None
+
+
+def format_paginated_url(request: request.Request, offset: int, page_size: int, mode=PaginationMode.next):
+    result = request.get_full_path()
+    if not result:
         return None
 
-    new_offset = str(offset + page_size)
+    new_offset = offset - page_size if mode == PaginationMode.previous else offset + page_size
 
-    if "offset" in next_url:
-        next_url = next_url[1:]
-        next_url = next_url.replace(f"offset={str(offset)}", f"offset={new_offset}")
+    if new_offset < 0:
+        return None
+
+    if "offset" in result:
+        result = result[1:]
+        result = result.replace(f"offset={offset}", f"offset={new_offset}")
     else:
-        next_url = request.build_absolute_uri(
-            "{}{}offset={}".format(next_url, "&" if "?" in next_url else "?", offset + page_size)
-        )
-    return next_url
+        result = request.build_absolute_uri("{}{}offset={}".format(result, "&" if "?" in result else "?", new_offset))
+    return result
 
 
 def get_token(data, request) -> Optional[str]:

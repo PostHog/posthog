@@ -2,6 +2,8 @@ import datetime
 import json
 from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Union
 
+from posthog.models.property import Property
+
 if TYPE_CHECKING:
     from posthog.models.entity import Entity
 
@@ -21,6 +23,7 @@ from posthog.constants import (
     FUNNEL_CORRELATION_PERSON_ENTITY,
     FUNNEL_CORRELATION_PERSON_LIMIT,
     FUNNEL_CORRELATION_PERSON_OFFSET,
+    FUNNEL_CORRELATION_PROPERTY_VALUES,
     FUNNEL_CORRELATION_TYPE,
     FUNNEL_CUSTOM_STEPS,
     FUNNEL_FROM_STEP,
@@ -140,10 +143,11 @@ class FunnelPersonsStepMixin(BaseParamMixin):
         Specifies the step index within a funnel entities definition for which
         we want to get the `timestamp` for, per person.
         """
-        _step = int(self._data.get(FUNNEL_STEP, "0"))
-        if _step == 0:
+        _step_as_string = self._data.get(FUNNEL_STEP)
+
+        if _step_as_string is None:
             return None
-        return _step
+        return int(_step_as_string)
 
     @cached_property
     def funnel_custom_steps(self) -> List[int]:
@@ -159,7 +163,7 @@ class FunnelPersonsStepMixin(BaseParamMixin):
     @include_dict
     def funnel_step_to_dict(self):
         result: dict = {}
-        if self.funnel_step:
+        if self.funnel_step is not None:
             result[FUNNEL_STEP] = self.funnel_step
         if self.funnel_custom_steps:
             result[FUNNEL_CUSTOM_STEPS] = self.funnel_custom_steps
@@ -168,11 +172,25 @@ class FunnelPersonsStepMixin(BaseParamMixin):
 
 class FunnelPersonsStepBreakdownMixin(BaseParamMixin):
     @cached_property
-    def funnel_step_breakdown(self) -> Optional[Union[str, int]]:
+    def funnel_step_breakdown(self) -> Optional[Union[List[str], int, str]]:
         """
         The breakdown value for which to get persons for.
+
+        For person and event properties as this value is set within the funnel it is always an array.
+        Until multi property breakdowns is released it is always a single value array
+
+        for groups it is always a string
+
+        for cohorts it is always an int
         """
-        return self._data.get(FUNNEL_STEP_BREAKDOWN)
+        raw: Optional[str] = self._data.get(FUNNEL_STEP_BREAKDOWN)
+        if not raw:
+            return raw
+
+        try:
+            return json.loads(raw)
+        except (TypeError, json.decoder.JSONDecodeError):
+            return raw
 
     @include_dict
     def funnel_person_breakdown_to_dict(self):
@@ -322,6 +340,7 @@ class FunnelCorrelationMixin(BaseParamMixin):
 class FunnelCorrelationPersonsMixin(BaseParamMixin):
     @cached_property
     def correlation_person_entity(self) -> Optional["Entity"]:
+        # Used for event & event_with_properties correlations persons
         from posthog.models.entity import Entity
 
         raw_event = self._data.get(FUNNEL_CORRELATION_PERSON_ENTITY)
@@ -331,6 +350,37 @@ class FunnelCorrelationPersonsMixin(BaseParamMixin):
             event = raw_event
 
         return Entity(event) if event else None
+
+    @cached_property
+    def correlation_property_values(self) -> Optional[List[Property]]:
+        # Used for property correlations persons
+
+        _props = self._data.get(FUNNEL_CORRELATION_PROPERTY_VALUES)
+
+        if not _props:
+            return None
+
+        if isinstance(_props, str):
+            try:
+                loaded_props = json.loads(_props)
+            except json.decoder.JSONDecodeError:
+                raise ValidationError("Properties are unparsable!")
+        else:
+            loaded_props = _props
+
+        if isinstance(loaded_props, list):
+            _properties = []
+            for prop_params in loaded_props:
+                if isinstance(prop_params, Property):
+                    _properties.append(prop_params)
+                else:
+                    try:
+                        new_prop = Property(**prop_params)
+                        _properties.append(new_prop)
+                    except:
+                        continue
+            return _properties
+        return None
 
     @cached_property
     def correlation_person_limit(self) -> int:
@@ -356,6 +406,10 @@ class FunnelCorrelationPersonsMixin(BaseParamMixin):
         result_dict: Dict = {}
         if self.correlation_person_entity:
             result_dict[FUNNEL_CORRELATION_PERSON_ENTITY] = self.correlation_person_entity.to_dict()
+        if self.correlation_property_values:
+            result_dict[FUNNEL_CORRELATION_PROPERTY_VALUES] = [
+                prop.to_dict() for prop in self.correlation_property_values
+            ]
         if self.correlation_person_limit:
             result_dict[FUNNEL_CORRELATION_PERSON_LIMIT] = self.correlation_person_limit
         if self.correlation_person_offset:

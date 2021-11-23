@@ -142,3 +142,14 @@ class TestTeamAPI(APIBaseTest):
         self.assertNotEqual(response_data["api_token"], "xyz")
         self.assertEqual(response_data["api_token"], self.team.api_token)
         self.assertTrue(response_data["api_token"].startswith("phc_"))
+
+
+def create_team(organization: Organization, name: str = "Test team") -> Team:
+    """
+    This is a helper that just creates a team. It currently uses the orm, but we
+    could use either the api, or django admin to create, to get better parity
+    with real world  scenarios.
+    """
+    return Team.objects.create(
+        organization=organization, name=name, ingested_event=True, completed_snippet_onboarding=True, is_demo=True,
+    )

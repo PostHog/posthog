@@ -19,7 +19,7 @@ RUN apk --update --no-cache add \
     "bash~=5.1" \
     "g++~=10.3" \
     "gcc~=10.3" \
-    "libpq~=13.4" \
+    "libpq~=13" \
     "libxml2-dev~=2.9" \
     "libxslt~=1.1" \
     "libxslt-dev~=1.1" \
@@ -62,13 +62,13 @@ RUN apk --update --no-cache --virtual .build-deps add \
 # - we need few additional OS packages for this. Let's install
 #   and then uninstall them when the compilation is completed.
 COPY package.json yarn.lock ./
-COPY plugins/package.json plugins/yarn.lock ./plugins/
+COPY ./plugin-server/ ./plugin-server/
 RUN apk --update --no-cache --virtual .build-deps add \
     "gcc~=10.3" \
     && \
     yarn config set network-timeout 300000 && \
     yarn install --frozen-lockfile && \
-    yarn install --frozen-lockfile --cwd plugins && \
+    yarn install --frozen-lockfile --cwd plugin-server && \
     yarn cache clean \
     && \
     apk del .build-deps

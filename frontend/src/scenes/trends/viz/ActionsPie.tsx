@@ -15,12 +15,13 @@ export function ActionsPie({
     filters: filtersParam,
     color = 'white',
     inSharedMode,
+    showPersonsModal = true,
 }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<Record<string, any>[] | null>(null)
     const [total, setTotal] = useState(0)
     const { insightProps } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
-    const { loadPeople } = useActions(personsModalLogic)
+    const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
     const { results } = useValues(logic)
 
     function updateData(): void {
@@ -36,6 +37,7 @@ export function ActionsPie({
                 data: _data.map((item) => item.aggregated_value),
                 actions: _data.map((item) => item.action),
                 breakdownValues: _data.map((item) => item.breakdown_value),
+                persons: _data.map((item) => item.persons),
                 days,
                 backgroundColor: colorList,
                 hoverBackgroundColor: colorList,
@@ -48,15 +50,11 @@ export function ActionsPie({
         setTotal(_data.reduce((prev, item) => prev + item.aggregated_value, 0))
     }
 
-    useEffect(
-        () => {
-            if (results) {
-                updateData()
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [results, color]
-    )
+    useEffect(() => {
+        if (results) {
+            updateData()
+        }
+    }, [results, color])
 
     return data ? (
         data[0] && data[0].labels ? (
@@ -70,17 +68,36 @@ export function ActionsPie({
                         labels={data[0].labels}
                         inSharedMode={inSharedMode}
                         dashboardItemId={dashboardItemId}
-                        onClick={(point) => {
-                            const { dataset } = point
-                            const action = dataset.actions[point.index]
-                            const label = dataset.labels[point.index]
-                            const date_from = dataset.days[0]
-                            const date_to = dataset.days[dataset.days.length - 1]
-                            const breakdown_value = dataset.breakdownValues[point.index]
-                                ? dataset.breakdownValues[point.index]
-                                : null
-                            loadPeople({ action, label, date_from, date_to, filters: filtersParam, breakdown_value })
-                        }}
+                        onClick={
+                            dashboardItemId || filtersParam.formula || !showPersonsModal
+                                ? null
+                                : (point) => {
+                                      const { dataset, index } = point
+                                      const action = dataset.actions[point.index]
+                                      const label = dataset.labels[point.index]
+                                      const date_from = filtersParam.date_from || ''
+                                      const date_to = filtersParam.date_to || ''
+                                      const breakdown_value = dataset.breakdownValues[point.index]
+                                          ? dataset.breakdownValues[point.index]
+                                          : null
+                                      const params = {
+                                          action,
+                                          label,
+                                          date_from,
+                                          date_to,
+                                          filters: filtersParam,
+                                          breakdown_value,
+                                      }
+                                      if (dataset.persons_urls?.[index].url) {
+                                          loadPeopleFromUrl({
+                                              ...params,
+                                              url: dataset.persons_urls?.[index].url,
+                                          })
+                                      } else {
+                                          loadPeople(params)
+                                      }
+                                  }
+                        }
                     />
                 </div>
                 <h1>

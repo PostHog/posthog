@@ -8,6 +8,7 @@
     margin-top: $default_spacing;
     cursor: pointer;
     position: relative;
+    background: $bg_light;
 
     h3 {
         font-weight: $medium;
@@ -18,5 +19,6 @@
         top: 16px;
         right: 16px;
         color: $text_muted;
+        z-index: $z_raised;
     }
 }

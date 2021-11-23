@@ -2,20 +2,20 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import { CohortNameInput } from './CohortNameInput'
 import { CohortDescriptionInput } from './CohortDescriptionInput'
-import { Button, Col, Divider, Row, Spin } from 'antd'
+import { Button, Col, Divider, Row, Tooltip } from 'antd'
 import { CohortMatchingCriteriaSection } from './CohortMatchingCriteriaSection'
 import { AvailableFeature, CohortType } from '~/types'
 import { COHORT_DYNAMIC, COHORT_STATIC } from 'lib/constants'
-import { InboxOutlined, SaveOutlined, LoadingOutlined } from '@ant-design/icons'
+import { InboxOutlined, SaveOutlined, CalculatorOutlined, OrderedListOutlined } from '@ant-design/icons'
 import Dragger from 'antd/lib/upload/Dragger'
 import { CohortDetailsRow } from './CohortDetailsRow'
 import { Persons } from 'scenes/persons/Persons'
 import { cohortLogic } from './cohortLogic'
 import { UploadFile } from 'antd/lib/upload/interface'
-import { CalculatorOutlined, OrderedListOutlined } from '@ant-design/icons'
 import { DropdownSelector } from 'lib/components/DropdownSelector/DropdownSelector'
-import { Tooltip } from 'antd'
 import { userLogic } from 'scenes/userLogic'
+import 'antd/lib/dropdown/style/index.css'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 
 export function Cohort(props: { cohort: CohortType }): JSX.Element {
     const logic = cohortLogic(props)
@@ -143,9 +143,10 @@ export function Cohort(props: { cohort: CohortType }): JSX.Element {
                         <h3 className="l3">Matched Users</h3>
                         <span>List of users that currently match the criteria defined</span>
                         {cohort.is_calculating ? (
-                            <div className="cohort-recalculating">
-                                <Spin indicator={<LoadingOutlined style={{ fontSize: 24 }} spin />} /> We're
-                                recalculating who belongs to this cohort. This could take up to a couple of minutes.
+                            <div className="cohort-recalculating flex-center">
+                                <Spinner size="sm" style={{ marginRight: 4 }} />
+                                We're recalculating who belongs to this cohort. This could take up to a couple of
+                                minutes.
                             </div>
                         ) : (
                             <div style={{ marginTop: 15 }}>

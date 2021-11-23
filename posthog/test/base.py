@@ -126,8 +126,6 @@ class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
     Read more: https://docs.djangoproject.com/en/3.1/topics/testing/tools/#testcase
     """
 
-    pass
-
 
 class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
     """
@@ -139,6 +137,19 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
         if self.CONFIG_AUTO_LOGIN and self.user:
             self.client.force_login(self.user)
 
+    def assertEntityResponseEqual(self, response1, response2, remove=("action", "label", "persons_urls", "filter")):
+        stripped_response1 = stripResponse(response1, remove=remove)
+        stripped_response2 = stripResponse(response2, remove=remove)
+        self.assertDictEqual(stripped_response1[0], stripped_response2[0])
+
+
+def stripResponse(response, remove=("action", "label", "persons_urls", "filter")):
+    if len(response):
+        for attr in remove:
+            if attr in response[0]:
+                response[0].pop(attr)
+    return response
+
 
 def test_with_materialized_columns(event_properties=[], person_properties=[], verify_no_jsonextract=True):
     """
@@ -148,7 +159,8 @@ def test_with_materialized_columns(event_properties=[], person_properties=[], ve
     """
 
     try:
-        from ee.clickhouse.materialized_columns import materialize
+        from ee.clickhouse.client import sync_execute
+        from ee.clickhouse.materialized_columns import get_materialized_columns, materialize
     except:
         # EE not available? Just run the main test
         return lambda fn: fn
@@ -165,13 +177,20 @@ def test_with_materialized_columns(event_properties=[], person_properties=[], ve
             for prop in person_properties:
                 materialize("person", prop)
 
-            with self.capture_select_queries() as sqls:
-                fn(self, *args, **kwargs)
+            try:
+                with self.capture_select_queries() as sqls:
+                    fn(self, *args, **kwargs)
+            finally:
+                for prop in event_properties:
+                    column_name = get_materialized_columns("events")[prop]
+                    sync_execute(f"ALTER TABLE events DROP COLUMN {column_name}")
+                for prop in person_properties:
+                    column_name = get_materialized_columns("person")[prop]
+                    sync_execute(f"ALTER TABLE person DROP COLUMN {column_name}")
 
             if verify_no_jsonextract:
                 for sql in sqls:
-                    self.assertNotIn("JSONExtract", sql)
-                    self.assertNotIn("properties", sql)
+                    self.assertNotIn("JSONExtract(properties", sql)
 
         # To add the test, we inspect the frame this function was called in and add the test there
         frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore

@@ -1,5 +1,6 @@
 from typing import Any, Dict, Tuple
 
+from ee.clickhouse.models.group import get_aggregation_target_field
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 
@@ -16,12 +17,17 @@ class FunnelEventQuery(ClickhouseEventQuery):
                 if self._column_optimizer.should_query_elements_chain_column
                 else ""
             ),
-            f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "",
+            f"{get_aggregation_target_field(self._filter.aggregation_group_type_index, self.EVENT_TABLE_ALIAS, self.DISTINCT_ID_TABLE_ALIAS)} as aggregation_target",
         ]
 
         _fields.extend(
             f"{self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}"
             for column_name in self._column_optimizer.event_columns_to_query
+        )
+
+        _fields.extend(
+            f"groups_{group_index}.group_properties_{group_index} as group_properties_{group_index}"
+            for group_index in self._column_optimizer.group_types_to_query
         )
 
         if self._should_join_persons:
@@ -49,10 +55,14 @@ class FunnelEventQuery(ClickhouseEventQuery):
         person_query, person_params = self._get_person_query()
         self.params.update(person_params)
 
+        groups_query, groups_params = self._get_groups_query()
+        self.params.update(groups_params)
+
         query = f"""
             SELECT {', '.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
-            {self._get_disintct_id_query()}
+            {self._get_distinct_id_query()}
             {person_query}
+            {groups_query}
             WHERE team_id = %(team_id)s
             {entity_query}
             {date_query}
@@ -76,4 +86,4 @@ class FunnelEventQuery(ClickhouseEventQuery):
             else:
                 events.add(entity.id)
 
-        return f"AND event IN %({entity_name})s", {entity_name: list(events)}
+        return f"AND event IN %({entity_name})s", {entity_name: sorted(list(events))}

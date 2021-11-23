@@ -1,10 +1,14 @@
 import { MutableRefObject as ReactMutableRefObject } from 'react'
 import { kea } from 'kea'
 import { seekbarLogicType } from './seekbarLogicType'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import {
+    getZeroOffsetTime,
+    sessionRecordingPlayerLogic,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { clamp } from 'lib/utils'
 import { playerMetaData } from 'rrweb/typings/types'
-import { SessionPlayerTime } from '~/types'
+import { EventType, RecordingEventType, SessionPlayerTime } from '~/types'
 import {
     convertValueToX,
     convertXToValue,
@@ -13,12 +17,17 @@ import {
     ReactInteractEvent,
     THUMB_OFFSET,
     THUMB_SIZE,
-    TOUCH_ENABLED,
 } from 'scenes/session-recordings/player/seekbarUtils'
 
 export const seekbarLogic = kea<seekbarLogicType>({
+    path: ['scenes', 'session-recordings', 'player', 'seekbarLogic'],
     connect: {
-        values: [sessionRecordingPlayerLogic, ['meta', 'zeroOffsetTime', 'time']],
+        values: [
+            sessionRecordingPlayerLogic,
+            ['meta', 'zeroOffsetTime', 'time'],
+            sessionRecordingLogic,
+            ['eventsToShow'],
+        ],
         actions: [
             sessionRecordingPlayerLogic,
             ['seek', 'clearLoadingState', 'setScrub', 'setCurrentTime', 'setRealTime'],
@@ -32,6 +41,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
         handleUp: (event: InteractEvent) => ({ event }),
         handleDown: (event: ReactInteractEvent) => ({ event }),
         handleClick: (event: ReactInteractEvent) => ({ event }),
+        handleTickClick: (time: number) => ({ time }),
         setSlider: (ref: ReactMutableRefObject<HTMLDivElement | null>) => ({ ref }),
         setThumb: (ref: ReactMutableRefObject<HTMLDivElement | null>) => ({ ref }),
         debouncedSetTime: (time: number) => ({ time }),
@@ -76,6 +86,18 @@ export const seekbarLogic = kea<seekbarLogicType>({
             (time: SessionPlayerTime, meta: playerMetaData) =>
                 (Math.max(time.lastBuffered, time.current) * 100) / meta.totalTime,
         ],
+        markersWithPositions: [
+            (selectors) => [selectors.eventsToShow, selectors.meta],
+            (events: EventType[], meta): RecordingEventType[] => {
+                return events
+                    .map((e) => ({
+                        ...e,
+                        timestamp: e.timestamp as unknown as number, // TODO: stronger typing
+                        percentage: ((e.zeroOffsetTime ?? 0) * 100) / meta.totalTime,
+                    }))
+                    .filter((e) => e.percentage >= 0 && e.percentage <= 100) // only show events within session time range
+            },
+        ],
     },
     listeners: ({ values, actions }) => ({
         setCurrentTime: async () => {
@@ -100,7 +122,6 @@ export const seekbarLogic = kea<seekbarLogicType>({
             actions.setRealTime(time)
         },
         setThumbLeftPos: ({ thumbLeftPos, shouldSeek }) => {
-            // Debounce seeking so that scrubbing doesn't sent a bajillion requests.
             if (!values.slider) {
                 return
             }
@@ -140,13 +161,10 @@ export const seekbarLogic = kea<seekbarLogicType>({
             actions.handleSeek(newX)
             actions.clearLoadingState()
 
-            if (TOUCH_ENABLED) {
-                document.removeEventListener('touchmove', actions.handleMove)
-                document.removeEventListener('touchend', actions.handleUp)
-            } else {
-                document.removeEventListener('mousemove', actions.handleMove)
-                document.removeEventListener('mouseup', actions.handleUp)
-            }
+            document.removeEventListener('touchmove', actions.handleMove)
+            document.removeEventListener('touchend', actions.handleUp)
+            document.removeEventListener('mousemove', actions.handleMove)
+            document.removeEventListener('mouseup', actions.handleUp)
         },
         handleDown: ({ event }) => {
             if (!values.thumb) {
@@ -158,16 +176,25 @@ export const seekbarLogic = kea<seekbarLogicType>({
             let diffFromThumb = xPos - values.thumb.getBoundingClientRect().left - THUMB_OFFSET
             // If click is too far from thumb, move thumb to click position
             if (Math.abs(diffFromThumb) > THUMB_SIZE) {
-                diffFromThumb = -THUMB_OFFSET
+                diffFromThumb = 0
             }
             actions.setCursorDiff(diffFromThumb)
 
-            if (TOUCH_ENABLED) {
-                document.addEventListener('touchmove', actions.handleMove)
-                document.addEventListener('touchend', actions.handleUp)
-            } else {
-                document.addEventListener('mousemove', actions.handleMove)
-                document.addEventListener('mouseup', actions.handleUp)
+            document.addEventListener('touchmove', actions.handleMove)
+            document.addEventListener('touchend', actions.handleUp)
+            document.addEventListener('mousemove', actions.handleMove)
+            document.addEventListener('mouseup', actions.handleUp)
+        },
+        handleTickClick: ({ time }) => {
+            if (!values.isSeeking) {
+                actions.handleSeek(
+                    convertValueToX(
+                        getZeroOffsetTime(time, values.meta),
+                        values.slider.offsetWidth,
+                        0,
+                        values.meta.totalTime
+                    )
+                )
             }
         },
     }),
@@ -175,7 +202,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
         afterMount: () => {
             window.addEventListener('resize', () => actions.setCurrentTime(values.time.current))
         },
-        afterUnmount: () => {
+        beforeUnmount: () => {
             window.removeEventListener('resize', () => actions.setCurrentTime(values.time.current))
         },
     }),

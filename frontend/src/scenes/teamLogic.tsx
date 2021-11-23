@@ -10,6 +10,7 @@ import { organizationLogic } from './organizationLogic'
 import { getAppContext } from '../lib/utils/getAppContext'
 
 export const teamLogic = kea<teamLogicType>({
+    path: ['scenes', 'teamLogic'],
     actions: {
         deleteTeam: (team: TeamType) => ({ team }),
         deleteTeamSuccess: true,
@@ -89,7 +90,8 @@ export const teamLogic = kea<teamLogicType>({
         isCurrentTeamUnavailable: [
             (selectors) => [selectors.currentTeam, selectors.currentTeamLoading],
             // If project has been loaded and is still null, it means the user just doesn't have access.
-            (currentTeam, currentTeamLoading): boolean => !currentTeam && !currentTeamLoading,
+            (currentTeam, currentTeamLoading): boolean =>
+                !currentTeam?.effective_membership_level && !currentTeamLoading,
         ],
         demoOnlyProject: [
             (selectors) => [selectors.currentTeam, organizationLogic.selectors.currentOrganization],
@@ -100,6 +102,12 @@ export const teamLogic = kea<teamLogicType>({
             (selectors) => [selectors.currentTeam],
             (currentTeam): Record<string, any>[] => {
                 return currentTeam?.path_cleaning_filters ? [...currentTeam.path_cleaning_filters, {}] : [{}]
+            },
+        ],
+        funnelCorrelationConfig: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): Partial<TeamType['correlation_config']> => {
+                return currentTeam?.correlation_config || {}
             },
         ],
     },

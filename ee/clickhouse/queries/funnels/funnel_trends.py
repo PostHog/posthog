@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from itertools import groupby
-from typing import Optional, Tuple, Type, Union, cast
+from typing import List, Optional, Tuple, Type, Union, cast
 
 from dateutil.relativedelta import relativedelta
 
@@ -79,7 +79,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         breakdown_clause = self._get_breakdown_prop()
         return f"""
             SELECT
-                person_id,
+                aggregation_target,
                 {trunc_func}(timestamp) AS entrance_period_start,
                 max(steps) AS steps_completed
                 {breakdown_clause}
@@ -87,7 +87,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
                 {steps_per_person_query}
             )
             {"WHERE toDateTime(entrance_period_start) = %(entrance_period_start)s" if specific_entrance_period_start else ""}
-            GROUP BY person_id, entrance_period_start {breakdown_clause}"""
+            GROUP BY aggregation_target, entrance_period_start {breakdown_clause}"""
 
     def get_query(self) -> str:
         step_counts = self.get_step_counts_without_aggregation_query()
@@ -174,13 +174,12 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             }
 
             if breakdown_clause:
-                serialized_result.update(
-                    {
-                        "breakdown_value": period_row[-1]
-                        if isinstance(period_row[-1], str)
-                        else Cohort.objects.get(pk=period_row[-1]).name
-                    }
-                )
+                if isinstance(period_row[-1], str) or (
+                    isinstance(period_row[-1], List) and all(isinstance(item, str) for item in period_row[-1])
+                ):
+                    serialized_result.update({"breakdown_value": (period_row[-1])})
+                else:
+                    serialized_result.update({"breakdown_value": Cohort.objects.get(pk=period_row[-1]).name})
 
             summary.append(serialized_result)
         return summary

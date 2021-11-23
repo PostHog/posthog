@@ -32,12 +32,12 @@ def raise_if_plugin_installed(url: str, organization_id: str):
     url_without_private_key = url.split("?")[0]
     if (
         Plugin.objects.filter(
-            models.Q(url=url_without_private_key) | models.Q(url__startswith="{}?".format(url_without_private_key))
+            models.Q(url=url_without_private_key) | models.Q(url__startswith=f"{url_without_private_key}?")
         )
         .filter(organization_id=organization_id)
         .exists()
     ):
-        raise ValidationError('Plugin from URL "{}" already installed!'.format(url_without_private_key))
+        raise ValidationError(f'Plugin from URL "{url_without_private_key}" already installed!')
 
 
 def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> Dict:
@@ -47,7 +47,7 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
         json_path = os.path.join(plugin_path, "plugin.json")
         json = load_json_file(json_path)
         if not json:
-            raise ValidationError("Could not load plugin.json from: {}".format(json_path))
+            raise ValidationError(f"Could not load plugin.json from: {json_path}")
         validated_data["plugin_type"] = "local"
         validated_data["url"] = url
         validated_data["tag"] = None
@@ -256,6 +256,7 @@ def fetch_plugin_log_entries(
     before: Optional[timezone.datetime] = None,
     search: Optional[str] = None,
     limit: Optional[int] = None,
+    type_filter: List[PluginLogEntry.Type] = [],
 ) -> List[Union[PluginLogEntry, PluginLogEntryRaw]]:
     if is_clickhouse_enabled():
         clickhouse_where_parts: List[str] = []
@@ -275,6 +276,9 @@ def fetch_plugin_log_entries(
         if search:
             clickhouse_where_parts.append("message ILIKE %(search)s")
             clickhouse_kwargs["search"] = f"%{search}%"
+        if len(type_filter) > 0:
+            clickhouse_where_parts.append("type in %(types)s")
+            clickhouse_kwargs["types"] = type_filter
         clickhouse_query = f"""
             SELECT id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id FROM plugin_log_entries
             WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC {f'LIMIT {limit}' if limit else ''}
@@ -292,6 +296,8 @@ def fetch_plugin_log_entries(
             filter_kwargs["timestamp__lt"] = before
         if search:
             filter_kwargs["message__icontains"] = search
+        if len(type_filter) > 0:
+            filter_kwargs["type__in"] = type_filter
         query = PluginLogEntry.objects.order_by("-timestamp").filter(**filter_kwargs)
         if limit:
             query = query[:limit]

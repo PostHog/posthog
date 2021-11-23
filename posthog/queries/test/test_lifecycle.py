@@ -64,7 +64,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
             )
 
             self.assertEqual(len(result), 4)
-            self.assertEqual(sorted([res["status"] for res in result]), ["dormant", "new", "resurrecting", "returning"])
+            self.assertEqual(sorted(res["status"] for res in result), ["dormant", "new", "resurrecting", "returning"])
             for res in result:
                 if res["status"] == "dormant":
                     self.assertEqual(res["data"], [0, -2, -1, 0, -2, 0, -1, 0])
@@ -156,7 +156,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
             )
 
             self.assertEqual(len(result), 4)
-            self.assertEqual(sorted([res["status"] for res in result]), ["dormant", "new", "resurrecting", "returning"])
+            self.assertEqual(sorted(res["status"] for res in result), ["dormant", "new", "resurrecting", "returning"])
             for res in result:
                 if res["status"] == "dormant":
                     self.assertEqual(res["data"], [0, 0, -1, 0, -1, 0, -1, 0])
@@ -200,7 +200,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
             )
 
             self.assertEqual(len(result), 4)
-            self.assertEqual(sorted([res["status"] for res in result]), ["dormant", "new", "resurrecting", "returning"])
+            self.assertEqual(sorted(res["status"] for res in result), ["dormant", "new", "resurrecting", "returning"])
 
             for res in result:
                 if res["status"] == "dormant":
@@ -349,7 +349,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
             )
 
             self.assertEqual(len(result), 4)
-            self.assertEqual(sorted([res["status"] for res in result]), ["dormant", "new", "resurrecting", "returning"])
+            self.assertEqual(sorted(res["status"] for res in result), ["dormant", "new", "resurrecting", "returning"])
             for res in result:
                 if res["status"] == "dormant":
                     self.assertEqual(res["data"], [0, -2, -1, 0, -2, 0, -1, 0])
@@ -458,7 +458,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
             )
 
             self.assertEqual(len(result), 4)
-            self.assertEqual(sorted([res["status"] for res in result]), ["dormant", "new", "resurrecting", "returning"])
+            self.assertEqual(sorted(res["status"] for res in result), ["dormant", "new", "resurrecting", "returning"])
             self.assertTrue(
                 result[0]["days"]
                 == ["2020-02-02", "2020-02-09", "2020-02-16", "2020-02-23", "2020-03-01", "2020-03-08"]
@@ -532,7 +532,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
             )
 
             self.assertEqual(len(result), 4)
-            self.assertEqual(sorted([res["status"] for res in result]), ["dormant", "new", "resurrecting", "returning"])
+            self.assertEqual(sorted(res["status"] for res in result), ["dormant", "new", "resurrecting", "returning"])
             for res in result:
                 if res["status"] == "dormant":
                     self.assertEqual(res["data"], [0, -2, -1, 0, -2, 0, -1, 0])
@@ -576,7 +576,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 ),
                 self.team,
             )
-            self.assertEqual(sorted([res["status"] for res in result]), ["dormant", "new", "resurrecting", "returning"])
+            self.assertEqual(sorted(res["status"] for res in result), ["dormant", "new", "resurrecting", "returning"])
             for res in result:
                 if res["status"] == "dormant":
                     self.assertEqual(res["data"], [0, -2, 0, 0, -1, 0, 0, 0])

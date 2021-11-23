@@ -3,39 +3,42 @@ import { useActions, useValues } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React, { useCallback, useRef, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
-import { userLogic } from 'scenes/userLogic'
+import { organizationLogic } from '../organizationLogic'
 
 export function CreateProjectModal({
     isVisible,
-    setIsVisible,
+    onClose,
     title,
     caption,
 }: {
     isVisible: boolean
-    setIsVisible?: (newValue: boolean) => void
+    onClose?: () => void
     title?: string
     caption?: JSX.Element
 }): JSX.Element {
     const { createTeam } = useActions(teamLogic)
-    const { user } = useValues(userLogic)
+    const { currentOrganization, isProjectCreationForbidden } = useValues(organizationLogic)
     const { reportProjectCreationSubmitted } = useActions(eventUsageLogic)
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const inputRef = useRef<Input | null>(null)
 
     const closeModal: () => void = useCallback(() => {
-        if (setIsVisible) {
+        if (onClose) {
             setErrorMessage(null)
-            setIsVisible(false)
+            onClose()
             if (inputRef.current) {
                 inputRef.current.setValue('')
             }
         }
-    }, [inputRef, setIsVisible])
+    }, [inputRef, onClose])
 
     const handleSubmit = (): void => {
         const name = inputRef.current?.state.value?.trim()
         if (name) {
-            reportProjectCreationSubmitted(user?.organization?.teams ? user.organization.teams.length : 0, name.length)
+            reportProjectCreationSubmitted(
+                currentOrganization?.teams ? currentOrganization.teams.length : 0,
+                name.length
+            )
             setErrorMessage(null)
             createTeam(name)
             closeModal()
@@ -48,18 +51,40 @@ export function CreateProjectModal({
         <p>
             Projects are a way of tracking multiple products under the umbrella of a single organization.
             <br />
-            All organization members will be able to access the new project.
+            All organization members will be able to access the new project upon creation, but you can make it private
+            in its settings to restrict access.
+            <br />
+            <a href="https://posthog.com/docs/user-guides/organizations-and-projects" target="_blank" rel="noopener">
+                Learn more about projects in Docs.
+            </a>
         </p>
     )
 
-    return (
+    return isProjectCreationForbidden ? (
         <Modal
             title={
-                title || (user?.organization ? `Creating a Project in ${user.organization.name}` : 'Creating a Project')
+                currentOrganization
+                    ? `You cannot create a project in ${currentOrganization.name}`
+                    : 'You cannot create a project'
             }
-            okText="Create Project"
-            cancelButtonProps={setIsVisible ? undefined : { style: { display: 'none' } }}
-            closable={!!setIsVisible}
+            cancelButtonProps={onClose ? undefined : { style: { display: 'none' } }}
+            closable={!!onClose}
+            onCancel={closeModal}
+            visible={isVisible}
+        >
+            Your organization access level is insufficient for creating a new project.
+            <br />
+            Project creation requires administrator access.
+        </Modal>
+    ) : (
+        <Modal
+            title={
+                title ||
+                (currentOrganization ? `Creating a project in ${currentOrganization.name}` : 'Creating a project')
+            }
+            okText="Create project"
+            cancelButtonProps={onClose ? undefined : { style: { display: 'none' } }}
+            closable={!!onClose}
             onOk={handleSubmit}
             onCancel={closeModal}
             visible={isVisible}

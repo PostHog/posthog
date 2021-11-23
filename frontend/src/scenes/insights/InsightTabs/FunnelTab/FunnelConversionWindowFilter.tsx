@@ -1,6 +1,6 @@
 import { InputNumber, Row, Select } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
-import { pluralize } from 'lib/utils'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import React, { useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
@@ -8,6 +8,7 @@ import { FunnelConversionWindow, FunnelConversionWindowTimeUnit } from '~/types'
 import { Tooltip } from 'lib/components/Tooltip'
 import { RefSelectProps } from 'antd/lib/select'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { useDebouncedCallback } from 'use-debounce'
 
 const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
     [FunnelConversionWindowTimeUnit.Minute]: [1, 1440],
@@ -19,8 +20,8 @@ const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
 
 export function FunnelConversionWindowFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { conversionWindow } = useValues(funnelLogic(insightProps))
-    const { setConversionWindow } = useActions(funnelLogic(insightProps))
+    const { conversionWindow, aggregationTargetLabel } = useValues(funnelLogic(insightProps))
+    const { setFilters } = useActions(funnelLogic(insightProps))
     const [localConversionWindow, setLocalConversionWindow] = useState<FunnelConversionWindow>(conversionWindow)
     const timeUnitRef: React.RefObject<RefSelectProps> | null = useRef(null)
 
@@ -31,14 +32,14 @@ export function FunnelConversionWindowFilter(): JSX.Element {
     const intervalBounds =
         TIME_INTERVAL_BOUNDS[conversionWindow.funnel_window_interval_unit ?? FunnelConversionWindowTimeUnit.Day]
 
-    const onChange = (): void => {
+    const setConversionWindow = useDebouncedCallback((): void => {
         if (
             localConversionWindow.funnel_window_interval !== conversionWindow.funnel_window_interval ||
             localConversionWindow.funnel_window_interval_unit !== conversionWindow.funnel_window_interval_unit
         ) {
-            setConversionWindow(localConversionWindow)
+            setFilters(localConversionWindow)
         }
-    }
+    }, 200)
 
     return (
         <div className="funnel-options-container">
@@ -47,8 +48,9 @@ export function FunnelConversionWindowFilter(): JSX.Element {
                 <Tooltip
                     title={
                         <>
-                            <b>Recommended!</b> Limit to users who converted within a specific time frame. Users who do
-                            not convert in this time frame will be considered as drop-offs.
+                            <b>Recommended!</b> Limit to {aggregationTargetLabel.plural} who converted within a specific
+                            time frame. {capitalizeFirstLetter(aggregationTargetLabel.plural)} who do not convert in
+                            this time frame will be considered as drop-offs.
                         </>
                     }
                 >
@@ -60,28 +62,29 @@ export function FunnelConversionWindowFilter(): JSX.Element {
                     className="time-value-input"
                     min={intervalBounds[0]}
                     max={intervalBounds[1]}
-                    defaultValue={14}
+                    defaultValue={conversionWindow.funnel_window_interval}
                     value={localConversionWindow.funnel_window_interval}
-                    onChange={(funnel_window_interval) =>
+                    onChange={(funnel_window_interval) => {
                         setLocalConversionWindow((state) => ({
                             ...state,
                             funnel_window_interval: Number(funnel_window_interval),
                         }))
-                    }
-                    onBlur={onChange}
-                    onPressEnter={onChange}
+                        setConversionWindow()
+                    }}
+                    onBlur={setConversionWindow}
+                    onPressEnter={setConversionWindow}
                 />
                 <Select
                     ref={timeUnitRef}
                     className="time-unit-input"
-                    defaultValue={FunnelConversionWindowTimeUnit.Day}
+                    defaultValue={conversionWindow.funnel_window_interval_unit}
                     dropdownMatchSelectWidth={false}
                     value={localConversionWindow.funnel_window_interval_unit}
                     onChange={(funnel_window_interval_unit: FunnelConversionWindowTimeUnit) => {
                         setLocalConversionWindow((state) => ({ ...state, funnel_window_interval_unit }))
-                        timeUnitRef.current?.blur()
+                        setConversionWindow()
                     }}
-                    onBlur={onChange}
+                    onBlur={setConversionWindow}
                 >
                     {options.map(({ value, label }) => (
                         <Select.Option value={value} key={value}>

@@ -41,6 +41,7 @@ export const cohortLogic = kea<cohortLogicType>({
         cohort: CohortType
     },
     key: (props) => props.cohort.id || 'new',
+    path: (key) => ['scenes', 'cohorts', 'cohortLogic', key],
     connect: [cohortsModel],
 
     actions: () => ({
@@ -148,7 +149,7 @@ export const cohortLogic = kea<cohortLogicType>({
                     cohortsModel.actions.updateCohort(cohort)
                 } else {
                     cohort = await api.cohorts.create(cohortFormData as Partial<CohortType>, filterParams)
-                    cohortsModel.actions.createCohort(cohort)
+                    cohortsModel.actions.cohortCreated(cohort)
                 }
             } catch (error) {
                 errorToast(

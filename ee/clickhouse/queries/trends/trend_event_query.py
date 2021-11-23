@@ -1,4 +1,4 @@
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Set, Tuple
 
 from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
@@ -61,10 +61,14 @@ class TrendsEventQuery(ClickhouseEventQuery):
         person_query, person_params = self._get_person_query()
         self.params.update(person_params)
 
+        groups_query, groups_params = self._get_groups_query()
+        self.params.update(groups_params)
+
         query = f"""
             SELECT {_fields} FROM events {self.EVENT_TABLE_ALIAS}
-            {self._get_disintct_id_query()}
+            {self._get_distinct_id_query()}
             {person_query}
+            {groups_query}
             WHERE team_id = %(team_id)s
             {entity_query}
             {date_query}

@@ -1,6 +1,8 @@
 @import '~/vars';
 
 .funnel-correlation {
+    margin-bottom: $default_spacing * 3;
+
     .skew-warning {
         margin-top: $default_spacing;
         line-height: 2em;

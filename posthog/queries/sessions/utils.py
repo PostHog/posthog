@@ -2,9 +2,9 @@ from datetime import datetime
 from functools import wraps
 from typing import Any, Callable, List, Optional, Tuple, cast
 
+from django.conf import settings
 from django.core.cache import cache
 
-from posthog.settings import SESSION_RECORDING_TTL
 from posthog.utils import generate_cache_key, get_safe_cache
 
 DistinctId = str
@@ -26,7 +26,7 @@ def cached_recording(
         # Call function being wrapper
         fresh_data = cast(Tuple[Optional[DistinctId], Optional[datetime], Snapshots], f(self))
         # Cache new data
-        cache.set(cache_key, fresh_data, SESSION_RECORDING_TTL)
+        cache.set(cache_key, fresh_data, settings.SESSION_RECORDING_TTL)
         return fresh_data
 
     return wrapper

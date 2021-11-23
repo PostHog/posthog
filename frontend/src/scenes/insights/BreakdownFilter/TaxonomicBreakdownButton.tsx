@@ -1,14 +1,16 @@
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React, { useState } from 'react'
 import { Popup } from 'lib/components/Popup/Popup'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { Button } from 'antd'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PlusCircleOutlined } from '@ant-design/icons'
+import { useValues } from 'kea'
+import { groupsModel } from '~/models/groupsModel'
 
 export interface TaxonomicBreakdownButtonProps {
     breakdownType?: TaxonomicFilterGroupType
-    onChange: (breakdown: string | number, groupType: TaxonomicFilterGroupType) => void
+    onChange: (breakdown: string | number, groupType: TaxonomicFilterGroup) => void
     onlyCohorts?: boolean
 }
 
@@ -18,15 +20,16 @@ export function TaxonomicBreakdownButton({
     onlyCohorts,
 }: TaxonomicBreakdownButtonProps): JSX.Element {
     const [open, setOpen] = useState(false)
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     return (
         <Popup
             overlay={
                 <TaxonomicFilter
                     groupType={breakdownType}
-                    onChange={(groupType, value) => {
+                    onChange={(taxonomicGroup, value) => {
                         if (value) {
-                            onChange(value, groupType)
+                            onChange(value, taxonomicGroup)
                             setOpen(false)
                         }
                     }}
@@ -36,6 +39,7 @@ export function TaxonomicBreakdownButton({
                             : [
                                   TaxonomicFilterGroupType.EventProperties,
                                   TaxonomicFilterGroupType.PersonProperties,
+                                  ...groupsTaxonomicTypes,
                                   TaxonomicFilterGroupType.CohortsWithAllUsers,
                               ]
                     }

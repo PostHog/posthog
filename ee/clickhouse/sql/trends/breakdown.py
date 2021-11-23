@@ -64,8 +64,36 @@ SELECT
     {aggregate_operation} as total,
     toDateTime({interval_annotation}(timestamp), 'UTC') as day_start,
     {breakdown_value} as breakdown_value
-FROM
-events e {event_join} {breakdown_filter}
+FROM events e
+{person_join}
+{groups_join}
+{breakdown_filter}
+GROUP BY day_start, breakdown_value
+"""
+
+BREAKDOWN_CUMULATIVE_INNER_SQL = """
+SELECT
+    {aggregate_operation} as total,
+    toDateTime({interval_annotation}(timestamp), 'UTC') as day_start,
+    breakdown_value
+FROM (
+    SELECT 
+        person_id,
+        min(timestamp) as timestamp,
+        breakdown_value
+    FROM (
+        SELECT
+        person_id,
+        timestamp,
+        {breakdown_value} as breakdown_value 
+        FROM
+        events e
+        {person_join}
+        {groups_join}
+        {breakdown_filter}
+    )
+    GROUP BY person_id, breakdown_value
+)
 GROUP BY day_start, breakdown_value
 """
 
@@ -80,7 +108,8 @@ FROM (
         FROM events e
         INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) as pdi
         ON e.distinct_id = pdi.distinct_id
-        {event_join}
+        {person_join}
+        {groups_join}
         {conditions}
         GROUP BY timestamp, person_id, breakdown_value
     ) e
@@ -93,8 +122,10 @@ FROM (
 
 BREAKDOWN_AGGREGATE_QUERY_SQL = """
 SELECT {aggregate_operation} AS total, {breakdown_value} AS breakdown_value
-FROM
-events e {event_join} {breakdown_filter}
+FROM events e
+{person_join}
+{groups_join}
+{breakdown_filter}
 GROUP BY breakdown_value
 """
 

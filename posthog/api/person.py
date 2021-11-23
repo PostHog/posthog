@@ -1,5 +1,3 @@
-import json
-import warnings
 from typing import Any, Dict, List, Optional, Union, cast
 
 from django.db.models import Count, Func, Prefetch, Q, QuerySet
@@ -14,7 +12,7 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from rest_framework_csv import renderers as csvrenderers
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.utils import format_next_url, get_target_entity
+from posthog.api.utils import format_paginated_url, get_target_entity
 from posthog.constants import TRENDS_TABLE
 from posthog.models import Cohort, Event, Filter, Person, User
 from posthog.models.filters import RetentionFilter
@@ -33,6 +31,15 @@ class PersonCursorPagination(CursorPagination):
     page_size = 100
 
 
+def get_person_name(person: Person) -> str:
+    if person.properties.get("email"):
+        return person.properties["email"]
+    if len(person.distinct_ids) > 0:
+        # Prefer non-UUID distinct IDs (presumably from user identification) over UUIDs
+        return sorted(person.distinct_ids, key=is_anonymous_id)[0]
+    return person.pk
+
+
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
     name = serializers.SerializerMethodField()
 
@@ -49,12 +56,7 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
         ]
 
     def get_name(self, person: Person) -> str:
-        if person.properties.get("email"):
-            return person.properties["email"]
-        if len(person.distinct_ids) > 0:
-            # Prefer non-UUID distinct IDs (presumably from user identification) over UUIDs
-            return sorted(person.distinct_ids, key=is_anonymous_id)[0]
-        return person.pk
+        return get_person_name(person)
 
     def to_representation(self, instance: Person) -> Dict[str, Any]:
         representation = super().to_representation(instance)
@@ -134,12 +136,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def values(self, request: request.Request, **kwargs) -> response.Response:
         people = self.get_queryset()
         key = "properties__{}".format(request.GET.get("key"))
-        people = (
-            people.values(key)
-            .annotate(count=Count("id"))
-            .filter(**{"{}__isnull".format(key): False})
-            .order_by("-count")
-        )
+        people = people.values(key).annotate(count=Count("id")).filter(**{f"{key}__isnull": False}).order_by("-count")
 
         if request.GET.get("value"):
             people = people.extra(
@@ -216,11 +213,12 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 status=400,
             )
         filter = RetentionFilter(request=request)
+        base_uri = request.build_absolute_uri("/")
 
         if display == TRENDS_TABLE:
-            people = self.retention_class().people_in_period(filter, team)
+            people = self.retention_class(base_uri=base_uri).people_in_period(filter, team)
         else:
-            people = self.retention_class().people(filter, team)
+            people = self.retention_class(base_uri=base_uri).people(filter, team)
 
         next_url = paginated_result(people, request, filter.offset)
 
@@ -256,7 +254,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 def paginated_result(
     entites: Union[List[Dict[str, Any]], ReturnDict], request: request.Request, offset: int = 0,
 ) -> Optional[str]:
-    return format_next_url(request, offset, 100) if len(entites) > 99 else None
+    return format_paginated_url(request, offset, 100) if len(entites) > 99 else None
 
 
 class LegacyPersonViewSet(PersonViewSet):

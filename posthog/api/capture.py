@@ -1,6 +1,6 @@
 import json
 import re
-from datetime import datetime, tzinfo
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 from dateutil import parser
@@ -18,9 +18,8 @@ from posthog.celery import app as celery_app
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.helpers.session_recording import preprocess_session_recording_events
 from posthog.models import Team
-from posthog.models.feature_flag import get_active_feature_flags
+from posthog.models.feature_flag import get_overridden_feature_flags
 from posthog.models.utils import UUIDT
-from posthog.settings import EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC
 from posthog.utils import cors_response, get_ip_address, is_clickhouse_enabled
 
 if is_clickhouse_enabled():
@@ -86,7 +85,7 @@ if is_clickhouse_enabled():
 
         try:
             KafkaProducer().produce(topic=topic, data=data)
-            statsd.incr(EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC)
+            statsd.incr(settings.EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC)
         except Exception as e:
             capture_exception(e)
             statsd.incr("events_dead_letter_queue_produce_error")
@@ -137,7 +136,7 @@ def _get_distinct_id(data: Dict[str, Any]) -> str:
 def _ensure_web_feature_flags_in_properties(event: Dict[str, Any], team: Team, distinct_id: str):
     """If the event comes from web, ensure that it contains property $active_feature_flags."""
     if event["properties"].get("$lib") == "web" and "$active_feature_flags" not in event["properties"]:
-        flags = get_active_feature_flags(team, distinct_id)
+        flags = get_overridden_feature_flags(team, distinct_id)
         event["properties"]["$active_feature_flags"] = list(flags.keys())
         for k, v in flags.items():
             event["properties"][f"$feature/{k}"] = v

@@ -20,6 +20,7 @@ frontend/dist/
 frontend/types/
 *Type.ts
 frontend/yarn-error.log
+frontend/tmp
 .idea
 celerybeat-schedule
 celerybeat.pid
@@ -33,3 +34,5 @@ docker-compose.prod.yml
 build-storybook.log
 storybook-static
 ee/benchmarks/results
+plugin-server/src/config/idl/protos.*
+

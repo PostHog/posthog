@@ -1,6 +1,6 @@
 import datetime
 import logging
-from typing import Optional, Sequence, cast
+from typing import Optional
 
 from posthog.celery import app
 from posthog.email import EmailMessage, is_email_available

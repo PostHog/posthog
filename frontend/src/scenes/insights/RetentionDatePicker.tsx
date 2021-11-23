@@ -1,12 +1,12 @@
 import React from 'react'
-import dayjs from 'dayjs'
 import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
-import generatePicker from 'antd/es/date-picker/generatePicker'
+import generatePicker from 'antd/lib/date-picker/generatePicker'
 import { useActions, useValues } from 'kea'
 import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { CalendarOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { dayjs } from 'lib/dayjs'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 

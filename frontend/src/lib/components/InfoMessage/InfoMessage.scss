@@ -1,0 +1,15 @@
+@import '~/vars';
+
+.info-message {
+    background-color: rgba($primary_alt, 0.09);
+    border-radius: $radius;
+    padding: $default_spacing / 2 $default_spacing;
+    color: $primary_alt;
+    font-weight: $medium;
+    display: flex;
+    align-items: center;
+
+    .anticon {
+        margin-right: 4px;
+    }
+}

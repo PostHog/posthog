@@ -8,23 +8,19 @@ import { IconPlay } from 'scenes/session-recordings/player/icons'
 export const PlayerFrame = React.forwardRef<HTMLDivElement>(function PlayerFrameInner(_, ref): JSX.Element {
     const replayDimensionRef = useRef<viewportResizeDimension>()
     const { currentPlayerState, replayer } = useValues(sessionRecordingPlayerLogic)
-    const { togglePlayPause } = useActions(sessionRecordingPlayerLogic)
+    const { togglePlayPause, setScale } = useActions(sessionRecordingPlayerLogic)
     const frameRef = ref as MutableRefObject<HTMLDivElement>
 
-    useEffect(
-        () => {
-            if (!replayer) {
-                return
-            }
+    useEffect(() => {
+        if (!replayer) {
+            return
+        }
 
-            replayer.on('resize', updatePlayerDimensions as Handler)
-            window.addEventListener('resize', windowResize)
+        replayer.on('resize', updatePlayerDimensions as Handler)
+        window.addEventListener('resize', windowResize)
 
-            return () => window.removeEventListener('resize', windowResize)
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [replayer]
-    )
+        return () => window.removeEventListener('resize', windowResize)
+    }, [replayer])
 
     const windowResize = (): void => {
         updatePlayerDimensions(replayDimensionRef.current)
@@ -45,6 +41,8 @@ export const PlayerFrame = React.forwardRef<HTMLDivElement>(function PlayerFrame
         frameRef.current.style.paddingLeft = `${(width - replayDimensions.width * scale) / 2}px`
         frameRef.current.style.paddingTop = `${(height - replayDimensions.height * scale) / 2}px`
         frameRef.current.style.marginBottom = `-${height - replayDimensions.height * scale}px`
+
+        setScale(scale)
     }
 
     const renderPlayerState = (): JSX.Element | null => {

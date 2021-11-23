@@ -16,9 +16,13 @@ import { GlobalFiltersTitle } from '../common'
 import { ActionFilter } from '../ActionFilter/ActionFilter'
 import { Tooltip } from 'lib/components/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { AggregationSelect } from 'scenes/insights/AggregationSelect'
+import { groupsModel } from '~/models/groupsModel'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export function RetentionTab(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
+    const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
     const { filters, actionFilterTargetEntity, actionFilterReturningEntity } = useValues(
         retentionTableLogic(insightProps)
     )
@@ -59,7 +63,18 @@ export function RetentionTab(): JSX.Element {
                                 typeKey="retention-table"
                                 customRowPrefix={
                                     <>
-                                        Showing <b>unique users</b> who did
+                                        Showing{' '}
+                                        {showGroupsOptions ? (
+                                            <AggregationSelect
+                                                aggregationGroupTypeIndex={filters.aggregation_group_type_index}
+                                                onChange={(groupTypeIndex) =>
+                                                    setFilters({ aggregation_group_type_index: groupTypeIndex })
+                                                }
+                                            />
+                                        ) : (
+                                            <b>unique users</b>
+                                        )}{' '}
+                                        who did
                                     </>
                                 }
                             />
@@ -142,7 +157,16 @@ export function RetentionTab(): JSX.Element {
                 </Col>
                 <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                     <GlobalFiltersTitle unit="actions/events" />
-                    <PropertyFilters pageKey="insight-retention" />
+                    <PropertyFilters
+                        pageKey="insight-retention"
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.EventProperties,
+                            TaxonomicFilterGroupType.PersonProperties,
+                            ...groupsTaxonomicTypes,
+                            TaxonomicFilterGroupType.Cohorts,
+                            TaxonomicFilterGroupType.Elements,
+                        ]}
+                    />
                     <TestAccountFilter filters={filters} onChange={setFilters} />
                 </Col>
             </Row>

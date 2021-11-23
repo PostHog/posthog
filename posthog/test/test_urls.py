@@ -1,4 +1,3 @@
-import importlib
 import uuid
 
 import pytest
@@ -58,14 +57,3 @@ class TestUrls(APIBaseTest):
 
         response = self.client.get(f"/login")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    @pytest.mark.urls("posthog.test.mock_urls_cloud")
-    def test_robots_txt_allow_crawl_on_cloud(self):
-        response = self.client.get("/robots.txt")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    @pytest.mark.urls("posthog.test.mock_urls_self_hosted")
-    def test_robots_txt_block_crawl_by_default(self):
-        response = self.client.get("/robots.txt")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.content, b"User-agent: *\nDisallow: /")

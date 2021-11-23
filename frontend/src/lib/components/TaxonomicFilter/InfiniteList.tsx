@@ -2,7 +2,8 @@ import './InfiniteList.scss'
 import '../Popup/Popup.scss'
 import React, { useState } from 'react'
 import { Empty, Skeleton } from 'antd'
-import { AutoSizer, List, ListRowProps, ListRowRenderer } from 'react-virtualized'
+import { AutoSizer } from 'react-virtualized/dist/commonjs/AutoSizer'
+import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/commonjs/List'
 import {
     getKeyMapping,
     PropertyKeyDescription,
@@ -19,6 +20,7 @@ import { ActionType, CohortType, KeyMapping, PropertyDefinition } from '~/types'
 import { AimOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { ActionSelectInfo } from 'scenes/insights/ActionSelectInfo'
+import { urls } from 'scenes/urls'
 
 enum ListTooltip {
     None = 0,
@@ -49,7 +51,8 @@ const renderItemContents = ({
     return listGroupType === TaxonomicFilterGroupType.EventProperties ||
         listGroupType === TaxonomicFilterGroupType.PersonProperties ||
         listGroupType === TaxonomicFilterGroupType.Events ||
-        listGroupType === TaxonomicFilterGroupType.CustomEvents ? (
+        listGroupType === TaxonomicFilterGroupType.CustomEvents ||
+        listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <PropertyKeyInfo value={item.name ?? ''} disablePopover />
     ) : listGroupType === TaxonomicFilterGroupType.Elements ? (
         <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover />
@@ -70,15 +73,9 @@ const renderItemPopup = (
     if (value) {
         if (listGroupType === TaxonomicFilterGroupType.Actions && 'id' in item) {
             return (
-                <div style={{ width }}>
+                <div style={{ width, overflowWrap: 'break-word' }}>
                     <AimOutlined /> Actions
-                    <Link
-                        to={`/action/${item.id}#backTo=Insights&backToURL=${encodeURIComponent(
-                            window.location.pathname + window.location.search
-                        )}`}
-                        style={{ float: 'right' }}
-                        tabIndex={-1}
-                    >
+                    <Link to={urls.action(item.id)} style={{ float: 'right' }} tabIndex={-1}>
                         edit
                     </Link>
                     <br />
@@ -103,7 +100,7 @@ const renderItemPopup = (
 
         if (data) {
             return (
-                <div style={{ width }}>
+                <div style={{ width, overflowWrap: 'break-word' }}>
                     <PropertyKeyTitle data={data} />
                     {data.description ? <hr /> : null}
                     <PropertyKeyDescription data={data} value={value.toString()} />
@@ -163,7 +160,6 @@ export function InfiniteList(): JSX.Element {
 
     const { styles, attributes } = usePopper(referenceElement, popperElement, {
         placement: 'right',
-
         modifiers: [
             {
                 name: 'offset',
@@ -180,11 +176,11 @@ export function InfiniteList(): JSX.Element {
         const isSelected = listGroupType === groupType && itemValue === value
         const isHighlighted = rowIndex === index && isActiveTab
 
-        return item ? (
+        return item && group ? (
             <div
                 key={`item_${rowIndex}`}
                 className={`taxonomic-list-row${rowIndex === index ? ' hover' : ''}${isSelected ? ' selected' : ''}`}
-                onClick={() => selectItem(listGroupType, itemValue ?? null, item)}
+                onClick={() => selectItem(group, itemValue ?? null, item)}
                 onMouseOver={() => (mouseInteractionsEnabled ? setIndex(rowIndex) : null)}
                 style={style}
                 data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
@@ -245,7 +241,7 @@ export function InfiniteList(): JSX.Element {
             tooltipDesiredState(referenceElement) !== ListTooltip.None
                 ? ReactDOM.createPortal(
                       <div
-                          className="popper-tooltip click-outside-block"
+                          className="popper-tooltip click-outside-block Popup"
                           ref={setPopperElement}
                           style={styles.popper}
                           {...attributes.popper}

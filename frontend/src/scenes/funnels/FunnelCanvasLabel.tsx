@@ -8,17 +8,19 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelLogic } from './funnelLogic'
 import './FunnelCanvasLabel.scss'
 import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic'
-import { FunnelVizType, ViewType } from '~/types'
+import { FunnelVizType, InsightType } from '~/types'
 import { formatDisplayPercentage } from './funnelUtils'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FunnelStepsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepsPicker'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
     const { insightProps, filters, activeView } = useValues(insightLogic)
-    const { conversionMetrics, clickhouseFeaturesEnabled } = useValues(funnelLogic(insightProps))
+    const { conversionMetrics, clickhouseFeaturesEnabled, aggregationTargetLabel } = useValues(
+        funnelLogic(insightProps)
+    )
     const { setChartFilter } = useActions(chartFilterLogic)
 
-    if (activeView !== ViewType.FUNNELS) {
+    if (activeView !== InsightType.FUNNELS) {
         return null
     }
 
@@ -27,7 +29,9 @@ export function FunnelCanvasLabel(): JSX.Element | null {
             ? [
                   <>
                       <span className="text-muted-alt">
-                          <Tooltip title="Overall conversion rate for all users on the entire funnel.">
+                          <Tooltip
+                              title={`Overall conversion rate for all ${aggregationTargetLabel.plural} on the entire funnel.`}
+                          >
                               <InfoCircleOutlined className="info-indicator left" />
                           </Tooltip>
                           Total conversion rate
@@ -41,7 +45,9 @@ export function FunnelCanvasLabel(): JSX.Element | null {
             ? [
                   <>
                       <span className="text-muted-alt">
-                          <Tooltip title="Average (arithmetic mean) of the total time each user spent in the entire funnel.">
+                          <Tooltip
+                              title={`Average (arithmetic mean) of the total time each ${aggregationTargetLabel.singular} spent in the entire funnel.`}
+                          >
                               <InfoCircleOutlined className="info-indicator left" />
                           </Tooltip>
                           Average time to convert{' '}

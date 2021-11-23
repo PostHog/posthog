@@ -9,11 +9,10 @@ from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from sentry_sdk.api import capture_exception
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import format_next_url
+from posthog.api.utils import format_paginated_url
 from posthog.celery import update_cache_item_task
 from posthog.constants import (
     FROM_DASHBOARD,
@@ -24,6 +23,7 @@ from posthog.constants import (
     TRENDS_STICKINESS,
 )
 from posthog.decorators import CacheType, cached_function
+from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.models import Event, Filter, Insight, Team
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
@@ -69,6 +69,7 @@ class InsightBasicSerializer(serializers.ModelSerializer):
 
 class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()
+    last_refresh = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -124,6 +125,9 @@ class InsightSerializer(InsightBasicSerializer):
     def get_result(self, insight: Insight):
         if not insight.filters:
             return None
+        if self.context["request"].GET.get("refresh"):
+            return update_dashboard_item_cache(insight, None)
+
         result = get_safe_cache(insight.filters_hash)
         if not result or result.get("task_id", None):
             return None
@@ -131,18 +135,19 @@ class InsightSerializer(InsightBasicSerializer):
         return result.get("result")
 
     def get_last_refresh(self, insight: Insight):
+        if self.context["request"].GET.get("refresh"):
+            return now()
+
         result = self.get_result(insight)
         if result is not None:
             return insight.last_refresh
-        insight.last_refresh = None
-        insight.save()
+        if insight.last_refresh is not None:
+            # Update last_refresh without updating "updated_at" (insight edit date)
+            Insight.objects.filter(pk=insight.pk).update(last_refresh=None)
+            insight.refresh_from_db()
         return None
 
     def to_representation(self, instance: Insight):
-        if self.context["request"].GET.get("refresh"):
-            update_dashboard_item_cache(instance, None)
-            instance.refresh_from_db()
-
         representation = super().to_representation(instance)
         representation["filters"] = instance.dashboard_filters(dashboard=self.context.get("dashboard"))
         return representation
@@ -156,6 +161,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     filterset_fields = ["short_id", "created_by"]
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
+
         if (self.action == "list" or self.action == "retrieve") and str_to_bool(
             self.request.query_params.get("basic", "0"),
         ):
@@ -231,7 +237,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def trend(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         result = self.calculate_trends(request)
         filter = Filter(request=request, team=self.team)
-        next = format_next_url(request, filter.offset, 20) if len(result["result"]) > 20 else None
+        next = format_paginated_url(request, filter.offset, 20) if len(result["result"]) > 20 else None
         return Response({**result, "next": next})
 
     @cached_function
@@ -279,9 +285,11 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # ******************************************
     @action(methods=["GET", "POST"], detail=False)
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        result = self.calculate_funnel(request)
+        funnel = self.calculate_funnel(request)
 
-        return Response(result)
+        funnel["result"] = protect_old_clients_from_multi_property_default(request.data, funnel["result"])
+
+        return Response(funnel)
 
     @cached_function
     def calculate_funnel(self, request: request.Request) -> Dict[str, Any]:
@@ -289,7 +297,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         refresh = should_refresh(request)
 
         filter = Filter(request=request, data={**request.data, "insight": INSIGHT_FUNNELS})
-        cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), team.pk))
+        cache_key = generate_cache_key(f"{filter.toJSON()}_{team.pk}")
         result = {"loading": True}
 
         if refresh:
@@ -330,7 +338,8 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if not request.GET.get("date_from"):
             data.update({"date_from": "-11d"})
         filter = RetentionFilter(data=data, request=request)
-        result = retention.Retention().run(filter, team)
+        base_uri = request.build_absolute_uri("/")
+        result = retention.Retention(base_uri=base_uri).run(filter, team)
         return {"result": result}
 
     # ******************************************

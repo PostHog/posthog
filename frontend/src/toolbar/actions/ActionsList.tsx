@@ -1,10 +1,11 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
-import { Button, Spin, Row, Input } from 'antd'
+import { Button, Row, Input } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { ActionsListView } from '~/toolbar/actions/ActionsListView'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 
 export function ActionsList(): JSX.Element {
     const { allActions, sortedActions, allActionsLoading, searchTerm } = useValues(actionsLogic)
@@ -30,7 +31,13 @@ export function ActionsList(): JSX.Element {
                         <PlusOutlined /> New Action
                     </Button>
                 </Row>
-                {allActions.length === 0 && allActionsLoading ? <Spin /> : <ActionsListView actions={sortedActions} />}
+                {true || (allActions.length === 0 && allActionsLoading) ? (
+                    <div className="text-center mt mb">
+                        <Spinner />
+                    </div>
+                ) : (
+                    <ActionsListView actions={sortedActions} />
+                )}
             </div>
         </>
     )

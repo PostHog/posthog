@@ -2,10 +2,10 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { billingLogicType } from './billingLogicType'
 import { PlanInterface, BillingType } from '~/types'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import posthog from 'posthog-js'
 import { Scene } from 'scenes/sceneTypes'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 export const UTM_TAGS = 'utm_medium=in-product&utm_campaign=billing-management'
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
@@ -16,6 +16,7 @@ export enum BillingAlertType {
 }
 
 export const billingLogic = kea<billingLogicType<BillingAlertType>>({
+    path: ['scenes', 'billing', 'billingLogic'],
     actions: {
         registerInstrumentationProps: true,
     },

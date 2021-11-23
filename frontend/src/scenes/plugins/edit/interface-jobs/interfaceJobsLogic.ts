@@ -18,6 +18,7 @@ export const interfaceJobsLogic = kea<interfaceJobsLogicType>({
     key: (props) => {
         return `${props.pluginId}_${props.jobName}`
     },
+    path: (key) => ['scenes', 'plugins', 'edit', 'interface-jobs', 'interfaceJobsLogic', key],
     connect: {
         actions: [pluginsLogic, ['showPluginLogs']],
     },

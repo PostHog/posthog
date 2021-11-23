@@ -5,11 +5,13 @@ from typing import (
     Counter,
     Dict,
     List,
+    Literal,
     Optional,
     Tuple,
     cast,
 )
 
+from clickhouse_driver.util.escape import escape_param
 from django.utils import timezone
 from rest_framework import exceptions
 
@@ -25,7 +27,7 @@ from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_
 from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
-from posthog.models.property import NEGATED_OPERATORS, OperatorType, Property, PropertyName, PropertyType
+from posthog.models.property import NEGATED_OPERATORS, OperatorType, Property, PropertyIdentifier, PropertyName
 from posthog.models.team import Team
 from posthog.utils import is_valid_regex, relative_date_parse
 
@@ -98,6 +100,14 @@ def parse_prop_clauses(
             )
 
             final.append(f"{filter_query} AND {table_name}team_id = %(team_id)s" if team_id else filter_query)
+            params.update(filter_params)
+        elif prop.type == "group":
+            # :TRICKY: This assumes group properties have already been joined, as in trends query
+            filter_query, filter_params = prop_filter_json_extract(
+                prop, idx, prepend, prop_var=f"group_properties_{prop.group_type_index}", allow_denormalized_props=False
+            )
+
+            final.append(filter_query)
             params.update(filter_params)
         elif prop.type in ("static-cohort", "precalculated-cohort"):
             cohort_id = cast(int, prop.value)
@@ -233,23 +243,63 @@ def property_table(property: Property) -> TableWithProperties:
         return "events"
     elif property.type == "person":
         return "person"
+    elif property.type == "group":
+        return "groups"
     else:
         raise ValueError(f"Property type does not have a table: {property.type}")
+
+
+def get_single_or_multi_property_string_expr(
+    breakdown, table: TableWithProperties, query_alias: Literal["prop", "value"]
+):
+    """
+    When querying for breakdown properties:
+     * If the breakdown provided is a string, we extract the JSON from the properties object stored in the DB
+     * If it is an array of strings, we extract each of those properties and concatenate them into a single value
+    clickhouse parameterizes into a query template from a flat list using % string formatting
+    values are escaped and inserted in the query here instead of adding new items to the flat list of values
+    """
+
+    column = "properties" if table == "events" else "person_props"
+
+    if isinstance(breakdown, str) or isinstance(breakdown, int):
+        expression, _ = get_property_string_expr(table, str(breakdown), escape_param(breakdown), column)
+    else:
+        expressions = []
+        for b in breakdown:
+            expr, _ = get_property_string_expr(table, b, escape_param(b), column)
+            expressions.append(expr)
+
+        expression = f"array({','.join(expressions)})"
+
+    return f"{expression} AS {query_alias}"
 
 
 def get_property_string_expr(
     table: TableWithProperties,
     property_name: PropertyName,
     var: str,
-    prop_var: str,
+    column: str,
     allow_denormalized_props: bool = True,
 ) -> Tuple[str, bool]:
+    """
+
+    :param table:
+    :param property_name:
+    :param var:
+        the value to template in from the data structure for the query e.g. %(key)s or a flat value e.g. ["Safari"].
+        If a flat value it should be escaped before being passed to this function
+    :param column:
+        the table column where JSON is stored or the name of a materialized column
+    :param allow_denormalized_props:
+    :return:
+    """
     materialized_columns = get_materialized_columns(table) if allow_denormalized_props else {}
 
     if allow_denormalized_props and property_name in materialized_columns:
         return materialized_columns[property_name], True
 
-    return f"trim(BOTH '\"' FROM JSONExtractRaw({prop_var}, {var}))", False
+    return f"trim(BOTH '\"' FROM JSONExtractRaw({column}, {var}))", False
 
 
 def box_value(value: Any, remove_spaces=False) -> List[Any]:
@@ -382,5 +432,5 @@ def build_selector_regex(selector: Selector) -> str:
     return regex
 
 
-def extract_tables_and_properties(props: List[Property]) -> Counter[Tuple[PropertyName, PropertyType]]:
-    return Counter((prop.key, prop.type) for prop in props)
+def extract_tables_and_properties(props: List[Property]) -> Counter[PropertyIdentifier]:
+    return Counter((prop.key, prop.type, prop.group_type_index) for prop in props)

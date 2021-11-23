@@ -1,27 +1,25 @@
 import React from 'react'
 import { Menu, Dropdown } from 'antd'
 import { A, combineUrl, encodeParams } from 'kea-router'
-import { FunnelPathType, PathType, ViewType, AvailableFeature } from '~/types'
+import { FunnelPathType, PathType, InsightType, AvailableFeature } from '~/types'
 import { funnelLogic } from './funnelLogic'
 import { useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
 
 export function FunnelStepDropdown({ index }: { index: number }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
-    const { propertiesForUrl: filterProps } = useValues(logic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { propertiesForUrl: filterProps, filters } = useValues(logic)
     const { user } = useValues(userLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.NEW_PATHS_UI]) {
-        return null
-    }
 
     if (!user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)) {
         // TODO: Consider showing the options but disabled with a prompt to upgrade
+        return null
+    }
+
+    // Don't show paths modal if aggregating by groups - paths is user-based!
+    if (filters.aggregation_group_type_index != undefined) {
         return null
     }
 
@@ -40,7 +38,7 @@ export function FunnelStepDropdown({ index }: { index: number }): JSX.Element | 
                                             encodeParams(
                                                 {
                                                     funnel_filter: { ...filterProps, funnel_step: adjustedIndex },
-                                                    insight: ViewType.PATHS,
+                                                    insight: InsightType.PATHS,
                                                     funnel_paths: FunnelPathType.before,
                                                     date_from: filterProps.date_from,
                                                     include_event_types: [PathType.PageView, PathType.CustomEvent],
@@ -63,7 +61,7 @@ export function FunnelStepDropdown({ index }: { index: number }): JSX.Element | 
                                             encodeParams(
                                                 {
                                                     funnel_filter: { ...filterProps, funnel_step: adjustedIndex },
-                                                    insight: ViewType.PATHS,
+                                                    insight: InsightType.PATHS,
                                                     funnel_paths: FunnelPathType.between,
                                                     date_from: filterProps.date_from,
                                                     include_event_types: [PathType.PageView, PathType.CustomEvent],
@@ -85,7 +83,7 @@ export function FunnelStepDropdown({ index }: { index: number }): JSX.Element | 
                                         encodeParams(
                                             {
                                                 funnel_filter: { ...filterProps, funnel_step: adjustedIndex },
-                                                insight: ViewType.PATHS,
+                                                insight: InsightType.PATHS,
                                                 funnel_paths: FunnelPathType.after,
                                                 date_from: filterProps.date_from,
                                                 include_event_types: [PathType.PageView, PathType.CustomEvent],
@@ -107,7 +105,7 @@ export function FunnelStepDropdown({ index }: { index: number }): JSX.Element | 
                                             encodeParams(
                                                 {
                                                     funnel_filter: { ...filterProps, funnel_step: adjustedIndex * -1 },
-                                                    insight: ViewType.PATHS,
+                                                    insight: InsightType.PATHS,
                                                     funnel_paths: FunnelPathType.after,
                                                     date_from: filterProps.date_from,
                                                     include_event_types: [PathType.PageView, PathType.CustomEvent],
@@ -130,7 +128,7 @@ export function FunnelStepDropdown({ index }: { index: number }): JSX.Element | 
                                             encodeParams(
                                                 {
                                                     funnel_filter: { ...filterProps, funnel_step: adjustedIndex * -1 },
-                                                    insight: ViewType.PATHS,
+                                                    insight: InsightType.PATHS,
                                                     funnel_paths: FunnelPathType.before,
                                                     date_from: filterProps.date_from,
                                                     include_event_types: [PathType.PageView, PathType.CustomEvent],

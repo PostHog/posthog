@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 from celery import group
 from dateutil.relativedelta import relativedelta
+from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Q
 from django.db.models.expressions import F, Subquery
@@ -27,7 +28,6 @@ from posthog.decorators import CacheType
 from posthog.models import Dashboard, Filter, Insight, Team
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
-from posthog.settings import CACHED_RESULTS_TTL
 from posthog.types import FilterType
 from posthog.utils import generate_cache_key, is_clickhouse_enabled
 
@@ -74,7 +74,7 @@ else:
     }
 
 
-def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> None:
+def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Dict[str, Any]]:
     result: Optional[Union[List, Dict]] = None
     filter_dict = json.loads(payload["filter"])
     team_id = int(payload["team_id"])
@@ -87,9 +87,10 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> None:
         result = _calculate_funnel(filter, key, team_id)
     else:
         result = _calculate_by_filter(filter, key, team_id, cache_type)
-    cache.set(key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, CACHED_RESULTS_TTL)
+    cache.set(key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, settings.CACHED_RESULTS_TTL)
 
     dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
+    return result
 
 
 def update_dashboard_items_cache(dashboard: Dashboard) -> None:
@@ -97,10 +98,11 @@ def update_dashboard_items_cache(dashboard: Dashboard) -> None:
         update_dashboard_item_cache(item, dashboard)
 
 
-def update_dashboard_item_cache(dashboard_item: Insight, dashboard: Optional[Dashboard]) -> None:
+def update_dashboard_item_cache(dashboard_item: Insight, dashboard: Optional[Dashboard]) -> List[Dict[str, Any]]:
     cache_key, cache_type, payload = dashboard_item_update_task_params(dashboard_item, dashboard)
-    update_cache_item(cache_key, cache_type, payload)
+    result = update_cache_item(cache_key, cache_type, payload)
     dashboard_item.refresh_from_db()
+    return result
 
 
 def get_cache_type(filter: FilterType) -> CacheType:

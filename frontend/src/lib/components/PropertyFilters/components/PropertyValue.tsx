@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { AutoComplete, Select } from 'antd'
 import { useThrottledCallback } from 'use-debounce'
 import api from 'lib/api'
@@ -72,44 +72,40 @@ export function PropertyValue({
     const autoCompleteRef = useRef<HTMLElement>(null)
 
     // update the input field if passed a new `value` prop
-    useEffect(
-        () => {
-            if (!value) {
-                setInput('')
-            } else if (value !== input) {
-                const valueObject = options[propertyKey]?.values?.find((v) => v.id === value)
-                if (valueObject) {
-                    setInput(toString(valueObject.name))
-                }
+    useEffect(() => {
+        if (!value) {
+            setInput('')
+        } else if (value !== input) {
+            const valueObject = options[propertyKey]?.values?.find((v) => v.id === value)
+            if (valueObject) {
+                setInput(toString(valueObject.name))
             }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [value]
-    )
+        }
+    }, [value])
 
     const loadPropertyValues = useThrottledCallback((newInput) => {
         if (type === 'cohort') {
             return
         }
         const key = propertyKey.split('__')[0]
-        setOptions({ [propertyKey]: { ...options[propertyKey], status: 'loading' }, ...options })
+        setOptions({ ...options, [propertyKey]: { ...options[propertyKey], status: 'loading' } })
         if (outerOptions) {
             setOptions({
+                ...options,
                 [propertyKey]: {
                     values: [...Array.from(new Set(outerOptions))],
                     status: 'loaded',
                 },
-                ...options,
             })
         } else {
             api.get(endpoint || 'api/' + type + '/values/?key=' + key + (newInput ? '&value=' + newInput : '')).then(
                 (propValues: PropValue[]) => {
                     setOptions({
+                        ...options,
                         [propertyKey]: {
                             values: [...Array.from(new Set(propValues))],
                             status: 'loaded',
                         },
-                        ...options,
                     })
                 }
             )
@@ -123,13 +119,9 @@ export function PropertyValue({
         }
     }
 
-    useEffect(
-        () => {
-            loadPropertyValues('')
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [propertyKey]
-    )
+    useEffect(() => {
+        loadPropertyValues('')
+    }, [propertyKey])
 
     useEffect(() => {
         if (input === '' && shouldBlur) {

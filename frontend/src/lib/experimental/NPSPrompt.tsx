@@ -9,7 +9,7 @@ import { npsLogicType } from './NPSPromptType'
 import posthog from 'posthog-js'
 import nps from './nps.svg'
 import { userLogic } from 'scenes/userLogic'
-import dayjs from 'dayjs'
+import { dayjs } from 'lib/dayjs'
 
 const NPS_APPEAR_TIMEOUT = 10000
 const NPS_HIDE_TIMEOUT = 3500
@@ -24,6 +24,7 @@ interface NPSPayload {
 }
 
 const npsLogic = kea<npsLogicType<NPSPayload, Step>>({
+    path: ['lib', 'experimental', 'NPSPrompt'],
     selectors: {
         featureFlagEnabled: [
             () => [featureFlagLogic.selectors.featureFlags],

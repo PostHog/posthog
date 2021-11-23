@@ -6,10 +6,11 @@ import { CohortType } from '~/types'
 const POLL_TIMEOUT = 5000
 
 export const cohortsModel = kea<cohortsModelType>({
+    path: ['models', 'cohortsModel'],
     actions: () => ({
         setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
         updateCohort: (cohort: CohortType) => ({ cohort }),
-        createCohort: (cohort: CohortType) => ({ cohort }),
+        cohortCreated: (cohort: CohortType) => ({ cohort }),
     }),
 
     loaders: () => ({
@@ -36,7 +37,7 @@ export const cohortsModel = kea<cohortsModelType>({
                 }
                 return [...state].map((flag) => (flag.id === cohort.id ? cohort : flag))
             },
-            createCohort: (state = [], { cohort }) => {
+            cohortCreated: (state = [], { cohort }) => {
                 if (!cohort) {
                     return state
                 }

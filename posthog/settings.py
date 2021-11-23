@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/2.2/ref/settings/
 """
 
+import logging
 import os
 import sys
 from datetime import timedelta
@@ -23,6 +24,7 @@ from django.core.exceptions import ImproperlyConfigured
 from kombu import Exchange, Queue
 from sentry_sdk.integrations.celery import CeleryIntegration
 from sentry_sdk.integrations.django import DjangoIntegration
+from sentry_sdk.integrations.logging import LoggingIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
 
 from posthog.constants import AnalyticsDBMS
@@ -49,11 +51,53 @@ def get_list(text: str) -> List[str]:
     return [item.strip() for item in text.split(",")]
 
 
+"""
+There are several options:
+1) running in pycharm
+        second argument is "test"
+2) running pytest at the CLI
+        first argument is the path to pytest and ends pytest
+3) running pytest using the script at /bin/tests
+        first argument is the path to pytest and ends pytest
+4) running in some other context (e.g. in prod)
+        first argument does not end pytest
+        second argument is not test
+
+Arguments to the application will be slightly different in each case
+
+So, in order to set test variables we need to look in slightly different places 
+
+The /bin/tests file also runs mypy to do type checking. This needs DEBUG=1 set too
+
+Running pytest directly does not always load django settings but sometimes needs these environment variables.
+We use pytest-env to let us set environment variables from the closest pytest.ini 
+
+We can't rely only on pytest.ini as some tests evaluate this file before its environment variables have been read
+"""
+runner = sys.argv[0] if len(sys.argv) >= 1 else None
+
+if runner:
+    cmd = sys.argv[1] if len(sys.argv) >= 2 else None
+
+    if cmd == "test" or runner.endswith("pytest") or runner.endswith("mypy"):
+        print("Running in test mode. Setting DEBUG and TEST environment variables.")
+        os.environ["DEBUG"] = "1"
+        os.environ["TEST"] = "1"
+
+        try:
+            path = sys.argv[2] if cmd == "test" else sys.argv[3]
+            if path.startswith("ee"):
+                print("Running EE tests. Setting clickhouse as primary database.")
+                os.environ["PRIMARY_DB"] = "clickhouse"
+        except IndexError:
+            # there was no path, we don't want to set PRIMARY_DB
+            pass
+
+
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 DEBUG = get_from_env("DEBUG", False, type_cast=str_to_bool)
-DEBUG_QUERIES = get_from_env("DEBUG_QUERIES", False, type_cast=str_to_bool)
 TEST = (
     "test" in sys.argv or sys.argv[0].endswith("pytest") or get_from_env("TEST", False, type_cast=str_to_bool)
 )  # type: bool
@@ -62,7 +106,7 @@ E2E_TESTING = get_from_env(
 )  # whether the app is currently running for E2E tests
 if E2E_TESTING:
     print_warning(
-        ("️WARNING! E2E_TESTING is set to `True`. This is a security vulnerability unless you are running tests.")
+        ["️WARNING! E2E_TESTING is set to `True`. This is a security vulnerability unless you are running tests."]
     )
 
 # These flags will be force-enabled on the frontend **and OVERRIDE all** flags from `/decide`
@@ -81,9 +125,19 @@ if env_feature_flags != "0" and env_feature_flags.lower() != "false" and not DEB
         "new-paths-ui-edge-weights",
     ]
 
-SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
+
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
 CALCULATE_X_COHORTS_PARALLEL = get_from_env("CALCULATE_X_COHORTS_PARALLEL", 2, type_cast=int)
+
+# Instance configuration preferences
+# https://posthog.com/docs/self-host/configure/environment-variables
+SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
+debug_queries = get_from_env("DEBUG_QUERIES", False, type_cast=str_to_bool)
+disable_paid_fs = get_from_env("DISABLE_PAID_FEATURE_SHOWCASING", False, type_cast=str_to_bool)
+INSTANCE_PREFERENCES = {
+    "debug_queries": debug_queries,
+    "disable_paid_fs": disable_paid_fs,
+}
 
 SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 
@@ -128,9 +182,10 @@ if not TEST:
     if os.getenv("SENTRY_DSN"):
         sentry_sdk.utils.MAX_STRING_LENGTH = 10_000_000
         # https://docs.sentry.io/platforms/python/
+        sentry_logging = sentry_logging = LoggingIntegration(level=logging.INFO, event_level=None)
         sentry_sdk.init(
             dsn=os.environ["SENTRY_DSN"],
-            integrations=[DjangoIntegration(), CeleryIntegration(), RedisIntegration()],
+            integrations=[DjangoIntegration(), CeleryIntegration(), RedisIntegration(), sentry_logging],
             request_bodies="always",
             send_default_pii=True,
             environment=os.getenv("SENTRY_ENVIRONMENT", "production"),

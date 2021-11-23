@@ -14,7 +14,7 @@ def test_preprocess_with_no_recordings():
     assert preprocess_session_recording_events(events) == events
 
 
-def test_preprocess_recording_event_creates_chunks():
+def test_preprocess_recording_event_creates_chunks_split_by_session_and_window_id():
     events = [
         {
             "event": "$snapshot",
@@ -26,16 +26,33 @@ def test_preprocess_recording_event_creates_chunks():
         },
         {
             "event": "$snapshot",
-            "properties": {"$session_id": "5678", "$snapshot_data": {"type": 1, "foo": "bar"}, "distinct_id": "abc123"},
+            "properties": {
+                "$session_id": "5678",
+                "$window_id": "1",
+                "$snapshot_data": {"type": 1, "foo": "bar"},
+                "distinct_id": "abc123",
+            },
+        },
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "5678",
+                "$window_id": "2",
+                "$snapshot_data": {"type": 1, "foo": "bar"},
+                "distinct_id": "abc123",
+            },
         },
     ]
 
     preprocessed = preprocess_session_recording_events(events)
     assert preprocessed != events
-    assert len(preprocessed) == 2
-    for result, expected_session_id in zip(preprocessed, ["1234", "5678"]):
+    assert len(preprocessed) == 3
+    expected_session_ids = ["1234", "5678", "5678"]
+    expected_window_ids = [None, "1", "2"]
+    for index, result in enumerate(preprocessed):
         assert result["event"] == "$snapshot"
-        assert result["properties"]["$session_id"] == expected_session_id
+        assert result["properties"]["$session_id"] == expected_session_ids[index]
+        assert result["properties"].get("$window_id") == expected_window_ids[index]
         assert result["properties"]["distinct_id"] == "abc123"
         assert "chunk_id" in result["properties"]["$snapshot_data"]
         assert result["event"] == "$snapshot"
@@ -52,6 +69,7 @@ def test_compression_and_chunking(snapshot_events, mocker: MockerFixture):
         {
             "event": "$snapshot",
             "properties": {
+                "$window_id": "1",
                 "$session_id": "1234",
                 "$snapshot_data": {
                     "chunk_count": 1,
@@ -140,6 +158,7 @@ def test_paginate_decompression():
             "event": "$snapshot",
             "properties": {
                 "$session_id": "1234",
+                "$window_id": "1",
                 "$snapshot_data": {"type": 3, "foo": "bar"},
                 "distinct_id": "abc123",
             },
@@ -148,6 +167,7 @@ def test_paginate_decompression():
             "event": "$snapshot",
             "properties": {
                 "$session_id": "1234",
+                "$window_id": "1",
                 "$snapshot_data": {"type": 3, "foo": "bar"},
                 "distinct_id": "abc123",
             },
@@ -187,6 +207,11 @@ def test_paginate_decompression():
     assert paginated_events.has_next == False
     assert len(paginated_events.paginated_list) == 4
 
+    # No limit or offset provided
+    paginated_events = paginate_chunk_decompression(1, "someid", snapshot_data)
+    assert paginated_events.has_next == False
+    assert len(paginated_events.paginated_list) == 4
+
 
 def test_paginate_decompression_leaves_events_untouched(snapshot_events):
     snapshot_data = [event["properties"]["$snapshot_data"] for event in snapshot_events]
@@ -201,12 +226,18 @@ def snapshot_events():
     return [
         {
             "event": "$snapshot",
-            "properties": {"$session_id": "1234", "$snapshot_data": {"type": 2, "foo": "bar"}, "distinct_id": "abc123"},
+            "properties": {
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_data": {"type": 2, "foo": "bar"},
+                "distinct_id": "abc123",
+            },
         },
         {
             "event": "$snapshot",
             "properties": {
                 "$session_id": "1234",
+                "$window_id": "1",
                 "$snapshot_data": {"type": 3, "foo": "zeta"},
                 "distinct_id": "abc123",
             },

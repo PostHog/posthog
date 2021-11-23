@@ -8,6 +8,7 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels import ClickhouseFunnel, ClickhouseFunnelStrict, ClickhouseFunnelUnordered
 from ee.clickhouse.queries.funnels.funnel_trends import ClickhouseFunnelTrends
 from ee.clickhouse.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsPersons
+from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR
 from posthog.models.cohort import Cohort
@@ -24,11 +25,6 @@ def _create_person(**kwargs):
     return Person(id=person.uuid, uuid=person.uuid)
 
 
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
-
-
 class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
@@ -38,48 +34,40 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
     def _create_sample_data(self):
         # five people, three steps
-        _create_person(distinct_ids=["user_one"], team=self.team)
-        _create_person(distinct_ids=["user_two"], team=self.team)
-        _create_person(distinct_ids=["user_three"], team=self.team)
-        _create_person(distinct_ids=["user_four"], team=self.team)
-        _create_person(distinct_ids=["user_five"], team=self.team)
-        _create_person(distinct_ids=["user_six"], team=self.team)
-        _create_person(distinct_ids=["user_seven"], team=self.team)
-        _create_person(distinct_ids=["user_eight"], team=self.team)
-
-        # user_one, funnel steps: one, two three
-        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 00:00:00")
-        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-03 00:00:00")
-        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-05 00:00:00")
-
-        # user_two, funnel steps: one, two
-        _create_event(event="step one", distinct_id="user_two", team=self.team, timestamp="2021-05-02 00:00:00")
-        _create_event(event="step two", distinct_id="user_two", team=self.team, timestamp="2021-05-04 00:00:00")
-
-        # user_three, funnel steps: one
-        _create_event(event="step one", distinct_id="user_three", team=self.team, timestamp="2021-05-06 00:00:00")
-
-        # user_four, funnel steps: none
-        _create_event(event="step none", distinct_id="user_four", team=self.team, timestamp="2021-05-06 00:00:00")
-
-        # user_five, funnel steps: one, two, three in the same day
-        _create_event(event="step one", distinct_id="user_five", team=self.team, timestamp="2021-05-01 01:00:00")
-        _create_event(event="step two", distinct_id="user_five", team=self.team, timestamp="2021-05-01 02:00:00")
-        _create_event(event="step three", distinct_id="user_five", team=self.team, timestamp="2021-05-01 03:00:00")
-
-        # user_six, funnel steps: one, two three
-        _create_event(event="step one", distinct_id="user_six", team=self.team, timestamp="2021-05-01 00:00:00")
-        _create_event(event="step two", distinct_id="user_six", team=self.team, timestamp="2021-05-03 00:00:00")
-        _create_event(event="step three", distinct_id="user_six", team=self.team, timestamp="2021-05-05 00:00:00")
-
-        # user_seven, funnel steps: one, two
-        _create_event(event="step one", distinct_id="user_seven", team=self.team, timestamp="2021-05-02 00:00:00")
-        _create_event(event="step two", distinct_id="user_seven", team=self.team, timestamp="2021-05-04 00:00:00")
+        journeys_for(
+            {
+                "user_one": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 3)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5)},
+                ],
+                "user_two": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 2)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 4)},
+                ],
+                "user_three": [{"event": "step one", "timestamp": datetime(2021, 5, 6)},],
+                "user_four": [{"event": "step none", "timestamp": datetime(2021, 5, 6)},],
+                "user_five": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 1)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 1, 2)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 1, 3)},
+                ],
+                "user_six": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 3)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5)},
+                ],
+                "user_seven": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 2)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 4)},
+                ],
+                "user_eight": [],
+            },
+            self.team,
+        )
 
     def test_no_event_in_period(self):
-        _create_person(distinct_ids=["user a"], team=self.team)
-
-        _create_event(event="step one", distinct_id="user a", team=self.team, timestamp="2021-06-06 21:00:00")
+        journeys_for({"user a": [{"event": "Step one", "timestamp": datetime(2021, 6, 6, 21)}]}, self.team)
 
         filter = Filter(
             data={
@@ -105,9 +93,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(formatted_results[0]["days"][0], "2021-06-07")
 
     def test_only_one_user_reached_one_step(self):
-        _create_person(distinct_ids=["user a"], team=self.team)
-
-        _create_event(event="step one", distinct_id="user a", team=self.team, timestamp="2021-06-07 19:00:00")
+        journeys_for({"user a": [{"event": "step one", "timestamp": datetime(2021, 6, 7, 19)}]}, self.team)
 
         filter = Filter(
             data={
@@ -248,12 +234,17 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        _create_person(distinct_ids=["user_one"], team=self.team)
 
-        # full run
-        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 00:00:00")
-        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-01 01:00:00")
-        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-01 02:00:00")
+        journeys_for(
+            {
+                "user_one": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 0)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 1, 1)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 1, 2)},
+                ]
+            },
+            self.team,
+        )
 
         results = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)._exec_query()
         self.assertEqual(7, len(results))
@@ -281,12 +272,16 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        _create_person(distinct_ids=["user_one"], team=self.team)
-
-        # full run
-        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 00:00:00")
-        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-01 01:00:00")
-        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-01 02:00:00")
+        journeys_for(
+            {
+                "user_one": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 0)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 1, 1)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 1, 2)},
+                ]
+            },
+            self.team,
+        )
 
         results = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)._exec_query()
         persons, _ = self._get_people_at_step(filter, "2021-04-25 00:00:00", False)
@@ -312,12 +307,16 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        _create_person(distinct_ids=["user_one"], team=self.team)
-
-        # full run
-        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2020-05-01 00:00:00")
-        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2020-05-01 01:00:00")
-        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2020-05-01 02:00:00")
+        journeys_for(
+            {
+                "user_one": [
+                    {"event": "step one", "timestamp": datetime(2020, 5, 1, 0)},
+                    {"event": "step two", "timestamp": datetime(2020, 5, 1, 1)},
+                    {"event": "step three", "timestamp": datetime(2020, 5, 1, 2)},
+                ]
+            },
+            self.team,
+        )
 
         results = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)._exec_query()
         self.assertEqual(
@@ -396,12 +395,17 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        _create_person(distinct_ids=["user_one"], team=self.team)
 
-        # full run
-        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 00:00:00")
-        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-01 01:00:00")
-        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-01 02:00:00")
+        journeys_for(
+            {
+                "user_one": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 0)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 1, 1)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 1, 2)},
+                ]
+            },
+            self.team,
+        )
 
         with freeze_time("2021-05-20T13:01:01Z"):
             results = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)._exec_query()
@@ -540,19 +544,15 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
     def test_period_not_final(self):
         now = datetime.now()
 
-        _create_person(distinct_ids=["user_eight"], team=self.team)
-        _create_event(event="step one", distinct_id="user_eight", team=self.team, timestamp=now.strftime(FORMAT_TIME))
-        _create_event(
-            event="step two",
-            distinct_id="user_eight",
-            team=self.team,
-            timestamp=(now + timedelta(minutes=1)).strftime(FORMAT_TIME),
-        )
-        _create_event(
-            event="step three",
-            distinct_id="user_eight",
-            team=self.team,
-            timestamp=(now + timedelta(minutes=2)).strftime(FORMAT_TIME),
+        journeys_for(
+            {
+                "user_eight": [
+                    {"event": "step one", "timestamp": now},
+                    {"event": "step two", "timestamp": now + timedelta(minutes=1)},
+                    {"event": "step three", "timestamp": now + timedelta(minutes=2)},
+                ]
+            },
+            self.team,
         )
 
         filter = Filter(
@@ -594,17 +594,21 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day["is_period_final"], False)  # events coming in now may stil affect this
 
     def test_two_runs_by_single_user_in_one_period(self):
-        _create_person(distinct_ids=["user_one"], team=self.team)
-
-        # 1st full run
-        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 00:00:00")
-        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-01 01:00:00")
-        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-01 02:00:00")
-
-        # 2nd full run
-        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 13:00:00")
-        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-01 14:00:00")
-        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-01 15:00:00")
+        journeys_for(
+            {
+                "user_one": [
+                    # 1st full run
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 0)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 1, 1)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 1, 2)},
+                    # 2nd full run
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 13)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 1, 14)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 1, 15)},
+                ]
+            },
+            self.team,
+        )
 
         filter = Filter(
             data={
@@ -632,11 +636,16 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day["is_period_final"], True)
 
     def test_steps_performed_in_period_but_in_reverse(self):
-        _create_person(distinct_ids=["user_one"], team=self.team)
-
-        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-01 01:00:00")
-        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-01 02:00:00")
-        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 03:00:00")
+        journeys_for(
+            {
+                "user_one": [
+                    {"event": "step three", "timestamp": datetime(2021, 5, 1, 1)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 1, 2)},
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 3)},
+                ]
+            },
+            self.team,
+        )
 
         filter = Filter(
             data={
@@ -664,25 +673,28 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day_1["is_period_final"], True)
 
     def test_one_person_in_multiple_periods_and_windows(self):
-        _create_person(distinct_ids=["user_one"], team=self.team)
-        _create_person(distinct_ids=["user_two"], team=self.team)
-
-        # 1st user's 1st complete run
-        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 01:00:00")
-        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-01 02:00:00")
-        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-01 03:00:00")
-
-        # 1st user's incomplete run
-        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-03 01:00:00")
-        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-03 02:00:00")
-
-        # 2nd user's incomplete run
-        _create_event(event="step one", distinct_id="user_two", team=self.team, timestamp="2021-05-04 18:00:00")
-
-        # 1st user's 2nd complete run
-        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-04 11:00:00")
-        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-04 12:00:00")
-        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-04 13:00:00")
+        journeys_for(
+            {
+                "user_one": [
+                    # 1st user's 1st complete run
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 1)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 1, 2)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 1, 3)},
+                    # 1st user's incomplete run
+                    {"event": "step one", "timestamp": datetime(2021, 5, 3, 1)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 3, 2)},
+                    # 1st user's 2nd complete run
+                    {"event": "step one", "timestamp": datetime(2021, 5, 4, 11)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 4, 12)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 4, 13)},
+                ],
+                "user_two": [
+                    # 2nd user's incomplete run
+                    {"event": "step one", "timestamp": datetime(2021, 5, 4, 18)},
+                ],
+            },
+            self.team,
+        )
 
         filter = Filter(
             data={
@@ -752,26 +764,31 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_from_second_step(self):
-        _create_person(distinct_ids=["user_one"], team=self.team)
-        _create_person(distinct_ids=["user_two"], team=self.team)
-        _create_person(distinct_ids=["user_three"], team=self.team)
-        _create_person(distinct_ids=["user_four"], team=self.team)
-
-        # 1st user's complete run - should fall into the 2021-05-01 bucket even though counting only from 2nd step
-        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 01:00:00")
-        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-02 02:00:00")
-        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-02 03:00:00")
-
-        # 2nd user's incomplete run - should not count at all since not reaching 2nd step
-        _create_event(event="step one", distinct_id="user_two", team=self.team, timestamp="2021-05-01 01:00:00")
-
-        # 3rd user's incomplete run - should not count at all since reaching 2nd step BUT not the 1st one
-        _create_event(event="step two", distinct_id="user_three", team=self.team, timestamp="2021-05-02 02:00:00")
-        _create_event(event="step three", distinct_id="user_three", team=self.team, timestamp="2021-05-02 03:00:00")
-
-        # 4th user's incomplete run - should fall into the 2021-05-02 bucket as entered but not completed
-        _create_event(event="step one", distinct_id="user_four", team=self.team, timestamp="2021-05-02 01:00:00")
-        _create_event(event="step two", distinct_id="user_four", team=self.team, timestamp="2021-05-02 02:00:00")
+        journeys_for(
+            {
+                "user_one": [
+                    # 1st user's complete run - should fall into the 2021-05-01 bucket even though counting only from 2nd step
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 1)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 2, 2)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 2, 3)},
+                ],
+                "user_two": [
+                    # 2nd user's incomplete run - should not count at all since not reaching 2nd step
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 1)},
+                ],
+                "user_three": [
+                    # 3rd user's incomplete run - should not count at all since reaching 2nd step BUT not the 1st one
+                    {"event": "step two", "timestamp": datetime(2021, 5, 2, 2)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 2, 3)},
+                ],
+                "user_four": [
+                    # 4th user's incomplete run - should fall into the 2021-05-02 bucket as entered but not completed
+                    {"event": "step one", "timestamp": datetime(2021, 5, 2, 1)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 2, 2)},
+                ],
+            },
+            self.team,
+        )
 
         filter = Filter(
             data={
@@ -806,26 +823,31 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day_2["is_period_final"], True)
 
     def test_to_second_step(self):
-        _create_person(distinct_ids=["user_one"], team=self.team)
-        _create_person(distinct_ids=["user_two"], team=self.team)
-        _create_person(distinct_ids=["user_three"], team=self.team)
-        _create_person(distinct_ids=["user_four"], team=self.team)
-
-        # 1st user's complete run - should fall into the 2021-05-01 bucket
-        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 01:00:00")
-        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-02 02:00:00")
-        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-02 03:00:00")
-
-        # 2nd user's incomplete run - should count as incomplete
-        _create_event(event="step one", distinct_id="user_two", team=self.team, timestamp="2021-05-01 01:00:00")
-
-        # 3rd user's incomplete run - should not count at all since reaching 2nd step BUT not the 1st one
-        _create_event(event="step two", distinct_id="user_three", team=self.team, timestamp="2021-05-02 02:00:00")
-        _create_event(event="step three", distinct_id="user_three", team=self.team, timestamp="2021-05-02 03:00:00")
-
-        # 4th user's incomplete run - should fall into the 2021-05-02 bucket as entered and completed
-        _create_event(event="step one", distinct_id="user_four", team=self.team, timestamp="2021-05-02 01:00:00")
-        _create_event(event="step two", distinct_id="user_four", team=self.team, timestamp="2021-05-02 02:00:00")
+        journeys_for(
+            {
+                "user_one": [
+                    # 1st user's complete run - should fall into the 2021-05-01 bucket
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 1)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 2, 2)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 2, 3)},
+                ],
+                "user_two": [
+                    # 2nd user's incomplete run - should count as incomplete
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 1)},
+                ],
+                "user_three": [
+                    # 3rd user's incomplete run - should not count at all since reaching 2nd step BUT not the 1st one
+                    {"event": "step two", "timestamp": datetime(2021, 5, 2, 2)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 2, 3)},
+                ],
+                "user_four": [
+                    # 4th user's incomplete run - should fall into the 2021-05-02 bucket as entered and completed
+                    {"event": "step one", "timestamp": datetime(2021, 5, 2, 1)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 2, 2)},
+                ],
+            },
+            self.team,
+        )
 
         filter = Filter(
             data={
@@ -860,25 +882,28 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day_2["is_period_final"], True)
 
     def test_one_person_in_multiple_periods_and_windows_in_unordered_funnel(self):
-        _create_person(distinct_ids=["user_one"], team=self.team)
-        _create_person(distinct_ids=["user_two"], team=self.team)
-
-        # 1st user's 1st complete run
-        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 01:00:00")
-        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-01 02:00:00")
-        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-01 03:00:00")
-
-        # 1st user's incomplete run
-        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-03 01:00:00")
-        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-03 02:00:00")
-
-        # 2nd user's incomplete run
-        _create_event(event="step one", distinct_id="user_two", team=self.team, timestamp="2021-05-04 18:00:00")
-
-        # 1st user's 2nd complete run
-        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-04 11:00:00")
-        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-04 12:00:00")
-        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-04 13:00:00")
+        journeys_for(
+            {
+                "user_one": [
+                    # 1st user's 1st complete run
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 1)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 1, 2)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 1, 3)},
+                    # 1st user's incomplete run
+                    {"event": "step two", "timestamp": datetime(2021, 5, 3, 1)},
+                    {"event": "step one", "timestamp": datetime(2021, 5, 3, 2)},
+                    # 1st user's 2nd complete run
+                    {"event": "step three", "timestamp": datetime(2021, 5, 4, 11)},
+                    {"event": "step one", "timestamp": datetime(2021, 5, 4, 12)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 4, 13)},
+                ],
+                "user_two": [
+                    # 2nd user's incomplete run
+                    {"event": "step one", "timestamp": datetime(2021, 5, 4, 18)},
+                ],
+            },
+            self.team,
+        )
 
         filter = Filter(
             data={
@@ -948,31 +973,34 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_one_person_in_multiple_periods_and_windows_in_strict_funnel(self):
-        _create_person(distinct_ids=["user_one"], team=self.team)
-        _create_person(distinct_ids=["user_two"], team=self.team)
-
-        # 1st user's 1st complete run
-        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 01:00:00")
-        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-01 02:00:00")
-        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-01 03:00:00")
-
-        # 1st user's incomplete run
-        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-03 01:00:00")
-        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-03 02:00:00")
-        # broken because strict
-        _create_event(event="blah", distinct_id="user_one", team=self.team, timestamp="2021-05-03 02:30:00")
-        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-03 03:00:00")
-
-        # 2nd user's incomplete run
-        _create_event(event="step one", distinct_id="user_two", team=self.team, timestamp="2021-05-04 18:00:00")
-        # broken because strict
-        _create_event(event="blah", distinct_id="user_two", team=self.team, timestamp="2021-05-04 18:20:00")
-        _create_event(event="step two", distinct_id="user_two", team=self.team, timestamp="2021-05-04 19:00:00")
-
-        # 1st user's 2nd complete run
-        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-04 11:00:00")
-        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-04 12:00:00")
-        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-04 13:00:00")
+        journeys_for(
+            {
+                "user_one": [
+                    # 1st user's 1st complete run
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 1)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 1, 2)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 1, 3)},
+                    # 1st user's incomplete run
+                    {"event": "step one", "timestamp": datetime(2021, 5, 3, 1)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 3, 2)},
+                    # broken because strict
+                    {"event": "blah", "timestamp": datetime(2021, 5, 3, 2, 30)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 3, 3)},
+                    # 1st user's 2nd complete run
+                    {"event": "step one", "timestamp": datetime(2021, 5, 4, 11)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 4, 12)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 4, 13)},
+                ],
+                "user_two": [
+                    # 2nd user's incomplete run
+                    {"event": "step one", "timestamp": datetime(2021, 5, 4, 18)},
+                    # broken because strict
+                    {"event": "blah", "timestamp": datetime(2021, 5, 4, 18, 20)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 4, 19)},
+                ],
+            },
+            self.team,
+        )
 
         filter = Filter(
             data={
@@ -1018,73 +1046,25 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day_4["is_period_final"], True)
 
     def test_funnel_step_breakdown_event(self):
-        _create_person(distinct_ids=["user_one"], team=self.team)
-        _create_event(
-            event="step one",
-            distinct_id="user_one",
-            team=self.team,
-            timestamp="2021-05-01 00:00:00",
-            properties={"$browser": "Chrome"},
-        )
-        _create_event(
-            event="step two",
-            distinct_id="user_one",
-            team=self.team,
-            timestamp="2021-05-03 00:00:00",
-            properties={"$browser": "Chrome"},
-        )
-        _create_event(
-            event="step three",
-            distinct_id="user_one",
-            team=self.team,
-            timestamp="2021-05-05 00:00:00",
-            properties={"$browser": "Chrome"},
-        )
-
-        _create_person(distinct_ids=["user_two"], team=self.team)
-        _create_event(
-            event="step one",
-            distinct_id="user_two",
-            team=self.team,
-            timestamp="2021-05-02 00:00:00",
-            properties={"$browser": "Chrome"},
-        )
-        _create_event(
-            event="step two",
-            distinct_id="user_two",
-            team=self.team,
-            timestamp="2021-05-03 00:00:00",
-            properties={"$browser": "Chrome"},
-        )
-        _create_event(
-            event="step three",
-            distinct_id="user_two",
-            team=self.team,
-            timestamp="2021-05-05 00:00:00",
-            properties={"$browser": "Chrome"},
-        )
-
-        _create_person(distinct_ids=["user_three"], team=self.team)
-        _create_event(
-            event="step one",
-            distinct_id="user_three",
-            team=self.team,
-            timestamp="2021-05-03 00:00:00",
-            properties={"$browser": "Safari"},
-        )
-        _create_event(
-            event="step two",
-            distinct_id="user_three",
-            team=self.team,
-            timestamp="2021-05-04 00:00:00",
-            properties={"$browser": "Safari"},
-        )
-        _create_event(
-            event="step three",
-            distinct_id="user_three",
-            team=self.team,
-            timestamp="2021-05-05 00:00:00",
-            properties={"$browser": "Safari"},
+        journeys_for(
+            {
+                "user_one": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1), "properties": {"$browser": "Chrome"}},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 3), "properties": {"$browser": "Chrome"}},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5), "properties": {"$browser": "Chrome"}},
+                ],
+                "user_two": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 2), "properties": {"$browser": "Chrome"}},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 3), "properties": {"$browser": "Chrome"}},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5), "properties": {"$browser": "Chrome"}},
+                ],
+                "user_three": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 3), "properties": {"$browser": "Safari"}},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 4), "properties": {"$browser": "Safari"}},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5), "properties": {"$browser": "Safari"}},
+                ],
+            },
+            self.team,
         )
 
         filter = Filter(
@@ -1110,9 +1090,9 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(result), 2)
 
         for res in result:
-            if res["breakdown_value"] == "Chrome":
+            if res["breakdown_value"] == ["Chrome"]:
                 self.assertEqual(res["data"], [100.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-            elif res["breakdown_value"] == "Safari":
+            elif res["breakdown_value"] == ["Safari"]:
                 self.assertEqual(res["data"], [0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
             else:
                 self.fail(msg="Invalid breakdown value")
@@ -1121,76 +1101,31 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         _create_person(
             distinct_ids=["user_one"], team=self.team, properties={"$browser": "Chrome"},
         )
-        _create_event(
-            event="step one",
-            distinct_id="user_one",
-            team=self.team,
-            timestamp="2021-05-01 00:00:00",
-            properties={"$browser": "Chrome"},
-        )
-        _create_event(
-            event="step two",
-            distinct_id="user_one",
-            team=self.team,
-            timestamp="2021-05-03 00:00:00",
-            properties={"$browser": "Chrome"},
-        )
-        _create_event(
-            event="step three",
-            distinct_id="user_one",
-            team=self.team,
-            timestamp="2021-05-05 00:00:00",
-            properties={"$browser": "Chrome"},
-        )
-
         _create_person(
             distinct_ids=["user_two"], team=self.team, properties={"$browser": "Chrome"},
         )
-        _create_event(
-            event="step one",
-            distinct_id="user_two",
-            team=self.team,
-            timestamp="2021-05-02 00:00:00",
-            properties={"$browser": "Chrome"},
-        )
-        _create_event(
-            event="step two",
-            distinct_id="user_two",
-            team=self.team,
-            timestamp="2021-05-03 00:00:00",
-            properties={"$browser": "Chrome"},
-        )
-        _create_event(
-            event="step three",
-            distinct_id="user_two",
-            team=self.team,
-            timestamp="2021-05-05 00:00:00",
-            properties={"$browser": "Chrome"},
-        )
-
         _create_person(
             distinct_ids=["user_three"], team=self.team, properties={"$browser": "Safari"},
         )
-        _create_event(
-            event="step one",
-            distinct_id="user_three",
-            team=self.team,
-            timestamp="2021-05-03 00:00:00",
-            properties={"$browser": "Safari"},
-        )
-        _create_event(
-            event="step two",
-            distinct_id="user_three",
-            team=self.team,
-            timestamp="2021-05-04 00:00:00",
-            properties={"$browser": "Safari"},
-        )
-        _create_event(
-            event="step three",
-            distinct_id="user_three",
-            team=self.team,
-            timestamp="2021-05-05 00:00:00",
-            properties={"$browser": "Safari"},
+        journeys_for(
+            {
+                "user_one": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 3)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5)},
+                ],
+                "user_two": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 2)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 3)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5)},
+                ],
+                "user_three": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 3)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 4)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5)},
+                ],
+            },
+            self.team,
         )
 
         filter = Filter(
@@ -1216,9 +1151,9 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(result), 2)
 
         for res in result:
-            if res["breakdown_value"] == "Chrome":
+            if res["breakdown_value"] == ["Chrome"]:
                 self.assertEqual(res["data"], [100.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-            elif res["breakdown_value"] == "Safari":
+            elif res["breakdown_value"] == ["Safari"]:
                 self.assertEqual(res["data"], [0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
             else:
                 self.fail(msg="Invalid breakdown value")
@@ -1227,76 +1162,32 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         _create_person(
             distinct_ids=["user_one"], team=self.team, properties={"key": "value"},
         )
-        _create_event(
-            event="step one",
-            distinct_id="user_one",
-            team=self.team,
-            timestamp="2021-05-01 00:00:00",
-            properties={"$browser": "Chrome"},
-        )
-        _create_event(
-            event="step two",
-            distinct_id="user_one",
-            team=self.team,
-            timestamp="2021-05-03 00:00:00",
-            properties={"$browser": "Chrome"},
-        )
-        _create_event(
-            event="step three",
-            distinct_id="user_one",
-            team=self.team,
-            timestamp="2021-05-05 00:00:00",
-            properties={"$browser": "Chrome"},
-        )
-
         _create_person(
             distinct_ids=["user_two"], team=self.team, properties={"key": "value"},
         )
-        _create_event(
-            event="step one",
-            distinct_id="user_two",
-            team=self.team,
-            timestamp="2021-05-02 00:00:00",
-            properties={"$browser": "Chrome"},
-        )
-        _create_event(
-            event="step two",
-            distinct_id="user_two",
-            team=self.team,
-            timestamp="2021-05-03 00:00:00",
-            properties={"$browser": "Chrome"},
-        )
-        _create_event(
-            event="step three",
-            distinct_id="user_two",
-            team=self.team,
-            timestamp="2021-05-05 00:00:00",
-            properties={"$browser": "Chrome"},
-        )
-
         _create_person(
             distinct_ids=["user_three"], team=self.team, properties={"$browser": "Safari"},
         )
-        _create_event(
-            event="step one",
-            distinct_id="user_three",
-            team=self.team,
-            timestamp="2021-05-03 00:00:00",
-            properties={"$browser": "Safari"},
-        )
-        _create_event(
-            event="step two",
-            distinct_id="user_three",
-            team=self.team,
-            timestamp="2021-05-04 00:00:00",
-            properties={"$browser": "Safari"},
-        )
-        _create_event(
-            event="step three",
-            distinct_id="user_three",
-            team=self.team,
-            timestamp="2021-05-05 00:00:00",
-            properties={"$browser": "Safari"},
+
+        journeys_for(
+            {
+                "user_one": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 3)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5)},
+                ],
+                "user_two": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 2)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 3)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5)},
+                ],
+                "user_three": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 3)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 4)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5)},
+                ],
+            },
+            self.team,
         )
 
         cohort = Cohort.objects.create(team=self.team, name="test_cohort", groups=[{"properties": {"key": "value"}}])

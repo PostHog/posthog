@@ -28,19 +28,15 @@ export function KeaStory<T = React.ReactNode>({
 }): T | JSX.Element | null {
     const [lastState, setLastState] = useState(null as Record<string, any> | null)
 
-    useEffect(
-        () => {
-            if (state !== lastState) {
-                setLastState(null)
-            }
-            if (state && lastState === null) {
-                resetKeaWithState(state)
-                setLastState(state)
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [state]
-    )
+    useEffect(() => {
+        if (state !== lastState) {
+            setLastState(null)
+        }
+        if (state && lastState === null) {
+            resetKeaWithState(state)
+            setLastState(state)
+        }
+    }, [state])
 
     return lastState ? <Provider>{children || <App />}</Provider> : null
 }

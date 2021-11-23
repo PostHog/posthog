@@ -30,23 +30,19 @@ export function useLongPress(
     const [startLongPress, setStartLongPress] = useState(null)
     const [initialCoords, setInitialCoords] = useState(null)
 
-    useEffect(
-        () => {
-            let timerId
-            if (startLongPress && ms) {
-                timerId = setTimeout(() => {
-                    callback(false, window.performance.now() - startLongPress, initialCoords)
-                    stop()
-                }, ms)
-            }
+    useEffect(() => {
+        let timerId
+        if (startLongPress && ms) {
+            timerId = setTimeout(() => {
+                callback(false, window.performance.now() - startLongPress, initialCoords)
+                stop()
+            }, ms)
+        }
 
-            return () => {
-                clearTimeout(timerId)
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [callback, ms, startLongPress]
-    )
+        return () => {
+            clearTimeout(timerId)
+        }
+    }, [callback, ms, startLongPress])
 
     function start(e) {
         if (exclude && e.target.matches(exclude)) {
