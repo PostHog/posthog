@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { DashboardItemType } from '~/types'
+import { DashboardItemType, InsightShortId } from '~/types'
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 export const insightRouterLogic = kea<insightRouterLogicType>({
     path: ['scenes', 'insights', 'insightRouterLogic'],
     actions: {
-        loadInsight: (id: string) => ({ id }),
+        loadInsight: (id: InsightShortId) => ({ id }),
         setError: true,
     },
     reducers: {
@@ -41,9 +41,9 @@ export const insightRouterLogic = kea<insightRouterLogicType>({
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/i/:id': ({ id }) => {
-            if (id) {
-                actions.loadInsight(id)
+        [urls.insightRouter(':shortId')]: ({ shortId }) => {
+            if (shortId) {
+                actions.loadInsight(shortId as InsightShortId)
             }
         },
     }),

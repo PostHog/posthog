@@ -25,6 +25,7 @@ import {
     InsightType,
     FilterType,
     InsightLogicProps,
+    InsightShortId,
 } from '~/types'
 import { ActionsBarValueGraph } from 'scenes/trends/viz'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -47,11 +48,11 @@ import { teamLogic } from '../teamLogic'
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
-interface Props {
+interface DashboardItemProps {
     item: DashboardItemType
     dashboardId?: number
-    updateItemColor?: (shortId: string, itemClassName: string) => void
-    setDiveDashboard?: (shortId: string, dashboardId: number | null) => void
+    updateItemColor?: (shortId: InsightShortId, itemClassName: string) => void
+    setDiveDashboard?: (shortId: InsightShortId, dashboardId: number | null) => void
     loadDashboardItems?: () => void
     isDraggingRef?: RefObject<boolean>
     isReloading?: boolean
@@ -209,7 +210,7 @@ export function DashboardItem({
     duplicateDashboardItem,
     isHighlighted = false,
     doNotLoad = false,
-}: Props): JSX.Element {
+}: DashboardItemProps): JSX.Element {
     const [initialLoaded, setInitialLoaded] = useState(false)
     const [showSaveModal, setShowSaveModal] = useState(false)
     const { currentTeamId } = useValues(teamLogic)

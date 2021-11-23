@@ -9,10 +9,10 @@ import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import { dashboardColors } from 'lib/colors'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Tooltip } from 'lib/components/Tooltip'
-import { AnnotationScope, AnnotationType } from '~/types'
-import { styles } from '../../../vars'
-import { teamLogic } from '../../../scenes/teamLogic'
-import { organizationLogic } from '../../../scenes/organizationLogic'
+import { AnnotationScope, AnnotationType, InsightShortId } from '~/types'
+import { styles } from '~/vars'
+import { teamLogic } from 'scenes/teamLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { dayjs } from 'lib/dayjs'
 
 const { TextArea } = Input
@@ -44,7 +44,7 @@ interface AnnotationMarkerProps {
     size?: number
     color: string | null
     accessoryColor: string | null
-    dashboardItemId?: string
+    dashboardItemId?: InsightShortId
     currentDateMarker: string
     dynamic?: boolean
     graphColor: string | null
@@ -96,11 +96,7 @@ export function AnnotationMarker({
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
-    const { diffType, groupedAnnotations } = useValues(
-        annotationsLogic({
-            pageKey: dashboardItemId ? dashboardItemId : null,
-        })
-    )
+    const { diffType, groupedAnnotations } = useValues(annotationsLogic({ insightShortId: dashboardItemId }))
 
     function closePopup(): void {
         setFocused(false)

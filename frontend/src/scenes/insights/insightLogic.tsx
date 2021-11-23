@@ -9,6 +9,7 @@ import {
     DashboardItemType,
     FilterType,
     InsightLogicProps,
+    InsightShortId,
     InsightType,
     ItemMode,
     SetInsightOptions,
@@ -110,7 +111,7 @@ export const insightLogic = kea<insightLogicType>({
         saveInsight: (options?: Record<string, any>) => ({ setViewMode: options?.setViewMode }),
         setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
         fetchedResults: (filters: Partial<FilterType>) => ({ filters }),
-        loadInsight: (shortId: string, { doNotLoadResults }: { doNotLoadResults?: boolean } = {}) => ({
+        loadInsight: (shortId: InsightShortId, { doNotLoadResults }: { doNotLoadResults?: boolean } = {}) => ({
             shortId,
             doNotLoadResults,
         }),
@@ -686,7 +687,7 @@ export const insightLogic = kea<insightLogicType>({
                     actions.createAndRedirectToNewInsight(searchParams)
                     return
                 }
-                const insightId = params.id ? String(params.id) : null
+                const insightId = params.id ? (String(params.id) as InsightShortId) : null
                 if (!insightId) {
                     // only allow editing insights with IDs for now
                     router.actions.replace(urls.insightNew(searchParams))

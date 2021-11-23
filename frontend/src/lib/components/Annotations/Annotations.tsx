@@ -2,7 +2,7 @@ import React from 'react'
 import { annotationsLogic } from './annotationsLogic'
 import { useValues, useActions } from 'kea'
 import { AnnotationMarker } from './AnnotationMarker'
-import { AnnotationType, AnnotationScope } from '~/types'
+import { AnnotationType, AnnotationScope, InsightShortId } from '~/types'
 import { dayjs } from 'lib/dayjs'
 
 interface AnnotationsProps {
@@ -10,7 +10,7 @@ interface AnnotationsProps {
     leftExtent: number
     interval: number
     topExtent: number
-    dashboardItemId?: string
+    dashboardItemId?: InsightShortId
     color: string | null
     graphColor: string
     accessoryColor: string | null
@@ -32,18 +32,10 @@ export function Annotations({
     graphColor,
     currentDateMarker,
 }: AnnotationsProps): JSX.Element[] {
-    const { diffType, groupedAnnotations } = useValues(
-        annotationsLogic({
-            pageKey: dashboardItemId ? dashboardItemId : null,
-        })
-    )
+    const { diffType, groupedAnnotations } = useValues(annotationsLogic({ insightShortId: dashboardItemId }))
 
     const { createAnnotation, createAnnotationNow, deleteAnnotation, deleteGlobalAnnotation, createGlobalAnnotation } =
-        useActions(
-            annotationsLogic({
-                pageKey: dashboardItemId ? dashboardItemId : null,
-            })
-        )
+        useActions(annotationsLogic({ insightShortId: dashboardItemId }))
 
     const markers: JSX.Element[] = []
 

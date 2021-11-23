@@ -6,7 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { FunnelTab, PathTab, RetentionTab, SessionTab, TrendTab } from './InsightTabs'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
-import { HotKeys, ItemMode, InsightType } from '~/types'
+import { HotKeys, ItemMode, InsightType, InsightShortId } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
@@ -31,10 +31,10 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { id } }) => ({ dashboardItemId: id ? parseInt(id) : null, syncWithUrl: true }),
 }
 
-export function Insight({ id }: { id?: string } = {}): JSX.Element {
+export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Element {
     useMountedLogic(insightCommandLogic)
 
-    const logic = insightLogic({ dashboardItemId: id || null, syncWithUrl: true })
+    const logic = insightLogic({ dashboardItemId: shortId, syncWithUrl: true })
     const {
         insightProps,
         activeView,

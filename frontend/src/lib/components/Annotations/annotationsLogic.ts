@@ -5,18 +5,18 @@ import { deleteWithUndo, determineDifferenceType, groupBy, toParams } from '~/li
 import { annotationsModel } from '~/models/annotationsModel'
 import { getNextKey } from './utils'
 import { annotationsLogicType } from './annotationsLogicType'
-import { AnnotationScope, AnnotationType } from '~/types'
+import { AnnotationScope, AnnotationType, InsightShortId } from '~/types'
 import { teamLogic } from '../../../scenes/teamLogic'
 import { getInsightId } from 'scenes/insights/insightLogic'
 
 interface AnnotationsLogicProps {
-    pageKey?: string | null
+    insightShortId?: InsightShortId
 }
 
 export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>({
     path: (key) => ['lib', 'components', 'Annotations', 'annotationsLogic', key],
     props: {} as AnnotationsLogicProps,
-    key: (props) => (props.pageKey ? `${props.pageKey}_annotations` : 'annotations_default'),
+    key: (props) => props.insightShortId || 'default',
     connect: {
         actions: [annotationsModel, ['deleteGlobalAnnotation', 'createGlobalAnnotation']],
         values: [annotationsModel, ['activeGlobalAnnotations']],
@@ -52,7 +52,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
             __default: [] as AnnotationType[],
             loadAnnotations: async () => {
                 // TODO: get rid of this
-                const insightId = props.pageKey ? await getInsightId({ short_id: props.pageKey }) : null
+                const insightId = props.insightShortId ? await getInsightId({ short_id: props.insightShortId }) : null
                 const params = {
                     ...(insightId ? { dashboardItemId: insightId } : {}),
                     scope: AnnotationScope.DashboardItem,
@@ -142,7 +142,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
                 content,
                 date_marker: dayjs(date_marker),
                 created_at,
-                dashboard_item: props.pageKey,
+                dashboard_item: props.insightShortId,
                 scope,
             })
             actions.loadAnnotations()
@@ -160,6 +160,6 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
         },
     }),
     events: ({ actions, props }) => ({
-        afterMount: () => props.pageKey && actions.loadAnnotations(),
+        afterMount: () => props.insightShortId && actions.loadAnnotations(),
     }),
 })

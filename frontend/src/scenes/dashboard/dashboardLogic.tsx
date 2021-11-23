@@ -8,7 +8,15 @@ import { clearDOMTextSelection, editingToast, setPageTitle, toParams } from 'lib
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { ACTIONS_LINE_GRAPH_LINEAR, PATHS_VIZ } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { DashboardItemType, DashboardLayoutSize, DashboardMode, DashboardType, FilterType, InsightType } from '~/types'
+import {
+    DashboardItemType,
+    DashboardLayoutSize,
+    DashboardMode,
+    DashboardType,
+    FilterType,
+    InsightShortId,
+    InsightType,
+} from '~/types'
 import { dashboardLogicType } from './dashboardLogicType'
 import React from 'react'
 import { Layout, Layouts } from 'react-grid-layout'
@@ -55,8 +63,8 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         updateLayouts: (layouts: Layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         saveLayouts: true,
-        updateItemColor: (shortId: string, color: string) => ({ shortId, color }),
-        setDiveDashboard: (shortId: string, dive_dashboard: number | null) => ({ shortId, dive_dashboard }),
+        updateItemColor: (shortId: InsightShortId, color: string) => ({ shortId, color }),
+        setDiveDashboard: (shortId: InsightShortId, dive_dashboard: number | null) => ({ shortId, dive_dashboard }),
         refreshAllDashboardItems: (items?: DashboardItemType[]) => ({ items }),
         refreshAllDashboardItemsManual: true,
         resetInterval: true,

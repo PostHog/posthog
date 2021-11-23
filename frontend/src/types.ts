@@ -619,10 +619,13 @@ export interface PlanInterface {
     price_string: string
 }
 
+// neat trick: https://github.com/microsoft/TypeScript/issues/202#issuecomment-961853101
+export type InsightShortId = string & { readonly '': unique symbol }
+
 export interface DashboardItemType {
     // id: number
     name: string
-    short_id: string
+    short_id: InsightShortId
     description?: string
     favorited?: boolean
     filters: Partial<FilterType>
@@ -1095,7 +1098,7 @@ export interface ChartParams {
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
 export interface InsightLogicProps {
     /** currently persisted insight */
-    dashboardItemId?: string | null
+    dashboardItemId?: InsightShortId | null
     /** enable url handling for this insight */
     syncWithUrl?: boolean
     /** cached results, avoid making a request */
