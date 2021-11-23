@@ -7,8 +7,8 @@ import { IconChevronLeft, IconChevronRight } from '../icons'
 import { LemonButton } from '../LemonButton'
 import { Tooltip } from '../Tooltip'
 import './LemonTable.scss'
-import { SortingIndicator, getNextSorting } from './sorting'
-export { Sorting, SortOrder} from './sorting'
+import { Sorting, SortingIndicator, getNextSorting } from './sorting'
+export { Sorting, SortOrder } from './sorting'
 
 export interface PaginationAuto {
     pageSize: number
@@ -243,8 +243,11 @@ export function LemonTable<T extends Record<string, any>>({
                                             {' '}
                                             <div className="LemonTable__header-content">
                                                 {column.title}
-                                                {column.sorter &&
-                                                    <SortingIndicator order={currentSorting ? currentSorting.order : null} />}
+                                                {column.sorter && (
+                                                    <SortingIndicator
+                                                        order={currentSorting ? currentSorting.order : null}
+                                                    />
+                                                )}
                                             </div>
                                         </Tooltip>
                                     </th>
