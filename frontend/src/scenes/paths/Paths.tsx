@@ -23,16 +23,8 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { D3Selector } from 'lib/hooks/useD3'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature } from '~/types'
+import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-
-function NoData(): JSX.Element {
-    return (
-        <div style={{ padding: '1rem' }}>
-            We don't have enough data to show anything here. You might need to send us some frontend (JS) events, as we
-            use the <pre style={{ display: 'inline' }}>$current_url</pre> property to calculate paths.
-        </div>
-    )
-}
 
 const DEFAULT_PATHS_ID = 'default_paths'
 const HIDE_PATH_CARD_HEIGHT = 30
@@ -42,11 +34,11 @@ const FALLBACK_CANVAS_HEIGHT = 0
 const isMonochrome = (color: string): boolean => color === 'white' || color === 'black'
 
 interface PathsProps {
-    dashboardItemId: number | null
-    color: string
+    dashboardItemId?: number | null
+    color?: string
 }
 
-export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps): JSX.Element {
+export function Paths({ dashboardItemId = null, color = 'white' }: PathsProps): JSX.Element {
     const canvas = useRef<HTMLDivElement>(null)
     const { width: canvasWidth = FALLBACK_CANVAS_WIDTH, height: canvasHeight = FALLBACK_CANVAS_HEIGHT } =
         useResizeObserver({ ref: canvas })
@@ -288,7 +280,7 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
     return (
         <div className="paths-container" id={`'${dashboardItemId || DEFAULT_PATHS_ID}'`}>
             <div ref={canvas} className="paths" data-attr="paths-viz">
-                {!pathsLoading && paths && paths.nodes.length === 0 && !pathsError && <NoData />}
+                {!pathsLoading && paths && paths.nodes.length === 0 && !pathsError && <InsightEmptyState />}
                 {!pathsError &&
                     pathItemCards &&
                     pathItemCards.map((pathItemCard: PathNodeData, idx) => {
