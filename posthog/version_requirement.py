@@ -1,8 +1,10 @@
 from semantic_version.base import SimpleSpec, Version
 
+from posthog import redis
+
 
 class ServiceVersionRequirement:
-    accepted_services = ("clickhouse", "postgresql")
+    accepted_services = ("clickhouse", "postgresql", "redis")
 
     def __init__(self, service, supported_version):
         if service not in self.accepted_services:
@@ -31,6 +33,9 @@ class ServiceVersionRequirement:
         if self.service == "clickhouse":
             return self.get_clickhouse_version()
 
+        if self.service == "redis":
+            return self.get_redis_version()
+
     def get_postgres_version(self):
         from django.db import connection
 
@@ -48,6 +53,11 @@ class ServiceVersionRequirement:
         rows = sync_execute("SELECT version()")
         version = rows[0][0]
 
+        return self.version_string_to_semver(version)
+
+    def get_redis_version(self):
+        client = redis.get_client()
+        version = client.execute_command("INFO")["redis_version"]
         return self.version_string_to_semver(version)
 
     @staticmethod
