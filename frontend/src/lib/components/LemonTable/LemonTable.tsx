@@ -2,20 +2,13 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import React, { HTMLProps, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { columnSort } from '../../../scenes/saved-insights/SavedInsights'
 import { useResizeObserver } from '../../hooks/useResizeObserver'
 import { IconChevronLeft, IconChevronRight } from '../icons'
 import { LemonButton } from '../LemonButton'
 import { Tooltip } from '../Tooltip'
 import './LemonTable.scss'
-
-/** 1 means ascending, -1 means descending. */
-export type SortOrder = 1 | -1
-/** Sorting state. */
-export interface Sorting {
-    columnKey: string
-    order: SortOrder
-}
+import { SortingIndicator, getNextSorting } from './sorting'
+export { Sorting, SortOrder} from './sorting'
 
 export interface PaginationAuto {
     pageSize: number
@@ -85,24 +78,6 @@ export interface LemonTableProps<T extends Record<string, any>> {
     /** What to describe the entries as, singular and plural. The default value is `['entry', 'entries']`. */
     nouns?: [string, string]
     'data-attr'?: string
-}
-
-function getNextSorting(
-    currentSorting: Sorting | null,
-    selectedColumnKey: string,
-    disableSortingCancellation: boolean
-): Sorting | null {
-    if (
-        !currentSorting ||
-        currentSorting.columnKey !== selectedColumnKey ||
-        (currentSorting.order === -1 && disableSortingCancellation)
-    ) {
-        return { columnKey: selectedColumnKey, order: 1 }
-    } else if (currentSorting.order === 1) {
-        return { columnKey: selectedColumnKey, order: -1 }
-    } else {
-        return null
-    }
 }
 
 export function LemonTable<T extends Record<string, any>>({
@@ -269,15 +244,7 @@ export function LemonTable<T extends Record<string, any>>({
                                             <div className="LemonTable__header-content">
                                                 {column.title}
                                                 {column.sorter &&
-                                                    columnSort(
-                                                        currentSorting &&
-                                                            currentSorting.columnKey ===
-                                                                determineColumnKey(column, 'sorting')
-                                                            ? currentSorting.order === 1
-                                                                ? 'up'
-                                                                : 'down'
-                                                            : 'none'
-                                                    )}
+                                                    <SortingIndicator order={currentSorting ? currentSorting.order : null} />}
                                             </div>
                                         </Tooltip>
                                     </th>

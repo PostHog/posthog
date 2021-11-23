@@ -9,9 +9,6 @@ import { DashboardItemType, LayoutView, SavedInsightsTabs, InsightType } from '~
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
 import {
     AppstoreFilled,
-    ArrowDownOutlined,
-    ArrowUpOutlined,
-    MenuOutlined,
     StarFilled,
     StarOutlined,
     UnorderedListOutlined,
@@ -21,7 +18,6 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { DashboardItem, displayMap, getDisplayedType } from 'scenes/dashboard/DashboardItem'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-
 import { PageHeader } from 'lib/components/PageHeader'
 import { SavedInsightsEmptyState, UNNAMED_INSIGHT_NAME } from 'scenes/insights/EmptyStates'
 import { teamLogic } from '../teamLogic'
@@ -112,22 +108,6 @@ export const scene: SceneExport = {
     component: SavedInsights,
     logic: savedInsightsLogic,
 }
-
-export const columnSort = (direction: 'up' | 'down' | 'none'): JSX.Element => (
-    <div
-        style={{
-            fontSize: 10,
-            paddingLeft: 8,
-            whiteSpace: 'nowrap',
-            width: 20,
-            display: 'flex',
-            justifyContent: 'center',
-        }}
-    >
-        {direction === 'down' ? <ArrowDownOutlined /> : direction === 'up' ? <ArrowUpOutlined /> : null}
-        <MenuOutlined />
-    </div>
-)
 
 function NewInsightButton(): JSX.Element {
     const menu = (
