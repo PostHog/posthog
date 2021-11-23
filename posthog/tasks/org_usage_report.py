@@ -4,7 +4,6 @@ import time
 from datetime import datetime
 from typing import Dict, List, Literal, Optional, TypedDict, Union, cast
 
-from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.db.models.manager import BaseManager
 from sentry_sdk import capture_exception
