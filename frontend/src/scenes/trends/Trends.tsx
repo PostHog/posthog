@@ -31,7 +31,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
         filters: _filters,
         loadMoreBreakdownUrl,
         breakdownValuesLoading,
-        showPersonsModalActions,
+        showModalActions,
     } = useValues(trendsLogic(insightProps))
     const { loadMoreBreakdownValues } = useActions(trendsLogic(insightProps))
     const { showingPeople } = useValues(personsModalLogic)
@@ -107,7 +107,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
                 onSaveCohort={() => {
                     setCohortModalVisible(true)
                 }}
-                showPersonsModalActions={showPersonsModalActions}
+                showModalActions={showModalActions}
             />
             <SaveCohortModal
                 visible={cohortModalVisible}

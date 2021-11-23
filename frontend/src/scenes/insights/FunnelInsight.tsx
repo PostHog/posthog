@@ -26,7 +26,7 @@ export function FunnelInsight(): JSX.Element {
                 onSaveCohort={() => {
                     setCohortModalVisible(true)
                 }}
-                showPersonsModalActions={!filters.aggregation_group_type_index}
+                showModalActions={!filters.aggregation_group_type_index}
             />
             <div
                 className={clsx('funnel-insights-container', {

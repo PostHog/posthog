@@ -110,7 +110,7 @@ export const trendsLogic = kea<trendsLogicType>({
                 return results.map((result, index) => ({ ...result, id: index }))
             },
         ],
-        showPersonsModalActions: [
+        showModalActions: [
             (s) => [s.filters],
             (filters): boolean => {
                 const isNotAggregatingByGroup = (entity: Record<string, any>): boolean =>
