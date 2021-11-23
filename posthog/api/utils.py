@@ -41,8 +41,8 @@ def get_target_entity(request: request.Request) -> Entity:
 
 def retrieve_entity_from(
     entity_id: Union[str, int],
-    entity_type: Literal["events", "actions"],
-    entity_math: Optional[MATH_TYPE],
+    entity_type: Optional[str],
+    entity_math: Optional[str],
     events: List[Dict],
     actions: List[Dict],
 ) -> Optional[Dict]:
