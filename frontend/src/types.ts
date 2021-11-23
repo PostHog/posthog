@@ -619,7 +619,7 @@ export interface PlanInterface {
     price_string: string
 }
 
-// neat trick: https://github.com/microsoft/TypeScript/issues/202#issuecomment-961853101
+// Creating a nominal type: https://github.com/microsoft/TypeScript/issues/202#issuecomment-961853101
 export type InsightShortId = string & { readonly '': unique symbol }
 
 export interface DashboardItemType {
@@ -844,7 +844,7 @@ export interface FilterType {
     people_action?: any
     formula?: any
     filter_test_accounts?: boolean
-    from_dashboard?: boolean | string
+    from_dashboard?: boolean | number
     layout?: FunnelLayout // used only for funnels
     funnel_step?: number
     entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
@@ -1034,7 +1034,7 @@ export enum FunnelConversionWindowTimeUnit {
 
 export interface FunnelRequestParams extends FilterType {
     refresh?: boolean
-    from_dashboard?: boolean | string
+    from_dashboard?: boolean | number
     funnel_window_days?: number
 }
 
@@ -1087,7 +1087,7 @@ export interface FlattenedFunnelStepByBreakdown {
 }
 
 export interface ChartParams {
-    dashboardItemId?: string
+    dashboardItemId?: InsightShortId
     color?: string
     filters: Partial<FilterType>
     inSharedMode?: boolean
