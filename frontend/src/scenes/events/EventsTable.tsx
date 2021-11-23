@@ -17,8 +17,6 @@ import { ActionType, EventsTableRowItem, EventType, InsightType } from '~/types'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { EventName } from 'scenes/actions/EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { LabelledSwitch } from 'scenes/events/LabelledSwitch'
 import clsx from 'clsx'
@@ -68,7 +66,6 @@ export function EventsTable({
 
     const { propertyNames } = useValues(propertyDefinitionsModel)
     const { fetchNextEvents, prependNewEvents, setEventFilter, toggleAutomaticLoad } = useActions(logic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const showLinkToPerson = !fixedFilters?.person_id
     const newEventsRender = (item: Record<string, any>, colSpan: number): Record<string, any> => {
@@ -234,10 +231,7 @@ export function EventsTable({
                     const eventLink = `/insights?${encodedParams}`
 
                     return (
-                        <Link
-                            to={`${eventLink}#backTo=Events&backToURL=${window.location.pathname}`}
-                            data-attr="events-table-usage"
-                        >
+                        <Link to={eventLink} data-attr="events-table-usage">
                             Insights <ExportOutlined />
                         </Link>
                     )
@@ -327,15 +321,13 @@ export function EventsTable({
                             </Tooltip>
                         )}
                     </Col>
-                    {featureFlags[FEATURE_FLAGS.EVENT_COLUMN_CONFIG] && (
-                        <Col flex="0">
-                            <TableConfig
-                                availableColumns={propertyNames}
-                                immutableColumns={['event', 'person', 'when']}
-                                defaultColumns={defaultColumns.map((e) => e.key || '')}
-                            />
-                        </Col>
-                    )}
+                    <Col flex="0">
+                        <TableConfig
+                            availableColumns={propertyNames}
+                            immutableColumns={['event', 'person', 'when']}
+                            defaultColumns={defaultColumns.map((e) => e.key || '')}
+                        />
+                    </Col>
                 </Row>
 
                 <div>

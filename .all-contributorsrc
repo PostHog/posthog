@@ -1716,6 +1716,33 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "hjweddie",
+      "name": "StackoverFrog",
+      "avatar_url": "https://avatars.githubusercontent.com/u/5867477?v=4",
+      "profile": "https://github.com/hjweddie",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "maxmue",
+      "name": "Maximilian Ferdinand Müller",
+      "avatar_url": "https://avatars.githubusercontent.com/u/4235114?v=4",
+      "profile": "https://github.com/maxmue",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "ajsharp",
+      "name": "Alex Sharp",
+      "avatar_url": "https://avatars.githubusercontent.com/u/12774?v=4",
+      "profile": "https://ajsharp.com",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

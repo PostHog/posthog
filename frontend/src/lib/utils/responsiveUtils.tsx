@@ -1,4 +1,3 @@
-import React, { useEffect, useRef } from 'react'
 import { responsiveMap } from 'antd/lib/_util/responsiveObserve'
 import { ANTD_EXPAND_BUTTON_WIDTH } from '../components/ResizableTable'
 
@@ -28,32 +27,4 @@ export function getActiveBreakpointValue(): number {
 
 export function getBreakpoint(breakpointKey: string): number {
     return BREAKPOINT_MAP[breakpointKey] || -1
-}
-
-interface ResizeObserverProps {
-    callback: (entries: ResizeObserverEntry[]) => any
-    element: React.MutableRefObject<any>
-}
-
-export function useResizeObserver({ callback, element }: ResizeObserverProps): void {
-    const observer = useRef<ResizeObserver | null>(null)
-
-    useEffect(() => {
-        unobserve()
-        observer.current = new ResizeObserver(callback)
-        observe()
-        return unobserve
-    }, [element.current])
-
-    function observe(): void {
-        if (element?.current && observer?.current) {
-            observer.current.observe(element.current)
-        }
-    }
-
-    function unobserve(): void {
-        if (element?.current && observer?.current) {
-            observer.current.unobserve(element.current)
-        }
-    }
 }

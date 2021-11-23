@@ -260,7 +260,6 @@ export const eventUsageLogic = kea<
         reportCreatedDashboardFromModal: true,
         reportSavedInsightToDashboard: true,
         reportInsightsTabReset: true,
-        reportInsightsControlsCollapseToggle: (collapsed: boolean) => ({ collapsed }),
         reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
         reportInsightShortUrlVisited: (valid: boolean, insight: InsightType | null) => ({ valid, insight }),
         reportSavedInsightTabChanged: (tab: string) => ({ tab }),
@@ -624,9 +623,6 @@ export const eventUsageLogic = kea<
         },
         reportInsightsTabReset: async () => {
             posthog.capture('insights tab reset')
-        },
-        reportInsightsControlsCollapseToggle: async (payload) => {
-            posthog.capture('insight controls collapse toggled', payload)
         },
         reportInsightsTableCalcToggled: async (payload) => {
             posthog.capture('insights table calc toggled', payload)

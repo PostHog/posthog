@@ -765,3 +765,17 @@ code.code {
 .fullscreen-scroll {
     overflow-y: auto;
 }
+
+// AntD overrrides, placed inside #root to increase specifity (nicely avoiding the need for !important)
+#root {
+    // AntD uses its own border color for the bottom of tab lists, but we want to use `var(--border)`
+    .ant-tabs-top,
+    .ant-tabs-bottom {
+        &,
+        & > div {
+            & > .ant-tabs-nav::before {
+                border-bottom-color: var(--border);
+            }
+        }
+    }
+}

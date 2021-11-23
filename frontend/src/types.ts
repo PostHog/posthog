@@ -550,10 +550,11 @@ export interface EventType {
     event: string
 }
 
-export interface SeekbarEventType extends Omit<EventType, 'timestamp'> {
+export interface RecordingEventType extends Omit<EventType, 'timestamp'> {
     percentage: number
     timestamp: number
     queryValue?: string
+    colonTimestamp?: string
 }
 
 export interface EventsTableRowItem {
@@ -657,7 +658,9 @@ export interface DashboardType {
     deleted: boolean
     filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
-    tags: string[] // TODO: To be implemented
+    tags: string[]
+    /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
+    _highlight?: boolean
 }
 
 export type DashboardLayoutSize = 'lg' | 'sm' | 'xs' | 'xxs'
@@ -1398,4 +1401,9 @@ export enum HelpType {
 export interface VersionType {
     version: string
     release_date?: string
+}
+
+export interface dateMappingOption {
+    inactive?: boolean // Options removed due to low usage (see relevant PR); will not show up for new insights but will be kept for existing
+    values: string[]
 }

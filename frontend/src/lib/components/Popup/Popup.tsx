@@ -1,5 +1,5 @@
 import './Popup.scss'
-import React, { ReactElement, useContext, useEffect, useMemo, useState } from 'react'
+import React, { MouseEventHandler, ReactElement, useContext, useEffect, useMemo, useState } from 'react'
 import ReactDOM from 'react-dom'
 import { usePopper } from 'react-popper'
 import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
@@ -9,6 +9,7 @@ import clsx from 'clsx'
 export interface PopupProps {
     visible?: boolean
     onClickOutside?: (event: Event) => void
+    onClickInside?: MouseEventHandler<HTMLDivElement>
     /** Popover trigger element. */
     children: React.ReactChild | ((props: { setRef: (ref: HTMLElement | null) => void }) => JSX.Element)
     /** Content of the overlay. */
@@ -35,6 +36,7 @@ export function Popup({
     overlay,
     visible,
     onClickOutside,
+    onClickInside,
     placement = 'bottom-start',
     fallbackPlacements = ['bottom-end', 'top-start', 'top-end'],
     className,
@@ -70,6 +72,12 @@ export function Popup({
 
     const modifiers = useMemo<Partial<Modifier<any, any>>[]>(
         () => [
+            {
+                name: 'offset',
+                options: {
+                    offset: [0, 4],
+                },
+            },
             fallbackPlacements
                 ? {
                       name: 'flip',
@@ -118,6 +126,7 @@ export function Popup({
                           className={clsx('Popup', actionable && 'Popup--actionable', className)}
                           ref={setPopperElement}
                           style={styles.popper}
+                          onClick={onClickInside}
                           {...attributes.popper}
                       >
                           <PopupContext.Provider value={popupId}>{overlay}</PopupContext.Provider>

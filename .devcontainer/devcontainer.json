@@ -2,38 +2,45 @@
 // https://github.com/microsoft/vscode-dev-containers/tree/v0.183.0/containers/docker-existing-docker-compose
 // If you want to run as a non-root user in the container, see .devcontainer/docker-compose.yml.
 {
-    "name": "Existing Docker Compose (Extend)",
+    "name": "PostHog codespaces development environment",
 
-    // Update the 'dockerComposeFile' list if you have more compose files or use different names.
-    // The .devcontainer/docker-compose.yml file contains any overrides you need/want to make.
-    "dockerComposeFile": ["../ee/docker-compose.ch.yml", "docker-compose.yml"],
-
-    // The 'service' property is the name of the service for the container that VS Code should
-    // use. Update this value and .devcontainer/docker-compose.yml to the real service name.
-    "service": "web",
-
-    // The optional 'workspaceFolder' property is the path VS Code should open by default when
-    // connected. This is typically a file mount in .devcontainer/docker-compose.yml
+    "dockerComposeFile": "docker-compose.yml",
+    "service": "app",
     "workspaceFolder": "/workspace",
 
     // Set *default* container specific settings.json values on container create.
-    "settings": {},
+    "settings": {
+        /*
+          Python settings
+        */
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+
+        // Configure linting
+        "python.linting.enabled": true,
+        "python.linting.pylintEnabled": false, // We use flake8, disable pylint
+        "python.linting.flake8Enabled": true,
+        "python.linting.flake8Path": "/usr/local/py-utils/bin/flake8",
+        "python.linting.mypyPath": "/usr/local/py-utils/bin/mypy",
+
+        // Configure formatting
+        "python.formatting.blackPath": "/usr/local/py-utils/bin/black",
+        "python.formatting.provider": "black",
+
+        // Configure testing
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestPath": "/usr/local/py-utils/bin/pytest"
+    },
 
     // Add the IDs of extensions you want installed when the container is created.
-    "extensions": [],
+    "extensions": ["ms-python.python", "ms-python.vscode-pylance"],
+
+    /*
+      Life cycle commands
+    */
+    // Use initialize stage to e.g. setup env vars we need before codespaces
+    // builds the docker image
+    "postStartCommand": ".devcontainer/container_start.sh",
 
     // Use 'forwardPorts' to make a list of ports inside the container available locally.
-    "forwardPorts": [8000, 5432, 6379, 8123, 8234, 9000, 9092, 9440, 9009],
-
-    // Uncomment the next line if you want start specific services in your Docker Compose config.
-    // "runServices": [],
-
-    // Uncomment the next line if you want to keep your containers running after VS Code shuts down.
-    // "shutdownAction": "none",
-
-    // Uncomment the next line to run commands after the container is created - for example installing curl.
-    "postCreateCommand": "./.devcontainer/container_start.sh"
-
-    // Uncomment to connect as a non-root user if you've added one. See https://aka.ms/vscode-remote/containers/non-root.
-    // "remoteUser": "vscode"
+    "forwardPorts": [8000, 5432, 6379, 8123, 8234, 9000, 9092, 9440, 9009]
 }

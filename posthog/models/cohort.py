@@ -264,7 +264,7 @@ class Cohort(models.Model):
                 filters |= Q(persondistinctid__distinct_id__in=events)
             elif group.get("properties"):
                 filter = Filter(data=group)
-                filters |= Q(properties_to_Q(filter.properties, team_id=self.team_id, is_person_query=True))
+                filters |= Q(properties_to_Q(filter.properties, team_id=self.team_id, is_direct_query=True))
         return filters
 
     __repr__ = sane_repr("id", "name", "last_calculation")
