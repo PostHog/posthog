@@ -503,8 +503,10 @@ else:
 
 # Broker
 
+IS_COLLECT_STATIC = len(sys.argv) > 1 and sys.argv[1] == "collectstatic"
+
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
-if TEST or DEBUG or (len(sys.argv) > 1 and sys.argv[1] == "collectstatic"):
+if TEST or DEBUG or IS_COLLECT_STATIC:
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost/")
 else:
     REDIS_URL = os.getenv("REDIS_URL", "")
@@ -733,7 +735,9 @@ structlog.configure(
 # keep in sync with plugin-server
 EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC = "events_added_to_dead_letter_queue"
 
-SKIP_SERVICE_VERSION_REQUIREMENTS = get_from_env("SKIP_SERVICE_VERSION_REQUIREMENTS", TEST, type_cast=str_to_bool)
+SKIP_SERVICE_VERSION_REQUIREMENTS = get_from_env(
+    "SKIP_SERVICE_VERSION_REQUIREMENTS", TEST or IS_COLLECT_STATIC, type_cast=str_to_bool
+)
 
 if SKIP_SERVICE_VERSION_REQUIREMENTS:
     print_warning("Skipping service version requirements. This is dangerous and PostHog might not work as expected!")
