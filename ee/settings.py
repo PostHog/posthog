@@ -7,7 +7,6 @@ from typing import Dict, List
 from posthog.constants import AnalyticsDBMS
 from posthog.settings import AUTHENTICATION_BACKENDS, PRIMARY_DB, SITE_URL, TEST, get_from_env
 from posthog.utils import str_to_bool
-from posthog.version_requirement import ServiceVersionRequirement
 
 # Zapier REST hooks
 HOOK_EVENTS: Dict[str, str] = {
@@ -86,7 +85,3 @@ MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS = get_from_env(
 MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS = get_from_env("MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS", 90, type_cast=int)
 # Maximum number of columns to materialize at once. Avoids running into resource bottlenecks (storage + ingest + backfilling).
 MATERIALIZE_COLUMNS_MAX_AT_ONCE = get_from_env("MATERIALIZE_COLUMNS_MAX_AT_ONCE", 10, type_cast=int)
-
-SERVICE_VERSION_REQUIREMENTS_EE = [
-    ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0,<21.7.0"),
-]
