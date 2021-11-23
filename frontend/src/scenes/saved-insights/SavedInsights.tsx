@@ -155,7 +155,9 @@ function NewInsightButton(): JSX.Element {
                             <Row wrap={false}>
                                 <Col flex="none">
                                     {listedInsightType.icon && (
-                                        <listedInsightType.icon color="var(--muted-alt)" noBackground />
+                                        <div style={{ fontSize: '2rem' }}>
+                                            <listedInsightType.icon color="var(--muted-alt)" noBackground />
+                                        </div>
                                     )}
                                 </Col>
                                 <Col flex="Auto" style={{ paddingLeft: '1rem' }}>
