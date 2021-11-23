@@ -7,10 +7,10 @@ import { organizationLogic } from 'scenes/organizationLogic'
 export function CreateOrganizationModal({
     isVisible,
     onClose,
-    mask
+    mask,
 }: {
     isVisible: boolean
-    onClose?: () => void,
+    onClose?: () => void
     mask?: boolean
 }): JSX.Element {
     const { createOrganization } = useActions(organizationLogic)
@@ -49,7 +49,7 @@ export function CreateOrganizationModal({
             onCancel={closeModal}
             visible={isVisible}
             mask={mask}
-            wrapProps={!mask ? { style: {pointerEvents: 'none'}} : undefined}
+            wrapProps={!mask ? { style: { pointerEvents: 'none' } } : undefined}
             closeIcon={null}
             back
         >

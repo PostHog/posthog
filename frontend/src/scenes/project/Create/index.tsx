@@ -7,5 +7,5 @@ export const scene: SceneExport = {
 }
 
 export function ProjectCreate(): JSX.Element {
-    return <CreateProjectModal isVisible mask={false}/>
+    return <CreateProjectModal isVisible mask={false} />
 }
