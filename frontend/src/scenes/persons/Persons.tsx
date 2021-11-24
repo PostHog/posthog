@@ -124,7 +124,6 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
                         hasNext={!!persons.next}
                         loadPrevious={() => loadPersons(persons.previous)}
                         loadNext={() => loadPersons(persons.next)}
-                        allColumns
                     />
                 </div>
             </div>

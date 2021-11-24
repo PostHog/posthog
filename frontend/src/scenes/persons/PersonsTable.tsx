@@ -1,20 +1,12 @@
 import React, { useRef } from 'react'
-import { Button } from 'antd'
-import { combineUrl } from 'kea-router'
 import { TZLabel } from 'lib/components/TimezoneAware'
-import { Link } from 'lib/components/Link'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { PersonType, SessionsPropertyFilter } from '~/types'
-import { ArrowRightOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
+import { PersonType } from '~/types'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis } from 'lib/utils'
 import { PersonHeader } from './PersonHeader'
-import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTable'
-import { urls } from 'scenes/urls'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
-import { LemonButton } from 'lib/components/LemonButton'
-import { More } from 'lib/components/LemonButton/More'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
 
 interface PersonsTableType {
     people: PersonType[]
@@ -23,16 +15,8 @@ interface PersonsTableType {
     hasNext?: boolean
     loadPrevious?: () => void
     loadNext?: () => void
-    allColumns?: boolean // whether to show all columns or not
-    sessionsFilters?: Partial<SessionsPropertyFilter>[] // sessions filters from trends graphs
-    date?: string
+    compact?: boolean
 }
-
-export const deepLinkToPersonSessions = (
-    person: PersonType,
-    sessionsFilters?: Partial<SessionsPropertyFilter>[],
-    date?: string
-): string => combineUrl(urls.person(person.distinct_ids[0]), { filters: sessionsFilters, date }).url
 
 export function PersonsTable({
     people,
@@ -41,16 +25,14 @@ export function PersonsTable({
     hasNext,
     loadPrevious,
     loadNext,
-    allColumns,
-    sessionsFilters = [],
-    date = '',
+    compact,
 }: PersonsTableType): JSX.Element {
     const topRef = useRef<HTMLSpanElement>(null)
 
     const columns: LemonTableColumns<PersonType> = [
         {
-            title: 'Identification',
-            key: 'identification',
+            title: 'Person',
+            key: 'person',
             render: function Render(_, person: PersonType) {
                 return <PersonHeader withIcon person={person} />
             },
@@ -76,38 +58,18 @@ export function PersonsTable({
                 )
             },
         },
+        ...(!compact
+            ? [
+                  {
+                      title: 'First seen',
+                      dataIndex: 'created_at',
+                      render: function Render(created_at: PersonType['created_at']) {
+                          return created_at ? <TZLabel time={created_at} /> : <></>
+                      },
+                  } as LemonTableColumn<PersonType, keyof PersonType | undefined>,
+              ]
+            : []),
     ]
-
-    if (allColumns) {
-        columns.push({
-            title: 'First seen',
-            key: 'created',
-            render: function Render(_, person: PersonType) {
-                return person.created_at ? <TZLabel time={person.created_at} /> : <></>
-            },
-        })
-    }
-
-    columns.push({
-        key: 'actions',
-        width: 0,
-        render: function Render(_, person: PersonType, index) {
-            return (
-                <More
-                    overlay={
-                        <LemonButton
-                            type="stealth"
-                            to={deepLinkToPersonSessions(person, sessionsFilters, date)}
-                            data-attr={`goto-person-arrow-${index}`}
-                            data-test-goto-person
-                        >
-                            View
-                        </LemonButton>
-                    }
-                />
-            )
-        },
-    })
 
     return (
         <>

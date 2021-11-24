@@ -83,11 +83,7 @@ export function RetentionLineGraph({
                 ) : (
                     <p>Loading persons…</p>
                 )}
-                <PersonsTable
-                    loading={peopleLoading}
-                    people={peopleData}
-                    date={filters.date_to ? dayjs(filters.date_to).format('YYYY-MM-DD') : undefined}
-                />
+                <PersonsTable loading={peopleLoading} people={peopleData} compact />
                 <div
                     style={{
                         margin: '1rem',

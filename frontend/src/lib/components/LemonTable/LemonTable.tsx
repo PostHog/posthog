@@ -6,54 +6,12 @@ import { useResizeObserver } from '../../hooks/useResizeObserver'
 import { IconChevronLeft, IconChevronRight } from '../icons'
 import { LemonButton } from '../LemonButton'
 import { Tooltip } from '../Tooltip'
+import { TableRow } from './components'
 import './LemonTable.scss'
 import { Sorting, SortingIndicator, getNextSorting } from './sorting'
+import { ExpandableConfig, LemonTableColumn, LemonTableColumns, PaginationAuto, PaginationManual } from './types'
 export { Sorting, SortOrder } from './sorting'
-
-export interface PaginationBase {
-    /** Size of each page (except the last one which can be smaller)/ */
-    pageSize: number
-    /** By default pagination is only shown when there are multiple pages, but will always shown if this is `false`. */
-    hideOnSinglePage?: boolean
-}
-
-export interface PaginationAuto extends PaginationBase {
-    controlled?: false
-}
-
-export interface PaginationManual extends PaginationBase {
-    controlled: true
-    /** Page currently on display. */
-    currentPage?: number
-    /** Total entry count for determining current position using `currentPage`. If not set, position is not shown. */
-    entryCount?: number
-    /** Next page navigation handler. */
-    onForward?: () => void
-    /** Previous page navigation handler. */
-    onBackward?: () => void
-}
-
-export interface ExpandableConfig<T extends Record<string, any>> {
-    expandedRowRender?: (record: T, recordIndex: number) => any
-    rowExpandable?: (record: T) => boolean
-}
-
-export interface LemonTableColumn<T extends Record<string, any>, D extends keyof T | undefined> {
-    title?: string | React.ReactNode
-    key?: string
-    dataIndex?: D
-    render?: (dataValue: D extends keyof T ? T[D] : undefined, record: T, recordIndex: number) => any
-    /** Sorting function. Set to `true` if using manual pagination, in which case you'll also have to provide `sorting` on the table. */
-    sorter?: ((a: T, b: T) => number) | true
-    className?: string
-    /** Column content alignment. Left by default. Set to right for numerical values (amounts, days ago etc.) */
-    align?: 'left' | 'right' | 'center'
-    /** TODO: Whether the column should be sticky when scrolling */
-    sticky?: boolean
-    /** Set width. */
-    width?: string | number
-}
-export type LemonTableColumns<T extends Record<string, any>> = LemonTableColumn<T, keyof T | undefined>[]
+export { ExpandableConfig, LemonTableColumn, LemonTableColumns, PaginationAuto, PaginationManual } from './types'
 
 /**
  * Determine the column's key, using `dataIndex` as fallback.
@@ -224,12 +182,14 @@ export function LemonTable<T extends Record<string, any>>({
                 <div className="LemonTable__content">
                     <table>
                         <colgroup>
+                            {expandable && <col style={{ width: 0 }} />}
                             {columns.map(({ width }, index) => (
                                 <col key={index} style={{ width }} />
                             ))}
                         </colgroup>
                         <thead>
                             <tr>
+                                {expandable && <th />}
                                 {columns.map((column, columnIndex) => (
                                     <th
                                         key={determineColumnKey(column) || columnIndex}
@@ -287,31 +247,17 @@ export function LemonTable<T extends Record<string, any>>({
                         </thead>
                         <tbody>
                             {currentFrame ? (
-                                currentFrame.map((data, rowIndex) => (
-                                    <tr
-                                        key={`LemonTable-row-${rowKey ? data[rowKey] : currentStartIndex + rowIndex}`}
-                                        data-row-key={rowKey ? data[rowKey] : rowIndex}
-                                        {...onRow?.(data)}
-                                        className={rowClassName}
-                                    >
-                                        {columns.map((column, columnIndex) => {
-                                            const columnKeyRaw = column.key || column.dataIndex
-                                            const columnKeyOrIndex = columnKeyRaw ? String(columnKeyRaw) : columnIndex
-                                            const value = column.dataIndex ? data[column.dataIndex] : undefined
-                                            const contents = column.render
-                                                ? column.render(value as T[keyof T], data, rowIndex)
-                                                : value
-                                            return (
-                                                <td
-                                                    key={columnKeyOrIndex}
-                                                    className={column.className}
-                                                    style={{ textAlign: column.align }}
-                                                >
-                                                    {contents}
-                                                </td>
-                                            )
-                                        })}
-                                    </tr>
+                                currentFrame.map((record, rowIndex) => (
+                                    <TableRow
+                                        key={`LemonTable-row-${rowKey ? record[rowKey] : currentStartIndex + rowIndex}`}
+                                        record={record}
+                                        recordIndex={currentStartIndex + rowIndex}
+                                        rowKey={rowKey}
+                                        rowClassName={rowClassName}
+                                        columns={columns}
+                                        onRow={onRow}
+                                        expandable={expandable}
+                                    />
                                 ))
                             ) : (
                                 <tr>
