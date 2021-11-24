@@ -1,4 +1,4 @@
-import React, { useRef } from 'react'
+import React from 'react'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { PersonType } from '~/types'
@@ -27,8 +27,6 @@ export function PersonsTable({
     loadNext,
     compact,
 }: PersonsTableType): JSX.Element {
-    const topRef = useRef<HTMLSpanElement>(null)
-
     const columns: LemonTableColumns<PersonType> = [
         {
             title: 'Person',
@@ -72,38 +70,35 @@ export function PersonsTable({
     ]
 
     return (
-        <>
-            <span ref={topRef} />
-            <LemonTable
-                columns={columns}
-                loading={loading}
-                rowKey="id"
-                pagination={{
-                    controlled: true,
-                    pageSize: 100,
-                    onForward: hasNext
-                        ? () => {
-                              loadNext?.()
-                              window.scrollTo(0, 0)
-                          }
-                        : undefined,
-                    onBackward: hasPrevious
-                        ? () => {
-                              loadPrevious?.()
-                              window.scrollTo(0, 0)
-                          }
-                        : undefined,
-                }}
-                expandable={{
-                    expandedRowRender: function RenderPropertiesTable({ properties }) {
-                        return <PropertiesTable properties={properties} />
-                    },
-                    rowExpandable: ({ properties }) => Object.keys(properties).length > 0,
-                }}
-                dataSource={people}
-                nouns={['person', 'persons']}
-                className="persons-table"
-            />
-        </>
+        <LemonTable
+            columns={columns}
+            loading={loading}
+            rowKey="id"
+            pagination={{
+                controlled: true,
+                pageSize: 100,
+                onForward: hasNext
+                    ? () => {
+                          loadNext?.()
+                          window.scrollTo(0, 0)
+                      }
+                    : undefined,
+                onBackward: hasPrevious
+                    ? () => {
+                          loadPrevious?.()
+                          window.scrollTo(0, 0)
+                      }
+                    : undefined,
+            }}
+            expandable={{
+                expandedRowRender: function RenderPropertiesTable({ properties }) {
+                    return <PropertiesTable properties={properties} />
+                },
+                rowExpandable: ({ properties }) => Object.keys(properties).length > 0,
+            }}
+            dataSource={people}
+            nouns={['person', 'persons']}
+            className="persons-table"
+        />
     )
 }

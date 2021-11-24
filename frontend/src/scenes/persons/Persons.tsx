@@ -35,7 +35,7 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
                 <PersonPageHeader hideGroupTabs={!!cohort} />
                 <Row style={{ gap: '0.75rem' }} className="mb" align="middle" justify="space-between">
                     <PersonsSearch autoFocus={!cohort} />
-                    <div>
+                    <Row style={{ gap: '0.75rem' }} className="mb" align="middle">
                         <Radio.Group
                             buttonStyle="solid"
                             onChange={(e) => {
@@ -57,7 +57,20 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
                                 Unidentified
                             </Radio.Button>
                         </Radio.Group>
-                    </div>
+                        <Button
+                            type="default"
+                            icon={<ExportOutlined />}
+                            href={'/api/person.csv' + (listFilters.cohort ? '?cohort=' + listFilters.cohort : '')}
+                        >
+                            Export
+                        </Button>
+                        {/* TODO: Hidden until new cohorts UX is defined */}
+                        <Link to="/cohorts/new" style={{ display: 'none' }} className="ml">
+                            <Button type="default" icon={<PlusOutlined />}>
+                                New Cohort
+                            </Button>
+                        </Link>
+                    </Row>
                 </Row>
                 {listFilters.is_identified === 'false' && (
                     <div className="mb">
@@ -83,43 +96,14 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
                         />
                     </div>
                 )}
-                <div className="mb text-right">
-                    {cohort ? (
-                        <LinkButton
-                            to={`/sessions?${toParams({
-                                properties: [{ key: 'id', value: cohort.id, type: 'cohort' }],
-                            })}`}
-                            target="_blank"
-                        >
-                            <ClockCircleFilled /> View sessions
-                        </LinkButton>
-                    ) : null}
-                    <Button
-                        type="default"
-                        icon={<ExportOutlined />}
-                        href={'/api/person.csv' + (listFilters.cohort ? '?cohort=' + listFilters.cohort : '')}
-                        style={{ marginLeft: 8 }}
-                    >
-                        Export
-                    </Button>
-                    {/* TODO: Hidden until new cohorts UX is defined */}
-                    <Link to="/cohorts/new" style={{ display: 'none' }} className="ml">
-                        <Button type="default" icon={<PlusOutlined />}>
-                            New Cohort
-                        </Button>
-                    </Link>
-                </div>
-
-                <div>
-                    <PersonsTable
-                        people={persons.results}
-                        loading={personsLoading}
-                        hasPrevious={!!persons.previous}
-                        hasNext={!!persons.next}
-                        loadPrevious={() => loadPersons(persons.previous)}
-                        loadNext={() => loadPersons(persons.next)}
-                    />
-                </div>
+                <PersonsTable
+                    people={persons.results}
+                    loading={personsLoading}
+                    hasPrevious={!!persons.previous}
+                    hasNext={!!persons.next}
+                    loadPrevious={() => loadPersons(persons.previous)}
+                    loadNext={() => loadPersons(persons.next)}
+                />
             </div>
         </BindLogic>
     )
