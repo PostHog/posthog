@@ -12,6 +12,7 @@ import { FunnelStepReferencePicker } from './FunnelTab/FunnelStepReferencePicker
 import { FunnelDisplayLayoutPicker } from './FunnelTab/FunnelDisplayLayoutPicker'
 import { FunnelBinsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBinsPicker'
 import { PathStepPicker } from './PathTab/PathStepPicker'
+import { ReferencePicker as RetentionReferencePicker } from './RetentionTab/ReferencePicker'
 
 interface InsightDisplayConfigProps {
     clearAnnotationsToCreate: () => void
@@ -106,7 +107,12 @@ export function InsightDisplayConfig({
                 )}
                 {showIntervalFilter(activeView, filters) && <IntervalFilter view={activeView} />}
 
-                {activeView === InsightType.RETENTION && <RetentionDatePicker />}
+                {activeView === InsightType.RETENTION && (
+                    <>
+                        <RetentionReferencePicker />
+                        <RetentionDatePicker />
+                    </>
+                )}
 
                 {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.Steps && (
                     <>
