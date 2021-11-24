@@ -25,8 +25,7 @@ export function RetentionLineGraph({
 }: RetentionLineGraphProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const logic = retentionTableLogic(insightProps)
-    const { filters, results: _results, people: _people, peopleLoading, loadingMore } = useValues(logic)
-    const results = _results as RetentionTrendPayload[]
+    const { filters, trendSeries, people: _people, peopleLoading, loadingMore } = useValues(logic)
     const people = _people as RetentionTrendPeoplePayload
 
     const { loadPeople, loadMorePeople } = useActions(logic)
@@ -38,18 +37,18 @@ export function RetentionLineGraph({
     }
     const peopleData = people?.result as PersonType[]
     const peopleNext = people?.next
-    if (results.length === 0) {
+    if (trendSeries.length === 0) {
         return null
     }
 
-    return results ? (
+    return trendSeries ? (
         <>
             <LineGraph
                 data-attr="trend-line-graph"
                 type="line"
                 color={color}
-                datasets={results}
-                labels={(results[0] && results[0].labels) || []}
+                datasets={trendSeries}
+                labels={(trendSeries[0] && trendSeries[0].labels) || []}
                 isInProgress={!filters.date_to}
                 dashboardItemId={
                     dashboardItemId || fromItem /* used only for annotations, not to init any other logic */
