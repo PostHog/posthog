@@ -1,4 +1,3 @@
-import re
 from typing import List, cast
 from unittest.case import skip
 from uuid import uuid4
