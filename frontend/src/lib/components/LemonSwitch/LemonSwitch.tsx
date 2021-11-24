@@ -10,9 +10,10 @@ export interface LemonSwitchProps {
     /** Whether the switch should use the alternative primary color. */
     alt?: boolean
     style?: React.CSSProperties
+    disabled?: boolean
 }
 
-export function LemonSwitch({ id, onChange, checked, loading, alt, style }: LemonSwitchProps): JSX.Element {
+export function LemonSwitch({ id, onChange, checked, loading, alt, style, disabled }: LemonSwitchProps): JSX.Element {
     const [isActive, setIsActive] = useState(false)
 
     return (
@@ -25,13 +26,15 @@ export function LemonSwitch({ id, onChange, checked, loading, alt, style }: Lemo
                 checked && 'LemonSwitch--checked',
                 isActive && 'LemonSwitch--active',
                 loading && 'LemonSwitch--loading',
-                alt && 'LemonSwitch--alt'
+                alt && 'LemonSwitch--alt',
+                disabled && 'LemonSwitch--disabled'
             )}
             onClick={() => onChange(!checked)}
             onMouseDown={() => setIsActive(true)}
             onMouseUp={() => setIsActive(false)}
             onMouseOut={() => setIsActive(false)}
             style={style}
+            disabled={disabled}
         >
             <div className="LemonSwitch__slider" />
             <div className="LemonSwitch__handle" />
