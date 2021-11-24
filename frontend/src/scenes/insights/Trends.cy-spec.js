@@ -84,10 +84,6 @@ xdescribe('<Insights /> trends', () => {
         cy.get('[data-attr=add-breakdown-button]').click()
         cy.get('[data-attr=prop-breakdown-select]').click().type('Browser').type('{enter}')
 
-        cy.get('[data-attr=chart-filter]').click()
-        cy.contains('Value').click()
-        cy.get('body').click()
-
         cy.wait(1000)
         cy.get('.graph-container').should('be.visible')
 
@@ -266,7 +262,7 @@ xdescribe('<Insights /> trends', () => {
                 breakdown: '$browser',
                 breakdown_type: 'event',
             })
-            cy.get('[data-attr="trend-line-graph"]').should('be.visible')
+            cy.get('.graph-container').should('be.visible')
             cy.get('[data-attr="add-breakdown-button"]').should('contain', 'Browser')
         })
     })
