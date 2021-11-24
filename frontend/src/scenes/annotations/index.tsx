@@ -16,6 +16,7 @@ import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { LemonTable, LemonTableColumns, LemonTableColumn } from 'lib/components/LemonTable/LemonTable'
 import { createdByColumn } from 'lib/components/LemonTable/columnUtils'
+import { TZLabel } from 'lib/components/TimezoneAware'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
@@ -53,18 +54,20 @@ export function Annotations(): JSX.Element {
                 )
             },
         },
-        createdByColumn() as LemonTableColumn<AnnotationType, keyof AnnotationType>,
         {
-            title: 'Date marker',
+            title: 'For date',
             render: function RenderDateMarker(_, annotation: AnnotationType): JSX.Element {
-                return <span>{dayjs(annotation.date_marker).format('YYYY-MM-DD')}</span>
+                return <span>{dayjs(annotation.date_marker).format('MMMM DD, YYYY')}</span>
             },
+            sorter: (a, b) => dayjs(a.date_marker).diff(b.date_marker),
         },
+        createdByColumn() as LemonTableColumn<AnnotationType, keyof AnnotationType>,
         {
             title: 'Last updated',
             render: function RenderLastUpdated(_, annotation: AnnotationType): JSX.Element {
-                return <span>{humanFriendlyDetailedTime(annotation.updated_at)}</span>
+                return <TZLabel time={annotation.updated_at} />
             },
+            sorter: (a, b) => dayjs(a.date_marker).diff(b.date_marker),
         },
         {
             title: 'Status',
