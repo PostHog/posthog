@@ -50,7 +50,6 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
         annotations: {
             __default: [] as AnnotationType[],
             loadAnnotations: async () => {
-                // TODO: get rid of this
                 const params = {
                     ...(props.insightId ? { dashboardItemId: props.insightId } : {}),
                     scope: AnnotationScope.DashboardItem,
