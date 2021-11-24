@@ -14,7 +14,7 @@ import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
-import { FunnelVizType } from '~/types'
+import { FunnelStepReference, FunnelVizType, StepOrderValue } from '~/types'
 import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -28,7 +28,6 @@ import { FunnelConversionWindowFilter } from './FunnelConversionWindowFilter'
 import { FunnelStepOrderPicker } from './FunnelStepOrderPicker'
 import { FunnelExclusionsFilter } from './FunnelExclusionsFilter'
 import { FunnelStepReferencePicker } from './FunnelStepReferencePicker'
-import { pluralize } from 'lib/utils'
 
 export function FunnelTabWithSimpleMode(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -42,7 +41,7 @@ export function FunnelTabWithSimpleMode(): JSX.Element {
         advancedOptionsUsedCount,
         advancedMode,
     } = useValues(funnelLogic(insightProps))
-    const { clearFunnel, setFilters, toggleAdvancedMode } = useActions(funnelLogic(insightProps))
+    const { clearFunnel, setFilters, toggleAdvancedMode, setStepReference } = useActions(funnelLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
     const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
     const screens = useBreakpoint()
@@ -251,6 +250,23 @@ export function FunnelTabWithSimpleMode(): JSX.Element {
                                 <div className="funnel-exclusions-filter">
                                     <FunnelExclusionsFilter />
                                 </div>
+                                {!!advancedOptionsUsedCount && (
+                                    <div>
+                                        <Button
+                                            type="link"
+                                            style={{ color: 'var(--danger)', paddingLeft: 0, marginTop: 16 }}
+                                            onClick={() => {
+                                                setStepReference(FunnelStepReference.total)
+                                                setFilters({
+                                                    funnel_order_type: StepOrderValue.ORDERED,
+                                                    exclusions: [],
+                                                })
+                                            }}
+                                        >
+                                            Reset advanced options
+                                        </Button>
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             <div className="text-muted-alt cursor-pointer" onClick={toggleAdvancedMode}>
