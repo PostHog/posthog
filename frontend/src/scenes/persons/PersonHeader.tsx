@@ -47,7 +47,7 @@ export function PersonHeader(props: PersonHeaderProps): JSX.Element {
                     anonymous: !props.person?.is_identified,
                 })}
             >
-                {props.withIcon && <IconPersonFilled style={{ marginRight: 8 }} />}
+                {props.withIcon && <IconPersonFilled className="icon" />}
                 <span className="ph-no-capture text-ellipsis">{asDisplay(props.person)}</span>
             </div>
         </Link>

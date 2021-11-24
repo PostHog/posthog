@@ -10,23 +10,39 @@ import './LemonTable.scss'
 import { Sorting, SortingIndicator, getNextSorting } from './sorting'
 export { Sorting, SortOrder } from './sorting'
 
-export interface PaginationAuto {
+export interface PaginationBase {
+    /** Size of each page (except the last one which can be smaller)/ */
     pageSize: number
+    /** By default pagination is only shown when there are multiple pages, but will always shown if this is `false`. */
     hideOnSinglePage?: boolean
 }
 
-export interface PaginationManual extends PaginationAuto {
-    currentPage: number
-    entryCount: number
-    onForward: () => void
-    onBackward: () => void
+export interface PaginationAuto extends PaginationBase {
+    controlled?: false
+}
+
+export interface PaginationManual extends PaginationBase {
+    controlled: true
+    /** Page currently on display. */
+    currentPage?: number
+    /** Total entry count for determining current position using `currentPage`. If not set, position is not shown. */
+    entryCount?: number
+    /** Next page navigation handler. */
+    onForward?: () => void
+    /** Previous page navigation handler. */
+    onBackward?: () => void
+}
+
+export interface ExpandableConfig<T extends Record<string, any>> {
+    expandedRowRender?: (record: T, recordIndex: number) => any
+    rowExpandable?: (record: T) => boolean
 }
 
 export interface LemonTableColumn<T extends Record<string, any>, D extends keyof T | undefined> {
     title?: string | React.ReactNode
     key?: string
     dataIndex?: D
-    render?: (dataValue: D extends keyof T ? T[D] : undefined, record: T) => any
+    render?: (dataValue: D extends keyof T ? T[D] : undefined, record: T, recordIndex: number) => any
     /** Sorting function. Set to `true` if using manual pagination, in which case you'll also have to provide `sorting` on the table. */
     sorter?: ((a: T, b: T) => number) | true
     className?: string
@@ -64,6 +80,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
     onRow?: (record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     loading?: boolean
     pagination?: PaginationAuto | PaginationManual
+    expandable?: ExpandableConfig<T>
     /**
      * By default sorting goes: 0. unsorted > 1. ascending > 2. descending > GOTO 0 (loop).
      * With sorting cancellation disabled, GOTO 0 is replaced by GOTO 1. */
@@ -72,11 +89,13 @@ export interface LemonTableProps<T extends Record<string, any>> {
     defaultSorting?: Sorting | null
     /** Controlled sort order. */
     sorting?: Sorting | null
+    /** Sorting change handler for controlled sort order. */
     onSort?: (newSorting: Sorting | null) => void
     /** What to show when there's no data. The default value is generic `'No data'`. */
     emptyState?: React.ReactNode
     /** What to describe the entries as, singular and plural. The default value is `['entry', 'entries']`. */
     nouns?: [string, string]
+    className?: string
     'data-attr'?: string
     /** Class name to append to each row */
     rowClassName?: string
@@ -91,12 +110,14 @@ export function LemonTable<T extends Record<string, any>>({
     onRow,
     loading,
     pagination,
+    expandable,
     disableSortingCancellation = false,
     defaultSorting = null,
     sorting,
     onSort,
     emptyState = 'No data',
     nouns = ['entry', 'entries'],
+    className,
     'data-attr': dataAttr,
 }: LemonTableProps<T>): JSX.Element {
     /** Search param that will be used for storing and syncing the current page */
@@ -120,16 +141,22 @@ export function LemonTable<T extends Record<string, any>>({
     const scrollRef = useRef<HTMLDivElement>(null)
 
     /** Number of entries in total. */
-    const entryCount = pagination && 'entryCount' in pagination ? pagination.entryCount : dataSource.length
+    const entryCount: number | null = pagination?.controlled ? pagination.entryCount || null : dataSource.length
     /** Number of pages. */
-    const pageCount = pagination ? Math.ceil(entryCount / pagination.pageSize) : 1
+    const pageCount: number | null = entryCount && (pagination ? Math.ceil(entryCount / pagination.pageSize) : 1)
     /** Page adjusted for `pageCount` possibly having gotten smaller since last page param update. */
-    const currentPage =
-        pagination && 'currentPage' in pagination
-            ? pagination.currentPage
-            : Math.min(parseInt(searchParams[currentPageParam]) || 1, pageCount)
+    const currentPage: number | null = pagination?.controlled
+        ? pagination.currentPage || null
+        : Math.min(parseInt(searchParams[currentPageParam]) || 1, pageCount as number)
     /** Whether there's reason to show pagination. */
-    const showPagination = pageCount > 1 || pagination?.hideOnSinglePage === true
+    const showPagination: boolean = pageCount === null || pageCount > 1 || pagination?.hideOnSinglePage === true
+    /** Whether pages previous and next are available. */
+    const isPreviousAvailable: boolean =
+        currentPage !== null ? currentPage > 1 : !!(pagination?.controlled && pagination.onBackward)
+    const isNextAvailable: boolean =
+        currentPage !== null && pageCount !== null
+            ? currentPage < pageCount
+            : !!(pagination?.controlled && pagination.onForward)
 
     const updateIsScrollable = useCallback(() => {
         const element = scrollRef.current
@@ -168,9 +195,9 @@ export function LemonTable<T extends Record<string, any>>({
                 processedDataSource = processedDataSource.slice().sort((a, b) => sortOrder * sorter(a, b))
             }
         }
-        const calculatedStartIndex = pagination ? (currentPage - 1) * pagination.pageSize : 0
+        const calculatedStartIndex = pagination && currentPage ? (currentPage - 1) * pagination.pageSize : 0
         const calculatedFrame =
-            pagination && !('currentPage' in pagination)
+            pagination && !pagination.controlled
                 ? processedDataSource.slice(calculatedStartIndex, calculatedStartIndex + pagination.pageSize)
                 : processedDataSource
         const calculatedEndIndex = calculatedStartIndex + calculatedFrame.length
@@ -188,7 +215,8 @@ export function LemonTable<T extends Record<string, any>>({
                 loading && 'LemonTable--loading',
                 showPagination && 'LemonTable--paginated',
                 isScrollable[0] && 'LemonTable--scrollable-left',
-                isScrollable[1] && 'LemonTable--scrollable-right'
+                isScrollable[1] && 'LemonTable--scrollable-right',
+                className
             )}
             data-attr={dataAttr}
         >
@@ -258,7 +286,7 @@ export function LemonTable<T extends Record<string, any>>({
                             </tr>
                         </thead>
                         <tbody>
-                            {entryCount ? (
+                            {currentFrame ? (
                                 currentFrame.map((data, rowIndex) => (
                                     <tr
                                         key={`LemonTable-row-${rowKey ? data[rowKey] : currentStartIndex + rowIndex}`}
@@ -271,7 +299,7 @@ export function LemonTable<T extends Record<string, any>>({
                                             const columnKeyOrIndex = columnKeyRaw ? String(columnKeyRaw) : columnIndex
                                             const value = column.dataIndex ? data[column.dataIndex] : undefined
                                             const contents = column.render
-                                                ? column.render(value as T[keyof T], data)
+                                                ? column.render(value as T[keyof T], data, rowIndex)
                                                 : value
                                             return (
                                                 <td
@@ -297,6 +325,10 @@ export function LemonTable<T extends Record<string, any>>({
                             <span className="LemonTable__locator">
                                 {currentFrame.length === 0
                                     ? `No ${nouns[1]}`
+                                    : entryCount === null
+                                    ? `${currentFrame.length} ${
+                                          currentFrame.length === 1 ? nouns[0] : nouns[1]
+                                      } on this page`
                                     : currentFrame.length === 1
                                     ? `${currentEndIndex} of ${entryCount} ${entryCount === 1 ? nouns[0] : nouns[1]}`
                                     : `${currentStartIndex + 1}-${currentEndIndex} of ${entryCount} ${nouns[1]}`}
@@ -305,22 +337,28 @@ export function LemonTable<T extends Record<string, any>>({
                                 compact
                                 icon={<IconChevronLeft />}
                                 type="stealth"
-                                disabled={currentPage === 1}
+                                disabled={!isPreviousAvailable}
                                 onClick={
-                                    pagination && 'onBackward' in pagination
+                                    pagination?.controlled
                                         ? pagination.onBackward
-                                        : () => setLocalCurrentPage(Math.max(1, Math.min(pageCount, currentPage) - 1))
+                                        : () =>
+                                              setLocalCurrentPage(
+                                                  Math.max(1, Math.min(pageCount as number, currentPage as number) - 1)
+                                              )
                                 }
                             />
                             <LemonButton
                                 compact
                                 icon={<IconChevronRight />}
                                 type="stealth"
-                                disabled={currentPage === pageCount}
+                                disabled={!isNextAvailable}
                                 onClick={
-                                    pagination && 'onForward' in pagination
+                                    pagination?.controlled
                                         ? pagination.onForward
-                                        : () => setLocalCurrentPage(Math.min(pageCount, currentPage + 1))
+                                        : () =>
+                                              setLocalCurrentPage(
+                                                  Math.min(pageCount as number, (currentPage as number) + 1)
+                                              )
                                 }
                             />
                         </div>

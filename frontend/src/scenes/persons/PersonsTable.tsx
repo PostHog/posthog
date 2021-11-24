@@ -12,6 +12,10 @@ import { midEllipsis } from 'lib/utils'
 import { PersonHeader } from './PersonHeader'
 import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTable'
 import { urls } from 'scenes/urls'
+import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
+import { LemonButton } from 'lib/components/LemonButton'
+import { More } from 'lib/components/LemonButton/More'
+
 interface PersonsTableType {
     people: PersonType[]
     loading?: boolean
@@ -43,20 +47,18 @@ export function PersonsTable({
 }: PersonsTableType): JSX.Element {
     const topRef = useRef<HTMLSpanElement>(null)
 
-    const columns: ResizableColumnType<PersonType>[] = [
+    const columns: LemonTableColumns<PersonType> = [
         {
             title: 'Identification',
             key: 'identification',
-            span: 6,
-            render: function Render(person: PersonType) {
+            render: function Render(_, person: PersonType) {
                 return <PersonHeader withIcon person={person} />
             },
         },
         {
             title: 'ID',
             key: 'id',
-            span: 8,
-            render: function Render(person: PersonType) {
+            render: function Render(_, person: PersonType) {
                 return (
                     <div style={{ overflow: 'hidden' }}>
                         {person.distinct_ids.length && (
@@ -65,6 +67,7 @@ export function PersonsTable({
                                 tooltipMessage={null}
                                 iconStyle={{ color: 'var(--primary)' }}
                                 iconPosition="end"
+                                description="person ID"
                             >
                                 {midEllipsis(person.distinct_ids[0], 32)}
                             </CopyToClipboardInline>
@@ -79,8 +82,7 @@ export function PersonsTable({
         columns.push({
             title: 'First seen',
             key: 'created',
-            span: 3,
-            render: function Render(person: PersonType) {
+            render: function Render(_, person: PersonType) {
                 return person.created_at ? <TZLabel time={person.created_at} /> : <></>
             },
         })
@@ -88,20 +90,21 @@ export function PersonsTable({
 
     columns.push({
         key: 'actions',
-        title: '',
-        span: 2,
-        render: function Render(person: PersonType, ...[, index]: [PersonType, number]) {
+        width: 0,
+        render: function Render(_, person: PersonType, index) {
             return (
-                <>
-                    <Link
-                        to={deepLinkToPersonSessions(person, sessionsFilters, date)}
-                        data-attr={`goto-person-arrow-${index}`}
-                        data-test-goto-person
-                    >
-                        <ArrowRightOutlined style={{ float: 'right' }} />
-                        {allColumns ? ' view' : ''}
-                    </Link>
-                </>
+                <More
+                    overlay={
+                        <LemonButton
+                            type="stealth"
+                            to={deepLinkToPersonSessions(person, sessionsFilters, date)}
+                            data-attr={`goto-person-arrow-${index}`}
+                            data-test-goto-person
+                        >
+                            View
+                        </LemonButton>
+                    }
+                />
             )
         },
     })
@@ -109,12 +112,26 @@ export function PersonsTable({
     return (
         <>
             <span ref={topRef} />
-            <ResizableTable
-                size="small"
+            <LemonTable
                 columns={columns}
                 loading={loading}
                 rowKey="id"
-                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                pagination={{
+                    controlled: true,
+                    pageSize: 100,
+                    onForward: hasNext
+                        ? () => {
+                              loadNext?.()
+                              window.scrollTo(0, 0)
+                          }
+                        : undefined,
+                    onBackward: hasPrevious
+                        ? () => {
+                              loadPrevious?.()
+                              window.scrollTo(0, 0)
+                          }
+                        : undefined,
+                }}
                 expandable={{
                     expandedRowRender: function RenderPropertiesTable({ properties }) {
                         return <PropertiesTable properties={properties} />
@@ -122,26 +139,9 @@ export function PersonsTable({
                     rowExpandable: ({ properties }) => Object.keys(properties).length > 0,
                 }}
                 dataSource={people}
+                nouns={['person', 'persons']}
                 className="persons-table"
             />
-            {(hasPrevious || hasNext) && (
-                <div style={{ margin: '3rem auto 10rem', width: 200, display: 'flex', alignItems: 'center' }}>
-                    <Button
-                        type="link"
-                        disabled={!hasPrevious}
-                        onClick={() => loadPrevious && loadPrevious() && window.scrollTo(0, 0)}
-                    >
-                        <LeftOutlined /> Previous
-                    </Button>
-                    <Button
-                        type="link"
-                        disabled={!hasNext}
-                        onClick={() => loadNext && loadNext() && window.scrollTo(0, 0)}
-                    >
-                        Next <RightOutlined />
-                    </Button>
-                </div>
-            )}
         </>
     )
 }
