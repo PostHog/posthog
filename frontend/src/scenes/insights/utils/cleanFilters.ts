@@ -85,6 +85,7 @@ export function cleanFilters(
             retention_type: filters.retention_type || (filters as any)['retentionType'] || RETENTION_FIRST_TIME,
             breakdowns: filters.breakdowns,
             breakdown_type: filters.breakdown_type,
+            retention_reference: filters.retention_reference,
             display: insightChanged ? ChartDisplayType.ActionsTable : filters.display || ChartDisplayType.ActionsTable,
             properties: filters.properties || [],
             ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
