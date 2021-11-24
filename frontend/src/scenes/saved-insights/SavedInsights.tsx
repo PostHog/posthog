@@ -382,8 +382,11 @@ export function SavedInsights(): JSX.Element {
                 ) : null}
             </Row>
             <Row className="list-or-card-layout">
-                {startCount}
-                {endCount !== startCount && `-${endCount}`} of {count} insight{count === 1 ? '' : 's'}
+                {insightsLoading
+                    ? 'Loading…'
+                    : `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
+                          count === 1 ? '' : 's'
+                      }`}
                 <div>
                     <Radio.Group
                         onChange={(e) => setSavedInsightsFilters({ layoutView: e.target.value })}
