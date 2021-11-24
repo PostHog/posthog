@@ -99,7 +99,6 @@ export function BreakdownVerticalBarGroup({
     return (
         <div className="breakdown-bar-group" ref={ref}>
             {currentStep?.nested_breakdown?.map((breakdown, breakdownIndex) => {
-                console.log({ breakdown, currentStep })
                 const basisBreakdownCount = basisStep?.nested_breakdown?.[breakdownIndex]?.count ?? 1
                 const currentBarHeight = (height * breakdown.count) / basisBreakdownCount
                 const previousBarHeight =
@@ -476,13 +475,6 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
         return <FunnelStepTable />
     }
 
-    console.log({
-        place: 'funnel bar graph',
-        filters,
-        steps,
-        stepReference,
-    })
-
     return (
         <div
             data-attr="funnel-bar-graph"
@@ -490,11 +482,6 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
             style={insightProps.syncWithUrl ? { minHeight: 450 } : {}}
         >
             {steps.map((step, stepIndex) => {
-                console.log({
-                    steps,
-                    step,
-                    place: 'FunnelBarGraph steps loop',
-                })
                 const basisStep = getReferenceStep(steps, stepReference, stepIndex)
                 const previousStep = getReferenceStep(steps, FunnelStepReference.previous, stepIndex)
                 const showLineBefore = layout === FunnelLayout.horizontal && stepIndex > 0

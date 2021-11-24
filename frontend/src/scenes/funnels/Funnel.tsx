@@ -13,10 +13,6 @@ export function Funnel(props: Omit<ChartParams, 'filters'>): JSX.Element | null 
     const { filters } = useValues(funnelLogic(insightProps))
     const { funnel_viz_type } = filters
 
-    console.log({
-        place: 'Funnel',
-        funnel_viz_type: funnel_viz_type,
-    })
     // Funnel Viz
     if (funnel_viz_type == FunnelVizType.Trends) {
         return <FunnelLineGraph {...props} />
