@@ -36,7 +36,7 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=menu-item-featureflags]').click()
         cy.get('[data-attr=feature-flag-table]').should('contain', name)
         cy.get('[data-attr=feature-flag-table]').should('not.contain', '%') // By default it's released to everyone, if a % is not specified
-        cy.get('[data-attr=feature-flag-table]').should('contain', 'is_demo')
+        cy.get('[data-attr=feature-flag-table]').should('contain', '1 group with filters')
 
         cy.get(`[data-row-key=${name}]`).contains(name).click()
         cy.get('[data-attr=feature-flag-key]')
