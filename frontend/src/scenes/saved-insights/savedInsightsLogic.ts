@@ -239,14 +239,21 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         }
     },
     urlToAction: ({ actions, values }) => ({
-        [urls.savedInsights()]: (_, searchParams, hashParams) => {
-            if (hashParams.fromItem) {
+        [urls.savedInsights()]: async (_, searchParams, hashParams) => {
+            if (hashParams.fromItem && String(hashParams.fromItem).match(/^[0-9]+$/)) {
                 // `fromItem` for legacy /insights url redirect support
-                router.actions.replace(
-                    hashParams.edit
-                        ? urls.insightEdit(hashParams.fromItem, searchParams)
-                        : urls.insightView(hashParams.fromItem, searchParams)
-                )
+                try {
+                    const { short_id }: DashboardItemType = await api.get(
+                        `api/projects/${teamLogic.values.currentTeamId}/insights/${hashParams.fromItem}`
+                    )
+                    router.actions.replace(
+                        hashParams.edit
+                            ? urls.insightEdit(short_id, searchParams)
+                            : urls.insightView(short_id, searchParams)
+                    )
+                } catch (e) {
+                    router.actions.push(urls.e)
+                }
                 return
             } else if (searchParams.insight) {
                 // old URL with `?insight=TRENDS` in query

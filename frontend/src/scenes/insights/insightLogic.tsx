@@ -664,18 +664,18 @@ export const insightLogic = kea<insightLogicType>({
         }
     },
     urlToAction: ({ actions, values }) => ({
-        '/insights/:id(/:mode)': (params, searchParams, hashParams) => {
+        '/insights/:shortId(/:mode)': (params, searchParams, hashParams) => {
             if (values.syncWithUrl) {
                 if (searchParams.insight === 'HISTORY') {
                     // Legacy redirect because the insight history scene was toggled via the insight type.
                     router.actions.replace(urls.savedInsights())
                     return
                 }
-                if (params.id === 'new') {
+                if (params.shortId === 'new') {
                     actions.createAndRedirectToNewInsight(searchParams)
                     return
                 }
-                const insightId = params.id ? (String(params.id) as InsightShortId) : null
+                const insightId = params.shortId ? (String(params.shortId) as InsightShortId) : null
                 if (!insightId) {
                     // only allow editing insights with IDs for now
                     router.actions.replace(urls.insightNew(searchParams))

@@ -9,13 +9,13 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
 jest.mock('lib/api')
 
-const Insight42 = '42' as InsightShortId
+const Insight42 = 'ii42' as InsightShortId
 
 const createInsight = (id: number, string = 'hi'): DashboardItemType =>
     ({
         id: id || 1,
         name: `${string} ${id || 1}`,
-        short_id: `${id || 1}`,
+        short_id: `ii${id || 1}`,
         order: 0,
         layouts: [],
         last_refresh: 'now',
@@ -48,6 +48,9 @@ describe('savedInsightsLogic', () => {
         } = url
         if (pathname === `api/projects/${MOCK_TEAM_ID}/insights/`) {
             return createSavedInsights(search)
+        }
+        if (pathname === `api/projects/${MOCK_TEAM_ID}/insights/42`) {
+            return createInsight(42)
         }
         if (pathname === `api/projects/${MOCK_TEAM_ID}/insights/123`) {
             return createInsight(123)
@@ -148,20 +151,24 @@ describe('savedInsightsLogic', () => {
             router.actions.push(
                 combineUrl('/insights', cleanFilters({ insight: InsightType.TRENDS }), { fromItem: 42 }).url
             )
-            await expectLogic(router).toMatchValues({
-                location: partial({ pathname: urls.insightView(Insight42) }),
-                searchParams: partial({ insight: InsightType.TRENDS }),
-            })
+            await expectLogic(router)
+                .delay(1)
+                .toMatchValues({
+                    location: partial({ pathname: urls.insightView(Insight42) }),
+                    searchParams: partial({ insight: InsightType.TRENDS }),
+                })
         })
 
         it('in edit mode with a #fromItem=', async () => {
             router.actions.push(
                 combineUrl('/insights', cleanFilters({ insight: InsightType.TRENDS }), { fromItem: 42, edit: true }).url
             )
-            await expectLogic(router).toMatchValues({
-                location: partial({ pathname: urls.insightEdit(Insight42) }),
-                searchParams: partial({ insight: InsightType.TRENDS }),
-            })
+            await expectLogic(router)
+                .delay(1)
+                .toMatchValues({
+                    location: partial({ pathname: urls.insightEdit(Insight42) }),
+                    searchParams: partial({ insight: InsightType.TRENDS }),
+                })
         })
 
         it('new mode with ?insight= and no hash params', async () => {
