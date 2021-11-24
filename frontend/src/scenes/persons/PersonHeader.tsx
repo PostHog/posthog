@@ -40,7 +40,7 @@ export const asLink = (person: Partial<PersonType> | null | undefined): string |
 
 export function PersonHeader(props: PersonHeaderProps): JSX.Element {
     return (
-        <Link to={asLink(props.person)} data-attr="goto-person-email">
+        <Link to={asLink(props.person)} data-attr={`goto-person-email-${props.person?.distinct_ids?.[0]}`}>
             <div
                 className={clsx('person-header', {
                     identified: props.person?.is_identified,
