@@ -45,7 +45,7 @@ describe('<Person /> ', () => {
         mount()
 
         cy.wait('@api_persons').map(helpers.getSearchParameters).should('be.empty')
-        cy.get('[data-attr="goto-person-arrow-0"]').click()
+        cy.get('[data-attr="goto-person-email"]').click()
         cy.wait('@api_persons').map(helpers.getSearchParameters).should('include', {
             distinct_id: '01776f08-b02e-0025-98c6-d8c376e3617b',
         })
