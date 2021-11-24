@@ -80,13 +80,6 @@ export const personsLogic = kea<personsLogicType<PersonLogicProps, PersonPaginat
         },
     },
     selectors: {
-        exampleEmail: [
-            (s) => [s.persons],
-            (persons) => {
-                const match = persons && persons.results.find((person) => person.properties?.email)
-                return match?.properties?.email || 'example@gmail.com'
-            },
-        ],
         showSessionRecordings: [
             (s) => [s.featureFlags, s.currentTeam],
             (featureFlags, currentTeam) => {

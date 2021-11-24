@@ -33,14 +33,8 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
         <BindLogic logic={personsLogic} props={personsLogicProps}>
             <div className="persons-list">
                 <PersonPageHeader hideGroupTabs={!!cohort} />
-                <Row style={{ gap: '0.75rem' }} className="mb">
-                    <div style={{ flexGrow: 1, maxWidth: 600 }}>
-                        <PersonsSearch autoFocus={!cohort} />
-                        <div className="text-muted text-small">
-                            You can also filter persons that have a certain property set (e.g. <code>has:email</code> or{' '}
-                            <code>has:name</code>)
-                        </div>
-                    </div>
+                <Row style={{ gap: '0.75rem' }} className="mb" align="middle" justify="space-between">
+                    <PersonsSearch autoFocus={!cohort} />
                     <div>
                         <Radio.Group
                             buttonStyle="solid"
