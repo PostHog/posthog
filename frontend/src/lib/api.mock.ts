@@ -80,7 +80,7 @@ export function defaultAPIMocks(
             'api/projects/@current/event_definitions/',
         ].includes(pathname)
     ) {
-        return { results: [] }
+        return { results: [], next: null }
     }
     throw new Error(`Unmocked fetch to: ${pathname} with params: ${JSON.stringify(searchParams)}`)
 }
