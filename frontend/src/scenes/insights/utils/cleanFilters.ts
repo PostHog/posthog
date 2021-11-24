@@ -85,7 +85,6 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
             ...(filters.aggregation_group_type_index != undefined
                 ? { aggregation_group_type_index: filters.aggregation_group_type_index }
                 : {}),
-            funnel_advanced: filters.funnel_advanced || undefined,
         }
 
         // if we came from an URL with just `#q={insight:TRENDS}` (no `events`/`actions`), add the default states `[]`

@@ -60,6 +60,7 @@ import { userLogic } from 'scenes/userLogic'
 import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilitySensorLogic'
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { groupsModel } from '~/models/groupsModel'
+import { router } from 'kea-router'
 
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 // Chosen via heuristics by eyeballing some values
@@ -152,6 +153,8 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         toggleVisibility: (index: string) => ({ index }),
         toggleVisibilityByBreakdown: (breakdownValue?: number | string) => ({ breakdownValue }),
         setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
+        setAdvancedMode: (enabled: boolean) => ({ enabled }),
+        toggleAdvancedMode: true,
 
         // Correlation related actions
         setCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
@@ -269,6 +272,13 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             FunnelStepReference.total as FunnelStepReference,
             {
                 setStepReference: (_, { stepReference }) => stepReference,
+            },
+        ],
+        advancedMode: [
+            false,
+            {
+                setAdvancedMode: (_, { enabled }) => enabled,
+                toggleAdvancedMode: (state) => !state,
             },
         ],
         isGroupingOutliers: [
@@ -1344,6 +1354,28 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 eventUsageLogic.actions.reportCorrelationViewed(values.filters, 10, true)
             }
         },
+    }),
+    urlToAction: ({ actions }) => ({
+        '/insights': (
+            _,
+            __,
+            {
+                funnel_advanced,
+            }: {
+                funnel_advanced?: boolean
+            }
+        ) => {
+            if (funnel_advanced) {
+                actions.setAdvancedMode(true)
+            }
+        },
+    }),
+    actionToUrl: ({ values }) => ({
+        toggleAdvancedMode: () => [
+            '/insights',
+            router.values.searchParams,
+            { ...router.values.hashParams, funnel_advanced: values.advancedMode || undefined },
+        ],
     }),
 })
 

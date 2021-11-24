@@ -40,18 +40,15 @@ export function FunnelTabWithSimpleMode(): JSX.Element {
         aggregationTargetLabel,
         filterSteps,
         advancedOptionsUsedCount,
+        advancedMode,
     } = useValues(funnelLogic(insightProps))
-    const { clearFunnel, setFilters } = useActions(funnelLogic(insightProps))
+    const { clearFunnel, setFilters, toggleAdvancedMode } = useActions(funnelLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
     const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
     const screens = useBreakpoint()
     const isHorizontalUIEnabled = featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI]
     const isSmallScreen = screens.xs || (screens.sm && !screens.md) || (screens.xl && !isHorizontalUIEnabled)
     useMountedLogic(funnelCommandLogic)
-
-    const toggleAdvancedMode = (): void => {
-        setFilters({ funnel_advanced: !filters.funnel_advanced })
-    }
 
     return (
         <Row gutter={16} data-attr="funnel-tab" className="funnel-tab">
@@ -197,7 +194,7 @@ export function FunnelTabWithSimpleMode(): JSX.Element {
                         <div className="flex-center cursor-pointer" onClick={toggleAdvancedMode}>
                             <h4 className="secondary" style={{ flexGrow: 1 }}>
                                 Advanced options{' '}
-                                {!filters.funnel_advanced && !!advancedOptionsUsedCount && (
+                                {!advancedMode && !!advancedOptionsUsedCount && (
                                     <Tag className="lemonade-tag">{`${pluralize(
                                         advancedOptionsUsedCount,
                                         'option'
@@ -205,14 +202,12 @@ export function FunnelTabWithSimpleMode(): JSX.Element {
                                 )}
                             </h4>
                             <div>
-                                <div
-                                    className={clsx('advanced-options-dropdown', filters.funnel_advanced && 'expanded')}
-                                >
+                                <div className={clsx('advanced-options-dropdown', advancedMode && 'expanded')}>
                                     <IconArrowDropDown />
                                 </div>
                             </div>
                         </div>
-                        {filters.funnel_advanced ? (
+                        {advancedMode ? (
                             <div className="funnel-advanced-options">
                                 <FunnelConversionWindowFilter />
                                 <div className="mb-05">
