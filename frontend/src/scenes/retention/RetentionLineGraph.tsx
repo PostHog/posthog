@@ -9,7 +9,6 @@ import { PersonType } from '~/types'
 import { RetentionTrendPayload, RetentionTrendPeoplePayload } from 'scenes/retention/types'
 import { router } from 'kea-router'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { dayjs } from 'lib/dayjs'
 
 interface RetentionLineGraphProps {
     dashboardItemId?: number | null
