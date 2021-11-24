@@ -671,7 +671,7 @@ export const insightLogic = kea<insightLogicType>({
                     router.actions.replace(urls.savedInsights())
                     return
                 }
-                if (params.id === 'new') {
+                if (params.shortId === 'new') {
                     actions.createAndRedirectToNewInsight(searchParams)
                     return
                 }
