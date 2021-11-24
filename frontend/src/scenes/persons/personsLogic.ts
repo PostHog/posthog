@@ -57,7 +57,7 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
             {} as Filters,
             {
                 setListFilters: (state, { payload }) => {
-                    let newFilters = { ...state, ...payload }
+                    const newFilters = { ...state, ...payload }
                     if (newFilters.properties?.length === 0) {
                         delete newFilters['properties']
                     }

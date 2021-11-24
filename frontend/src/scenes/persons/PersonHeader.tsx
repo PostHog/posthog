@@ -11,7 +11,7 @@ export interface PersonHeaderProps {
 }
 
 export const asDisplay = (person: Partial<PersonType> | null | undefined): string => {
-    let display, displayId
+    let displayId
     const propertyIdentifier = person?.properties
         ? person.properties.email || person.properties.name || person.properties.username
         : 'with no IDs'
@@ -25,9 +25,7 @@ export const asDisplay = (person: Partial<PersonType> | null | undefined): strin
         displayId = baseId.substr(baseId.length - 5).toUpperCase()
     }
 
-    display = customIdentifier ? customIdentifier : `User ${displayId}`
-
-    return display
+    return customIdentifier ? customIdentifier : `User ${displayId}`
 }
 
 export const asLink = (person: Partial<PersonType> | null | undefined): string | undefined =>
