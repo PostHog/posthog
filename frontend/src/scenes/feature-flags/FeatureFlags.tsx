@@ -37,7 +37,7 @@ export function FeatureFlags(): JSX.Element {
             dataIndex: 'key',
             className: 'ph-no-capture',
             sticky: true,
-            width: '15%',
+            width: '40%',
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => (a.key || '').localeCompare(b.key || ''),
             render: function Render(_, featureFlag: FeatureFlagType) {
                 return (
@@ -54,6 +54,7 @@ export function FeatureFlags(): JSX.Element {
         createdAtColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType>,
         {
             title: 'Release conditions',
+            width: 200,
             render: function Render(_, featureFlag: FeatureFlagType) {
                 if (!featureFlag.filters?.groups) {
                     return 'N/A'
@@ -67,7 +68,7 @@ export function FeatureFlags(): JSX.Element {
         {
             title: 'Status',
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => Number(a.active) - Number(b.active),
-            width: 90,
+            width: 100,
             render: function RenderActive(_, featureFlag: FeatureFlagType) {
                 const switchId = `feature-flag-${featureFlag.id}-switch`
                 return (
@@ -179,14 +180,9 @@ export function FeatureFlags(): JSX.Element {
 
 function GroupFilters({ group }: { group: FeatureFlagGroupType }): JSX.Element | string {
     if (group.properties && group.properties.length > 0 && group.rollout_percentage != null) {
-        return (
-            <div style={{ display: 'flex', alignItems: 'center' }}>
-                <span style={{ flexShrink: 0, marginRight: 5 }}>{group.rollout_percentage}% of</span>
-                <PropertyFiltersDisplay filters={group.properties} style={{ margin: 0, width: '100%' }} />
-            </div>
-        )
+        return `${group.rollout_percentage}% of 1 group`
     } else if (group.properties && group.properties.length > 0) {
-        return <PropertyFiltersDisplay filters={group.properties} style={{ margin: 0 }} />
+        return '1 group'
     } else if (group.rollout_percentage !== null && group.rollout_percentage !== undefined) {
         return `${group.rollout_percentage}% of all users`
     } else {
