@@ -255,7 +255,7 @@ export function SceneLoading(): JSX.Element {
     )
 }
 
-export async function deleteWithUndo({ undo = false, ...props }: Record<string, any>): Promise<void> {
+export function deleteWithUndo({ undo = false, ...props }: Record<string, any>): void {
     api.update(`api/${props.endpoint}/${props.object.id}`, {
         ...props.object,
         deleted: !undo,
