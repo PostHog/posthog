@@ -222,16 +222,22 @@ export function SavedInsights(): JSX.Element {
                 )
             },
         },
-        hasDashboardCollaboration
-            ? {
-                  title: 'Tags',
-                  dataIndex: 'tags',
-                  key: 'tags',
-                  render: function renderTags(tags: string[]) {
-                      return <ObjectTags tags={tags} staticOnly />
+        ...(hasDashboardCollaboration
+            ? [
+                  {
+                      title: 'Tags',
+                      dataIndex: 'tags',
+                      key: 'tags',
+                      render: function renderTags(tags: string[]) {
+                          return <ObjectTags tags={tags} staticOnly />
+                      },
                   },
-              }
-            : {},
+              ]
+            : []),
+        ...(tab === SavedInsightsTabs.Yours
+            ? []
+            : [createdByColumn() as LemonTableColumn<DashboardItemType, keyof DashboardItemType>]),
+        createdAtColumn() as LemonTableColumn<DashboardItemType, keyof DashboardItemType>,
         {
             title: 'Last modified',
             sorter: true,
@@ -240,10 +246,6 @@ export function SavedInsights(): JSX.Element {
                 return <div style={{ whiteSpace: 'nowrap' }}>{updated_at && <TZLabel time={updated_at} />}</div>
             },
         },
-        ...(tab === SavedInsightsTabs.Yours
-            ? []
-            : [createdByColumn() as LemonTableColumn<DashboardItemType, keyof DashboardItemType>]),
-        createdAtColumn() as LemonTableColumn<DashboardItemType, keyof DashboardItemType>,
         {
             className: 'options-column',
             render: function Render(_: any, insight) {
