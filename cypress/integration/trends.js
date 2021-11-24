@@ -106,14 +106,14 @@ describe('Trends', () => {
     it('Apply property breakdown', () => {
         cy.get('[data-attr=add-breakdown-button]').click()
         cy.get('[data-attr=prop-filter-event_properties-2]').click()
-        cy.get('[data-attr=trend-line-graph]').should('exist')
+        cy.get('[data-attr=trend-bar-value-graph]').should('exist')
     })
 
     it('Apply all users cohort breakdown', () => {
         cy.get('[data-attr=add-breakdown-button]').click()
         cy.get('[data-attr=taxonomic-tab-cohorts_with_all]').click()
         cy.contains('All Users*').click()
-        cy.get('[data-attr=trend-line-graph]').should('exist')
+        cy.get('[data-attr=trend-bar-value-graph]').should('exist')
     })
 
     it('Save to dashboard', () => {
