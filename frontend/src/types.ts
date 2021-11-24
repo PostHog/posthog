@@ -807,6 +807,11 @@ export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_
 
 export type BreakdownKeyType = string | number | (string | number)[] | null
 
+export interface Breakdown {
+    property: string | number
+    type: BreakdownType
+}
+
 export interface FilterType {
     insight?: InsightType
     display?: ChartDisplayType
@@ -818,6 +823,7 @@ export interface FilterType {
     actions?: Record<string, any>[]
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
+    breakdowns?: Breakdown[]
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     shown_as?: ShownAsType
@@ -984,6 +990,7 @@ export interface FunnelStep {
     type: EntityType
     labels?: string[]
     breakdown?: BreakdownKeyType
+    breakdowns?: Breakdown[]
     breakdown_value?: string | number
 
     // Url that you can GET to retrieve the people that converted in this step

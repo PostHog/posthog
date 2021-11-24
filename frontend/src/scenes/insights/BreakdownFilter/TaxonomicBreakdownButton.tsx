@@ -1,4 +1,4 @@
-import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import React, { useState } from 'react'
 import { Popup } from 'lib/components/Popup/Popup'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
@@ -10,7 +10,7 @@ import { groupsModel } from '~/models/groupsModel'
 
 export interface TaxonomicBreakdownButtonProps {
     breakdownType?: TaxonomicFilterGroupType
-    onChange: (breakdown: string | number, groupType: TaxonomicFilterGroup) => void
+    onChange: (breakdown: TaxonomicFilterValue, groupType: TaxonomicFilterGroupType) => void
     onlyCohorts?: boolean
 }
 
@@ -29,7 +29,7 @@ export function TaxonomicBreakdownButton({
                     groupType={breakdownType}
                     onChange={(taxonomicGroup, value) => {
                         if (value) {
-                            onChange(value, taxonomicGroup)
+                            onChange(value, taxonomicGroup.type)
                             setOpen(false)
                         }
                     }}

@@ -20,4 +20,21 @@ describe('cleanFilters', () => {
             )
         ).toEqual(expect.objectContaining({ insight: InsightType.TRENDS, shown_as: undefined }))
     })
+
+    it('removes breakdown when adding breakdowns', () => {
+        const cleanedFilters = cleanFilters(
+            {
+                breakdowns: [{ property: '$browser', type: 'event' }],
+                insight: InsightType.FUNNELS,
+                funnel_viz_type: 'steps',
+            },
+            { breakdown: '$browser', insight: InsightType.FUNNELS, funnel_viz_type: 'steps' }
+        )
+
+        expect(cleanedFilters).not.toHaveProperty('breakdown')
+
+        expect(cleanedFilters).toEqual(
+            expect.objectContaining({ breakdowns: [{ property: '$browser', type: 'event' }] })
+        )
+    })
 })

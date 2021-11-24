@@ -75,7 +75,6 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
             ...(filters.hiddenLegendKeys ? { hiddenLegendKeys: filters.hiddenLegendKeys } : {}),
             exclusions: deepCleanFunnelExclusionEvents(filters),
             interval: autocorrectInterval(filters),
-            breakdown: breakdownEnabled ? filters.breakdown || undefined : undefined,
             breakdown_type: breakdownEnabled ? filters.breakdown_type || undefined : undefined,
             breakdown_group_type_index:
                 breakdownEnabled && filters.breakdown_group_type_index != undefined
@@ -87,6 +86,12 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
             ...(filters.aggregation_group_type_index != undefined
                 ? { aggregation_group_type_index: filters.aggregation_group_type_index }
                 : {}),
+        }
+
+        if (Array.isArray(filters['breakdowns'])) {
+            cleanedParams['breakdowns'] = filters['breakdowns']
+        } else {
+            cleanedParams['breakdown'] = breakdownEnabled ? filters.breakdown || undefined : undefined
         }
 
         // if we came from an URL with just `#q={insight:TRENDS}` (no `events`/`actions`), add the default states `[]`

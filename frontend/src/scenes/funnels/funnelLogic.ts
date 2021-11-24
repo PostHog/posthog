@@ -2,38 +2,38 @@ import { BreakPointFunction, kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { average, autoCaptureEventToDescription, successToast, sum } from 'lib/utils'
+import { autoCaptureEventToDescription, average, successToast, sum } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
 import {
-    FilterType,
-    FunnelVizType,
-    FunnelStep,
-    FunnelsTimeConversionBins,
-    PersonType,
-    InsightType,
-    FunnelStepWithNestedBreakdown,
-    FunnelTimeConversionMetrics,
-    FlattenedFunnelStep,
-    FunnelStepWithConversionMetrics,
-    BinCountValue,
-    FunnelConversionWindowTimeUnit,
-    FunnelStepRangeEntityFilter,
-    InsightLogicProps,
-    FlattenedFunnelStepByBreakdown,
-    FunnelCorrelation,
-    FunnelCorrelationType,
-    FunnelStepReference,
-    FunnelAPIResponse,
-    TrendResult,
-    FunnelCorrelationResultsType,
     AvailableFeature,
-    TeamType,
+    BinCountValue,
     EntityTypes,
+    FilterType,
+    FlattenedFunnelStep,
+    FlattenedFunnelStepByBreakdown,
+    FunnelAPIResponse,
+    FunnelConversionWindowTimeUnit,
+    FunnelCorrelation,
+    FunnelCorrelationResultsType,
+    FunnelCorrelationType,
+    FunnelStep,
+    FunnelStepRangeEntityFilter,
+    FunnelStepReference,
+    FunnelStepWithConversionMetrics,
+    FunnelStepWithNestedBreakdown,
+    FunnelsTimeConversionBins,
+    FunnelTimeConversionMetrics,
+    FunnelVizType,
+    InsightLogicProps,
+    InsightType,
+    PersonType,
     PropertyFilter,
     PropertyOperator,
+    TeamType,
+    TrendResult,
 } from '~/types'
-import { FunnelLayout, BinCountAuto, FEATURE_FLAGS } from 'lib/constants'
+import { BinCountAuto, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import {
     aggregateBreakdownResult,
@@ -394,7 +394,24 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         loadedFilters: [(s) => [s.insight], ({ filters }) => (filters?.insight === InsightType.FUNNELS ? filters : {})],
         results: [
             (s) => [s.insight],
-            ({ filters, result }): FunnelAPIResponse => (filters?.insight === InsightType.FUNNELS ? result : []),
+            ({ filters, result }): FunnelAPIResponse => {
+                if (filters?.insight === InsightType.FUNNELS) {
+                    if (Array.isArray(result) && Array.isArray(result[0]) && result[0][0].breakdowns) {
+                        // before teaching the UI how to handle multi property breakdown simply collapse it
+                        // breakdowns ["a", "b"] becomes breakdown: "a::b"
+                        const mappedResults = result[0].map((r) => {
+                            const { breakdowns, breakdown_value, ...singlePropertyClone } = r
+                            singlePropertyClone.breakdown = breakdowns.join('::')
+                            singlePropertyClone.breakdown_value = breakdown_value.join('::')
+                            return singlePropertyClone
+                        })
+                        return [mappedResults]
+                    }
+                    return result
+                } else {
+                    return []
+                }
+            },
         ],
         resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
         conversionWindow: [
@@ -561,7 +578,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         steps: [
             (s) => [s.filters, s.results, s.apiParams],
             (filters: Partial<FilterType>, results: FunnelAPIResponse, apiParams): FunnelStepWithNestedBreakdown[] => {
-                // there are three funnel viz types. only two are allowed to use this step
                 const stepResults =
                     filters.funnel_viz_type !== FunnelVizType.TimeToConvert
                         ? (results as FunnelStep[] | FunnelStep[][])
@@ -572,13 +588,19 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 }
 
                 let stepsWithNestedBreakdown: FunnelStepWithNestedBreakdown[] = []
-                if (isBreakdownFunnelResults(results) && isValidBreakdownParameter(apiParams.breakdown)) {
-                    stepsWithNestedBreakdown = aggregateBreakdownResult(results, apiParams.breakdown ?? undefined).sort(
+                if (
+                    isBreakdownFunnelResults(results) &&
+                    isValidBreakdownParameter(apiParams.breakdown, apiParams.breakdowns)
+                ) {
+                    const breakdownProperty = apiParams.breakdowns
+                        ? apiParams.breakdowns.map((b) => b.property).join('::')
+                        : apiParams.breakdown ?? undefined
+                    stepsWithNestedBreakdown = aggregateBreakdownResult(results, breakdownProperty).sort(
                         (a, b) => a.order - b.order
                     )
                 }
 
-                return !!filters.breakdown
+                return !!filters.breakdowns || !!filters.breakdown
                     ? stepsWithNestedBreakdown
                     : ([...stepResults] as FunnelStep[]).sort((a, b) => a.order - b.order)
             },
@@ -751,7 +773,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                     { rowKey: 'graph' },
                     { rowKey: 'table-header' },
                 ]
-
                 if (steps.length > 0) {
                     const baseStep = steps[0]
                     const lastStep = steps[steps.length - 1]
@@ -1134,6 +1155,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             if (values.filters.aggregation_group_type_index != undefined) {
                 return
             }
+
             personsModalLogic.actions.loadPeopleFromUrl({
                 url: converted ? step.converted_people_url : step.dropped_people_url,
                 // NOTE: although we have the url that contains all of the info needed
