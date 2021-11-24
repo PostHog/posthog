@@ -137,11 +137,14 @@ export function FunnelTabWithSimpleMode(): JSX.Element {
                                 />
                             </div>
                         </Row>
-                        {!isHorizontalUIEnabled && <hr style={{ marginBottom: 0 }} />}
                     </>
                 )}
+                <div className="text-muted">
+                    <FunnelConversionWindowFilter horizontal />
+                </div>
             </Col>
             <Col xs={24} md={8} xl={isHorizontalUIEnabled ? undefined : 24}>
+                <hr />
                 <div className="mt" />
                 <div className="flex-center">
                     <div style={{ flexGrow: 1 }}>
@@ -208,7 +211,6 @@ export function FunnelTabWithSimpleMode(): JSX.Element {
                         </div>
                         {advancedMode ? (
                             <div className="funnel-advanced-options">
-                                <FunnelConversionWindowFilter />
                                 <div className="mb-05">
                                     Step order
                                     <Tooltip
