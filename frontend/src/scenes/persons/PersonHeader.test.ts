@@ -75,7 +75,7 @@ describe('the person header', () => {
             props: {
                 email: null,
             },
-            personDisplay: 'Identified user A9D1C',
+            personDisplay: 'User A9D1C',
 
             describe: 'when person is identified',
             testName: 'if there are no person properties it shows identified people by hash',
@@ -86,7 +86,7 @@ describe('the person header', () => {
             props: {
                 email: null,
             },
-            personDisplay: 'Unidentified user ABCDE',
+            personDisplay: 'User ABCDE',
 
             describe: 'when person is unidentified',
             testName: 'if there are no person properties it shows people by hash',
@@ -98,7 +98,7 @@ describe('the person header', () => {
                 email: 'example@person.com',
                 name: 'is not preferred over email',
             },
-            personDisplay: 'Unidentified example@person.com',
+            personDisplay: 'example@person.com',
 
             describe: 'when person is unidentified',
             testName: 'if there are no person properties it shows people by hash',

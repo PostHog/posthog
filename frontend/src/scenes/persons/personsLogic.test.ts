@@ -11,7 +11,6 @@ describe('personsLogic', () => {
 
     mockAPI(async (url) => {
         const { pathname, searchParams } = url
-        console.log(searchParams)
         if (`api/person/` === pathname && searchParams == { properties: [{ key: 'email', operator: 'is_set' }] }) {
             return { result: ['result from api'] }
         }

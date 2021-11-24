@@ -39,7 +39,7 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
                     </div>
                 </Row>
                 <PropertyFilters
-                    pageKey={`persons-list-page`}
+                    pageKey="persons-list-page"
                     propertyFilters={listFilters.properties}
                     onChange={(properties) => {
                         setListFilters({ properties })
