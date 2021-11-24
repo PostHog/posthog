@@ -105,7 +105,7 @@ describe('Trends', () => {
 
     it('Apply property breakdown', () => {
         cy.get('[data-attr=add-breakdown-button]').click()
-        cy.get('[data-attr=prop-filter-event_properties-2]').click()
+        cy.get('[data-attr=prop-filter-event_properties-1]').click()
         cy.get('[data-attr=trend-bar-value-graph]').should('exist')
     })
 
