@@ -4,27 +4,9 @@ on:
     - pull_request
 
 jobs:
-    cypress_prep:
-        name: Cypress E2E preparation
-        runs-on: ubuntu-latest
-        outputs:
-            matrix: ${{ steps.set-matrix.outputs.matrix }}
-        steps:
-            - name: Check out
-              uses: actions/checkout@v2
-            - id: set-matrix
-              run: |
-                  if ${{github.event.pull_request.head.repo.full_name == github.repository}}; then
-                  matrix=$(jq 'map(.)' .github/workflows/e2e_matrix.json)  
-                  else              
-                  matrix='[{"containers": [1]}]'
-                  fi
-                  echo ::set-output name=matrix::{\"include\":$(echo $matrix)}\"
-
     cypress:
-        name: Cypress E2E tests
+        name: Cypress E2E tests (${{ matrix.job_index }})
         runs-on: ubuntu-18.04
-        needs: cypress_prep
 
         strategy:
             # when one test fails, DO NOT cancel the other
@@ -32,7 +14,10 @@ jobs:
             # leaving the Dashboard hanging ...
             # https://github.com/cypress-io/github-action/issues/48
             fail-fast: false
-            matrix: ${{fromJson(needs.cypress_prep.outputs.matrix)}}
+            matrix:
+                job_index: [0, 1, 2, 4]
+            env:
+                CYPRESS_JOBS_TOTAL: 4
 
         services:
             postgres:
@@ -93,7 +78,7 @@ jobs:
               if: steps.cypress-node-modules-cache-3.outputs.cache-hit != 'true'
               run: |
                   yarn install --frozen-lockfile
-                  yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
+                  yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0 @split-tests/cypress
                   cd plugin-server
                   yarn install --frozen-lockfile
             - name: Yarn build
@@ -121,27 +106,5 @@ jobs:
                   mkdir -p cypress/screenshots
                   ./bin/docker-worker &
                   ./bin/docker-server &
-            - name: Cypress run
-              uses: cypress-io/github-action@v2
-              with:
-                  config-file: cypress.e2e.json
-                  record: true
-                  parallel: ${{github.event.pull_request.head.repo.full_name == github.repository}}
-                  group: 'PostHog Frontend'
-                  # We're already installing cypress above
-                  # We have to install it separately otherwise the tests fail.
-                  install: false
-                  # We already install cypress separately, we don't need to install it again here
-                  install-command: echo "no"
-              env:
-                  # pass the Dashboard record key as an environment variable
-                  CYPRESS_RECORD_KEY: ${{ secrets.CYPRESS_RECORD_KEY }}
-                  # Recommended: pass the GitHub token lets this action correctly
-                  # determine the unique run id necessary to re-run the checks
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-            - name: Archive test screenshots
-              uses: actions/upload-artifact@v1
-              with:
-                  name: screenshots
-                  path: cypress/screenshots
-              if: ${{ failure() }}
+            - name: Test
+              run: yarn test --jobsIndex=${{ matrix.job_index }}
