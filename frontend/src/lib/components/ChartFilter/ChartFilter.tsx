@@ -20,7 +20,7 @@ interface ChartFilterProps {
 }
 
 export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): JSX.Element {
-    const { chartFilter } = useValues(chartFilterLogic)
+    const { chartFilter, highlightChartChange } = useValues(chartFilterLogic)
     const { setChartFilter } = useActions(chartFilterLogic)
     const { preflight } = useValues(preflightLogic)
 
@@ -123,19 +123,21 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                   },
               ]
     return (
-        <Select
-            key="2"
-            defaultValue={filters.display || defaultDisplay}
-            value={chartFilter || defaultDisplay}
-            onChange={(value: ChartDisplayType | FunnelVizType) => {
-                setChartFilter(value)
-                onChange(value)
-            }}
-            bordered={false}
-            dropdownMatchSelectWidth={false}
-            data-attr="chart-filter"
-            disabled={disabled}
-            options={options}
-        />
+        <span style={{ padding: '6px 0 ' }} className={highlightChartChange ? 'highlighted' : ''}>
+            <Select
+                key="2"
+                defaultValue={filters.display || defaultDisplay}
+                value={chartFilter || defaultDisplay}
+                onChange={(value: ChartDisplayType | FunnelVizType) => {
+                    setChartFilter(value)
+                    onChange(value)
+                }}
+                bordered={false}
+                dropdownMatchSelectWidth={false}
+                data-attr="chart-filter"
+                disabled={disabled}
+                options={options}
+            />
+        </span>
     )
 }

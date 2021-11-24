@@ -136,7 +136,9 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
             ...filters,
             interval: autocorrectInterval(filters),
             display:
-                filters.session && filters.session === 'dist'
+                filters.breakdown && !oldFilters?.breakdown
+                    ? ChartDisplayType.ActionsBarChartValue // automatically select value if breakdown
+                    : filters.session && filters.session === 'dist'
                     ? ChartDisplayType.ActionsTable
                     : insightChanged
                     ? ChartDisplayType.ActionsLineGraphLinear

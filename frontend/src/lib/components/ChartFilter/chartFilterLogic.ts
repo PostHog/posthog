@@ -12,6 +12,9 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
     path: ['lib', 'components', 'ChartFilter', 'chartFilterLogic'],
     actions: () => ({
         setChartFilter: (filter: ChartDisplayType | FunnelVizType) => ({ filter }),
+        chartAutomaticallyChanged: true,
+        endHighlightChange: true,
+        setInitialLoad: true,
     }),
     reducers: {
         chartFilter: [
@@ -20,8 +23,21 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
                 setChartFilter: (_, { filter }) => filter,
             },
         ],
+        highlightChartChange: [
+            false,
+            {
+                chartAutomaticallyChanged: () => true,
+                endHighlightChange: () => false,
+            },
+        ],
+        initialLoad: [
+            true,
+            {
+                setInitialLoad: () => false,
+            },
+        ],
     },
-    listeners: ({ values }) => ({
+    listeners: ({ actions, values }) => ({
         setChartFilter: ({ filter }) => {
             const { display, funnel_viz_type, ...searchParams } = router.values.searchParams // eslint-disable-line
             const { pathname } = router.values.location
@@ -38,9 +54,16 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
                 router.actions.replace(pathname, searchParams, router.values.hashParams)
             }
         },
+        chartAutomaticallyChanged: async (_, breakpoint) => {
+            await breakpoint(2000)
+            actions.endHighlightChange()
+        },
     }),
-    urlToAction: ({ actions }) => ({
+    urlToAction: ({ actions, values }) => ({
         '/insights': (_, { display, insight, funnel_viz_type }) => {
+            if (!values.initialLoad && !objectsEqual(display, values.chartFilter)) {
+                actions.chartAutomaticallyChanged()
+            }
             if (display === ChartDisplayType.FunnelViz && !funnel_viz_type) {
                 actions.setChartFilter(FunnelVizType.Steps)
             } else if (display && !funnel_viz_type) {
@@ -52,6 +75,7 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
             } else if (insight === InsightType.TRENDS) {
                 actions.setChartFilter(ChartDisplayType.ActionsLineGraphLinear)
             }
+            actions.setInitialLoad()
         },
     }),
 })

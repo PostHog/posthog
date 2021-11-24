@@ -12,6 +12,21 @@ describe('cleanFilters', () => {
         ).toEqual(expect.objectContaining({ insight: InsightType.RETENTION, display: ChartDisplayType.ActionsTable }))
     })
 
+    it('switches display to value if adding a breakdown', () => {
+        expect(
+            cleanFilters(
+                { insight: InsightType.TRENDS, display: ChartDisplayType.ActionsLineGraphLinear },
+                { insight: InsightType.TRENDS, display: ChartDisplayType.ActionsLineGraphLinear, breakdown: 'email' }
+            )
+        ).toEqual(
+            expect.objectContaining({
+                insight: InsightType.RETENTION,
+                display: ChartDisplayType.ActionsBarChartValue,
+                breakdown: 'email',
+            })
+        )
+    })
+
     it('removes shownas if moving from stickiness to trends', () => {
         expect(
             cleanFilters(
