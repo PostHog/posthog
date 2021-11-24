@@ -34,49 +34,12 @@
         color: $border_dark;
     }
 
-    .paginate-disabled {
-        cursor: auto;
-        color: $border_dark;
-    }
-
     .list-or-card-layout {
         color: $text_muted_alt;
         padding: 28px 0;
         border-top: 1px solid $border;
         justify-content: space-between;
         align-items: center;
-    }
-
-    .ant-table {
-        border: 1px solid $border;
-        border-radius: 4px;
-        padding: 8px;
-
-        .icon-column {
-            width: 32px;
-            padding-right: 0;
-            svg {
-                display: block;
-            }
-        }
-        .options-column {
-            width: 24px;
-            padding-left: 0;
-            padding-right: 10px;
-        }
-    }
-
-    .ant-table-footer {
-        background-color: white;
-        padding: 12px 0;
-    }
-
-    .footer-pagination {
-        justify-content: flex-end;
-        align-items: center;
-        span {
-            padding-right: $default_spacing;
-        }
     }
 
     .dashboard-item {

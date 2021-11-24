@@ -22,11 +22,11 @@ export interface PaginationManual extends PaginationAuto {
     onBackward: () => void
 }
 
-export interface LemonTableColumn<T extends Record<string, any>, D extends keyof T> {
+export interface LemonTableColumn<T extends Record<string, any>, D extends keyof T | undefined> {
     title?: string | React.ReactNode
     key?: string
     dataIndex?: D
-    render?: (dataValue: T[D] | undefined, record: T) => React.ReactNode | string | boolean | null | undefined
+    render?: (dataValue: D extends keyof T ? T[D] : undefined, record: T) => any
     /** Sorting function. Set to `true` if using manual pagination, in which case you'll also have to provide `sorting` on the table. */
     sorter?: ((a: T, b: T) => number) | true
     className?: string
@@ -37,7 +37,7 @@ export interface LemonTableColumn<T extends Record<string, any>, D extends keyof
     /** Set width. */
     width?: string | number
 }
-export type LemonTableColumns<T extends Record<string, any>> = LemonTableColumn<T, keyof T>[]
+export type LemonTableColumns<T extends Record<string, any>> = LemonTableColumn<T, keyof T | undefined>[]
 
 /**
  * Determine the column's key, using `dataIndex` as fallback.
@@ -270,7 +270,9 @@ export function LemonTable<T extends Record<string, any>>({
                                             const columnKeyRaw = column.key || column.dataIndex
                                             const columnKeyOrIndex = columnKeyRaw ? String(columnKeyRaw) : columnIndex
                                             const value = column.dataIndex ? data[column.dataIndex] : undefined
-                                            const contents = column.render ? column.render(value, data) : value
+                                            const contents = column.render
+                                                ? column.render(value as T[keyof T], data)
+                                                : value
                                             return (
                                                 <td
                                                     key={columnKeyOrIndex}

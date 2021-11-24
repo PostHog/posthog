@@ -226,7 +226,7 @@ export function SavedInsights(): JSX.Element {
             ? [
                   {
                       title: 'Tags',
-                      dataIndex: 'tags',
+                      dataIndex: 'tags' as keyof DashboardItemType,
                       key: 'tags',
                       render: function renderTags(tags: string[]) {
                           return <ObjectTags tags={tags} staticOnly />
@@ -236,8 +236,8 @@ export function SavedInsights(): JSX.Element {
             : []),
         ...(tab === SavedInsightsTabs.Yours
             ? []
-            : [createdByColumn() as LemonTableColumn<DashboardItemType, keyof DashboardItemType>]),
-        createdAtColumn() as LemonTableColumn<DashboardItemType, keyof DashboardItemType>,
+            : [createdByColumn() as LemonTableColumn<DashboardItemType, keyof DashboardItemType | undefined>]),
+        createdAtColumn() as LemonTableColumn<DashboardItemType, keyof DashboardItemType | undefined>,
         {
             title: 'Last modified',
             sorter: true,
@@ -247,8 +247,8 @@ export function SavedInsights(): JSX.Element {
             },
         },
         {
-            className: 'options-column',
-            render: function Render(_: any, insight) {
+            width: 0,
+            render: function Render(_, insight) {
                 const link = displayMap[getDisplayedType(insight.filters)].link(insight)
                 return (
                     <More
