@@ -464,22 +464,7 @@ export function FeatureFlag(): JSX.Element {
                         {featureFlag.filters.groups.map((group, index) => (
                             <Col span={24} md={24} key={`${index}-${featureFlag.filters.groups.length}`}>
                                 <Card style={{ marginBottom: 16 }}>
-                                    {featureFlag.filters.groups.length > 1 && (
-                                        <>
-                                            <span style={{ position: 'absolute', top: 0, right: 0, margin: 4 }}>
-                                                <Tooltip title="Delete this match group" placement="bottomLeft">
-                                                    <Button
-                                                        type="link"
-                                                        icon={<DeleteOutlined />}
-                                                        onClick={() => removeMatchGroup(index)}
-                                                        style={{ color: 'var(--danger)' }}
-                                                    />
-                                                </Tooltip>
-                                            </span>
-                                        </>
-                                    )}
-
-                                    <div className="flag-form-row">
+                                    <div className="flag-form-row" style={{ height: 24 }}>
                                         <div>
                                             <span className="simple-tag tag-light-blue" style={{ marginRight: 8 }}>
                                                 Set {index + 1}
@@ -494,7 +479,18 @@ export function FeatureFlag(): JSX.Element {
                                                 </>
                                             )}
                                         </div>
-                                        <div>Duplicate delete</div>
+                                        <div>
+                                            {featureFlag.filters.groups.length > 1 && (
+                                                <Tooltip title="Delete this condition set" placement="bottomLeft">
+                                                    <Button
+                                                        type="link"
+                                                        icon={<DeleteOutlined />}
+                                                        style={{ width: 24, height: 24 }}
+                                                        onClick={() => removeMatchGroup(index)}
+                                                    />
+                                                </Tooltip>
+                                            )}
+                                        </div>
                                     </div>
 
                                     <LemonSpacer large />
@@ -544,7 +540,7 @@ export function FeatureFlag(): JSX.Element {
                             </Col>
                         ))}
                     </Row>
-                    <Card size="small">
+                    <Card size="small" style={{ marginBottom: 16 }}>
                         <Button type="link" onClick={addMatchGroup} style={{ marginLeft: 5 }}>
                             <PlusOutlined style={{ marginRight: 15 }} /> Add condition set
                         </Button>
