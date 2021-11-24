@@ -181,6 +181,7 @@ export function SavedInsights(): JSX.Element {
         {
             key: 'id',
             className: 'icon-column',
+            width: 0,
             render: function renderType(_, insight) {
                 const rawType = insight.filters?.insight || InsightType.TRENDS
                 const type = insightTypes.find(({ type: iterationType }) => iterationType === rawType)
@@ -380,28 +381,26 @@ export function SavedInsights(): JSX.Element {
                     </Col>
                 ) : null}
             </Row>
-            {insights.count > 0 && (
-                <Row className="list-or-card-layout">
-                    {startCount}
-                    {endCount !== startCount && `-${endCount}`} of {count} insight{count === 1 ? '' : 's'}
-                    <div>
-                        <Radio.Group
-                            onChange={(e) => setSavedInsightsFilters({ layoutView: e.target.value })}
-                            value={layoutView}
-                            buttonStyle="solid"
-                        >
-                            <Radio.Button value={LayoutView.List}>
-                                <UnorderedListOutlined className="mr-05" />
-                                List
-                            </Radio.Button>
-                            <Radio.Button value={LayoutView.Card}>
-                                <AppstoreFilled className="mr-05" />
-                                Card
-                            </Radio.Button>
-                        </Radio.Group>
-                    </div>
-                </Row>
-            )}
+            <Row className="list-or-card-layout">
+                {startCount}
+                {endCount !== startCount && `-${endCount}`} of {count} insight{count === 1 ? '' : 's'}
+                <div>
+                    <Radio.Group
+                        onChange={(e) => setSavedInsightsFilters({ layoutView: e.target.value })}
+                        value={layoutView}
+                        buttonStyle="solid"
+                    >
+                        <Radio.Button value={LayoutView.List}>
+                            <UnorderedListOutlined className="mr-05" />
+                            List
+                        </Radio.Button>
+                        <Radio.Button value={LayoutView.Card}>
+                            <AppstoreFilled className="mr-05" />
+                            Card
+                        </Radio.Button>
+                    </Radio.Group>
+                </div>
+            </Row>
             {!insightsLoading && insights.count < 1 ? (
                 <SavedInsightsEmptyState />
             ) : (
