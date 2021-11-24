@@ -1,19 +1,19 @@
-import React from 'react'
+import { CalendarOutlined } from '@ant-design/icons'
+import { useValues } from 'kea'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { TZIndicator } from 'lib/components/TimezoneAware'
-import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE, FEATURE_FLAGS } from 'lib/constants'
-import { ChartDisplayType, FilterType, FunnelVizType, ItemMode, InsightType } from '~/types'
-import { CalendarOutlined } from '@ant-design/icons'
+import { ACTIONS_BAR_CHART_VALUE, ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_PIE_CHART, ACTIONS_TABLE, FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import React from 'react'
+import { FunnelBinsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBinsPicker'
+import { ChartDisplayType, FilterType, FunnelVizType, InsightType, ItemMode } from '~/types'
 import { InsightDateFilter } from '../InsightDateFilter'
 import { RetentionDatePicker } from '../RetentionDatePicker'
-import { FunnelStepReferencePicker } from './FunnelTab/FunnelStepReferencePicker'
 import { FunnelDisplayLayoutPicker } from './FunnelTab/FunnelDisplayLayoutPicker'
-import { FunnelBinsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBinsPicker'
+import { FunnelStepReferencePicker } from './FunnelTab/FunnelStepReferencePicker'
 import { PathStepPicker } from './PathTab/PathStepPicker'
-import { useValues } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ReferencePicker as RetentionReferencePicker } from './RetentionTab/ReferencePicker'
 
 interface InsightDisplayConfigProps {
@@ -112,7 +112,7 @@ export function InsightDisplayConfig({
 
                 {activeView === InsightType.RETENTION && (
                     <>
-                        <RetentionReferencePicker />
+                        {filters.display === ACTIONS_LINE_GRAPH_LINEAR ? <RetentionReferencePicker /> : null}
                         <RetentionDatePicker />
                     </>
                 )}
