@@ -4,7 +4,7 @@ import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { IconExternalLink } from 'lib/components/icons'
 import { teamLogic } from 'scenes/teamLogic'
 
-const UTM_TAGS = '?utm_medium=in-product&utm_campaign=feature-flag'
+export const UTM_TAGS = '?utm_medium=in-product&utm_campaign=feature-flag'
 
 export function JSSnippet({ flagKey }: { flagKey: string }): JSX.Element {
     return (

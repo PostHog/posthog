@@ -27,7 +27,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SceneExport } from 'scenes/sceneTypes'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { APISnippet, JSSnippet, PythonSnippet } from 'scenes/feature-flags/FeatureFlagSnippets'
+import { APISnippet, JSSnippet, PythonSnippet, UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { LemonSpacer } from 'lib/components/LemonRow'
 
 export const scene: SceneExport = {
