@@ -11,7 +11,7 @@ export function FunnelLineGraph({
     inSharedMode,
     color = 'white',
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
-    const { insightProps, insight } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
     const { steps, filters } = useValues(logic)
     const { loadPeople } = useActions(personsModalLogic)
@@ -24,9 +24,7 @@ export function FunnelLineGraph({
             datasets={steps}
             labels={steps?.[0]?.labels ?? ([] as string[])}
             isInProgress={!filters.date_to}
-            dashboardItemId={
-                dashboardItemId || insight.short_id /* used only for annotations, not to init any other logic */
-            }
+            dashboardItemId={dashboardItemId}
             inSharedMode={inSharedMode}
             percentage={true}
             onClick={
