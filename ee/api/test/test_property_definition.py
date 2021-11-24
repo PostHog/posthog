@@ -47,6 +47,9 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         EnterprisePropertyDefinition.objects.create(
             team=self.team, name="other property", description="", tags=["deprecated"]
         )
+        EnterprisePropertyDefinition.objects.create(
+            team=self.team, name="$set", description="", tags=["hidden-system-property"]
+        )
 
         response = self.client.get(f"/api/projects/@current/property_definitions/?search=enter")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -68,6 +71,11 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(len(response_data["results"]), 2)
 
         response = self.client.get(f"/api/projects/@current/property_definitions/?search=bust")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 0)
+
+        response = self.client.get(f"/api/projects/@current/property_definitions/?search=set")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 0)
