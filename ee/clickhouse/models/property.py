@@ -40,6 +40,7 @@ def parse_prop_clauses(
     allow_denormalized_props: bool = True,
     has_person_id_joined: bool = True,
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_SUBQUERY,
+    person_id_joined_alias: str = "person_id",
 ) -> Tuple[str, Dict]:
     final = []
     params: Dict[str, Any] = {}
@@ -113,7 +114,7 @@ def parse_prop_clauses(
             cohort_id = cast(int, prop.value)
 
             method = format_static_cohort_query if prop.type == "static-cohort" else format_precalculated_cohort_query
-            filter_query, filter_params = method(cohort_id, idx, prepend=prepend, custom_match_field="person_id")  # type: ignore
+            filter_query, filter_params = method(cohort_id, idx, prepend=prepend, custom_match_field=person_id_joined_alias)  # type: ignore
             if has_person_id_joined:
                 final.append(f" AND {filter_query}")
             else:
