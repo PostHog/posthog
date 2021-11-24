@@ -72,7 +72,6 @@ interface RecordingViewedProps {
     end_time?: number // End timestamp of the session
     page_change_events_length: number
     recording_width?: number
-    user_is_identified?: boolean
     source: RecordingWatchedSource
 }
 
@@ -343,7 +342,6 @@ export const eventUsageLogic = kea<
 
             const properties = {
                 properties_count: Object.keys(person.properties).length,
-                is_identified: person.is_identified,
                 has_email: !!person.properties.email,
                 has_name: !!person.properties.name,
                 custom_properties_count,
@@ -652,7 +650,6 @@ export const eventUsageLogic = kea<
                 end_time: recordingData?.session_recording?.end_time,
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingMetadata(0)[0]?.width,
-                user_is_identified: recordingData.person?.is_identified,
                 source: source,
             }
             posthog.capture(`recording ${type}`, payload)
