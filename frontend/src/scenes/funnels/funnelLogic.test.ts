@@ -47,7 +47,6 @@ describe('funnelLogic', () => {
                 results: [{ people: [] }],
             }
         } else if (url.pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/`) {
-            console.log('funnel endpoint')
             return {
                 is_cached: true,
                 last_refresh: '2021-09-16T13:41:41.297295Z',
