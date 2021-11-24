@@ -1,6 +1,9 @@
 import React from 'react'
 import { Select } from 'antd'
 import { PercentageOutlined } from '@ant-design/icons'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { useActions, useValues } from 'kea'
+import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 
 const options = {
     total: {
@@ -20,18 +23,21 @@ const options = {
             users is tending towards zero
         `,
     },
-}
+} as const
 
 export function ReferencePicker(): JSX.Element {
     /*
         Reference picker specifies how retention values should be displayed,
         options and description found in `enum Reference`
     */
+    const { insightProps } = useValues(insightLogic)
+    const { retentionReference } = useValues(retentionTableLogic(insightProps))
+    const { setRetentionReference } = useActions(retentionTableLogic(insightProps))
 
     return (
         <Select
-            defaultValue={options.total.value}
-            value={options.total.value}
+            value={retentionReference}
+            onChange={setRetentionReference}
             bordered={false}
             dropdownMatchSelectWidth={false}
             data-attr="reference-selector"

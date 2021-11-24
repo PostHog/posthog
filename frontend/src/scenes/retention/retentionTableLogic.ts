@@ -40,6 +40,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
     }),
     actions: () => ({
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
+        setRetentionReference: (retentionReference: FilterType['retention_reference']) => ({ retentionReference }),
         loadMorePeople: true,
         updatePeople: (people) => ({ people }),
         clearPeople: true,
@@ -91,6 +92,10 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         ],
         actionFilterTargetEntity: [(s) => [s.filters], (filters) => ({ events: [filters.target_entity] })],
         actionFilterReturningEntity: [(s) => [s.filters], (filters) => ({ events: [filters.returning_entity] })],
+        retentionReference: [
+            (selectors) => [selectors.filters],
+            ({ retention_reference = 'total' }) => retention_reference,
+        ],
     },
     listeners: ({ actions, values, props }) => ({
         setProperties: ({ properties }) => {
@@ -98,6 +103,14 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         },
         setFilters: ({ filters }) => {
             insightLogic(props).actions.setFilters(cleanFilters({ ...values.filters, ...filters }, values.filters))
+        },
+        setRetentionReference: ({ retentionReference }) => {
+            actions.setFilters({
+                ...values.filters,
+                // NOTE: we use lower case here to accommodate the expected
+                // casing of the server
+                retention_reference: retentionReference,
+            })
         },
         loadResultsSuccess: async () => {
             actions.clearPeople()
