@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { personsLogic } from './personsLogic'
 import { router } from 'kea-router'
+import { PropertyOperator } from '~/types'
 
 jest.mock('lib/api')
 
@@ -28,7 +29,7 @@ describe('personsLogic', () => {
             router.actions.push('/persons')
             await expectLogic(logic, () => {
                 logic.actions.setListFilters({
-                    properties: [{ key: 'email', operator: 'is_set' }],
+                    properties: [{ key: 'email', operator: PropertyOperator.IsSet }],
                 })
                 logic.actions.loadPersons()
             })
