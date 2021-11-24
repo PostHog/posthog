@@ -15,8 +15,8 @@ describe('cleanFilters', () => {
     it('switches display to value if adding a breakdown', () => {
         expect(
             cleanFilters(
-                { insight: InsightType.TRENDS, display: ChartDisplayType.ActionsLineGraphLinear },
-                { insight: InsightType.TRENDS, display: ChartDisplayType.ActionsLineGraphLinear, breakdown: 'email' }
+                { insight: InsightType.TRENDS, display: ChartDisplayType.ActionsLineGraphLinear, breakdown: 'email' },
+                { insight: InsightType.TRENDS, display: ChartDisplayType.ActionsLineGraphLinear }
             )
         ).toEqual(
             expect.objectContaining({
