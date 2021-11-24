@@ -18,91 +18,21 @@ import { useActions, useValues } from 'kea'
 import { SceneLoading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DeleteOutlined, SaveOutlined, PlusOutlined, ApiFilled, MergeCellsOutlined } from '@ant-design/icons'
-import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { featureFlagLogic } from './featureFlagLogic'
 import { featureFlagLogic as featureFlagClientLogic } from 'lib/logic/featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { IconExternalLink, IconJavascript, IconPython } from 'lib/components/icons'
-import { teamLogic } from 'scenes/teamLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SceneExport } from 'scenes/sceneTypes'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { APISnippet, JSSnippet, PythonSnippet } from 'scenes/feature-flags/FeatureFlagSnippets'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
     logic: featureFlagLogic,
-}
-
-const UTM_TAGS = '?utm_medium=in-product&utm_campaign=feature-flag'
-
-function JSSnippet({ flagKey }: { flagKey: string }): JSX.Element {
-    return (
-        <>
-            <CodeSnippet language={Language.JavaScript} wrap>
-                {`if (posthog.isFeatureEnabled('${flagKey ?? ''}')) {
-    // run your activation code here
-}`}
-            </CodeSnippet>
-            <div className="mt">
-                Need more information?{' '}
-                <a
-                    target="_blank"
-                    rel="noopener"
-                    href={`https://posthog.com/docs/integrations/js-integration${UTM_TAGS}#feature-flags`}
-                >
-                    Check the docs <IconExternalLink />
-                </a>
-            </div>
-        </>
-    )
-}
-
-function PythonSnippet({ flagKey }: { flagKey: string }): JSX.Element {
-    return (
-        <>
-            <CodeSnippet language={Language.Python} wrap>
-                {`if posthog.feature_enabled("${flagKey}", "user_distinct_id"):
-    runAwesomeFeature()
-`}
-            </CodeSnippet>
-            <div className="mt">
-                Need more information?{' '}
-                <a
-                    target="_blank"
-                    rel="noopener"
-                    href={`https://posthog.com/docs/integrations/python-integration${UTM_TAGS}#feature-flags`}
-                >
-                    Check the docs <IconExternalLink />
-                </a>
-            </div>
-        </>
-    )
-}
-
-function APISnippet(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-    return (
-        <>
-            <CodeSnippet language={Language.Bash} wrap>
-                {`curl ${window.location.origin}/decide/ \\
--X POST -H 'Content-Type: application/json' \\
--d '{
-    "api_key": "${currentTeam ? currentTeam.api_token : '[project_api_key]'}",
-    "distinct_id": "[user distinct id]"
-}'
-                `}
-            </CodeSnippet>
-            <div className="mt">
-                Need more information?{' '}
-                <a target="_blank" rel="noopener" href={`https://posthog.com/docs/api/feature-flags${UTM_TAGS}`}>
-                    Check the docs <IconExternalLink />
-                </a>
-            </div>
-        </>
-    )
 }
 
 function focusVariantKeyField(index: number): void {
