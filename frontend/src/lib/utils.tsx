@@ -968,12 +968,18 @@ export function autocorrectInterval(filters: Partial<FilterType>): IntervalType 
     }
 }
 
-export function pluralize(count: number, singular: string, plural?: string, includeNumber: boolean = true): string {
+export function pluralize(
+    count: number,
+    singular: string,
+    plural?: string,
+    includeNumber: boolean = true,
+    formatNumber: boolean = false
+): string {
     if (!plural) {
         plural = singular + 's'
     }
     const form = count === 1 ? singular : plural
-    return includeNumber ? `${count} ${form}` : form
+    return includeNumber ? `${formatNumber ? count.toLocaleString() : count} ${form}` : form
 }
 
 /** Return a number in a compact format, with a SI suffix if applicable.

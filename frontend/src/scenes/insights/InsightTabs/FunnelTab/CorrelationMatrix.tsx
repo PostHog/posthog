@@ -10,13 +10,26 @@ import { capitalizeFirstLetter, percentage, pluralize } from 'lib/utils'
 import { ErrorMessage } from 'lib/components/ErrorMessage/ErrorMessage'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Link } from 'lib/components/Link'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function CorrelationMatrix(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
-    const { funnelCorrelationDetailsParams, correlationsLoading, correlationDetails, parseDisplayNameForCorrelation } =
-        useValues(logic)
+    const {
+        funnelCorrelationDetailsParams,
+        correlationsLoading,
+        correlationDetails,
+        parseDisplayNameForCorrelation,
+        steps,
+    } = useValues(logic)
     const { setFunnelCorrelationDetailsParams } = useActions(logic)
+
+    // TODO: Handle correlation with breakdown
+    const successTotal = steps[steps.length - 1].count
+    const failureTotal = steps[0].count - successTotal
+    const action = funnelCorrelationDetailsParams?.type === 'property' ? 'have property' : 'performed event'
+    let falsePositive = 0,
+        trueNegative = 0
 
     let displayName = <></>
 
@@ -33,6 +46,8 @@ export function CorrelationMatrix(): JSX.Element {
                 )}
             </>
         )
+        falsePositive = successTotal - correlationDetails.success_count
+        trueNegative = failureTotal - correlationDetails.failure_count
     }
 
     const dismiss = (): void => {
@@ -57,11 +72,8 @@ export function CorrelationMatrix(): JSX.Element {
                 ) : correlationDetails ? (
                     <>
                         <p className="text-muted-alt mb">
-                            The table below displays the correlation details for users{' '}
-                            {funnelCorrelationDetailsParams?.type === 'property'
-                                ? 'who have property'
-                                : 'who performed event'}{' '}
-                            <b>{displayName}</b>.
+                            The table below displays the correlation details for users who {action} <b>{displayName}</b>
+                            .
                         </p>
                         <table>
                             <thead>
@@ -82,48 +94,96 @@ export function CorrelationMatrix(): JSX.Element {
                                 <tr>
                                     <td className="horizontal-header">Yes</td>
                                     <td>
-                                        <div className="percentage">
-                                            {percentage(
-                                                correlationDetails.success_count /
-                                                    (correlationDetails.success_count +
-                                                        correlationDetails.failure_count)
-                                            ) || '0.00%'}
-                                        </div>
+                                        <Tooltip
+                                            title={`True positive (TP) - Percentage of users who ${action} and completed the funnel.`}
+                                        >
+                                            <div className="percentage">
+                                                {successTotal && correlationDetails.success_count
+                                                    ? percentage(correlationDetails.success_count / successTotal)
+                                                    : '0.00%'}
+                                            </div>
+                                        </Tooltip>
                                         {/* TODO: Fix links to person modal */}
-                                        {/* TODO: Handle zero users */}
-                                        <Link to={correlationDetails.success_people_url}>
-                                            {correlationDetails.success_count.toLocaleString()}{' '}
-                                            {pluralize(correlationDetails.success_count, 'user', undefined, false)}
-                                        </Link>
+                                        {correlationDetails.success_count === 0 ? (
+                                            '0 users'
+                                        ) : (
+                                            <Link to={correlationDetails.success_people_url}>
+                                                {pluralize(
+                                                    correlationDetails.success_count,
+                                                    'user',
+                                                    undefined,
+                                                    true,
+                                                    true
+                                                )}
+                                            </Link>
+                                        )}
                                     </td>
                                     <td>
                                         <div className="percentage">
-                                            {percentage(
-                                                correlationDetails.failure_count /
-                                                    (correlationDetails.success_count +
-                                                        correlationDetails.failure_count)
-                                            ) || '0.00%'}
+                                            <Tooltip
+                                                title={`False negative (FN) - Percentage of users who ${action} and did not complete the funnel.`}
+                                            >
+                                                {failureTotal && correlationDetails.failure_count
+                                                    ? percentage(correlationDetails.failure_count / failureTotal)
+                                                    : '0.00%'}
+                                            </Tooltip>
                                         </div>
-                                        <Link to={correlationDetails.failure_people_url}>
-                                            {correlationDetails.failure_count.toLocaleString()}{' '}
-                                            {pluralize(correlationDetails.failure_count, 'user', undefined, false)}
-                                        </Link>
+                                        {correlationDetails.failure_count === 0 ? (
+                                            '0 users'
+                                        ) : (
+                                            <Link to={correlationDetails.failure_people_url}>
+                                                {pluralize(
+                                                    correlationDetails.failure_count,
+                                                    'user',
+                                                    undefined,
+                                                    true,
+                                                    true
+                                                )}
+                                            </Link>
+                                        )}
                                     </td>
                                 </tr>
                                 <tr>
                                     <td className="horizontal-header">No</td>
                                     <td>
-                                        <div className="percentage">?%</div>???
+                                        <div className="percentage">
+                                            <Tooltip
+                                                title={`False positive (FP) - Percentage of users who did not ${action} and completed the funnel.`}
+                                            >
+                                                {successTotal && falsePositive
+                                                    ? percentage(falsePositive / successTotal)
+                                                    : '0.00%'}
+                                            </Tooltip>
+                                        </div>
+                                        {pluralize(falsePositive, 'user', undefined, true, true)}
                                     </td>
                                     <td>
-                                        <div className="percentage">?%</div>???
+                                        <div className="percentage">
+                                            <Tooltip
+                                                title={`True negative (TN) - Percentage of users who did not ${action} and did not complete the funnel.`}
+                                            >
+                                                {failureTotal && trueNegative
+                                                    ? percentage(trueNegative / failureTotal)
+                                                    : '0.00%'}
+                                            </Tooltip>
+                                        </div>
+                                        {pluralize(trueNegative, 'user', undefined, true, true)}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td className="horizontal-header"></td>
+                                    <td>
+                                        <b>100%</b>
+                                    </td>
+                                    <td>
+                                        <b>100%</b>
                                     </td>
                                 </tr>
                             </tbody>
                         </table>
                         <div className="mt text-center">
                             {capitalizeFirstLetter(funnelCorrelationDetailsParams?.type || '')} <b>{displayName}</b> has
-                            a correlation score of{' '}
+                            a correlation score of {/* TODO: Implement actual odds ratio */}
                             <b style={{ color: 'var(--success)' }}>
                                 <CheckCircleFilled /> 0.85
                             </b>
