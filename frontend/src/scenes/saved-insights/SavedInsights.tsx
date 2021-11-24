@@ -17,6 +17,7 @@ import {
     RightOutlined,
     StarFilled,
     StarOutlined,
+    PlusOutlined,
     UnorderedListOutlined,
 } from '@ant-design/icons'
 import './SavedInsights.scss'
@@ -176,7 +177,6 @@ function NewInsightButton(): JSX.Element {
         <Dropdown.Button
             overlayStyle={{ borderColor: 'var(--primary)' }}
             style={{ marginLeft: 8 }}
-            size="large"
             type="primary"
             onClick={() => {
                 router.actions.push(urls.newInsight(InsightType.TRENDS))
@@ -184,6 +184,7 @@ function NewInsightButton(): JSX.Element {
             overlay={menu}
             icon={<IconArrowDropDown style={{ fontSize: 25 }} data-attr="saved-insights-new-insight-dropdown" />}
         >
+            <PlusOutlined />
             New Insight
         </Dropdown.Button>
     )
