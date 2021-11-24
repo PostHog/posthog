@@ -6,7 +6,7 @@ import { InsightEmptyState } from '../insights/EmptyStates'
 import { Modal, Button } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { PersonType } from '~/types'
-import { RetentionTrendPayload, RetentionTrendPeoplePayload } from 'scenes/retention/types'
+import { RetentionTrendPeoplePayload } from 'scenes/retention/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface RetentionLineGraphProps {
