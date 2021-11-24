@@ -52,9 +52,10 @@ def create_session_recording_event(
     return str(uuid)
 
 
-def get_session_count_for_teams_and_period(
+def get_session_recording_count_for_teams_and_period(
     team_ids: List[Union[str, int]], begin: timezone.datetime, end: timezone.datetime,
 ) -> int:
+    # Returns session recording events (unique by session ID)
     return sync_execute(
         """
         SELECT uniq(session_id)

@@ -9,7 +9,7 @@ from django.db.models.manager import BaseManager
 from sentry_sdk import capture_exception
 
 from posthog.event_usage import report_org_usage, report_org_usage_failure
-from posthog.models import Event, FeatureFlag, OrganizationMembership, Team, User
+from posthog.models import Event, FeatureFlag, OrganizationMembership, SessionRecordingEvent, Team, User
 from posthog.tasks.status_report import get_instance_licenses
 from posthog.utils import get_instance_realm, get_previous_day, get_same_date_previous_month, is_clickhouse_enabled
 from posthog.version import VERSION
@@ -44,6 +44,7 @@ OrgUsageData = TypedDict(
         "event_count_in_period": Optional[int],
         "event_count_in_month": Optional[int],
         "event_count_in_month_vs_previous": Optional[int],
+        "session_recording_count_in_month": Optional[int],
     },
 )
 
@@ -61,6 +62,7 @@ OrgReport = TypedDict(
         "event_count_in_period": int,
         "event_count_in_month": int,
         "event_count_in_month_vs_previous": int,
+        "session_recording_count_in_month": int,
         "organization_id": str,
         "organization_name": str,
         "organization_created_at": str,
@@ -165,12 +167,14 @@ def get_org_usage(
         "event_count_in_period": None,
         "event_count_in_month": None,
         "event_count_in_month_vs_previous": None,
+        "session_recording_count_in_month": None,
     }
     usage = default_usage
     previous_month_start = get_same_date_previous_month(month_start)
     previous_period_end = get_same_date_previous_month(period_end)
     if data_source == "clickhouse":
         from ee.clickhouse.models.event import get_agg_event_count_for_teams, get_agg_event_count_for_teams_and_period
+        from ee.clickhouse.models.session_recording_event import get_session_recording_count_for_teams_and_period
 
         event_count_in_current_month = get_agg_event_count_for_teams_and_period(team_ids, month_start, period_end)
         event_count_in_previous_month = get_agg_event_count_for_teams_and_period(
@@ -181,6 +185,10 @@ def get_org_usage(
         usage["event_count_in_period"] = get_agg_event_count_for_teams_and_period(team_ids, period_start, period_end)
         usage["event_count_in_month"] = event_count_in_current_month
         usage["event_count_in_month_vs_previous"] = event_count_in_current_month - event_count_in_previous_month
+        usage["session_recording_count_in_month"] = get_session_recording_count_for_teams_and_period(
+            team_ids, month_start, period_end
+        )
+
     else:
         event_count_in_current_month = Event.objects.filter(
             team_id__in=team_ids, timestamp__gte=month_start, timestamp__lte=period_end,
@@ -195,6 +203,14 @@ def get_org_usage(
         ).count()
         usage["event_count_in_month"] = event_count_in_current_month
         usage["event_count_in_month_vs_previous"] = event_count_in_current_month - event_count_in_previous_month
+        usage["session_recording_count_in_month"] = (
+            SessionRecordingEvent.objects.filter(
+                team_id__in=team_ids, timestamp__gte=previous_month_start, timestamp__lte=previous_period_end,
+            )
+            .values("session_id")
+            .distinct()
+            .count()
+        )
 
     return usage
 
