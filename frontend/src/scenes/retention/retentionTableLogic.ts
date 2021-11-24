@@ -85,6 +85,27 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                     : []
             },
         ],
+        trendSeries: [
+            (s) => [s.insight, s.retentionReference],
+            ({ result }, retentionReference): RetentionTrendPayload[] => {
+                // If the retention reference option is specified as previous,
+                // then translate retention rates to relative to previous,
+                // otherwise, just use what the result was originally.
+                if (retentionReference !== 'previous') {
+                    return result
+                }
+
+                return (result as RetentionTrendPayload[]).map((series) => ({
+                    ...series,
+                    data: series.data
+                        // Zip together the current a previous values, filling
+                        // in with 100 for the first index
+                        .map((value, index) => [value, [100].concat(series.data)[index]])
+                        // map values to percentage of previous
+                        .map(([value, previous]) => (100 * value) / previous),
+                }))
+            },
+        ],
         resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
         actionsLookup: [
             (s) => [s.actions],
