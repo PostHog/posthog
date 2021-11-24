@@ -35,7 +35,7 @@ export function TableRow<T extends Record<string, any>>({
                                 type={isRowExpanded ? 'highlighted' : 'stealth'}
                                 onClick={() => setIsRowExpanded((state) => !state)}
                                 icon={isRowExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
-                                tooltip={isRowExpanded ? 'Shrink' : 'Expand'}
+                                title={isRowExpanded ? 'Show less' : 'Show more'}
                                 compact
                             />
                         )}
