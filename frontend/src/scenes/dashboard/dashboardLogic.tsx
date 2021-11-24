@@ -351,7 +351,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                             const { x, y, w, h } = layout || {}
                             const width = Math.min(w || defaultWidth, cols[col])
                             return {
-                                i: `${item.short_id}`,
+                                i: item.short_id,
                                 x: Number.isInteger(x) && x + width - 1 < cols[col] ? x : 0,
                                 y: Number.isInteger(y) ? y : Infinity,
                                 w: width,
