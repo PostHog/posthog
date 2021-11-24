@@ -47,17 +47,13 @@ export function PlayerMeta(): JSX.Element {
             </Row>
             <Row className="player-meta-other" align="middle" justify="start">
                 <Row className="player-meta-other-description">
-                    {loading ? (
-                        <Skeleton title={false} active paragraph={{ rows: 1 }} />
-                    ) : (
-                        <span className="">{description}</span>
-                    )}
+                    {loading ? <Skeleton title={false} active paragraph={{ rows: 1 }} /> : <span>{description}</span>}
                 </Row>
                 <Row className="player-meta-other-resolution mt-05">
                     {loading ? (
                         <Skeleton title={false} active paragraph={{ rows: 1, width: '100%' }} />
                     ) : (
-                        <span className="">
+                        <span>
                             {resolution ? (
                                 <>
                                     Resolution: {resolution.width} x {resolution.height} (
