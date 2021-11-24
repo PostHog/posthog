@@ -7,9 +7,11 @@ import { organizationLogic } from 'scenes/organizationLogic'
 export function CreateOrganizationModal({
     isVisible,
     onClose,
+    mask = true,
 }: {
     isVisible: boolean
     onClose?: () => void
+    mask?: boolean
 }): JSX.Element {
     const { createOrganization } = useActions(organizationLogic)
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -30,7 +32,6 @@ export function CreateOrganizationModal({
             title="Creating an organization"
             okText="Create organization"
             cancelButtonProps={onClose ? undefined : { style: { display: 'none' } }}
-            closable={!!onClose}
             onOk={() => {
                 const name = inputRef.current?.state.value?.trim()
                 if (name) {
@@ -47,6 +48,10 @@ export function CreateOrganizationModal({
             }}
             onCancel={closeModal}
             visible={isVisible}
+            mask={mask}
+            wrapProps={isVisible && !mask ? { style: { pointerEvents: 'none' } } : undefined}
+            closeIcon={null}
+            back
         >
             <p>
                 Organizations gather people building products together.

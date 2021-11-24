@@ -76,6 +76,7 @@ export function defaultAPIMocks(
             `api/projects/${MOCK_TEAM_ID}/event_definitions/`,
             `api/projects/${MOCK_TEAM_ID}/dashboards/`,
             `api/projects/${MOCK_TEAM_ID}/dashboards`,
+            `api/projects/${MOCK_TEAM_ID}/insights/`,
             `api/projects/${MOCK_TEAM_ID}/groups/`,
             'api/projects/@current/event_definitions/',
         ].includes(pathname)

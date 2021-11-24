@@ -616,6 +616,7 @@ describe('insightLogic', () => {
     test('save as new insight', async () => {
         const url = combineUrl('/insights/42', { insight: InsightType.FUNNELS }).url
         router.actions.push(url)
+        savedInsightsLogic.mount()
 
         logic = insightLogic({
             dashboardItemId: Insight42,
@@ -629,6 +630,7 @@ describe('insightLogic', () => {
             logic.actions.saveAsNamingSuccess('New Insight (copy)')
         })
             .toDispatchActions(['setInsight'])
+            .toDispatchActions(savedInsightsLogic, ['loadInsights'])
             .toMatchValues({
                 filters: partial({ insight: InsightType.FUNNELS }),
                 insight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),

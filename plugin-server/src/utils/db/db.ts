@@ -562,7 +562,9 @@ export class DB {
         RETURNING version`
 
         const updateResult: QueryResult = await this.postgresQuery(queryString, values, 'updatePerson', client)
-
+        if (updateResult.rows.length == 0) {
+            throw new Error(`Person with team_id="${person.team_id}" and uuid="${person.uuid} couldn't be updated`)
+        }
         const updatedPersonVersion: Person['version'] = Number(updateResult.rows[0].version)
         const updatedPerson: Person = { ...person, ...update, version: updatedPersonVersion }
 

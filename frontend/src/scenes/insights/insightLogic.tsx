@@ -591,6 +591,7 @@ export const insightLogic = kea<insightLogicType>({
             )
             toast(`You're now working on a copy of ${values.insight.name}`)
             actions.setInsight(insight, { fromPersistentApi: true })
+            savedInsightsLogic.findMounted()?.actions.loadInsights()
             if (values.syncWithUrl) {
                 router.actions.push(urls.insightEdit(insight.short_id))
             }

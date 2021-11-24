@@ -33,7 +33,7 @@ interface InsightsLabelProps {
     hasMultipleSeries?: boolean // Whether the graph has multiple discrete series (not breakdown values)
     showCountedByTag?: boolean // Force 'counted by' tag to show (always shown when action.math is set)
     allowWrap?: boolean // Allow wrapping to multiple lines (useful for long values like URLs)
-    useCustomName?: boolean // Whether to show new custom name (FF `6063-rename-filters`). `{custom_name} ({id})`.
+    useCustomName?: boolean // Whether to show new custom name. `{custom_name} ({id})`.
     hideSeriesSubtitle?: boolean // Whether to show the base event/action name (if a custom name is set) in the insight label
     onLabelClick?: () => void // Click handler for inner label
 }
