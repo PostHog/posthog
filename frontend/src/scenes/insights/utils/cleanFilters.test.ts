@@ -31,8 +31,6 @@ describe('cleanFilters', () => {
             { breakdown: '$browser', insight: InsightType.FUNNELS, funnel_viz_type: 'steps' }
         )
 
-        console.log(cleanedFilters)
-
         expect(cleanedFilters).not.toHaveProperty('breakdown')
 
         expect(cleanedFilters).toEqual(
