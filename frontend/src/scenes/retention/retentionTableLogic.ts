@@ -74,36 +74,41 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
             ({ filters }): Partial<FilterType> => (filters?.insight === InsightType.RETENTION ? filters ?? {} : {}),
         ],
         results: [
+            // Take the insight result, and cast it to `RetentionTablePayload[]`
             (s) => [s.insight],
-            ({ filters, result }): RetentionTablePayload[] | RetentionTrendPayload[] => {
-                return filters?.insight === InsightType.RETENTION &&
-                    result &&
-                    (result.length === 0 ||
-                        (!result[0].values && filters.display === ACTIONS_LINE_GRAPH_LINEAR) ||
-                        (result[0].values && filters.display === ACTIONS_TABLE))
-                    ? result
-                    : []
+            ({ filters, result }): RetentionTablePayload[] => {
+                return filters?.insight === InsightType.RETENTION && result
             },
         ],
         trendSeries: [
-            (s) => [s.insight, s.retentionReference],
-            ({ result }, retentionReference): RetentionTrendPayload[] => {
+            (s) => [s.results, s.filters, s.retentionReference],
+            (results, filters, retentionReference): RetentionTrendPayload[] => {
                 // If the retention reference option is specified as previous,
                 // then translate retention rates to relative to previous,
                 // otherwise, just use what the result was originally.
-                if (retentionReference !== 'previous') {
-                    return result
-                }
 
-                return (result as RetentionTrendPayload[]).map((series) => ({
-                    ...series,
-                    data: series.data
-                        // Zip together the current a previous values, filling
-                        // in with 100 for the first index
-                        .map((value, index) => [value, [100].concat(series.data)[index]])
-                        // map values to percentage of previous
-                        .map(([value, previous]) => (100 * value) / previous),
-                }))
+                return results.map((cohortRetention) => {
+                    const retentionPercentages = cohortRetention.values
+                        .map((value) => value.count / cohortRetention.values[0].count)
+                        // Make them display in the right scale
+                        .map((value) => 100 * value)
+                    const paddedValues = [100].concat(retentionPercentages)
+                    return {
+                        days: retentionPercentages.map((_, index) => `${filters.period} ${index}`),
+                        labels: retentionPercentages.map((_, index) => `Day ${index}`),
+                        count: 0,
+                        label: cohortRetention.label,
+                        data:
+                            retentionReference === 'previous'
+                                ? retentionPercentages
+                                      // Zip together the current a previous values, filling
+                                      // in with 100 for the first index
+                                      .map((value, index) => [value, paddedValues[index]])
+                                      // map values to percentage of previous
+                                      .map(([value, previous]) => (100 * value) / previous)
+                                : retentionPercentages,
+                    }
+                })
             },
         ],
         resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
