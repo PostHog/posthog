@@ -10,7 +10,7 @@ export function CreateProjectModal({
     onClose,
     title,
     caption,
-    mask,
+    mask = false,
 }: {
     isVisible: boolean
     onClose?: () => void
@@ -73,7 +73,8 @@ export function CreateProjectModal({
             onCancel={closeModal}
             visible={isVisible}
             mask={mask}
-            wrapProps={!mask ? { style: { pointerEvents: 'none' } } : undefined}
+            wrapProps={isVisible && !mask  ? { style: { pointerEvents: 'none' } } : undefined}
+            closeIcon={null}
         >
             Your organization access level is insufficient for creating a new project.
             <br />
@@ -90,7 +91,9 @@ export function CreateProjectModal({
             onOk={handleSubmit}
             onCancel={closeModal}
             visible={isVisible}
-            wrapProps={!mask ? { style: { pointerEvents: 'none' } } : undefined}
+            mask={mask}
+            wrapProps={isVisible && !mask ? { style: { pointerEvents: 'none' } } : undefined}
+            closeIcon={null}
         >
             {caption || defaultCaption}
             <div className="input-set">
