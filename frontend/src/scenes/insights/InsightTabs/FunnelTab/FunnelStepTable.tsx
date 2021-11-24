@@ -551,14 +551,6 @@ export function FunnelStepTable(): JSX.Element | null {
               columns,
           }
 
-    console.log({
-        place: 'FunnelStepsTable (vertical funnel)',
-        filters,
-        steps,
-        tableData,
-        flattenedStepsByBreakdown,
-    })
-
     return stepsWithCount.length > 1 ? (
         <Table
             {...tableData}
