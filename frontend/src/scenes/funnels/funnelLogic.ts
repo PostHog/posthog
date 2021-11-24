@@ -2,7 +2,7 @@ import { BreakPointFunction, kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { average, autoCaptureEventToDescription, successToast, sum } from 'lib/utils'
+import { average, autoCaptureEventToDescription, successToast, sum, fromParamsGivenUrl } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
 import {
@@ -32,6 +32,7 @@ import {
     EntityTypes,
     PropertyFilter,
     PropertyOperator,
+    FunnelCorrelationDetails,
 } from '~/types'
 import { FunnelLayout, BinCountAuto, FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -169,6 +170,8 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
 
         addNestedTableExpandedKey: (expandKey: string) => ({ expandKey }),
         removeNestedTableExpandedKey: (expandKey: string) => ({ expandKey }),
+
+        setFunnelCorrelationDetailsParams: (payload: FunnelCorrelationDetails) => ({ payload }),
     }),
 
     loaders: ({ values }) => ({
@@ -338,7 +341,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 return {}
             },
         },
-
         propertyNames: [
             [] as string[],
             {
@@ -348,7 +350,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 },
             },
         ],
-
         nestedTableExpandedKeys: [
             [] as string[],
             {
@@ -385,6 +386,12 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                     }
                     return current
                 },
+            },
+        ],
+        funnelCorrelationDetailsParams: [
+            null as null | FunnelCorrelationDetails,
+            {
+                setFunnelCorrelationDetailsParams: (_, { payload }) => payload,
             },
         ],
     }),
@@ -934,18 +941,26 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             },
         ],
         correlationDetails: [
-            (s) => [s.filters, s.correlationValues, s.propertyCorrelationValues, s.correlationsLoading],
-            (filters, eventcorrelationValues, propertyCorrelationValues, loading): FunnelCorrelation | null => {
-                if (!filters.funnel_correlation_details || loading) {
+            (s) => [
+                s.funnelCorrelationDetailsParams,
+                s.correlationValues,
+                s.propertyCorrelationValues,
+                s.correlationsLoading,
+            ],
+            (
+                correlationDetailsParams,
+                eventcorrelationValues,
+                propertyCorrelationValues,
+                loading
+            ): FunnelCorrelation | null => {
+                if (!correlationDetailsParams || loading) {
                     return null
                 }
                 const correlValues =
-                    filters.funnel_correlation_details.type === 'property'
-                        ? propertyCorrelationValues
-                        : eventcorrelationValues
+                    correlationDetailsParams.type === 'property' ? propertyCorrelationValues : eventcorrelationValues
 
                 for (const item of correlValues) {
-                    if (item.event.event === filters.funnel_correlation_details.key) {
+                    if (item.event.event === correlationDetailsParams.key) {
                         return item
                     }
                 }
@@ -1336,6 +1351,15 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 eventUsageLogic.actions.reportCorrelationViewed(values.filters, 0, true)
                 await breakpoint(10000)
                 eventUsageLogic.actions.reportCorrelationViewed(values.filters, 10, true)
+            }
+        },
+    }),
+    urlToAction: ({ actions }) => ({
+        '/insights': (_, __, { funnel_correlation_details }: { funnel_correlation_details?: string }) => {
+            if (funnel_correlation_details) {
+                actions.setFunnelCorrelationDetailsParams(
+                    fromParamsGivenUrl(funnel_correlation_details) as FunnelCorrelationDetails
+                )
             }
         },
     }),

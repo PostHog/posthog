@@ -17,6 +17,7 @@ import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySens
 import { LemonButton } from 'lib/components/LemonButton'
 import { Popup } from 'lib/components/Popup/Popup'
 import { CorrelationMatrix } from './CorrelationMatrix'
+import { router } from 'kea-router'
 
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -346,6 +347,7 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
     const { isEventPropertyExcluded, isEventExcluded } = useValues(logic)
     const components = record.event.event.split('::')
     const [popoverOpen, setPopoverOpen] = useState(false)
+    const { replace } = useActions(router)
 
     return (
         <Row style={{ justifyContent: 'flex-end' }}>
@@ -357,8 +359,12 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
                     <>
                         {record.result_type === FunnelCorrelationResultsType.Events && (
                             <LemonButton
-                                onClick={() =>
-                                    setFilters({ funnel_correlation_details: { key: components[0], type: 'event' } })
+                                onClick={
+                                    () =>
+                                        replace('/insights', undefined, {
+                                            funnel_correlation_details: { key: components[0], type: 'event' },
+                                        })
+                                    //setFilters({ funnel_correlation_details: { key: components[0], type: 'event' } })
                                 }
                                 fullWidth
                                 type="stealth"

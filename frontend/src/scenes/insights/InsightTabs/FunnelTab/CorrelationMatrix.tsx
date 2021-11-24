@@ -14,7 +14,8 @@ import { Link } from 'lib/components/Link'
 export function CorrelationMatrix(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
-    const { filters, correlationsLoading, correlationDetails, parseDisplayNameForCorrelation } = useValues(logic)
+    const { funnelCorrelationDetailsParams, correlationsLoading, correlationDetails, parseDisplayNameForCorrelation } =
+        useValues(logic)
     const { setFilters } = useActions(logic)
 
     let displayName = <></>
@@ -41,7 +42,7 @@ export function CorrelationMatrix(): JSX.Element {
     return (
         <Modal
             className="correlation-matrix"
-            visible={!!filters.funnel_correlation_details}
+            visible={!!funnelCorrelationDetailsParams}
             onCancel={dismiss}
             destroyOnClose
             footer={<Button onClick={dismiss}>Dismiss</Button>}
@@ -57,7 +58,7 @@ export function CorrelationMatrix(): JSX.Element {
                     <>
                         <p className="text-muted-alt mb">
                             The table below displays the correlation details for users{' '}
-                            {filters.funnel_correlation_details?.type === 'property'
+                            {funnelCorrelationDetailsParams?.type === 'property'
                                 ? 'who have property'
                                 : 'who performed event'}{' '}
                             <b>{displayName}</b>.
@@ -69,7 +70,7 @@ export function CorrelationMatrix(): JSX.Element {
                                 </tr>
                                 <tr>
                                     <td>
-                                        {filters.funnel_correlation_details?.type === 'property'
+                                        {funnelCorrelationDetailsParams?.type === 'property'
                                             ? 'Has property'
                                             : 'Performed event'}
                                     </td>
@@ -121,8 +122,8 @@ export function CorrelationMatrix(): JSX.Element {
                             </tbody>
                         </table>
                         <div className="mt text-center">
-                            {capitalizeFirstLetter(filters.funnel_correlation_details?.type || '')} <b>{displayName}</b>{' '}
-                            has a correlation score of{' '}
+                            {capitalizeFirstLetter(funnelCorrelationDetailsParams?.type || '')} <b>{displayName}</b> has
+                            a correlation score of{' '}
                             <b style={{ color: 'var(--success)' }}>
                                 <CheckCircleFilled /> 0.85
                             </b>

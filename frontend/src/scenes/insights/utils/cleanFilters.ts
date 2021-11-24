@@ -81,7 +81,6 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
                     : undefined,
             funnel_correlation_person_entity: filters.funnel_correlation_person_entity || undefined,
             funnel_correlation_person_converted: filters.funnel_correlation_person_converted || undefined,
-            funnel_correlation_details: filters.funnel_correlation_details || undefined,
             funnel_custom_steps: filters.funnel_custom_steps || undefined,
             ...(filters.aggregation_group_type_index != undefined
                 ? { aggregation_group_type_index: filters.aggregation_group_type_index }
