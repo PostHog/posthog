@@ -190,7 +190,7 @@ export const sceneLogic = kea<sceneLogicType>({
         },
         setScene: ({ scene, scrollToTop }, _, __, previousState) => {
             posthog.capture('$pageview')
-            setPageTitle(identifierToHuman(scene || ''))
+            setPageTitle(sceneConfigurations[scene]?.name || identifierToHuman(scene || ''))
 
             // if we clicked on a link, scroll to top
             const previousScene = selectors.scene(previousState)

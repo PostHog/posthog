@@ -519,10 +519,8 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                 <div className="funnel-step-title">
                                     {filters.funnel_order_type === StepOrderValue.UNORDERED ? (
                                         <span>Completed {humanizeOrder(step.order)} steps</span>
-                                    ) : featureFlags[FEATURE_FLAGS.RENAME_FILTERS] ? (
-                                        <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
                                     ) : (
-                                        <PropertyKeyInfo value={step.name} style={{ maxWidth: '100%' }} />
+                                        <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
                                     )}
                                 </div>
                                 {clickhouseFeaturesEnabled &&

@@ -99,8 +99,7 @@ export const renderGraphAndHeader = (
     headerElement: JSX.Element,
     showLabels: boolean,
     step?: FunnelStepWithConversionMetrics,
-    dashboardItemId?: number,
-    useCustomName?: boolean
+    dashboardItemId?: number
 ): JSX.Element | RenderedCell<FlattenedFunnelStepByBreakdown> => {
     const stepIndex = step?.order ?? 0
     if (rowIndex === 0 || rowIndex === 1) {
@@ -148,11 +147,7 @@ export const renderGraphAndHeader = (
                     children: (
                         <div className="funnel-step-title">
                             <span className="funnel-step-glyph">{zeroPad(humanizeOrder(stepIndex), 2)}</span>
-                            {useCustomName && step ? (
-                                <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
-                            ) : (
-                                <PropertyKeyInfo value={step?.name ?? ''} disableIcon className="funnel-step-name" />
-                            )}
+                            {step && <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />}
                             <FunnelStepDropdown index={stepIndex} />
                         </div>
                     ),

@@ -78,6 +78,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     /** What to describe the entries as, singular and plural. The default value is `['entry', 'entries']`. */
     nouns?: [string, string]
     'data-attr'?: string
+    /** Class name to append to each row */
+    rowClassName?: string
 }
 
 export function LemonTable<T extends Record<string, any>>({
@@ -85,6 +87,7 @@ export function LemonTable<T extends Record<string, any>>({
     columns,
     dataSource,
     rowKey,
+    rowClassName,
     onRow,
     loading,
     pagination,
@@ -261,6 +264,7 @@ export function LemonTable<T extends Record<string, any>>({
                                         key={`LemonTable-row-${rowKey ? data[rowKey] : currentStartIndex + rowIndex}`}
                                         data-row-key={rowKey ? data[rowKey] : rowIndex}
                                         {...onRow?.(data)}
+                                        className={rowClassName}
                                     >
                                         {columns.map((column, columnIndex) => {
                                             const columnKeyRaw = column.key || column.dataIndex
