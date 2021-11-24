@@ -207,18 +207,9 @@ def filter_persons(team_id: int, request: request.Request, queryset: QuerySet) -
         uuids = request.GET["uuid"].split(",")
         queryset = queryset.filter(uuid__in=uuids)
     if request.GET.get("search"):
-        parts = request.GET["search"].split(" ")
-        contains = []
-        for part in parts:
-            if ":" in part:
-                matcher, key = part.split(":")
-                if matcher == "has":
-                    # Matches for example has:email or has:name
-                    queryset = queryset.filter(properties__has_key=key)
-            else:
-                contains.append(part)
         queryset = queryset.filter(
-            Q(properties__icontains=" ".join(contains)) | Q(persondistinctid__distinct_id__icontains=" ".join(contains))
+            Q(properties__icontains=request.GET.get("search"))
+            | Q(persondistinctid__distinct_id__icontains=request.GET.get("search"))
         ).distinct("id")
     if request.GET.get("cohort"):
         queryset = queryset.filter(cohort__id=request.GET["cohort"])

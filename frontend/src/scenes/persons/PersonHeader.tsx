@@ -3,7 +3,6 @@ import React from 'react'
 import { IconPersonFilled } from 'lib/components/icons'
 import './PersonHeader.scss'
 import { Link } from 'lib/components/Link'
-import clsx from 'clsx'
 import { urls } from 'scenes/urls'
 
 export interface PersonHeaderProps {
@@ -26,11 +25,7 @@ export const asDisplay = (person: Partial<PersonType> | null | undefined): strin
         displayId = baseId.substr(baseId.length - 5).toUpperCase()
     }
 
-    if (person?.is_identified) {
-        display = customIdentifier ? customIdentifier : `Identified user ${displayId}`
-    } else {
-        display = `Unidentified ${customIdentifier || `user ${displayId}`}`
-    }
+    display = customIdentifier ? customIdentifier : `User ${displayId}`
 
     return display
 }
@@ -41,12 +36,7 @@ export const asLink = (person: Partial<PersonType> | null | undefined): string |
 export function PersonHeader(props: PersonHeaderProps): JSX.Element {
     return (
         <Link to={asLink(props.person)} data-attr="goto-person-email">
-            <div
-                className={clsx('person-header', {
-                    identified: props.person?.is_identified,
-                    anonymous: !props.person?.is_identified,
-                })}
-            >
+            <div className="person-header">
                 {props.withIcon && <IconPersonFilled style={{ marginRight: 8 }} />}
                 <span className="ph-no-capture text-ellipsis">{asDisplay(props.person)}</span>
             </div>

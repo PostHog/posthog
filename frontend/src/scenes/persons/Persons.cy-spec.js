@@ -23,7 +23,7 @@ describe('<Person /> ', () => {
             is_identified: 'true',
         })
 
-        cy.get('[data-attr="people-types-tab-anonymous"]').click({ force: true })
+        cy.get('[data-attr="people-types-tab"]').click({ force: true })
         cy.wait('@api_persons').map(helpers.getSearchParameters).should('include', {
             is_identified: 'false',
         })

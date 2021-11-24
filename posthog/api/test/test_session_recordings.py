@@ -104,7 +104,6 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             self.assertEqual(parse(first_session["end_time"]), (base_time + relativedelta(seconds=20)))
             self.assertEqual(first_session["recording_duration"], "0.0")
             self.assertEqual(first_session["viewed"], False)
-            self.assertEqual(first_session["person"]["is_identified"], False)
 
             self.assertEqual(second_session["id"], "1")
             self.assertEqual(second_session["distinct_id"], "user")
@@ -326,7 +325,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             self.create_snapshot("d1", "id_no_person", now() - relativedelta(days=1))
             response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/id_no_person")
             response_data = response.json()
-            self.assertEqual(response_data["result"]["person"], {"properties": None, "is_identified": False})
+            self.assertEqual(response_data["result"]["person"], {"properties": None})
 
         def test_session_recording_doesnt_exist(self):
             response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/non_existent_id")
