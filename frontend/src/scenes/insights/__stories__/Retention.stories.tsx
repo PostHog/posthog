@@ -14,12 +14,11 @@ export default {
 
 export const TrendsSmoothing = (): JSX.Element => {
     worker.use(
-        rest.get('/api/projects/:projectId/insights/retention/', (_, res, ctx) => {
-            return res(ctx.json(sampleRetentionResponse))
-        }),
-        rest.get('/api/person/retention', (_, res, ctx) => {
-            return res(ctx.json(sampleRetentionPeopleResponse))
-        })
+        rest.get('/api/projects/:projectId/insights/retention/', (_, res, ctx) =>
+            res(ctx.json(sampleRetentionResponse))
+        ),
+        rest.get('/api/person/retention', (_, res, ctx) => res(ctx.json(sampleRetentionPeopleResponse))),
+        rest.post('/api/projects/:projectId/cohorts/', (_, res, ctx) => res(ctx.json({ id: 1 })))
     )
 
     const history = createMemoryHistory({

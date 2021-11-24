@@ -34,7 +34,7 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
     const results = _results as RetentionTablePayload[]
     const people = _people as RetentionTablePeoplePayload
 
-    const { loadPeople, loadMorePeople } = useActions(logic)
+    const { loadPeople, loadMorePeople, handleSaveCohort } = useActions(logic)
     const [modalVisible, setModalVisible] = useState(false)
     const [selectedRow, selectRow] = useState(0)
     const [isLatestPeriod, setIsLatestPeriod] = useState(false)
@@ -114,7 +114,9 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
                     onCancel={dismissModal}
                     footer={
                         <>
-                            <Button icon={<UsergroupAddOutlined />}>Save as cohort</Button>
+                            <Button icon={<UsergroupAddOutlined />} onClick={handleSaveCohort}>
+                                Save as cohort
+                            </Button>
                             <Button onClick={dismissModal}>Close</Button>
                         </>
                     }

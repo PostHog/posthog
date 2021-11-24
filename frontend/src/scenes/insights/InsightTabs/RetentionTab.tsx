@@ -31,7 +31,7 @@ export function RetentionTab(): JSX.Element {
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
 
-    // TODO: Update constant in retentionTableLogic.ts when releasing 4050
+    // TODO: Update constant in retentionTableLogic.tsx when releasing 4050
     const retentionOptions = {
         [`${RETENTION_FIRST_TIME}`]: 'for the first time',
         [`${RETENTION_RECURRING}`]: 'recurringly',
