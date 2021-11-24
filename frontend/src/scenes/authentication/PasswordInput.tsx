@@ -87,7 +87,6 @@ export const PasswordInput = React.forwardRef(function PasswordInputInternal(
                 <Input.Password
                     ref={ref}
                     className="ph-ignore-input"
-                    type="password"
                     data-attr="password"
                     placeholder="••••••••••"
                     disabled={disabled}
