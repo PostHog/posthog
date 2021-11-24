@@ -199,36 +199,6 @@ describe('funnelLogic', () => {
         onLogic: (l) => (logic = l),
     })
 
-    describe('processing breakdown properties', () => {
-        it('can handle single property breakdown', async () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES], {
-                'FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES': false,
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.loadResultsSuccess({
-                    filters: {
-                        insight: InsightType.FUNNELS,
-                        breakdown: '$browser',
-                        breakdown_type: 'event',
-                    },
-                })
-            })
-                .toFinishListeners()
-                .toMatchValues({
-                    steps: [],
-                    flattenedBreakdowns: [],
-                    flattenedSteps: [],
-                    flattenedStepsByBreakdown: [],
-                    results: [],
-                    stepResults: [],
-                    stepsWithCount: [],
-                    stepsWithConversionMetrics: [],
-                    visibleStepsWithConversionMetrics: [],
-                })
-        })
-    })
-
     describe('core assumptions', () => {
         it('mounts all sorts of logics', async () => {
             await expectLogic(logic).toMount([
