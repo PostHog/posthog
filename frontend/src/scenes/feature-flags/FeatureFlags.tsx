@@ -52,16 +52,10 @@ export function FeatureFlags(): JSX.Element {
         createdByColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType>,
         createdAtColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType>,
         {
-            title: 'Release conditions',
+            title: 'Rollout',
             width: 200,
             render: function Render(_, featureFlag: FeatureFlagType) {
-                if (!featureFlag.filters?.groups) {
-                    return 'N/A'
-                }
-                if (featureFlag.filters.groups.length > 1) {
-                    return 'Multiple groups'
-                }
-                return GroupFilters({ group: featureFlag.filters.groups[0] })
+                return <GroupFilters groups={featureFlag.filters.groups} />
             },
         },
         {
@@ -177,14 +171,29 @@ export function FeatureFlags(): JSX.Element {
     )
 }
 
-function GroupFilters({ group }: { group: FeatureFlagGroupType }): JSX.Element | string {
-    if (group.properties && group.properties.length > 0 && group.rollout_percentage != null) {
-        return `${group.rollout_percentage}% of 1 group`
-    } else if (group.properties && group.properties.length > 0) {
-        return '1 group'
-    } else if (group.rollout_percentage !== null && group.rollout_percentage !== undefined) {
-        return `${group.rollout_percentage}% of all users`
-    } else {
-        return '100% of all users'
+function GroupFilters({ groups }: { groups: FeatureFlagGroupType[] }): JSX.Element {
+    if (groups.length === 0) {
+        return <>No groups</>
     }
+    const omniGroup = groups.find(
+        (group) => !group.properties?.length && [null, undefined, 100].includes(group.rollout_percentage)
+    )
+    if (omniGroup) {
+        return <>All users</>
+    }
+    if (groups.length === 1) {
+        const { properties, rollout_percentage = null } = groups[0]
+        if (rollout_percentage !== null && rollout_percentage !== 100) {
+            return (
+                <>
+                    {rollout_percentage}% of {properties?.length ? '1 group with filters' : 'all users'}
+                </>
+            )
+        } else if (properties?.length) {
+            return <>1 group with filters</>
+        } else {
+            return <>?</> // This case should be covered by omniGroup already - it means full rollout
+        }
+    }
+    return <>{groups.length} groups</>
 }
