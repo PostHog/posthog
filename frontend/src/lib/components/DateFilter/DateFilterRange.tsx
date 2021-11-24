@@ -5,7 +5,7 @@ import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
 import generatePicker from 'antd/lib/date-picker/generatePicker'
 import { dayjs } from 'lib/dayjs'
 
-const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
+const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig as any)
 
 export function DateFilterRange(props: {
     onClickOutside: () => void

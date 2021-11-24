@@ -8,7 +8,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { dayjs } from 'lib/dayjs'
 
-const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
+const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig as any)
 
 export function RetentionDatePicker(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
