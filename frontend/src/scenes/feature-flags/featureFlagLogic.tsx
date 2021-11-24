@@ -9,6 +9,7 @@ import { deleteWithUndo } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { teamLogic } from '../teamLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { groupsModel } from '~/models/groupsModel'
 
 const NEW_FLAG: FeatureFlagType = {
     id: null,
@@ -40,12 +41,13 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
 export const featureFlagLogic = kea<featureFlagLogicType>({
     path: ['scenes', 'feature-flags', 'featureFlagLogic'],
     connect: {
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes']],
     },
     actions: {
         setFeatureFlagId: (id: number | 'new') => ({ id }),
         setFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
         addConditionSet: true,
+        setAggregationGroupTypeIndex: (value: number | null) => ({ value }),
         removeConditionSet: (index: number) => ({ index }),
         duplicateConditionSet: (index: number) => ({ index }),
         updateConditionSet: (
@@ -208,6 +210,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                         },
                     }
                 },
+                setAggregationGroupTypeIndex: (state, { value }) => {
+                    if (!state) {
+                        return state
+                    }
+
+                    return {
+                        ...state,
+                        filters: {
+                            ...state.filters,
+                            aggregation_group_type_index: value,
+                        },
+                    }
+                },
             },
         ],
     },
@@ -280,6 +295,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
             (variants, variantRolloutSum) =>
                 variants.every(({ rollout_percentage }) => rollout_percentage >= 0 && rollout_percentage <= 100) &&
                 variantRolloutSum === 100,
+        ],
+        aggregationTargetName: [
+            (s) => [s.featureFlag, s.groupTypes],
+            (featureFlag, groupTypes): string => {
+                if (
+                    featureFlag &&
+                    featureFlag.filters.aggregation_group_type_index != undefined &&
+                    groupTypes.length > 0
+                ) {
+                    const groupType = groupTypes[featureFlag.filters.aggregation_group_type_index]
+                    return `${groupType.group_type}(s)`
+                }
+                return 'users'
+            },
         ],
     },
     actionToUrl: () => ({

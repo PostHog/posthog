@@ -13,9 +13,10 @@ import {
     InputNumber,
     Popconfirm,
     Tag,
+    Select,
 } from 'antd'
 import { useActions, useValues } from 'kea'
-import { SceneLoading } from 'lib/utils'
+import { capitalizeFirstLetter, SceneLoading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import {
     DeleteOutlined,
@@ -36,6 +37,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { APISnippet, JSSnippet, PythonSnippet, UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { LemonSpacer } from 'lib/components/LemonRow'
+import { groupsModel } from '~/models/groupsModel'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -59,6 +61,8 @@ export function FeatureFlag(): JSX.Element {
         nonEmptyVariants,
         areVariantRolloutsValid,
         variantRolloutSum,
+        groupTypes,
+        aggregationTargetName,
     } = useValues(featureFlagLogic)
     const {
         addConditionSet,
@@ -73,15 +77,15 @@ export function FeatureFlag(): JSX.Element {
         removeVariant,
         distributeVariantsEqually,
         setFeatureFlag,
+        setAggregationGroupTypeIndex,
     } = useActions(featureFlagLogic)
     const { featureFlags: enabledFeatureFlags } = useValues(featureFlagClientLogic)
+    const { showGroupsOptions } = useValues(groupsModel)
 
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
     // whether to warn the user that their variants will be lost
     const [showVariantDiscardWarning, setShowVariantDiscardWarning] = useState(false)
-
-    const aggregationTargetName = 'users'
 
     useEffect(() => {
         form.setFieldsValue({ ...featureFlag })
@@ -463,10 +467,45 @@ export function FeatureFlag(): JSX.Element {
                         </div>
                     )}
 
-                    <h3 className="l3">Release conditions</h3>
-                    <div className="text-muted mb">
-                        Specify the {aggregationTargetName} to which you want to release this flag. Note that condition
-                        sets are rolled out independently of each other.
+                    <div className="feature-flag-form-row">
+                        <div>
+                            <h3 className="l3">Release conditions</h3>
+                            <div className="text-muted mb">
+                                Specify the {aggregationTargetName} to which you want to release this flag. Note that
+                                condition sets are rolled out independently of each other.
+                            </div>
+                        </div>
+                        {showGroupsOptions && (
+                            <div className="centered">
+                                Entity
+                                <Select
+                                    value={
+                                        featureFlag.filters.aggregation_group_type_index != null
+                                            ? featureFlag.filters.aggregation_group_type_index
+                                            : -1
+                                    }
+                                    onChange={(value) => {
+                                        const groupTypeIndex = value !== -1 ? value : null
+                                        setAggregationGroupTypeIndex(groupTypeIndex)
+                                    }}
+                                    style={{ marginLeft: 8 }}
+                                    data-attr="feature-flag-aggregation-filter"
+                                    dropdownMatchSelectWidth={false}
+                                >
+                                    <Select.Option key={-1} value={-1}>
+                                        Users
+                                    </Select.Option>
+                                    {groupTypes.map((groupType) => (
+                                        <Select.Option
+                                            key={groupType.group_type_index}
+                                            value={groupType.group_type_index}
+                                        >
+                                            {capitalizeFirstLetter(groupType.group_type)}(s)
+                                        </Select.Option>
+                                    ))}
+                                </Select>
+                            </div>
+                        )}
                     </div>
                     <Row gutter={16}>
                         {featureFlag.filters.groups.map((group, index) => (
