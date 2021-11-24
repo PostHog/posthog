@@ -5,7 +5,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { retentionTableLogicType } from './retentionTableLogicType'
 import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE, RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import { actionsModel } from '~/models/actionsModel'
-import { ActionType, InsightLogicProps, FilterType, InsightType, CohortType, PersonType } from '~/types'
+import { ActionType, InsightLogicProps, FilterType, InsightType, CohortType } from '~/types'
 import {
     RetentionTablePayload,
     RetentionTrendPayload,
