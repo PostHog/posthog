@@ -4,7 +4,7 @@ import { Link } from 'lib/components/Link'
 import React, { useState } from 'react'
 import { sceneConfigurations } from 'scenes/scenes'
 import { PushpinOutlined } from '@ant-design/icons'
-import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
+import { ProjectSwitcherOverlay } from '~/layout/Navigation/ProjectSwitcher'
 import {
     IconArrowDropDown,
     IconBarChart,
