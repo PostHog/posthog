@@ -460,19 +460,10 @@ export function FeatureFlag(): JSX.Element {
                         Specify the {aggregationTargetName} to which you want to release this flag. Note that condition
                         sets are rolled out independently of each other.
                     </div>
-                    <Button
-                        type="dashed"
-                        block
-                        icon={<PlusOutlined />}
-                        onClick={addMatchGroup}
-                        style={{ marginBottom: 16 }}
-                    >
-                        Add Group
-                    </Button>
                     <Row gutter={16}>
                         {featureFlag.filters.groups.map((group, index) => (
                             <Col span={24} md={24} key={`${index}-${featureFlag.filters.groups.length}`}>
-                                <Card style={{ position: 'relative', marginBottom: 32, paddingBottom: 16 }}>
+                                <Card style={{ marginBottom: 16 }}>
                                     {featureFlag.filters.groups.length > 1 && (
                                         <>
                                             <span style={{ position: 'absolute', top: 0, right: 0, margin: 4 }}>
@@ -485,24 +476,14 @@ export function FeatureFlag(): JSX.Element {
                                                     />
                                                 </Tooltip>
                                             </span>
-
-                                            <div className="mb">
-                                                <b>
-                                                    Group
-                                                    <span
-                                                        className="simple-tag tag-light-lilac"
-                                                        style={{ marginLeft: 8 }}
-                                                    >
-                                                        {index + 1}
-                                                    </span>
-                                                </b>
-                                            </div>
                                         </>
                                     )}
 
                                     <div className="flag-form-row">
                                         <div>
-                                            <Tag color="blue">Set 1</Tag>
+                                            <span className="simple-tag tag-light-blue" style={{ marginRight: 8 }}>
+                                                Set {index + 1}
+                                            </span>
                                             {group.properties?.length ? (
                                                 <>
                                                     Matching <b>{aggregationTargetName}</b> with filters
@@ -563,6 +544,11 @@ export function FeatureFlag(): JSX.Element {
                             </Col>
                         ))}
                     </Row>
+                    <Card size="small">
+                        <Button type="link" onClick={addMatchGroup} style={{ marginLeft: 5 }}>
+                            <PlusOutlined style={{ marginRight: 15 }} /> Add condition set
+                        </Button>
+                    </Card>
                     <Form.Item className="text-right">
                         <Button
                             icon={<SaveOutlined />}
