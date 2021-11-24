@@ -32,6 +32,7 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
             date_to: filters.date_to,
             period: filters.period || 'Week',
             retention_type: filters.retention_type || (filters as any)['retentionType'] || RETENTION_FIRST_TIME,
+            retention_reference: filters.retention_reference,
             display: insightChanged ? ChartDisplayType.ActionsTable : filters.display || ChartDisplayType.ActionsTable,
             properties: filters.properties || [],
             ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
