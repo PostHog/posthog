@@ -13,6 +13,8 @@ import { PersonsSearch } from './PersonsSearch'
 import { IconExternalLink } from 'lib/components/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { PersonPageHeader } from './PersonPageHeader'
+import { PropertyFilters } from 'lib/components/PropertyFilters'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export const scene: SceneExport = {
     component: Persons,
@@ -36,59 +38,19 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
                 <Row style={{ gap: '0.75rem' }} className="mb">
                     <div style={{ flexGrow: 1, maxWidth: 600 }}>
                         <PersonsSearch autoFocus={!cohort} />
-                        <div className="text-muted text-small">
-                            You can also filter persons that have a certain property set (e.g. <code>has:email</code> or{' '}
-                            <code>has:name</code>)
-                        </div>
-                    </div>
-                    <div>
-                        <Radio.Group
-                            buttonStyle="solid"
-                            onChange={(e) => {
-                                const key = e.target.value
-                                setListFilters({ is_identified: key === 'all' ? undefined : key })
-                                loadPersons()
-                            }}
-                            value={
-                                listFilters.is_identified !== undefined ? listFilters.is_identified.toString() : 'all'
-                            }
-                        >
-                            <Radio.Button data-attr="people-types-tab-all" value="all">
-                                All persons
-                            </Radio.Button>
-                            <Radio.Button data-attr="people-types-tab-identified" value="true">
-                                Identified
-                            </Radio.Button>
-                            <Radio.Button data-attr="people-types-tab-anonymous" value="false">
-                                Unidentified
-                            </Radio.Button>
-                        </Radio.Group>
                     </div>
                 </Row>
-                {listFilters.is_identified === 'false' && (
-                    <div className="mb">
-                        {/* TODO: Product suggestion: We'll want to turn these off for advanced users  */}
-                        <Alert
-                            type="info"
-                            closable
-                            message={
-                                <>
-                                    Unidentified persons are usually anonymous visitors to your app or website that have
-                                    not been identified to you. To mark a person as identified, call{' '}
-                                    <code>posthog.identify</code> on your frontend.{' '}
-                                    <a
-                                        href="https://posthog.com/docs/integrations/js-integration?utm_medium=in-product&utm_campaign=persons-unidentified#identifying-users"
-                                        target="_blank"
-                                        style={{ display: 'inline-flex', alignItems: 'center' }}
-                                    >
-                                        <IconExternalLink /> Learn more
-                                    </a>
-                                </>
-                            }
-                            showIcon
-                        />
-                    </div>
-                )}
+                <PropertyFilters
+                    pageKey={`persons-list-page`}
+                    propertyFilters={listFilters.properties}
+                    onChange={(properties) => {
+                        setListFilters({ properties })
+                        loadPersons()
+                    }}
+                    endpoint="person"
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
+                    showConditionBadge
+                />
                 <div className="mb text-right">
                     {cohort ? (
                         <LinkButton
@@ -108,12 +70,6 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
                     >
                         Export
                     </Button>
-                    {/* TODO: Hidden until new cohorts UX is defined */}
-                    <Link to="/cohorts/new" style={{ display: 'none' }} className="ml">
-                        <Button type="default" icon={<PlusOutlined />}>
-                            New Cohort
-                        </Button>
-                    </Link>
                 </div>
 
                 <div>
