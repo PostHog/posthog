@@ -404,13 +404,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 funnel_window_interval_unit: funnel_window_interval_unit || FunnelConversionWindowTimeUnit.Day,
             }),
         ],
-        stepResults: [
-            (s) => [s.results, s.filters],
-            (results, filters) =>
-                filters.funnel_viz_type !== FunnelVizType.TimeToConvert
-                    ? (results as FunnelStep[] | FunnelStep[][])
-                    : [],
-        ],
         timeConversionResults: [
             (s) => [s.results, s.filters],
             (results, filters): FunnelsTimeConversionBins | null => {
@@ -565,26 +558,28 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         eventCount: [() => [selectors.apiParams], (apiParams) => apiParams.events?.length || 0],
         actionCount: [() => [selectors.apiParams], (apiParams) => apiParams.actions?.length || 0],
         interval: [() => [selectors.apiParams], (apiParams) => apiParams.interval || ''],
-        stepsWithNestedBreakdown: [
-            () => [selectors.stepResults, selectors.apiParams],
-            (results, params) => {
-                if (isBreakdownFunnelResults(results) && isValidBreakdownParameter(params.breakdown)) {
-                    return aggregateBreakdownResult(results, params.breakdown ?? undefined).sort(
+        steps: [
+            (s) => [s.filters, s.results, s.apiParams],
+            (filters: Partial<FilterType>, results: FunnelAPIResponse, apiParams): FunnelStepWithNestedBreakdown[] => {
+                // there are three funnel viz types. only two are allowed to use this step
+                const stepResults =
+                    filters.funnel_viz_type !== FunnelVizType.TimeToConvert
+                        ? (results as FunnelStep[] | FunnelStep[][])
+                        : []
+
+                let stepsWithNestedBreakdown: FunnelStepWithNestedBreakdown[] = []
+                if (isBreakdownFunnelResults(results) && isValidBreakdownParameter(apiParams.breakdown)) {
+                    stepsWithNestedBreakdown = aggregateBreakdownResult(results, apiParams.breakdown ?? undefined).sort(
                         (a, b) => a.order - b.order
                     )
                 }
-                return []
-            },
-        ],
-        steps: [
-            () => [selectors.stepResults, selectors.stepsWithNestedBreakdown, selectors.filters],
-            (results, stepsWithNestedBreakdown, filters): FunnelStepWithNestedBreakdown[] => {
-                if (!Array.isArray(results)) {
+
+                if (!Array.isArray(stepResults)) {
                     return []
                 }
                 return !!filters.breakdown
                     ? stepsWithNestedBreakdown
-                    : ([...results] as FunnelStep[]).sort((a, b) => a.order - b.order)
+                    : ([...stepResults] as FunnelStep[]).sort((a, b) => a.order - b.order)
             },
         ],
         stepsWithCount: [() => [selectors.steps], (steps) => steps.filter((step) => typeof step.count === 'number')],
