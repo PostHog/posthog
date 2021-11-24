@@ -17,7 +17,14 @@ import {
 import { useActions, useValues } from 'kea'
 import { SceneLoading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { DeleteOutlined, SaveOutlined, PlusOutlined, ApiFilled, MergeCellsOutlined } from '@ant-design/icons'
+import {
+    DeleteOutlined,
+    CopyOutlined,
+    SaveOutlined,
+    PlusOutlined,
+    ApiFilled,
+    MergeCellsOutlined,
+} from '@ant-design/icons'
 import { featureFlagLogic } from './featureFlagLogic'
 import { featureFlagLogic as featureFlagClientLogic } from 'lib/logic/featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -56,7 +63,8 @@ export function FeatureFlag(): JSX.Element {
     const {
         addMatchGroup,
         updateMatchGroup,
-        removeMatchGroup,
+        removeConditionSet,
+        duplicateConditionSet,
         saveFeatureFlag,
         deleteFeatureFlag,
         setMultivariateEnabled,
@@ -480,13 +488,21 @@ export function FeatureFlag(): JSX.Element {
                                             )}
                                         </div>
                                         <div>
+                                            <Tooltip title="Duplicate this condition set" placement="bottomLeft">
+                                                <Button
+                                                    type="link"
+                                                    icon={<CopyOutlined />}
+                                                    style={{ width: 24, height: 24 }}
+                                                    onClick={() => duplicateConditionSet(index)}
+                                                />
+                                            </Tooltip>
                                             {featureFlag.filters.groups.length > 1 && (
                                                 <Tooltip title="Delete this condition set" placement="bottomLeft">
                                                     <Button
                                                         type="link"
                                                         icon={<DeleteOutlined />}
                                                         style={{ width: 24, height: 24 }}
-                                                        onClick={() => removeMatchGroup(index)}
+                                                        onClick={() => removeConditionSet(index)}
                                                     />
                                                 </Tooltip>
                                             )}

@@ -46,7 +46,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         setFeatureFlagId: (id: number | 'new') => ({ id }),
         setFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
         addMatchGroup: true,
-        removeMatchGroup: (index: number) => ({ index }),
+        removeConditionSet: (index: number) => ({ index }),
+        duplicateConditionSet: (index: number) => ({ index }),
         updateMatchGroup: (
             index: number,
             newRolloutPercentage?: number | null,
@@ -98,12 +99,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
 
                     return { ...state, filters: { ...state.filters, groups } }
                 },
-                removeMatchGroup: (state, { index }) => {
+                removeConditionSet: (state, { index }) => {
                     if (!state) {
                         return state
                     }
                     const groups = [...state.filters.groups]
                     groups.splice(index, 1)
+                    return { ...state, filters: { ...state.filters, groups } }
+                },
+                duplicateConditionSet: (state, { index }) => {
+                    if (!state) {
+                        return state
+                    }
+                    const groups = state.filters.groups.concat([state.filters.groups[index]])
                     return { ...state, filters: { ...state.filters, groups } }
                 },
                 setMultivariateOptions: (state, { multivariateOptions }) => {
