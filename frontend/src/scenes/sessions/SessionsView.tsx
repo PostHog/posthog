@@ -33,7 +33,7 @@ import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 
-const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig as any)
+const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
 interface SessionsTableProps {
     personIds?: string[]

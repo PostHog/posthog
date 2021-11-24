@@ -19,7 +19,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 
-const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig as any)
+const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
 const { TextArea } = Input
 
