@@ -472,7 +472,7 @@ export function FeatureFlag(): JSX.Element {
                         {featureFlag.filters.groups.map((group, index) => (
                             <Col span={24} md={24} key={`${index}-${featureFlag.filters.groups.length}`}>
                                 <Card style={{ marginBottom: 16 }}>
-                                    <div className="flag-form-row" style={{ height: 24 }}>
+                                    <div className="feature-flag-form-row" style={{ height: 24 }}>
                                         <div>
                                             <span className="simple-tag tag-light-blue" style={{ marginRight: 8 }}>
                                                 Set {index + 1}
@@ -524,11 +524,11 @@ export function FeatureFlag(): JSX.Element {
                                     />
                                     <LemonSpacer large />
 
-                                    <div className="flag-form-row">
-                                        <div>
+                                    <div className="feature-flag-form-row">
+                                        <div className="centered">
                                             Roll out to{' '}
                                             <InputNumber
-                                                style={{ width: 70 }}
+                                                style={{ width: 100, marginLeft: 8, marginRight: 8 }}
                                                 onChange={(value): void => {
                                                     updateMatchGroup(index, value as number)
                                                 }}
@@ -537,6 +537,7 @@ export function FeatureFlag(): JSX.Element {
                                                 }
                                                 min={0}
                                                 max={100}
+                                                addonAfter="%"
                                             />{' '}
                                             of <b>{aggregationTargetName}</b> in this set
                                         </div>
