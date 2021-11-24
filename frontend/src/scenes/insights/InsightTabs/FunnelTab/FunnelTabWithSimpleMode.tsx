@@ -39,7 +39,6 @@ export function FunnelTabWithSimpleMode(): JSX.Element {
         aggregationTargetLabel,
         filterSteps,
         advancedOptionsUsedCount,
-        advancedMode,
     } = useValues(funnelLogic(insightProps))
     const { clearFunnel, setFilters, toggleAdvancedMode, setStepReference } = useActions(funnelLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
@@ -195,17 +194,19 @@ export function FunnelTabWithSimpleMode(): JSX.Element {
                         <div className="flex-center cursor-pointer" onClick={toggleAdvancedMode}>
                             <h4 className="secondary" style={{ flexGrow: 1 }}>
                                 Advanced options{' '}
-                                {!advancedMode && !!advancedOptionsUsedCount && (
+                                {!filters.funnel_advanced && !!advancedOptionsUsedCount && (
                                     <Tag className="lemonade-tag">{advancedOptionsUsedCount}</Tag>
                                 )}
                             </h4>
                             <div>
-                                <div className={clsx('advanced-options-dropdown', advancedMode && 'expanded')}>
+                                <div
+                                    className={clsx('advanced-options-dropdown', filters.funnel_advanced && 'expanded')}
+                                >
                                     <IconArrowDropDown />
                                 </div>
                             </div>
                         </div>
-                        {advancedMode ? (
+                        {filters.funnel_advanced ? (
                             <div className="funnel-advanced-options">
                                 <div className="mb-05">
                                     Step order

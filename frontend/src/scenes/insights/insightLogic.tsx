@@ -432,8 +432,16 @@ export const insightLogic = kea<insightLogicType>({
             const insightChanged = values.loadedFilters?.insight && filters.insight !== values.loadedFilters?.insight
 
             const backendFilterChanged = !objectsEqual(
-                Object.assign({}, values.filters, { layout: undefined, hiddenLegendKeys: undefined }),
-                Object.assign({}, values.loadedFilters, { layout: undefined, hiddenLegendKeys: undefined })
+                Object.assign({}, values.filters, {
+                    layout: undefined,
+                    hiddenLegendKeys: undefined,
+                    funnel_advanced: undefined,
+                }),
+                Object.assign({}, values.loadedFilters, {
+                    layout: undefined,
+                    hiddenLegendKeys: undefined,
+                    funnel_advanced: undefined,
+                })
             )
 
             // Auto-reload when setting filters
