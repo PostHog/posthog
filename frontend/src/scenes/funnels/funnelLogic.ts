@@ -601,7 +601,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 if (!Array.isArray(results)) {
                     return []
                 }
-                return !!filters.breakdown || !!filters.breakdowns
+                return !!filters.breakdown
                     ? stepsWithNestedBreakdown
                     : ([...results] as FunnelStep[]).sort((a, b) => a.order - b.order)
             },
@@ -781,12 +781,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                         layout === FunnelLayout.vertical &&
                         (!baseStep.breakdown || (baseStep.nested_breakdown?.length ?? 0) > 1)
                     // Baseline - total step to step metrics, only add if more than 1 breakdown or not breakdown
-                    console.log({
-                        place: 'flattenedStepsByBreakdown',
-                        baseStep,
-                        hasBaseline,
-                        nested: baseStep.nested_breakdown,
-                    })
                     if (hasBaseline) {
                         flattenedStepsByBreakdown.push({
                             rowKey: 'baseline',

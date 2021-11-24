@@ -20,7 +20,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 jest.mock('lib/api')
 jest.mock('posthog-js')
