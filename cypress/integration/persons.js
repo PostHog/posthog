@@ -15,6 +15,6 @@ describe('Persons', () => {
         cy.get('.person-header.identified > .ph-no-capture').should('contain', '@')
         cy.get('.ant-radio-group > :nth-child(3)').click()
         cy.wait(200)
-        cy.get('.ant-empty-img-simple').should('exist') // No results placeholder
+        cy.get('.person-header').should('not.exist') // No results placeholder
     })
 })
