@@ -401,6 +401,7 @@ def get_or_create_dashboard(team_id: int, definition: Dict) -> Dashboard:
             filters=definition["filters"],
             description=description,
             team_id=team_id,
+            is_shared=True,
             share_token=secrets.token_urlsafe(22),
         )
 

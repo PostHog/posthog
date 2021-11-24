@@ -6,6 +6,7 @@ import { posthog } from './posthog'
 class PluginDurationStats {
     total: number
     onEvent: number
+    onAction: number
     processEvent: number
     onSnapshot: number
     pluginTask: number
@@ -13,6 +14,7 @@ class PluginDurationStats {
     constructor() {
         this.total = 0
         this.onEvent = 0
+        this.onAction = 0
         this.processEvent = 0
         this.onSnapshot = 0
         this.pluginTask = 0

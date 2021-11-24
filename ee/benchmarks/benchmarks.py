@@ -7,9 +7,11 @@ from typing import List, Tuple
 
 from ee.clickhouse.materialized_columns import backfill_materialized_columns, get_materialized_columns, materialize
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
-from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
+from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
+from ee.clickhouse.queries.session_recordings.clickhouse_session_recording_list import ClickhouseSessionRecordingList
 from posthog.models import Action, ActionStep, Cohort, Team, Organization
+from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.filter import Filter
 from posthog.models.property import PropertyName, TableWithProperties
@@ -25,6 +27,7 @@ MATERIALIZED_PROPERTIES: List[Tuple[TableWithProperties, PropertyName]] = [
 
 DATE_RANGE = {"date_from": "2021-01-01", "date_to": "2021-10-01", "interval": "week"}
 SHORT_DATE_RANGE = {"date_from": "2021-07-01", "date_to": "2021-10-01", "interval": "week"}
+SESSIONS_DATE_RANGE = {"date_from": "2021-11-17", "date_to": "2021-11-22"}
 
 
 class QuerySuite:
@@ -315,6 +318,35 @@ class QuerySuite:
         )
 
         ClickhouseStickiness().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_session_recordings_list(self):
+        filter = SessionRecordingsFilter(data=SESSIONS_DATE_RANGE, team=self.team,)
+
+        ClickhouseSessionRecordingList(filter, self.team.pk).run()
+
+    @benchmark_clickhouse
+    def track_session_recordings_list_event_filter(self):
+        filter = SessionRecordingsFilter(data={"events": [{"id": "$pageview"}], **SESSIONS_DATE_RANGE}, team=self.team,)
+
+        ClickhouseSessionRecordingList(filter, self.team.pk).run()
+
+    @benchmark_clickhouse
+    def track_session_recordings_list_person_property_filter(self):
+        filter = SessionRecordingsFilter(
+            data={
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                    }
+                ],
+                **SESSIONS_DATE_RANGE,
+            },
+            team=self.team,
+        )
+
+        ClickhouseSessionRecordingList(filter, self.team.pk).run()
 
     def setup(self):
         for table, property in MATERIALIZED_PROPERTIES:

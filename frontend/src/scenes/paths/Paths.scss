@@ -1,5 +1,10 @@
 @import '~/vars';
 
+.paths-container {
+    position: relative;
+    overflow: auto hidden;
+}
+
 .paths {
     .ant-btn {
         border-radius: 4px;

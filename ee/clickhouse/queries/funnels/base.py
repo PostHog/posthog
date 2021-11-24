@@ -1,3 +1,4 @@
+import json
 import urllib.parse
 from abc import ABC
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
@@ -7,7 +8,12 @@ from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
+from ee.clickhouse.models.property import (
+    box_value,
+    get_property_string_expr,
+    get_single_or_multi_property_string_expr,
+    parse_prop_clauses,
+)
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.breakdown_props import format_breakdown_cohort_join_query, get_breakdown_prop_values
 from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
@@ -82,6 +88,24 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if self._filter.breakdown and not self._filter.breakdown_type:
             data.update({"breakdown_type": "event"})
 
+        # the API accepts either:
+        #   a string (single breakdown) in parameter "breakdown"
+        #   a list of numbers (one or more cohorts) in parameter "breakdown"
+        #   a list of strings (multiple breakdown) in parameter "breakdowns"
+        # if the breakdown is a string, box it as a list to reduce paths through the code
+        #
+        # The code below ensures that breakdown is always an array
+        # without it affecting the multiple areas of the code outside of funnels that use breakdown
+        #
+        # Once multi property breakdown is implemented in Trends this becomes unnecessary
+
+        if isinstance(self._filter.breakdowns, List) and self._filter.breakdown_type in ["person", "event", None]:
+            data.update({"breakdown": [b.property for b in self._filter.breakdowns]})
+
+        if isinstance(self._filter.breakdown, str) and self._filter.breakdown_type in ["person", "event", None]:
+            boxed_breakdown: List[Union[str, int]] = box_value(self._filter.breakdown)
+            data.update({"breakdown": boxed_breakdown})
+
         for exclusion in self._filter.exclusions:
             if exclusion.funnel_from_step is None or exclusion.funnel_to_step is None:
                 raise ValidationError("Exclusion event needs to define funnel steps")
@@ -132,13 +156,14 @@ class ClickhouseFunnelBase(ABC, Funnel):
             dropped_people_filter = self._filter.with_data({"funnel_step": -funnel_step})
 
             if with_breakdown:
-                serialized_result.update({"breakdown": results[-1], "breakdown_value": results[-1]})
+                breakdown = results[-1]
+                serialized_result.update({"breakdown": breakdown, "breakdown_value": breakdown})
                 # important to not try and modify this value any how - as these
                 # are keys for fetching persons
 
                 # Add in the breakdown to people urls as well
-                converted_people_filter = converted_people_filter.with_data({"funnel_step_breakdown": results[-1]})
-                dropped_people_filter = dropped_people_filter.with_data({"funnel_step_breakdown": results[-1]})
+                converted_people_filter = converted_people_filter.with_data({"funnel_step_breakdown": breakdown})
+                dropped_people_filter = dropped_people_filter.with_data({"funnel_step_breakdown": breakdown})
 
             serialized_result.update(
                 {
@@ -319,17 +344,19 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         steps = ", ".join(all_step_cols)
 
-        select_prop = self._get_breakdown_select_prop()
-        breakdown_conditions = ""
-        extra_conditions = ""
+        breakdown_select_prop = self._get_breakdown_select_prop()
+        if len(breakdown_select_prop) > 0:
+            select_prop = f", {breakdown_select_prop}"
+        else:
+            select_prop = ""
         extra_join = ""
 
         if self._filter.breakdown:
             if self._filter.breakdown_type == "cohort":
                 extra_join = self._get_cohort_breakdown_join()
             else:
-                breakdown_conditions = self._get_breakdown_conditions()
-                extra_conditions = f" AND {breakdown_conditions}" if breakdown_conditions and select_prop else ""
+                values = self._get_breakdown_conditions()
+                self.params.update({"breakdown_values": values})
 
         return FUNNEL_INNER_EVENT_STEPS_QUERY.format(
             steps=steps,
@@ -337,7 +364,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
             extra_join=extra_join,
             steps_condition=steps_conditions,
             select_prop=select_prop,
-            extra_conditions=extra_conditions,
         )
 
     def _get_steps_conditions(self, length: int) -> str:
@@ -388,6 +414,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             self._team.pk,
             prepend=str(index),
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_id_joined_alias="aggregation_target",
         )
         self.params.update(prop_filter_params)
         if entity.properties:
@@ -415,19 +442,14 @@ class ClickhouseFunnelBase(ABC, Funnel):
             raise ValueError("Missing both funnel_step and funnel_custom_steps")
 
         if self._filter.funnel_step_breakdown is not None:
-            prop_vals = self._parse_breakdown_prop_value()
-            self.params.update({"breakdown_prop_value": prop_vals})
-            conditions.append("prop IN %(breakdown_prop_value)s")
+            breakdown_prop_value = self._filter.funnel_step_breakdown
+            if isinstance(breakdown_prop_value, int) and self._filter.breakdown_type != "cohort":
+                breakdown_prop_value = str(breakdown_prop_value)
+
+            self.params.update({"breakdown_prop_value": breakdown_prop_value})
+            conditions.append("hasAll(arrayFlatten(array(prop)), arrayFlatten(array(%(breakdown_prop_value)s)))")
 
         return " AND ".join(conditions)
-
-    def _parse_breakdown_prop_value(self):
-        prop_vals: List[Union[str, int]] = (
-            [val.strip() for val in self._filter.funnel_step_breakdown.split(",")]
-            if isinstance(self._filter.funnel_step_breakdown, str)
-            else [cast(int, self._filter.funnel_step_breakdown)]
-        )
-        return prop_vals
 
     def _get_count_columns(self, max_steps: int):
         cols: List[str] = []
@@ -482,29 +504,23 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if self._filter.breakdown:
             self.params.update({"breakdown": self._filter.breakdown})
             if self._filter.breakdown_type == "person":
-                # :TRICKY: We only support string breakdown for event/person properties
-                assert isinstance(self._filter.breakdown, str)
-                expression, _ = get_property_string_expr(
-                    "person", self._filter.breakdown, "%(breakdown)s", "person_props"
+                return get_single_or_multi_property_string_expr(
+                    self._filter.breakdown, table="person", query_alias="prop"
                 )
-                return f", {expression} AS prop"
             elif self._filter.breakdown_type == "event":
-                # :TRICKY: We only support string breakdown for event/person properties
-                assert isinstance(self._filter.breakdown, str)
-                expression, _ = get_property_string_expr(
-                    "events", self._filter.breakdown, "%(breakdown)s", "properties"
+                return get_single_or_multi_property_string_expr(
+                    self._filter.breakdown, table="events", query_alias="prop"
                 )
-                return f", {expression} AS prop"
             elif self._filter.breakdown_type == "cohort":
-                return ", value AS prop"
+                return "value AS prop"
             elif self._filter.breakdown_type == "group":
                 # :TRICKY: We only support string breakdown for group properties
                 assert isinstance(self._filter.breakdown, str)
                 properties_field = f"group_properties_{self._filter.breakdown_group_type_index}"
                 expression, _ = get_property_string_expr(
-                    "groups", self._filter.breakdown, "%(breakdown)s", properties_field
+                    table="groups", property_name=self._filter.breakdown, var="%(breakdown)s", column=properties_field
                 )
-                return f", {expression} AS prop"
+                return f"{expression} AS prop"
 
         return ""
 
@@ -519,26 +535,31 @@ class ClickhouseFunnelBase(ABC, Funnel):
             ON events.distinct_id = cohort_join.distinct_id
         """
 
-    def _get_breakdown_conditions(self) -> str:
+    def _get_breakdown_conditions(self) -> Optional[str]:
+        """
+        For people, pagination sets the offset param, which is common across filters
+        and gives us the wrong breakdown values here, so we override it.
+        For events, we assume breakdown values remain stable across the funnel,
+        so using just the first entity to get breakdown values is ok.
+        if this is a multi property breakdown then the breakdown values are misleading
+        e.g. [Chrome, Safari], [95, 15] doesn't make clear that Chrome 15 isn't valid but Safari 15 is
+        so the generated list here must be [[Chrome, 95], [Safari, 15]]
+        """
         if self._filter.breakdown:
             limit = self._filter.breakdown_limit_or_default
             first_entity = self._filter.entities[0]
 
-            values = get_breakdown_prop_values(
+            return get_breakdown_prop_values(
                 self._filter, first_entity, "count(*)", self._team.pk, limit, extra_params={"offset": 0}
             )
-            # For people, pagination sets the offset param, which is common across filters
-            # and gives us the wrong breakdown values here, so we override it.
-            # For events, we assume breakdown values remain stable across the funnel,
-            # so using just the first entity to get breakdown values is ok.
 
-            self.params.update({"breakdown_values": values})
-
-        return ""
+        return None
 
     def _get_breakdown_prop(self, group_remaining=False) -> str:
         if self._filter.breakdown:
-            if group_remaining and self._filter.breakdown_type != "cohort":
+            if group_remaining and self._filter.breakdown_type in ["person", "event"]:
+                return ", if(has(%(breakdown_values)s, prop), prop, ['Other']) as prop"
+            elif group_remaining and self._filter.breakdown_type == "group":
                 return ", if(has(%(breakdown_values)s, prop), prop, 'Other') as prop"
             else:
                 return ", prop"

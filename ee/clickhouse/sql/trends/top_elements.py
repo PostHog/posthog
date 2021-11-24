@@ -1,7 +1,7 @@
 TOP_ELEMENTS_ARRAY_OF_KEY_SQL = """
 SELECT groupArray(value) FROM (
     SELECT
-        {value_expression} AS value,
+        {value_expression},
         {aggregate_operation} as count
     FROM events e
     {person_join_clauses}

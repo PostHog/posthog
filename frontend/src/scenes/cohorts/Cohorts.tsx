@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { DeleteWithUndo, toParams } from 'lib/utils'
+import { DeleteWithUndo } from 'lib/utils'
 import { Table, Button, Input } from 'antd'
 import { ExportOutlined, DeleteOutlined, InfoCircleOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { cohortsModel } from '../../models/cohortsModel'
@@ -21,6 +21,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { dayjs } from 'lib/dayjs'
 import { ColumnType } from 'antd/lib/table'
 import { Spinner } from 'lib/components/Spinner/Spinner'
+import { urls } from 'scenes/urls'
+import { combineUrl } from 'kea-router'
 
 const NEW_COHORT: CohortType = {
     id: 'new',
@@ -127,7 +129,7 @@ export function Cohorts(): JSX.Element {
             title: 'Actions',
             render: function RenderActions(cohort: CohortType) {
                 const filters = {
-                    filters: [
+                    properties: [
                         {
                             key: 'id',
                             label: cohort.name,
@@ -137,7 +139,7 @@ export function Cohorts(): JSX.Element {
                     ],
                 }
 
-                const sessionsLink = '/sessions?' + toParams(filters)
+                const sessionsLink = combineUrl(urls.sessionRecordings(), { filters }).url
                 return (
                     <span>
                         <a href={'/api/person.csv?cohort=' + cohort.id}>
@@ -160,7 +162,7 @@ export function Cohorts(): JSX.Element {
                             onClick={(e) => {
                                 e.stopPropagation()
                             }}
-                            to={`${sessionsLink}#backTo=cohorts&backToURL=${window.location.pathname}`}
+                            to={sessionsLink}
                             data-attr="cohorts-table-sessions"
                         >
                             Sessions <ClockCircleOutlined />

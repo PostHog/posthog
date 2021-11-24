@@ -4,9 +4,8 @@ import json
 from django.test.client import Client
 from rest_framework import status
 
-from posthog.models import FeatureFlag, Person, PersonalAPIKey, person
+from posthog.models import FeatureFlag, GroupTypeMapping, Person, PersonalAPIKey
 from posthog.models.feature_flag import FeatureFlagOverride
-from posthog.models.person import PersonDistinctId
 from posthog.test.base import BaseTest
 
 
@@ -24,10 +23,16 @@ class TestDecide(BaseTest):
     def _dict_to_b64(self, data: dict) -> str:
         return base64.b64encode(json.dumps(data).encode("utf-8")).decode("utf-8")
 
-    def _post_decide(self, data=None, origin="http://127.0.0.1:8000", api_version=1, distinct_id="example_id"):
+    def _post_decide(
+        self, data=None, origin="http://127.0.0.1:8000", api_version=1, distinct_id="example_id", groups={}
+    ):
         return self.client.post(
             f"/decide/?v={api_version}",
-            {"data": self._dict_to_b64(data or {"token": self.team.api_token, "distinct_id": distinct_id})},
+            {
+                "data": self._dict_to_b64(
+                    data or {"token": self.team.api_token, "distinct_id": distinct_id, "groups": groups}
+                )
+            },
             HTTP_ORIGIN=origin,
         )
 
@@ -413,6 +418,32 @@ class TestDecide(BaseTest):
                     "flag-rollout-100": True,
                 },
             )
+
+    def test_feature_flags_v2_with_groups(self):
+        # More in-depth tests in posthog/api/test/test_feature_flag.py
+
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        Person.objects.create(
+            team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com", "realm": "cloud"}
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"aggregation_group_type_index": 0, "groups": [{"rollout_percentage": 100}]},
+            name="This is a group-based flag",
+            key="groups-flag",
+            created_by=self.user,
+        )
+
+        with self.assertNumQueries(4):
+            response = self._post_decide(api_version=2, distinct_id="example_id")
+            self.assertEqual(response.json()["featureFlags"], {})
+
+        with self.assertNumQueries(4):
+            response = self._post_decide(api_version=2, distinct_id="example_id", groups={"organization": "foo"})
+            self.assertEqual(response.json()["featureFlags"], {"groups-flag": True})
 
     def test_feature_flags_with_personal_api_key(self):
         key = PersonalAPIKey(label="X", user=self.user)

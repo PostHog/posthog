@@ -1,8 +1,11 @@
 from datetime import datetime
+from typing import List, cast
 from uuid import uuid4
 
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
+from ee.clickhouse.queries.actor_base_query import SerializedPerson
+from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
+from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelActors
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
@@ -21,31 +24,27 @@ def _create_person(**kwargs):
     return Person(id=person.uuid, uuid=person.uuid)
 
 
+def _create_event(**kwargs):
+    kwargs.update({"event_uuid": uuid4()})
+    create_event(**kwargs)
+
+
 class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
     def _create_sample_data_multiple_dropoffs(self):
-        events_by_person = {}
         for i in range(5):
-            user_id = f"user_{i}"
-            events_by_person[user_id] = [
-                {"event": "step one", "timestamp": datetime(2021, 5, 1)},
-                {"event": "step two", "timestamp": datetime(2021, 5, 3)},
-                {"event": "step three", "timestamp": datetime(2021, 5, 5)},
-            ]
+            _create_person(distinct_ids=[f"user_{i}"], team=self.team)
+            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00")
+            _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-05 00:00:00")
 
         for i in range(5, 15):
-            user_id = f"user_{i}"
-            events_by_person[user_id] = [
-                {"event": "step one", "timestamp": datetime(2021, 5, 1)},
-                {"event": "step two", "timestamp": datetime(2021, 5, 3)},
-            ]
+            _create_person(distinct_ids=[f"user_{i}"], team=self.team)
+            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00")
 
         for i in range(15, 35):
-            user_id = f"user_{i}"
-            events_by_person[user_id] = [
-                {"event": "step one", "timestamp": datetime(2021, 5, 1)},
-            ]
-
-        journeys_for(events_by_person, self.team)
+            _create_person(distinct_ids=[f"user_{i}"], team=self.team)
+            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
 
     def _create_browser_breakdown_events(self):
         person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk, properties={"$country": "PL"})
@@ -53,26 +52,52 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         journeys_for(
             {
                 "person1": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12), "properties": {"$browser": "Chrome"}},
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 1, 12),
+                        "properties": {"$browser": "Chrome", "$browser_version": "95"},
+                    },
                     {
                         "event": "play movie",
                         "timestamp": datetime(2020, 1, 1, 13),
-                        "properties": {"$browser": "Chrome"},
+                        "properties": {"$browser": "Chrome", "$browser_version": "95"},
                     },
-                    {"event": "buy", "timestamp": datetime(2020, 1, 1, 15), "properties": {"$browser": "Chrome"}},
+                    {
+                        "event": "buy",
+                        "timestamp": datetime(2020, 1, 1, 15),
+                        "properties": {"$browser": "Chrome", "$browser_version": "95"},
+                    },
                 ],
                 "person2": [
-                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$browser": "Safari"}},
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                        "properties": {"$browser": "Safari", "$browser_version": "14"},
+                    },
                     {
                         "event": "play movie",
                         "timestamp": datetime(2020, 1, 2, 16),
-                        "properties": {"$browser": "Safari"},
+                        "properties": {"$browser": "Safari", "$browser_version": "14"},
                     },
                 ],
             },
             self.team,
         )
 
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person2",
+            properties={"key": "val", "$browser": "Safari"},
+            timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="play movie",
+            distinct_id="person2",
+            properties={"key": "val", "$browser": "Safari"},
+            timestamp="2020-01-02T16:00:00Z",
+        )
         return person1, person2
 
     def test_first_step(self):
@@ -91,7 +116,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
+        _, results = ClickhouseFunnelActors(filter, self.team).get_actors()
         self.assertEqual(35, len(results))
 
     def test_last_step(self):
@@ -110,7 +135,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
+        _, results = ClickhouseFunnelActors(filter, self.team).get_actors()
         self.assertEqual(5, len(results))
 
     def test_second_step_dropoff(self):
@@ -129,7 +154,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
+        _, results = ClickhouseFunnelActors(filter, self.team).get_actors()
         self.assertEqual(20, len(results))
 
     def test_last_step_dropoff(self):
@@ -148,21 +173,15 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
+        _, results = ClickhouseFunnelActors(filter, self.team).get_actors()
         self.assertEqual(10, len(results))
 
     def _create_sample_data(self):
         for i in range(110):
-            journeys_for(
-                {
-                    f"user_{i}": [
-                        {"event": "step one", "timestamp": datetime(2021, 5, 1)},
-                        {"event": "step two", "timestamp": datetime(2021, 5, 3)},
-                        {"event": "step three", "timestamp": datetime(2021, 5, 5)},
-                    ]
-                },
-                self.team,
-            )
+            _create_person(distinct_ids=[f"user_{i}"], team=self.team)
+            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00")
+            _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-05 00:00:00")
 
     def test_basic_offset(self):
         self._create_sample_data()
@@ -181,11 +200,11 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         }
 
         filter = Filter(data=data)
-        results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
+        _, results = ClickhouseFunnelActors(filter, self.team).get_actors()
         self.assertEqual(100, len(results))
 
         filter_offset = Filter(data={**data, "offset": 100,})
-        results, _ = ClickhouseFunnelPersons(filter_offset, self.team).run()
+        _, results = ClickhouseFunnelActors(filter_offset, self.team).get_actors()
         self.assertEqual(10, len(results))
 
     def test_steps_with_custom_steps_parameter_are_equivalent_to_funnel_step(self):
@@ -215,10 +234,10 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         for funnel_step, custom_steps, expected_count in parameters:
             filter = base_filter.with_data({"funnel_step": funnel_step})
-            results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
+            _, results = ClickhouseFunnelActors(filter, self.team).get_actors()
 
             new_filter = base_filter.with_data({"funnel_custom_steps": custom_steps})
-            new_results = ClickhouseFunnelPersons(new_filter, self.team)._exec_query()
+            _, new_results = ClickhouseFunnelActors(new_filter, self.team).get_actors()
 
             self.assertEqual(new_results, results)
             self.assertEqual(len(results), expected_count)
@@ -249,7 +268,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         for custom_steps, expected_count in parameters:
             new_filter = base_filter.with_data({"funnel_custom_steps": custom_steps})
-            new_results = ClickhouseFunnelPersons(new_filter, self.team)._exec_query()
+            _, new_results = ClickhouseFunnelActors(new_filter, self.team).get_actors()
 
             self.assertEqual(len(new_results), expected_count)
 
@@ -270,7 +289,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = ClickhouseFunnelPersons(Filter(data=data), self.team)._exec_query()
+        _, results = ClickhouseFunnelActors(Filter(data=data), self.team).get_actors()
 
         self.assertEqual(len(results), 5)
 
@@ -285,30 +304,56 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 "interval": "day",
                 "funnel_window_days": 7,
                 "funnel_step": 1,
-                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
                 "breakdown_type": "event",
                 "breakdown": "$browser",
             }
         )
-        results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
+        _, results = ClickhouseFunnelActors(filter, self.team).get_actors()
 
-        self.assertCountEqual([val[0] for val in results], [person1.uuid, person2.uuid])
+        self.assertCountEqual([val["id"] for val in results], [person1.uuid, person2.uuid])
 
-        results = ClickhouseFunnelPersons(
+        _, results = ClickhouseFunnelActors(
             filter.with_data({"funnel_step_breakdown": "Chrome"}), self.team
-        )._exec_query()
+        ).get_actors()
 
-        self.assertCountEqual([val[0] for val in results], [person1.uuid])
+        self.assertCountEqual([val["id"] for val in results], [person1.uuid])
 
-        results = ClickhouseFunnelPersons(
+        _, results = ClickhouseFunnelActors(
             filter.with_data({"funnel_step_breakdown": "Safari"}), self.team
-        )._exec_query()
-        self.assertCountEqual([val[0] for val in results], [person2.uuid])
+        ).get_actors()
 
-        results = ClickhouseFunnelPersons(
-            filter.with_data({"funnel_step_breakdown": "Safari, Chrome"}), self.team
-        )._exec_query()
-        self.assertCountEqual([val[0] for val in results], [person2.uuid, person1.uuid])
+        self.assertCountEqual([val["id"] for val in results], [person2.uuid])
+
+    def test_first_step_breakdowns_with_multi_property_breakdown(self):
+        person1, person2 = self._create_browser_breakdown_events()
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "interval": "day",
+                "funnel_window_days": 7,
+                "funnel_step": 1,
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
+                "breakdown_type": "event",
+                "breakdown": ["$browser", "$browser_version"],
+            }
+        )
+        _, results = ClickhouseFunnelActors(filter, self.team).get_actors()
+
+        self.assertCountEqual([val["id"] for val in results], [person1.uuid, person2.uuid])
+
+        _, results = ClickhouseFunnelActors(
+            filter.with_data({"funnel_step_breakdown": "Chrome"}), self.team
+        ).get_actors()
+
+        self.assertCountEqual([val["id"] for val in results], [person1.uuid])
+
+        _, results = ClickhouseFunnelActors(
+            filter.with_data({"funnel_step_breakdown": "Safari"}), self.team
+        ).get_actors()
+        self.assertCountEqual([val["id"] for val in results], [person2.uuid])
 
     @test_with_materialized_columns(person_properties=["$country"])
     def test_first_step_breakdown_person(self):
@@ -321,44 +366,46 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 "interval": "day",
                 "funnel_window_days": 7,
                 "funnel_step": 1,
-                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
                 "breakdown_type": "person",
                 "breakdown": "$country",
             }
         )
 
-        results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
-        self.assertCountEqual([val[0] for val in results], [person1.uuid, person2.uuid])
+        _, results = ClickhouseFunnelActors(filter, self.team).get_actors()
+        self.assertCountEqual([val["id"] for val in results], [person1.uuid, person2.uuid])
 
-        results = ClickhouseFunnelPersons(filter.with_data({"funnel_step_breakdown": "EE"}), self.team)._exec_query()
-        self.assertCountEqual([val[0] for val in results], [person2.uuid])
+        _, results = ClickhouseFunnelActors(filter.with_data({"funnel_step_breakdown": "EE"}), self.team).get_actors()
+        self.assertCountEqual([val["id"] for val in results], [person2.uuid])
 
         # Check custom_steps give same answers for breakdowns
-        custom_step_results = ClickhouseFunnelPersons(
+        _, custom_step_results = ClickhouseFunnelActors(
             filter.with_data({"funnel_step_breakdown": "EE", "funnel_custom_steps": [1, 2, 3]}), self.team
-        )._exec_query()
+        ).get_actors()
         self.assertEqual(results, custom_step_results)
 
-        results = ClickhouseFunnelPersons(filter.with_data({"funnel_step_breakdown": "PL"}), self.team)._exec_query()
-        self.assertCountEqual([val[0] for val in results], [person1.uuid])
+        _, results = ClickhouseFunnelActors(filter.with_data({"funnel_step_breakdown": "PL"}), self.team).get_actors()
+        self.assertCountEqual([val["id"] for val in results], [person1.uuid])
 
         # Check custom_steps give same answers for breakdowns
-        custom_step_results = ClickhouseFunnelPersons(
+        _, custom_step_results = ClickhouseFunnelActors(
             filter.with_data({"funnel_step_breakdown": "PL", "funnel_custom_steps": [1, 2, 3]}), self.team
-        )._exec_query()
+        ).get_actors()
         self.assertEqual(results, custom_step_results)
 
     @test_with_materialized_columns(["$browser"], verify_no_jsonextract=False)
     def test_funnel_cohort_breakdown_persons(self):
         person = _create_person(distinct_ids=[f"person1"], team_id=self.team.pk, properties={"key": "value"})
-        journeys_for({"person1": [{"event": "sign up", "timestamp": datetime(2020, 1, 2, 12)},]}, self.team)
+        _create_event(
+            team=self.team, event="sign up", distinct_id=f"person1", properties={}, timestamp="2020-01-02T12:00:00Z",
+        )
         cohort = Cohort.objects.create(
             team=self.team,
             name="test_cohort",
             groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
         )
         filters = {
-            "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+            "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
             "insight": INSIGHT_FUNNELS,
             "date_from": "2020-01-01",
             "date_to": "2020-01-08",
@@ -368,5 +415,5 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             "breakdown": [cohort.pk],
         }
         filter = Filter(data=filters)
-        results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
-        self.assertEqual(results[0][0], person.uuid)
+        _, results = ClickhouseFunnelActors(filter, self.team).get_actors()
+        self.assertEqual(results[0]["id"], person.uuid)

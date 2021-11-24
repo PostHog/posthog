@@ -2,7 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
 import { Action, EnqueuedJob, Hub, PluginTaskType, Team } from '../types'
 import { ingestEvent } from './ingestion/ingest-event'
-import { runOnEvent, runOnSnapshot, runPluginTask, runProcessEvent } from './plugins/run'
+import { runOnAction, runOnEvent, runOnSnapshot, runPluginTask, runProcessEvent } from './plugins/run'
 import { loadSchedule, setupPlugins } from './plugins/setup'
 import { teardownPlugins } from './plugins/teardown'
 
@@ -11,6 +11,9 @@ type TaskRunner = (hub: Hub, args: any) => Promise<any> | any
 export const workerTasks: Record<string, TaskRunner> = {
     onEvent: (hub, args: { event: PluginEvent }) => {
         return runOnEvent(hub, args.event)
+    },
+    onAction: (hub, args: { event: PluginEvent; action: Action }) => {
+        return runOnAction(hub, args.action, args.event)
     },
     onSnapshot: (hub, args: { event: PluginEvent }) => {
         return runOnSnapshot(hub, args.event)

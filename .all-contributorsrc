@@ -1743,6 +1743,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "vicampuzano",
+      "name": "Victor Campuzano",
+      "avatar_url": "https://avatars.githubusercontent.com/u/20813866?v=4",
+      "profile": "https://vicampuzano.com",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
