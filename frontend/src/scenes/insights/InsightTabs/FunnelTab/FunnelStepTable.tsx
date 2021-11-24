@@ -42,7 +42,6 @@ export function FunnelStepTable(): JSX.Element | null {
     const {
         stepsWithCount,
         flattenedSteps,
-        filters,
         steps,
         visibleStepsWithConversionMetrics,
         hiddenLegendKeys,
@@ -376,7 +375,7 @@ export function FunnelStepTable(): JSX.Element | null {
             align: 'center',
         })
 
-        if (featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] && !!filters.breakdown) {
+        if (featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] && !!steps[0]?.breakdown) {
             _columns.push({
                 title: '',
                 render: function RenderCheckbox({}, step: FlattenedFunnelStep): JSX.Element | null {
@@ -419,8 +418,8 @@ export function FunnelStepTable(): JSX.Element | null {
         _columns.push({
             title: 'Step',
             render: function RenderLabel({}, step: FlattenedFunnelStep): JSX.Element {
-                const isBreakdownChild = !!filters.breakdown && !step.isBreakdownParent
-                const color = getStepColor(step, !!filters.breakdown)
+                const isBreakdownChild = !!step.breakdown && !step.isBreakdownParent
+                const color = getStepColor(step, !!step.breakdown)
 
                 return (
                     <InsightLabel
