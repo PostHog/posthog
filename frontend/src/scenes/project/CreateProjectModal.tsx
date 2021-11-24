@@ -10,7 +10,7 @@ export function CreateProjectModal({
     onClose,
     title,
     caption,
-    mask = false,
+    mask,
 }: {
     isVisible: boolean
     onClose?: () => void
@@ -73,7 +73,7 @@ export function CreateProjectModal({
             onCancel={closeModal}
             visible={isVisible}
             mask={mask}
-            wrapProps={isVisible && !mask  ? { style: { pointerEvents: 'none' } } : undefined}
+            wrapProps={isVisible && !mask ? { style: { pointerEvents: 'none' } } : undefined}
             closeIcon={null}
         >
             Your organization access level is insufficient for creating a new project.

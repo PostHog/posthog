@@ -123,13 +123,14 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     // Organization-based routes
     [Scene.OrganizationCreateFirst]: {
-        name: 'Organization creation'
+        name: 'Organization creation',
     },
     [Scene.OrganizationSettings]: {
         organizationBased: true,
     },
     [Scene.ProjectCreateFirst]: {
-name: 'Project creation',        organizationBased: true,
+        name: 'Project creation',
+        organizationBased: true,
     },
     // Onboarding/setup routes
     [Scene.Login]: {

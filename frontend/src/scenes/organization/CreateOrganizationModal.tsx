@@ -49,7 +49,7 @@ export function CreateOrganizationModal({
             onCancel={closeModal}
             visible={isVisible}
             mask={mask}
-            wrapProps={isVisible && !mask  ? { style: { pointerEvents: 'none' } } : undefined}
+            wrapProps={isVisible && !mask ? { style: { pointerEvents: 'none' } } : undefined}
             closeIcon={null}
             back
         >
