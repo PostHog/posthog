@@ -81,7 +81,7 @@ test('piscina worker test', async () => {
     expect(ingestResponse1).toEqual({ error: 'Not a valid UUID: "undefined"' })
 
     const ingestResponse2 = await ingestEvent({ ...createEvent(), uuid: new UUIDT().toString() })
-    expect(ingestResponse2).toEqual({ success: true })
+    expect(ingestResponse2).toEqual({ success: true, actionMatches: [] })
 
     await delay(2000)
     await piscina.destroy()

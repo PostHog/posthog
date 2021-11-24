@@ -9,7 +9,6 @@ import { toast } from 'react-toastify'
 import { Dayjs } from 'dayjs'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { teamLogic } from '../teamLogic'
-import { urls } from 'scenes/urls'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export const INSIGHTS_PER_PAGE = 15
@@ -161,11 +160,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
     },
     listeners: ({ actions, values, selectors }) => ({
         addGraph: ({ type }) => {
-            router.actions.push(
-                `/insights?insight=${encodeURIComponent(String(type).toUpperCase())}&backToURL=${encodeURIComponent(
-                    urls.savedInsights()
-                )}`
-            )
+            router.actions.push(`/insights?insight=${encodeURIComponent(String(type).toUpperCase())}`)
         },
         setSavedInsightsFilters: async ({ merge }, breakpoint, __, previousState) => {
             const oldFilters = selectors.filters(previousState)

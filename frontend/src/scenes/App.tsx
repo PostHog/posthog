@@ -3,23 +3,21 @@ import { kea, useMountedLogic, useValues } from 'kea'
 import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 import { preflightLogic } from './PreflightCheck/logic'
-import { MainNavigation, TopNavigation, DemoWarnings } from '~/layout/navigation'
 import { BillingAlerts } from 'lib/components/BillingAlerts'
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 import { UpgradeModal } from './UpgradeModal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { BackTo } from 'lib/components/BackTo'
 import { appLogicType } from './AppType'
 import { models } from '~/models'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { CloudAnnouncement } from '~/layout/navigation/CloudAnnouncement'
 import { teamLogic } from './teamLogic'
 import { LoadedScene } from 'scenes/sceneTypes'
-import { SideBar } from '../layout/lemonade/SideBar/SideBar'
+import { SideBar } from '../layout/navigation/SideBar/SideBar'
 import { appScenes } from 'scenes/appScenes'
-import { Breadcrumbs } from '../layout/lemonade/Breadcrumbs/Breadcrumbs'
+import { Breadcrumbs } from '../layout/navigation/Breadcrumbs/Breadcrumbs'
+import { TopBar } from '../layout/navigation/TopBar'
+import { DemoWarnings } from '../layout/navigation/DemoWarnings/DemoWarnings'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],
@@ -66,14 +64,13 @@ export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
     const { user } = useValues(userLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     useMountedLogic(sceneLogic({ scenes: appScenes }))
 
     if (showApp) {
         return (
             <>
                 {user && currentTeamId ? <Models /> : null}
-                {featureFlags[FEATURE_FLAGS.TURBO_MODE] ? <LoadedSceneLogics /> : null}
+                <LoadedSceneLogics />
                 <AppScene />
             </>
         )
@@ -112,7 +109,6 @@ function Models(): null {
 function AppScene(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { activeScene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
 
     const SceneComponent: (...args: any[]) => JSX.Element | null =
@@ -133,7 +129,7 @@ function AppScene(): JSX.Element | null {
     if (sceneConfig?.plain) {
         return (
             <Layout style={{ minHeight: '100vh' }}>
-                {!sceneConfig.hideTopNav && <TopNavigation />}
+                {!sceneConfig.hideTopNav && <TopBar />}
                 <SceneComponent user={user} {...params} />
                 {toastContainer}
             </Layout>
@@ -143,32 +139,18 @@ function AppScene(): JSX.Element | null {
     const layoutContent = activeScene ? (
         <Layout.Content className="main-app-content" data-attr="layout-content">
             {!sceneConfig?.hideDemoWarnings && <DemoWarnings />}
-            {featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT] && !(true || featureFlags[FEATURE_FLAGS.LEMONADE]) ? (
-                <CloudAnnouncement message={String(featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT])} />
-            ) : null}
-            {(true || featureFlags[FEATURE_FLAGS.LEMONADE]) && <Breadcrumbs />}
+            <Breadcrumbs />
             <BillingAlerts />
-            <BackTo />
             <SceneComponent user={user} {...params} />
         </Layout.Content>
     ) : null
 
     return (
         <>
-            {true || featureFlags[FEATURE_FLAGS.LEMONADE] ? (
-                <Layout style={{ minHeight: '100vh' }}>
-                    {!sceneConfig?.hideTopNav && <TopNavigation />}
-                    <SideBar>{layoutContent}</SideBar>
-                </Layout>
-            ) : (
-                <Layout>
-                    <MainNavigation />
-                    <Layout style={{ minHeight: '100vh' }}>
-                        {!sceneConfig?.hideTopNav && <TopNavigation />}
-                        {layoutContent}
-                    </Layout>
-                </Layout>
-            )}
+            <Layout style={{ minHeight: '100vh' }}>
+                {!sceneConfig?.hideTopNav && <TopBar />}
+                <SideBar>{layoutContent}</SideBar>
+            </Layout>
             {toastContainer}
             <UpgradeModal />
         </>

@@ -213,11 +213,12 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 status=400,
             )
         filter = RetentionFilter(request=request)
+        base_uri = request.build_absolute_uri("/")
 
         if display == TRENDS_TABLE:
-            people = self.retention_class().people_in_period(filter, team)
+            people = self.retention_class(base_uri=base_uri).people_in_period(filter, team)
         else:
-            people = self.retention_class().people(filter, team)
+            people = self.retention_class(base_uri=base_uri).people(filter, team)
 
         next_url = paginated_result(people, request, filter.offset)
 

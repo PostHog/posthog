@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { retentionTableLogic } from './retentionTableLogic'
 import { LineGraph } from '../insights/LineGraph'
 import { useActions, useValues } from 'kea'
-import { LineGraphEmptyState } from '../insights/EmptyStates'
+import { InsightEmptyState } from '../insights/EmptyStates'
 import { Modal, Button } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { PersonType } from '~/types'
@@ -87,7 +87,6 @@ export function RetentionLineGraph({
                     loading={peopleLoading}
                     people={peopleData}
                     date={filters.date_to ? dayjs(filters.date_to).format('YYYY-MM-DD') : undefined}
-                    backTo="Insights"
                 />
                 <div
                     style={{
@@ -104,6 +103,6 @@ export function RetentionLineGraph({
             </Modal>
         </>
     ) : (
-        <LineGraphEmptyState color={color} isDashboard={!!dashboardItemId} />
+        <InsightEmptyState color={color} isDashboard={!!dashboardItemId} />
     )
 }

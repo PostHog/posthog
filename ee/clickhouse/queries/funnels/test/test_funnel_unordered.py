@@ -1,22 +1,22 @@
+from typing import List, cast
 from uuid import uuid4
 
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.models.group import create_group
+from ee.clickhouse.queries.actor_base_query import SerializedGroup, SerializedPerson
 from ee.clickhouse.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
-from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedPersons
+from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
 from ee.clickhouse.queries.funnels.test.breakdown_cases import (
     assert_funnel_results_equal,
     funnel_breakdown_test_factory,
 )
 from ee.clickhouse.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters import Filter
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest
 
@@ -42,7 +42,7 @@ def _create_action(**kwargs):
     return action
 
 
-class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnelUnordered, ClickhouseFunnelUnorderedPersons, _create_event, _create_action, _create_person)):  # type: ignore
+class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnelUnordered, ClickhouseFunnelUnorderedActors, _create_event, _create_action, _create_person)):  # type: ignore
     maxDiff = None
 
     def test_funnel_step_breakdown_event_single_person_events_with_multiple_properties(self):
@@ -99,8 +99,8 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                     "type": "events",
                     "average_conversion_time": None,
                     "median_conversion_time": None,
-                    "breakdown": "Chrome",
-                    "breakdown_value": "Chrome",
+                    "breakdown": ["Chrome"],
+                    "breakdown_value": ["Chrome"],
                 },
                 {
                     "action_id": "play movie",
@@ -112,13 +112,13 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                     "type": "events",
                     "average_conversion_time": None,
                     "median_conversion_time": None,
-                    "breakdown": "Chrome",
-                    "breakdown_value": "Chrome",
+                    "breakdown": ["Chrome"],
+                    "breakdown_value": ["Chrome"],
                 },
             ],
         )
-        self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [person1.uuid])
-        self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [])
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["Chrome"]), [person1.uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, ["Chrome"]), [])
 
         assert_funnel_results_equal(
             result[1],
@@ -133,8 +133,8 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                     "type": "events",
                     "average_conversion_time": None,
                     "median_conversion_time": None,
-                    "breakdown": "Safari",
-                    "breakdown_value": "Safari",
+                    "breakdown": ["Safari"],
+                    "breakdown_value": ["Safari"],
                 },
                 {
                     "action_id": "play movie",
@@ -146,25 +146,26 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                     "type": "events",
                     "average_conversion_time": 3600,
                     "median_conversion_time": 3600,
-                    "breakdown": "Safari",
-                    "breakdown_value": "Safari",
+                    "breakdown": ["Safari"],
+                    "breakdown_value": ["Safari"],
                 },
             ],
         )
-        self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person1.uuid])
-        self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [person1.uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["Safari"]), [person1.uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, ["Safari"]), [person1.uuid])
 
 
-class TestFunnelUnorderedStepsConversionTime(ClickhouseTestMixin, funnel_conversion_time_test_factory(ClickhouseFunnelUnordered, ClickhouseFunnelUnorderedPersons, _create_event, _create_person)):  # type: ignore
+class TestFunnelUnorderedStepsConversionTime(ClickhouseTestMixin, funnel_conversion_time_test_factory(ClickhouseFunnelUnordered, ClickhouseFunnelUnorderedActors, _create_event, _create_person)):  # type: ignore
     maxDiff = None
     pass
 
 
 class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
-    def _get_people_at_step(self, filter, funnel_step):
-        person_filter = filter.with_data({"funnel_step": funnel_step})
-        result = ClickhouseFunnelUnorderedPersons(person_filter, self.team)._exec_query()
-        return [row[0] for row in result]
+    def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
+        person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
+        _, serialized_result = ClickhouseFunnelUnorderedActors(person_filter, self.team).get_actors()
+
+        return [val["id"] for val in serialized_result]
 
     def test_basic_unordered_funnel(self):
         filter = Filter(
@@ -236,7 +237,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[2]["count"], 3)
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 1),
+            self._get_actor_ids_at_step(filter, 1),
             [
                 person1_stopped_after_signup.uuid,
                 person2_stopped_after_one_pageview.uuid,
@@ -250,7 +251,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 2),
+            self._get_actor_ids_at_step(filter, 2),
             [
                 person2_stopped_after_one_pageview.uuid,
                 person3_stopped_after_insight_view.uuid,
@@ -261,12 +262,12 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, -2),
+            self._get_actor_ids_at_step(filter, -2),
             [person1_stopped_after_signup.uuid, person6_did_only_insight_view.uuid, person7_did_only_pageview.uuid,],
         )
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 3),
+            self._get_actor_ids_at_step(filter, 3),
             [
                 person3_stopped_after_insight_view.uuid,
                 person4_stopped_after_insight_view_reverse_order.uuid,
@@ -275,7 +276,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, -3),
+            self._get_actor_ids_at_step(filter, -3),
             [person2_stopped_after_one_pageview.uuid, person8_didnot_signup.uuid,],
         )
 
@@ -352,7 +353,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[3]["count"], 1)
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 1),
+            self._get_actor_ids_at_step(filter, 1),
             [
                 person1_stopped_after_signup.uuid,
                 person2_stopped_after_one_pageview.uuid,
@@ -366,7 +367,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 2),
+            self._get_actor_ids_at_step(filter, 2),
             [
                 person2_stopped_after_one_pageview.uuid,
                 person3_stopped_after_insight_view.uuid,
@@ -377,7 +378,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 3),
+            self._get_actor_ids_at_step(filter, 3),
             [
                 person3_stopped_after_insight_view.uuid,
                 person4_stopped_after_insight_view_reverse_order.uuid,
@@ -386,7 +387,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 4), [person5_stopped_after_insight_view_random.uuid,],
+            self._get_actor_ids_at_step(filter, 4), [person5_stopped_after_insight_view_random.uuid,],
         )
 
     def test_basic_unordered_funnel_conversion_times(self):
@@ -476,7 +477,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         # (2+3)/2 hours for Person 3 = 2.5 hours
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 1),
+            self._get_actor_ids_at_step(filter, 1),
             [
                 person1_stopped_after_signup.uuid,
                 person2_stopped_after_one_pageview.uuid,
@@ -485,12 +486,12 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 2),
+            self._get_actor_ids_at_step(filter, 2),
             [person2_stopped_after_one_pageview.uuid, person3_stopped_after_insight_view.uuid],
         )
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 3), [person3_stopped_after_insight_view.uuid],
+            self._get_actor_ids_at_step(filter, 3), [person3_stopped_after_insight_view.uuid],
         )
 
     def test_single_event_unordered_funnel(self):
@@ -588,10 +589,10 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[1]["count"], 2)
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 1), [person1.uuid, person2.uuid, person3.uuid],
+            self._get_actor_ids_at_step(filter, 1), [person1.uuid, person2.uuid, person3.uuid],
         )
         self.assertCountEqual(
-            self._get_people_at_step(filter, 2), [person1.uuid, person3.uuid],
+            self._get_actor_ids_at_step(filter, 2), [person1.uuid, person3.uuid],
         )
 
     def test_advanced_funnel_multiple_exclusions_between_steps(self):
@@ -671,78 +672,18 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[4]["count"], 1)
 
         self.assertCountEqual(
-            self._get_people_at_step(filter, 1), [person1.uuid, person2.uuid, person3.uuid, person4.uuid, person5.uuid],
+            self._get_actor_ids_at_step(filter, 1),
+            [person1.uuid, person2.uuid, person3.uuid, person4.uuid, person5.uuid],
         )
         self.assertCountEqual(
-            self._get_people_at_step(filter, 2), [person1.uuid, person4.uuid],
+            self._get_actor_ids_at_step(filter, 2), [person1.uuid, person4.uuid],
         )
         self.assertCountEqual(
-            self._get_people_at_step(filter, 3), [person4.uuid],
+            self._get_actor_ids_at_step(filter, 3), [person4.uuid],
         )
         self.assertCountEqual(
-            self._get_people_at_step(filter, 4), [person4.uuid],
+            self._get_actor_ids_at_step(filter, 4), [person4.uuid],
         )
         self.assertCountEqual(
-            self._get_people_at_step(filter, 5), [person4.uuid],
+            self._get_actor_ids_at_step(filter, 5), [person4.uuid],
         )
-
-    @snapshot_clickhouse_queries
-    def test_unordered_funnel_with_groups(self):
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
-
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
-
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={})
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", properties={})
-
-        filters = {
-            "events": [
-                {"id": "user signed up", "type": "events", "order": 0},
-                {"id": "paid", "type": "events", "order": 1},
-            ],
-            "insight": INSIGHT_FUNNELS,
-            "aggregation_group_type_index": 0,
-            "date_from": "2020-01-01",
-            "date_to": "2020-01-14",
-        }
-
-        filter = Filter(data=filters, team=self.team)
-        funnel = ClickhouseFunnelUnordered(filter, self.team)
-
-        _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
-        _create_event(
-            team=self.team,
-            event="user signed up",
-            distinct_id="user_1",
-            timestamp="2020-01-03T14:00:00Z",
-            properties={"$group_0": "org:5"},
-        )
-
-        # different person, same group, so should count as step two in funnel
-        _create_person(distinct_ids=["user_2"], team_id=self.team.pk)
-        _create_event(
-            team=self.team,
-            event="paid",
-            distinct_id="user_2",
-            timestamp="2020-01-02T14:00:00Z",
-            properties={"$group_0": "org:5"},
-        )
-
-        # same person, different group, so should count as different step 1 in funnel
-        _create_event(
-            team=self.team,
-            event="user signed up",
-            distinct_id="user_1",
-            timestamp="2020-01-10T14:00:00Z",
-            properties={"$group_0": "org:6"},
-        )
-
-        result = funnel.run()
-
-        self.assertEqual(result[0]["name"], "user signed up")
-        self.assertEqual(result[0]["count"], 2)
-
-        self.assertEqual(result[1]["name"], "paid")
-        self.assertEqual(result[1]["count"], 1)

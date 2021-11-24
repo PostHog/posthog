@@ -9,11 +9,9 @@ import { AvailableFeature } from '~/types'
 import { userLogic } from './userLogic'
 import { afterLoginRedirect } from './authentication/loginLogic'
 import { teamLogic } from './teamLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import { SceneExport, Params, Scene, SceneConfig, SceneParams, LoadedScene } from 'scenes/sceneTypes'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { organizationLogic } from './organizationLogic'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
@@ -117,17 +115,11 @@ export const sceneLogic = kea<sceneLogicType>({
             },
         ],
         activeScene: [
-            (s) => [
-                s.loadingScene,
-                s.scene,
-                teamLogic.selectors.isCurrentTeamUnavailable,
-                featureFlagLogic.selectors.featureFlags,
-            ],
-            (loadingScene, scene, isCurrentTeamUnavailable, featureFlags) => {
-                const baseActiveScene = featureFlags[FEATURE_FLAGS.TURBO_MODE] ? scene : loadingScene || scene
-                return isCurrentTeamUnavailable && baseActiveScene && sceneConfigurations[baseActiveScene]?.projectBased
+            (s) => [s.scene, teamLogic.selectors.isCurrentTeamUnavailable],
+            (scene, isCurrentTeamUnavailable) => {
+                return isCurrentTeamUnavailable && scene && sceneConfigurations[scene]?.projectBased
                     ? Scene.ErrorProjectUnavailable
-                    : baseActiveScene
+                    : scene
             },
         ],
         aliasedActiveScene: [
@@ -341,7 +333,7 @@ export const sceneLogic = kea<sceneLogicType>({
                 }
                 actions.setLoadedScene(loadedScene)
 
-                if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.TURBO_MODE] && loadedScene.logic) {
+                if (loadedScene.logic) {
                     // initialize the logic and give it 50ms to load before opening the scene
                     const unmount = loadedScene.logic.build(loadedScene.paramsToProps?.(params) || {}, false).mount()
                     try {

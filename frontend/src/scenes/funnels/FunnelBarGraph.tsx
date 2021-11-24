@@ -5,7 +5,6 @@ import { capitalizeFirstLetter, humanFriendlyDuration, pluralize } from 'lib/uti
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Button, ButtonProps, Popover } from 'antd'
 import { ArrowRightOutlined, InfoCircleOutlined } from '@ant-design/icons'
-import { useResizeObserver } from 'lib/utils/responsiveUtils'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { ArrowBottomRightOutlined, IconInfinity } from 'lib/components/icons'
 import { funnelLogic } from './funnelLogic'
@@ -32,6 +31,7 @@ import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/InsightTabs/FunnelTab/funnelStepTableUtils'
 import { FunnelStepDropdown } from './FunnelStepDropdown'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { useResizeObserver } from '../../lib/hooks/useResizeObserver'
 
 interface BarProps {
     percentage: number
@@ -288,8 +288,8 @@ function Bar({
     }
 
     useResizeObserver({
-        callback: useThrottledCallback(decideLabelPosition, 200),
-        element: barRef,
+        onResize: useThrottledCallback(decideLabelPosition, 200),
+        ref: barRef,
     })
 
     return (
@@ -417,8 +417,8 @@ function AverageTimeInspector({
     }, [])
 
     useResizeObserver({
-        callback: useThrottledCallback(decideTextVisible, 200),
-        element: wrapperRef,
+        onResize: useThrottledCallback(decideTextVisible, 200),
+        ref: wrapperRef,
     })
 
     return (
@@ -519,10 +519,8 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                 <div className="funnel-step-title">
                                     {filters.funnel_order_type === StepOrderValue.UNORDERED ? (
                                         <span>Completed {humanizeOrder(step.order)} steps</span>
-                                    ) : featureFlags[FEATURE_FLAGS.RENAME_FILTERS] ? (
-                                        <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
                                     ) : (
-                                        <PropertyKeyInfo value={step.name} style={{ maxWidth: '100%' }} />
+                                        <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
                                     )}
                                 </div>
                                 {clickhouseFeaturesEnabled &&
