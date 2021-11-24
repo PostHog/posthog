@@ -205,7 +205,7 @@ def get_org_usage(
         usage["event_count_in_month_vs_previous"] = event_count_in_current_month - event_count_in_previous_month
         usage["session_recording_count_in_month"] = (
             SessionRecordingEvent.objects.filter(
-                team_id__in=team_ids, timestamp__gte=previous_month_start, timestamp__lte=previous_period_end,
+                team_id__in=team_ids, timestamp__gte=month_start, timestamp__lte=period_end,
             )
             .values("session_id")
             .distinct()

@@ -7,6 +7,7 @@ from freezegun import freeze_time
 
 from posthog.models import Event, FeatureFlag, Organization, Person, Team, User
 from posthog.models.organization import OrganizationMembership
+from posthog.models.session_recording_event import SessionRecordingEvent
 from posthog.tasks.org_usage_report import OrgReport, send_all_org_usage_reports
 from posthog.test.base import APIBaseTest
 from posthog.version import VERSION
@@ -15,6 +16,7 @@ from posthog.version import VERSION
 def factory_org_usage_report(
     _create_person: Callable,
     _create_event: Callable,
+    _create_session_recording: Callable,
     _send_all_org_usage_reports: Callable,
     _instance_settings: Dict[str, Any],
 ) -> "TestOrganizationUsageReport":
@@ -179,6 +181,33 @@ def factory_org_usage_report(
                     )
                     self.assertEqual(org_report_with_flag["feature_flag_count"], 1)
 
+                    # Create session recording events (backdated)
+                    _create_session_recording(
+                        distinct_id="new_user1",
+                        created_at=now() - relativedelta(days=2, minutes=2),
+                        team=default_team,
+                        session_id="session1_abcdef",
+                    )
+                    _create_session_recording(
+                        distinct_id="new_user1",
+                        created_at=now() - relativedelta(days=2, minutes=1),
+                        team=default_team,
+                        session_id="session1_abcdef",
+                    )
+                    _create_session_recording(
+                        distinct_id="new_user2",
+                        created_at=now() - relativedelta(days=2),
+                        team=default_team,
+                        session_id="session2_abcdef",
+                    )
+
+                    # Generate report and verify that 2 sessions are counted
+                    org_reports_with_recordings = _send_all_org_usage_reports(dry_run=True)
+                    org_report_with_recordings = self.select_report_by_org_id(
+                        str(default_team.organization.id), org_reports_with_recordings
+                    )
+                    self.assertEqual(org_report_with_recordings["session_recording_count_in_month"], 2)
+
     return TestOrganizationUsageReport  # type: ignore
 
 
@@ -201,5 +230,18 @@ def create_event_postgres(distinct_id: str, event: str, lib: str, created_at: da
     )
 
 
-class TestOrganizationUsageReport(factory_org_usage_report(create_person, create_event_postgres, send_all_org_usage_reports, {"EE_AVAILABLE": False, "USE_TZ": False})):  # type: ignore
+def create_session_recording_postgres(
+    distinct_id: str, created_at: datetime, team: Team, session_id: str
+) -> SessionRecordingEvent:
+    return SessionRecordingEvent.objects.create(
+        team=team,
+        distinct_id=distinct_id,
+        created_at=created_at,
+        timestamp=created_at,
+        session_id=session_id,
+        snapshot_data={},
+    )
+
+
+class TestOrganizationUsageReport(factory_org_usage_report(create_person, create_event_postgres, create_session_recording_postgres, send_all_org_usage_reports, {"EE_AVAILABLE": False, "USE_TZ": False})):  # type: ignore
     pass
