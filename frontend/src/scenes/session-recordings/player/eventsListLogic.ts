@@ -1,14 +1,13 @@
 import { kea } from 'kea'
-import { EventType, RecordingEventsFilters } from '~/types'
+import { RecordingEventsFilters, RecordingEventType } from '~/types'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { eventsListLogicType } from './eventsListLogicType'
 import { clamp, colonDelimitedDuration, findLastIndex, floorMsToClosestSecond, ceilMsToClosestSecond } from 'lib/utils'
-import { CellMeasurerCache } from 'react-virtualized/dist/commonjs/CellMeasurer'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import List, { RenderedRows } from 'react-virtualized/dist/commonjs/List'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-export const DEFAULT_ROW_HEIGHT = 50
+export const DEFAULT_ROW_HEIGHT = 65 // Two lines
 export const OVERSCANNED_ROW_COUNT = 50
 export const DEFAULT_SCROLLING_RESET_TIME_INTERVAL = 150 * 5 // https://github.com/bvaughn/react-virtualized/blob/abe0530a512639c042e74009fbf647abdb52d661/source/Grid/Grid.js#L42
 
@@ -16,7 +15,7 @@ export const eventsListLogic = kea<eventsListLogicType>({
     path: ['scenes', 'session-recordings', 'player', 'eventsListLogic'],
     connect: {
         logics: [eventUsageLogic],
-        actions: [sessionRecordingLogic, ['setFilters', 'loadEventsSuccess']],
+        actions: [sessionRecordingLogic, ['setFilters', 'loadEventsSuccess'], sessionRecordingPlayerLogic, ['seek']],
         values: [
             sessionRecordingLogic,
             ['eventsToShow', 'sessionEventsDataLoading', 'firstChunkLoaded'],
@@ -28,10 +27,10 @@ export const eventsListLogic = kea<eventsListLogicType>({
         setLocalFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
         setRenderedRows: (renderMeta: RenderedRows) => ({ renderMeta }),
         setList: (list: List) => ({ list }),
-        clearCellCache: true,
         enablePositionFinder: true,
         disablePositionFinder: true,
         scrollTo: (rowIndex?: number) => ({ rowIndex }),
+        handleEventClick: (time: number) => ({ time }),
     },
     reducers: {
         localFilters: [
@@ -66,20 +65,10 @@ export const eventsListLogic = kea<eventsListLogicType>({
             },
         ],
     },
-    listeners: ({ cache, actions, values }) => ({
+    listeners: ({ actions, values }) => ({
         setLocalFilters: async (_, breakpoint) => {
             await breakpoint(250)
             actions.setFilters(values.localFilters)
-            actions.clearCellCache()
-        },
-        loadEventsSuccess: () => {
-            // TODO: We could be smarter here and only clear the cache of event rows that were recently added
-            actions.clearCellCache()
-        },
-        clearCellCache: async (_, breakpoint) => {
-            await breakpoint(250)
-            cache.cellMeasurerCache?.clearAll()
-            values.list?.measureAllRows()
         },
         scrollTo: async ({ rowIndex: _rowIndex }, breakpoint) => {
             const rowIndex = _rowIndex ?? values.currentEventsIndices.startIndex
@@ -92,18 +81,22 @@ export const eventsListLogic = kea<eventsListLogicType>({
             await breakpoint(DEFAULT_SCROLLING_RESET_TIME_INTERVAL)
             actions.enablePositionFinder()
         },
+        handleEventClick: ({ time }) => {
+            if (!!time && !isNaN(time)) {
+                actions.seek(time)
+            }
+        },
     }),
-    selectors: ({ cache }) => ({
+    selectors: () => ({
         listEvents: [
             (selectors) => [selectors.eventsToShow],
-            (events: EventType[]) => {
+            (events: RecordingEventType[]): RecordingEventType[] => {
                 return events.map((e) => ({
                     ...e,
                     colonTimestamp: colonDelimitedDuration(Math.floor((e.zeroOffsetTime ?? 0) / 1000)),
                 }))
             },
         ],
-        cellMeasurerCache: [() => [], () => cache.cellMeasurerCache],
         currentEventsTimeRange: [
             (selectors) => [selectors.listEvents, selectors.zeroOffsetTime],
             (events, time) => {
@@ -111,9 +104,9 @@ export const eventsListLogic = kea<eventsListLogicType>({
                     return { start: 0, end: 0 }
                 }
                 const startIndex = events.findIndex(
-                    (e) => (e.zeroOffsetTime ?? 0) > ceilMsToClosestSecond(time.current)
+                    (e) => (e.zeroOffsetTime ?? 0) >= ceilMsToClosestSecond(time.current)
                 )
-                const end = ceilMsToClosestSecond(time.current)
+                const end = Math.max(ceilMsToClosestSecond(time.current), 1000)
                 const start = floorMsToClosestSecond(
                     events[clamp(startIndex === -1 ? events.length - 1 : startIndex - 1, 0, events.length - 1)]
                         .zeroOffsetTime ?? 0
@@ -200,18 +193,5 @@ export const eventsListLogic = kea<eventsListLogicType>({
             (selectors) => [selectors.sessionEventsDataLoading, selectors.firstChunkLoaded],
             (eventsLoading, firstChunkLoaded) => !firstChunkLoaded || eventsLoading,
         ],
-    }),
-    events: ({ cache, actions }) => ({
-        afterMount: () => {
-            cache.cellMeasurerCache = new CellMeasurerCache({
-                fixedWidth: true,
-                defaultHeight: DEFAULT_ROW_HEIGHT,
-            })
-            window.addEventListener('resize', actions.clearCellCache)
-        },
-        afterUnmount: () => {
-            cache.cellMeasurerCache = null
-            window.removeEventListener('resize', actions.clearCellCache)
-        },
     }),
 })

@@ -21,11 +21,16 @@ from ee.clickhouse.models.element import chain_to_elements
 from ee.clickhouse.models.event import ElementSerializer
 from ee.clickhouse.models.property import get_property_string_expr
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
-from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
+from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelActors
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
-from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_EVENTS, FunnelCorrelationType
+from posthog.constants import (
+    AUTOCAPTURE_EVENT,
+    TREND_FILTER_TYPE_ACTIONS,
+    TREND_FILTER_TYPE_EVENTS,
+    FunnelCorrelationType,
+)
 from posthog.models import Filter, Team
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
@@ -117,7 +122,7 @@ class FunnelCorrelation:
             # Funnel Step by default set to 1, to give us all people who entered the funnel
 
         # Used for generating the funnel persons cte
-        self._funnel_persons_generator = ClickhouseFunnelPersons(
+        self._funnel_persons_generator = ClickhouseFunnelActors(
             Filter(
                 data={
                     key: value
@@ -217,7 +222,7 @@ class FunnelCorrelation:
         """
         params = {
             **funnel_persons_params,
-            "funnel_step_names": [entity.id for entity in self._filter.events],
+            "funnel_step_names": self._get_funnel_step_names(),
             "target_step": len(self._filter.entities),
             "exclude_event_names": self._filter.correlation_event_exclude_names,
         }
@@ -296,7 +301,7 @@ class FunnelCorrelation:
         """
         params = {
             **funnel_persons_params,
-            "funnel_step_names": [entity.id for entity in self._filter.events],
+            "funnel_step_names": self._get_funnel_step_names(),
             "target_step": len(self._filter.entities),
             "event_names": self._filter.correlation_event_names,
             "exclude_property_names": self._filter.correlation_event_exclude_property_names,
@@ -503,6 +508,18 @@ class FunnelCorrelation:
             """,
                 person_property_params,
             )
+
+    def _get_funnel_step_names(self):
+        events = set()
+        for entity in self._filter.entities:
+            if entity.type == TREND_FILTER_TYPE_ACTIONS:
+                action = entity.get_action()
+                for action_step in action.steps.all():
+                    events.add(action_step.event)
+            else:
+                events.add(entity.id)
+
+        return sorted(list(events))
 
     def _run(self) -> Tuple[List[EventOddsRatio], bool]:
         """
@@ -738,10 +755,7 @@ class FunnelCorrelation:
 
     def get_funnel_persons_cte(self) -> Tuple[str, Dict[str, Any]]:
 
-        return (
-            self._funnel_persons_generator.get_query(extra_fields=["steps", "final_timestamp", "first_timestamp"]),
-            self._funnel_persons_generator.params,
-        )
+        return self._funnel_persons_generator.actor_query(extra_fields=["steps", "final_timestamp", "first_timestamp"])
 
     @staticmethod
     def are_results_insignificant(event_contingency_table: EventContingencyTable) -> bool:

@@ -20,6 +20,7 @@ import { ActionType, CohortType, KeyMapping, PropertyDefinition } from '~/types'
 import { AimOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { ActionSelectInfo } from 'scenes/insights/ActionSelectInfo'
+import { urls } from 'scenes/urls'
 
 enum ListTooltip {
     None = 0,
@@ -74,13 +75,7 @@ const renderItemPopup = (
             return (
                 <div style={{ width, overflowWrap: 'break-word' }}>
                     <AimOutlined /> Actions
-                    <Link
-                        to={`/action/${item.id}#backTo=Insights&backToURL=${encodeURIComponent(
-                            window.location.pathname + window.location.search
-                        )}`}
-                        style={{ float: 'right' }}
-                        tabIndex={-1}
-                    >
+                    <Link to={urls.action(item.id)} style={{ float: 'right' }} tabIndex={-1}>
                         edit
                     </Link>
                     <br />

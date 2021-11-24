@@ -44,11 +44,28 @@ describe('eventsListLogic', () => {
         })
     })
 
-    describe('cache clearing', () => {
-        it('recalculate row heights when events are loaded', async () => {
+    describe('handle event click', () => {
+        it('happy case', async () => {
             await expectLogic(logic, () => {
-                logic.actions.loadEventsSuccess({})
-            }).toDispatchActions(['clearCellCache'])
+                logic.actions.handleEventClick(10)
+            }).toDispatchActions(['handleEventClick', sessionRecordingPlayerLogic.actionCreators.seek(10)])
+        })
+
+        const nanInputs: Record<string, any> = {
+            null: null,
+            undefined: undefined,
+            '00:00:00': '00:00:00',
+            '2021-11-18T21:03:48.305000Z': '2021-11-18T21:03:48.305000Z',
+        }
+
+        Object.entries(nanInputs).forEach(([key, value]) => {
+            it(`NaN case: ${key}`, async () => {
+                await expectLogic(logic, async () => {
+                    logic.actions.handleEventClick(value)
+                })
+                    .toDispatchActions(['handleEventClick'])
+                    .toNotHaveDispatchedActions([sessionRecordingPlayerLogic.actionCreators.seek(value)])
+            })
         })
     })
 

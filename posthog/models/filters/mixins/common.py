@@ -1,6 +1,7 @@
 import datetime
 import json
 import re
+from dataclasses import dataclass
 from typing import Dict, List, Literal, Optional, Union, cast
 
 from dateutil.relativedelta import relativedelta
@@ -15,6 +16,7 @@ from posthog.constants import (
     BREAKDOWN_LIMIT,
     BREAKDOWN_TYPE,
     BREAKDOWN_VALUE,
+    BREAKDOWNS,
     COMPARE,
     DATE_FROM,
     DATE_TO,
@@ -43,6 +45,12 @@ from posthog.models.filters.utils import validate_group_type_index
 from posthog.utils import relative_date_parse
 
 ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-\*\^0-9\+\/\(\)]+)"
+
+
+@dataclass
+class Breakdown:
+    property: Union[str, int]
+    type: str
 
 
 class IntervalMixin(BaseParamMixin):
@@ -114,18 +122,31 @@ class FormulaMixin(BaseParamMixin):
 
 
 class BreakdownMixin(BaseParamMixin):
-    def _process_breakdown_param(self, breakdown: Optional[str]) -> Optional[Union[str, List[Union[str, int]]]]:
+    @cached_property
+    def breakdown(self) -> Optional[Union[str, List[Union[str, int]]]]:
+        breakdown = self._data.get(BREAKDOWN)
+
         if not isinstance(breakdown, str):
             return breakdown
+
         try:
             return json.loads(breakdown)
         except (TypeError, json.decoder.JSONDecodeError):
             return breakdown
 
     @cached_property
-    def breakdown(self) -> Optional[Union[str, List[Union[str, int]]]]:
-        breakdown = self._data.get(BREAKDOWN)
-        return self._process_breakdown_param(breakdown)
+    def breakdowns(self) -> Optional[List[Breakdown]]:
+        breakdowns = self._data.get(BREAKDOWNS)
+
+        if breakdowns is None:
+            return breakdowns
+
+        try:
+            loaded = json.loads(breakdowns)
+            breakdowns = [Breakdown(**item) for item in loaded]
+            return breakdowns
+        except (TypeError, json.decoder.JSONDecodeError) as e:
+            raise ValidationError(detail="breakdowns must be a list of Breakdown items, each with property and type")
 
     @cached_property
     def _breakdown_limit(self) -> Optional[int]:
@@ -140,6 +161,8 @@ class BreakdownMixin(BaseParamMixin):
         result: Dict = {}
         if self.breakdown:
             result[BREAKDOWN] = self.breakdown
+        if self.breakdowns:
+            result[BREAKDOWNS] = self.breakdowns
         if self._breakdown_limit:
             result[BREAKDOWN_LIMIT] = self._breakdown_limit
 

@@ -319,6 +319,7 @@ export interface PluginTask {
 
 export type WorkerMethods = {
     onEvent: (event: PluginEvent) => Promise<void>
+    onAction: (action: Action, event: PluginEvent) => Promise<void>
     onSnapshot: (event: PluginEvent) => Promise<void>
     processEvent: (event: PluginEvent) => Promise<PluginEvent | null>
     ingestEvent: (event: PluginEvent) => Promise<IngestEventResponse>
@@ -328,6 +329,7 @@ export type VMMethods = {
     setupPlugin?: () => Promise<void>
     teardownPlugin?: () => Promise<void>
     onEvent?: (event: PluginEvent) => Promise<void>
+    onAction?: (action: Action, event: PluginEvent) => Promise<void>
     onSnapshot?: (event: PluginEvent) => Promise<void>
     exportEvents?: (events: PluginEvent[]) => Promise<void>
     processEvent?: (event: PluginEvent) => Promise<PluginEvent>
@@ -727,7 +729,7 @@ export interface JobQueueConsumerControl {
     resume: () => Promise<void> | void
 }
 
-export type IngestEventResponse = { success?: boolean; error?: string }
+export type IngestEventResponse = { success?: boolean; error?: string; actionMatches?: Action[] }
 
 export interface EventDefinitionType {
     id: string
@@ -746,7 +748,7 @@ export interface PropertyDefinitionType {
     team_id: number
 }
 
-export type PluginFunction = 'onEvent' | 'processEvent' | 'onSnapshot' | 'pluginTask'
+export type PluginFunction = 'onEvent' | 'onAction' | 'processEvent' | 'onSnapshot' | 'pluginTask'
 
 export enum CeleryTriggeredJobOperation {
     Start = 'start',

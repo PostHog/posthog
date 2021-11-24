@@ -87,7 +87,6 @@ export function RetentionLineGraph({
                     loading={peopleLoading}
                     people={peopleData}
                     date={filters.date_to ? dayjs(filters.date_to).format('YYYY-MM-DD') : undefined}
-                    backTo="Insights"
                 />
                 <div
                     style={{

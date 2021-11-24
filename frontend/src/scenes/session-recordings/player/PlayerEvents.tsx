@@ -12,12 +12,15 @@ import {
     OverscanIndicesGetterParams,
 } from 'react-virtualized/dist/commonjs/Grid'
 import { AutoSizer } from 'react-virtualized/dist/commonjs/AutoSizer'
-import { CellMeasurer } from 'react-virtualized/dist/commonjs/CellMeasurer'
-import { eventsListLogic, OVERSCANNED_ROW_COUNT } from 'scenes/session-recordings/player/eventsListLogic'
+import {
+    eventsListLogic,
+    OVERSCANNED_ROW_COUNT,
+    DEFAULT_ROW_HEIGHT,
+} from 'scenes/session-recordings/player/eventsListLogic'
 import { AutocaptureIcon, EventIcon, PageleaveIcon, PageviewIcon } from 'lib/components/icons'
-import { capitalizeFirstLetter, eventToDescription, Loading } from 'lib/utils'
+import { capitalizeFirstLetter, eventToDescription, isEllipsisActive, Loading } from 'lib/utils'
 import { getKeyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { EventType } from '~/types'
+import { RecordingEventType } from '~/types'
 
 function overscanIndicesGetter({
     cellCount,
@@ -33,7 +36,7 @@ function overscanIndicesGetter({
     }
 }
 
-const renderIcon = (event: EventType): JSX.Element => {
+const renderIcon = (event: RecordingEventType): JSX.Element => {
     if (event.event === '$pageview') {
         return <PageviewIcon />
     }
@@ -56,12 +59,25 @@ function noRowsRenderer(): JSX.Element {
     )
 }
 
+function EventDescription({ description }: { description: string }): JSX.Element {
+    const ref = useRef<HTMLDivElement>(null)
+    return (
+        <span
+            className={clsx('event-item-content-subtitle', isEllipsisActive(ref.current) && 'overflowing')}
+            title={description}
+        >
+            <div className="inner" ref={ref}>
+                {description}
+            </div>
+        </span>
+    )
+}
+
 export function PlayerEvents(): JSX.Element {
     const listRef = useRef<List>(null)
     const {
         localFilters,
         listEvents,
-        cellMeasurerCache,
         currentEventsBoxSizeAndPosition,
         showPositionFinder,
         isRowIndexRendered,
@@ -70,7 +86,8 @@ export function PlayerEvents(): JSX.Element {
         renderedRows,
         isEventListLoading,
     } = useValues(eventsListLogic)
-    const { setLocalFilters, setRenderedRows, setList, scrollTo, disablePositionFinder } = useActions(eventsListLogic)
+    const { setLocalFilters, setRenderedRows, setList, scrollTo, disablePositionFinder, handleEventClick } =
+        useActions(eventsListLogic)
 
     useEffect(() => {
         if (listRef?.current) {
@@ -79,44 +96,45 @@ export function PlayerEvents(): JSX.Element {
     }, [listRef.current])
 
     const rowRenderer = useCallback(
-        function _rowRenderer({ index, style, key, parent }: ListRowProps): JSX.Element {
+        function _rowRenderer({ index, style, key }: ListRowProps): JSX.Element {
             const event = listEvents[index]
             const hasDescription = getKeyMapping(event.event, 'event')
+            const isCurrent = isEventCurrent(index)
 
             return (
-                <CellMeasurer cache={cellMeasurerCache} parent={parent} columnIndex={0} key={key} rowIndex={index}>
-                    <Row
-                        className={clsx('event-list-item', { 'current-event': isEventCurrent(index) })}
-                        align="top"
-                        style={style}
+                <Row
+                    key={key}
+                    className={clsx('event-list-item', { 'current-event': isCurrent })}
+                    align="top"
+                    style={{ ...style, zIndex: listEvents.length - index }}
+                    onClick={() => {
+                        handleEventClick(event.timestamp)
+                    }}
+                >
+                    <Col className="event-item-icon">
+                        <div className="event-item-icon-wrapper">{renderIcon(event)}</div>
+                    </Col>
+                    <Col
+                        className={clsx('event-item-content', {
+                            rendering: !isRowIndexRendered(index),
+                        })}
                     >
-                        <Col className="event-item-icon">
-                            <div className="event-item-icon-wrapper">{renderIcon(event)}</div>
-                        </Col>
-                        <Col
-                            className={clsx('event-item-content', {
-                                rendering: !isRowIndexRendered(index),
-                            })}
-                        >
-                            <Row className="event-item-content-top-row">
-                                <PropertyKeyInfo
-                                    className="event-item-content-title"
-                                    value={event.event}
-                                    disableIcon
-                                    disablePopover
-                                    ellipsis={true}
-                                />
-                                <span className="event-item-content-timestamp">{event.colonTimestamp}</span>
-                            </Row>
-                            {hasDescription && (
-                                <span className="event-item-content-subtitle">
-                                    {capitalizeFirstLetter(eventToDescription(event))}
-                                </span>
-                            )}
-                            <Skeleton active paragraph={{ rows: 2, width: ['40%', '100%'] }} title={false} />
-                        </Col>
-                    </Row>
-                </CellMeasurer>
+                        <Row className="event-item-content-top-row">
+                            <PropertyKeyInfo
+                                className="event-item-content-title"
+                                value={event.event}
+                                disableIcon
+                                disablePopover
+                                ellipsis={true}
+                            />
+                            <span className="event-item-content-timestamp">{event.colonTimestamp}</span>
+                        </Row>
+                        {hasDescription && (
+                            <EventDescription description={capitalizeFirstLetter(eventToDescription(event, true))} />
+                        )}
+                        <Skeleton active paragraph={{ rows: 2, width: ['40%', '100%'] }} title={false} />
+                    </Col>
+                </Row>
             )
         },
         [
@@ -201,12 +219,11 @@ export function PlayerEvents(): JSX.Element {
                                         onRowsRendered={setRenderedRows}
                                         noRowsRenderer={noRowsRenderer}
                                         cellRangeRenderer={cellRangeRenderer}
-                                        deferredMeasurementCache={cellMeasurerCache}
                                         overscanRowCount={OVERSCANNED_ROW_COUNT} // in case autoscrolling scrolls faster than we render.
                                         overscanIndicesGetter={overscanIndicesGetter}
                                         rowCount={listEvents.length}
                                         rowRenderer={rowRenderer}
-                                        rowHeight={cellMeasurerCache.rowHeight}
+                                        rowHeight={DEFAULT_ROW_HEIGHT}
                                     />
                                 )
                             }}

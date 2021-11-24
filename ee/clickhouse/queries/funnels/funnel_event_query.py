@@ -1,8 +1,9 @@
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Set, Tuple
 
 from ee.clickhouse.models.group import get_aggregation_target_field
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.models.property import GroupTypeIndex
 
 
 class FunnelEventQuery(ClickhouseEventQuery):

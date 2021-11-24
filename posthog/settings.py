@@ -29,6 +29,7 @@ from sentry_sdk.integrations.redis import RedisIntegration
 
 from posthog.constants import AnalyticsDBMS
 from posthog.utils import print_warning, str_to_bool
+from posthog.version_requirement import ServiceVersionRequirement
 
 
 def get_from_env(key: str, default: Any = None, *, optional: bool = False, type_cast: Optional[Callable] = None) -> Any:
@@ -49,6 +50,49 @@ def get_list(text: str) -> List[str]:
     if not text:
         return []
     return [item.strip() for item in text.split(",")]
+
+
+"""
+There are several options:
+1) running in pycharm
+        second argument is "test"
+2) running pytest at the CLI
+        first argument is the path to pytest and ends pytest
+3) running pytest using the script at /bin/tests
+        first argument is the path to pytest and ends pytest
+4) running in some other context (e.g. in prod)
+        first argument does not end pytest
+        second argument is not test
+
+Arguments to the application will be slightly different in each case
+
+So, in order to set test variables we need to look in slightly different places 
+
+The /bin/tests file also runs mypy to do type checking. This needs DEBUG=1 set too
+
+Running pytest directly does not always load django settings but sometimes needs these environment variables.
+We use pytest-env to let us set environment variables from the closest pytest.ini 
+
+We can't rely only on pytest.ini as some tests evaluate this file before its environment variables have been read
+"""
+runner = sys.argv[0] if len(sys.argv) >= 1 else None
+
+if runner:
+    cmd = sys.argv[1] if len(sys.argv) >= 2 else None
+
+    if cmd == "test" or runner.endswith("pytest") or runner.endswith("mypy"):
+        print("Running in test mode. Setting DEBUG and TEST environment variables.")
+        os.environ["DEBUG"] = "1"
+        os.environ["TEST"] = "1"
+
+        try:
+            path = sys.argv[2] if cmd == "test" else sys.argv[3]
+            if path.startswith("ee"):
+                print("Running EE tests. Setting clickhouse as primary database.")
+                os.environ["PRIMARY_DB"] = "clickhouse"
+        except IndexError:
+            # there was no path, we don't want to set PRIMARY_DB
+            pass
 
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
@@ -76,7 +120,6 @@ if env_feature_flags != "0" and env_feature_flags.lower() != "false" and not DEB
         # Add hard-coded feature flags for static releases here
         "3638-trailing-wau-mau",  # pending UI/UX improvements; functionality ready
         "5440-multivariate-support",
-        "6063-rename-filters",
         "4141-event-columns",
         "new-paths-ui",
         "new-paths-ui-edge-weights",
@@ -459,8 +502,10 @@ else:
 
 # Broker
 
+IS_COLLECT_STATIC = len(sys.argv) > 1 and sys.argv[1] == "collectstatic"
+
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
-if TEST or DEBUG or (len(sys.argv) > 1 and sys.argv[1] == "collectstatic"):
+if TEST or DEBUG or IS_COLLECT_STATIC:
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost/")
 else:
     REDIS_URL = os.getenv("REDIS_URL", "")
@@ -688,3 +733,20 @@ structlog.configure(
 
 # keep in sync with plugin-server
 EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC = "events_added_to_dead_letter_queue"
+
+SKIP_SERVICE_VERSION_REQUIREMENTS = get_from_env(
+    "SKIP_SERVICE_VERSION_REQUIREMENTS", TEST or IS_COLLECT_STATIC, type_cast=str_to_bool
+)
+
+if SKIP_SERVICE_VERSION_REQUIREMENTS:
+    print_warning("Skipping service version requirements. This is dangerous and PostHog might not work as expected!")
+
+SERVICE_VERSION_REQUIREMENTS = [
+    ServiceVersionRequirement(service="postgresql", supported_version=">=11.0.0,<=14.1.0",),
+    ServiceVersionRequirement(service="redis", supported_version=">=5.0.0,<=6.3.0",),
+]
+
+if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
+    SERVICE_VERSION_REQUIREMENTS = SERVICE_VERSION_REQUIREMENTS + [
+        ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0,<21.7.0"),
+    ]
