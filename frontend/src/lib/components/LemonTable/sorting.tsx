@@ -1,9 +1,5 @@
 import React from 'react'
-import {
-    ArrowDownOutlined,
-    ArrowUpOutlined,
-    MenuOutlined,
-} from '@ant-design/icons'
+import { ArrowDownOutlined, ArrowUpOutlined, MenuOutlined } from '@ant-design/icons'
 
 /** 1 means ascending, -1 means descending. */
 export type SortOrder = 1 | -1
@@ -32,18 +28,20 @@ export function getNextSorting(
     }
 }
 
-export function SortingIndicator({ order }: { order: SortOrder | null}): JSX.Element {
-    return <div
-        style={{
-            fontSize: 10,
-            marginLeft: 8,
-            whiteSpace: 'nowrap',
-            width: 20,
-            display: 'flex',
-            justifyContent: 'center',
-        }}
-    >
-        {order === -1 ? <ArrowDownOutlined /> : order === 1 ? <ArrowUpOutlined /> : null}
-        <MenuOutlined />
-    </div>
+export function SortingIndicator({ order }: { order: SortOrder | null }): JSX.Element {
+    return (
+        <div
+            style={{
+                fontSize: 10,
+                marginLeft: 8,
+                whiteSpace: 'nowrap',
+                width: 20,
+                display: 'flex',
+                justifyContent: 'center',
+            }}
+        >
+            {order === -1 ? <ArrowDownOutlined /> : order === 1 ? <ArrowUpOutlined /> : null}
+            <MenuOutlined />
+        </div>
+    )
 }

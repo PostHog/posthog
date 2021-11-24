@@ -7,12 +7,7 @@ import { deleteWithUndo } from 'lib/utils'
 import React from 'react'
 import { DashboardItemType, LayoutView, SavedInsightsTabs, InsightType } from '~/types'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
-import {
-    AppstoreFilled,
-    StarFilled,
-    StarOutlined,
-    UnorderedListOutlined,
-} from '@ant-design/icons'
+import { AppstoreFilled, StarFilled, StarOutlined, UnorderedListOutlined } from '@ant-design/icons'
 import './SavedInsights.scss'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { DashboardItem, displayMap, getDisplayedType } from 'scenes/dashboard/DashboardItem'
