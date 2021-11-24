@@ -41,7 +41,7 @@ def protect_old_clients_from_multi_property_default(
                     if isinstance(data["breakdown_value"], List):
                         copied_result[series_index][data_index]["breakdown_value"] = data["breakdown_value"][0]
                 if is_multi_property_breakdown:
-                    breakdowns = copied_result[series_index][data_index].pop("breakdown")
+                    breakdowns = copied_result[series_index][data_index].pop("breakdown", None)
                     copied_result[series_index][data_index]["breakdowns"] = breakdowns
         return copied_result
     else:
