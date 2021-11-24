@@ -139,6 +139,7 @@ export function FeatureFlags(): JSX.Element {
             />
             <div>
                 <Input.Search
+                    placeholder="Search for feature flags"
                     allowClear
                     enterButton
                     style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
