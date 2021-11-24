@@ -567,6 +567,10 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                         ? (results as FunnelStep[] | FunnelStep[][])
                         : []
 
+                if (!Array.isArray(stepResults)) {
+                    return []
+                }
+
                 let stepsWithNestedBreakdown: FunnelStepWithNestedBreakdown[] = []
                 if (isBreakdownFunnelResults(results) && isValidBreakdownParameter(apiParams.breakdown)) {
                     stepsWithNestedBreakdown = aggregateBreakdownResult(results, apiParams.breakdown ?? undefined).sort(
@@ -574,9 +578,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                     )
                 }
 
-                if (!Array.isArray(stepResults)) {
-                    return []
-                }
                 return !!filters.breakdown
                     ? stepsWithNestedBreakdown
                     : ([...stepResults] as FunnelStep[]).sort((a, b) => a.order - b.order)

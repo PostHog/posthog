@@ -1,5 +1,5 @@
 import { DEFAULT_EXCLUDED_PERSON_PROPERTIES, funnelLogic } from './funnelLogic'
-import { api, defaultAPIMocks, mockAPI, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
+import { api, defaultAPIMocks, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import posthog from 'posthog-js'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
@@ -11,9 +11,9 @@ import {
     FunnelCorrelation,
     FunnelCorrelationResultsType,
     FunnelCorrelationType,
-    TeamType,
-    InsightType,
     FunnelVizType,
+    InsightType,
+    TeamType,
 } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -46,10 +46,43 @@ describe('funnelLogic', () => {
                 results: [{ people: [] }],
             }
         } else if (url.pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/`) {
+            let data: Record<string, any>[] = [{ result: 'from api' }]
+            const currentTestName = expect.getState().currentTestName
+            console.log(currentTestName)
+            if (currentTestName === 'funnelLogic loading data can load a funnel with no breakdown') {
+                data = [
+                    {
+                        action_id: '$pageview',
+                        name: '$pageview',
+                        custom_name: null,
+                        order: 0,
+                        people: [],
+                        count: 1,
+                        type: 'events',
+                        average_conversion_time: null,
+                        median_conversion_time: null,
+                        converted_people_url: '/api/person/funnel/?blah=etc',
+                        dropped_people_url: null,
+                    },
+                    {
+                        action_id: '$pageview',
+                        name: '$pageview',
+                        custom_name: null,
+                        order: 1,
+                        people: [],
+                        count: 1,
+                        type: 'events',
+                        average_conversion_time: 605.3581661891118,
+                        median_conversion_time: 3,
+                        converted_people_url: '/api/person/funnel/?blah=etc',
+                        dropped_people_url: '/api/person/funnel/?blah=etc',
+                    },
+                ]
+            }
             return {
                 is_cached: true,
                 last_refresh: '2021-09-16T13:41:41.297295Z',
-                result: ['result from api'],
+                result: data,
                 type: 'Funnel',
             }
         } else if (
@@ -197,6 +230,286 @@ describe('funnelLogic', () => {
         onLogic: (l) => (logic = l),
     })
 
+    describe('loading data', () => {
+        it('can load a funnel with no breakdown', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({
+                    insight: InsightType.FUNNELS,
+                    actions: [],
+                    events: [
+                        { id: '$pageview', name: '$pageview', type: 'events', order: 0 },
+                        { id: '$pageview', type: 'events', order: 1, name: '$pageview' },
+                    ],
+                    interval: 'day',
+                    funnel_to_step: 1,
+                    funnel_viz_type: 'steps',
+                    exclusions: [],
+                    funnel_from_step: 0,
+                })
+            }).toMatchValues({
+                steps: [
+                    {
+                        action_id: '$pageview',
+                        average_conversion_time: null,
+                        converted_people_url: '/api/person/funnel/?blah=etc',
+                        count: 1,
+                        custom_name: null,
+                        dropped_people_url: null,
+                        median_conversion_time: null,
+                        name: '$pageview',
+                        order: 0,
+                        people: [],
+                        type: 'events',
+                    },
+                    {
+                        action_id: '$pageview',
+                        average_conversion_time: 605.3581661891118,
+                        converted_people_url: '/api/person/funnel/?blah=etc',
+                        count: 1,
+                        custom_name: null,
+                        dropped_people_url: '/api/person/funnel/?blah=etc',
+                        median_conversion_time: 3,
+                        name: '$pageview',
+                        order: 1,
+                        people: [],
+                        type: 'events',
+                    },
+                ],
+                stepsWithCount: [
+                    {
+                        action_id: '$pageview',
+                        average_conversion_time: null,
+                        converted_people_url: '/api/person/funnel/?blah=etc',
+                        count: 1,
+                        custom_name: null,
+                        dropped_people_url: null,
+                        median_conversion_time: null,
+                        name: '$pageview',
+                        order: 0,
+                        people: [],
+                        type: 'events',
+                    },
+                    {
+                        action_id: '$pageview',
+                        average_conversion_time: 605.3581661891118,
+                        converted_people_url: '/api/person/funnel/?blah=etc',
+                        count: 1,
+                        custom_name: null,
+                        dropped_people_url: '/api/person/funnel/?blah=etc',
+                        median_conversion_time: 3,
+                        name: '$pageview',
+                        order: 1,
+                        people: [],
+                        type: 'events',
+                    },
+                ],
+                stepsWithConversionMetrics: [
+                    {
+                        action_id: '$pageview',
+                        average_conversion_time: null,
+                        conversionRates: {
+                            fromBasisStep: 1,
+                            fromPrevious: 1,
+                            total: 1,
+                        },
+                        converted_people_url: '/api/person/funnel/?blah=etc',
+                        count: 1,
+                        custom_name: null,
+                        droppedOffFromPrevious: 0,
+                        dropped_people_url: null,
+                        median_conversion_time: null,
+                        name: '$pageview',
+                        order: 0,
+                        people: [],
+                        type: 'events',
+                    },
+                    {
+                        action_id: '$pageview',
+                        average_conversion_time: 605.3581661891118,
+                        conversionRates: {
+                            fromBasisStep: 1,
+                            fromPrevious: 1,
+                            total: 1,
+                        },
+                        converted_people_url: '/api/person/funnel/?blah=etc',
+                        count: 1,
+                        custom_name: null,
+                        droppedOffFromPrevious: 0,
+                        dropped_people_url: '/api/person/funnel/?blah=etc',
+                        median_conversion_time: 3,
+                        name: '$pageview',
+                        order: 1,
+                        people: [],
+                        type: 'events',
+                    },
+                ],
+                flattenedSteps: [
+                    {
+                        action_id: '$pageview',
+                        average_conversion_time: null,
+                        conversionRates: {
+                            fromBasisStep: 1,
+                            fromPrevious: 1,
+                            total: 1,
+                        },
+                        converted_people_url: '/api/person/funnel/?blah=etc',
+                        count: 1,
+                        custom_name: null,
+                        droppedOffFromPrevious: 0,
+                        dropped_people_url: null,
+                        isBreakdownParent: false,
+                        median_conversion_time: null,
+                        name: '$pageview',
+                        nestedRowKeys: [],
+                        order: 0,
+                        people: [],
+                        rowKey: 0,
+                        type: 'events',
+                    },
+                    {
+                        action_id: '$pageview',
+                        average_conversion_time: 605.3581661891118,
+                        conversionRates: {
+                            fromBasisStep: 1,
+                            fromPrevious: 1,
+                            total: 1,
+                        },
+                        converted_people_url: '/api/person/funnel/?blah=etc',
+                        count: 1,
+                        custom_name: null,
+                        droppedOffFromPrevious: 0,
+                        dropped_people_url: '/api/person/funnel/?blah=etc',
+                        isBreakdownParent: false,
+                        median_conversion_time: 3,
+                        name: '$pageview',
+                        nestedRowKeys: [],
+                        order: 1,
+                        people: [],
+                        rowKey: 1,
+                        type: 'events',
+                    },
+                ],
+                flattenedStepsByBreakdown: [
+                    {
+                        rowKey: 'steps-meta',
+                    },
+                    {
+                        rowKey: 'graph',
+                    },
+                    {
+                        rowKey: 'table-header',
+                    },
+                    {
+                        breakdown: 'baseline',
+                        breakdownIndex: 0,
+                        breakdown_value: 'Baseline',
+                        conversionRates: {
+                            total: 1,
+                        },
+                        isBaseline: true,
+                        rowKey: 'baseline',
+                        steps: [
+                            {
+                                action_id: '$pageview',
+                                average_conversion_time: null,
+                                breakdown_value: 'Baseline',
+                                conversionRates: {
+                                    fromBasisStep: 1,
+                                    fromPrevious: 1,
+                                    total: 1,
+                                },
+                                converted_people_url: '/api/person/funnel/?blah=etc',
+                                count: 1,
+                                custom_name: null,
+                                droppedOffFromPrevious: 0,
+                                dropped_people_url: null,
+                                median_conversion_time: null,
+                                name: '$pageview',
+                                order: 0,
+                                people: [],
+                                type: 'events',
+                            },
+                            {
+                                action_id: '$pageview',
+                                average_conversion_time: 605.3581661891118,
+                                breakdown_value: 'Baseline',
+                                conversionRates: {
+                                    fromBasisStep: 1,
+                                    fromPrevious: 1,
+                                    total: 1,
+                                },
+                                converted_people_url: '/api/person/funnel/?blah=etc',
+                                count: 1,
+                                custom_name: null,
+                                droppedOffFromPrevious: 0,
+                                dropped_people_url: '/api/person/funnel/?blah=etc',
+                                median_conversion_time: 3,
+                                name: '$pageview',
+                                order: 1,
+                                people: [],
+                                type: 'events',
+                            },
+                        ],
+                    },
+                ],
+                flattenedBreakdowns: [
+                    {
+                        breakdown: 'baseline',
+                        breakdownIndex: 0,
+                        breakdown_value: 'Baseline',
+                        conversionRates: {
+                            total: 1,
+                        },
+                        isBaseline: true,
+                        rowKey: 'baseline',
+                        steps: [
+                            {
+                                action_id: '$pageview',
+                                average_conversion_time: null,
+                                breakdown_value: 'Baseline',
+                                conversionRates: {
+                                    fromBasisStep: 1,
+                                    fromPrevious: 1,
+                                    total: 1,
+                                },
+                                converted_people_url: '/api/person/funnel/?blah=etc',
+                                count: 1,
+                                custom_name: null,
+                                droppedOffFromPrevious: 0,
+                                dropped_people_url: null,
+                                median_conversion_time: null,
+                                name: '$pageview',
+                                order: 0,
+                                people: [],
+                                type: 'events',
+                            },
+                            {
+                                action_id: '$pageview',
+                                average_conversion_time: 605.3581661891118,
+                                breakdown_value: 'Baseline',
+                                conversionRates: {
+                                    fromBasisStep: 1,
+                                    fromPrevious: 1,
+                                    total: 1,
+                                },
+                                converted_people_url: '/api/person/funnel/?blah=etc',
+                                count: 1,
+                                custom_name: null,
+                                droppedOffFromPrevious: 0,
+                                dropped_people_url: '/api/person/funnel/?blah=etc',
+                                median_conversion_time: 3,
+                                name: '$pageview',
+                                order: 1,
+                                people: [],
+                                type: 'events',
+                            },
+                        ],
+                    },
+                ],
+            })
+        })
+    })
+
     describe('core assumptions', () => {
         it('mounts all sorts of logics', async () => {
             await expectLogic(logic).toMount([
@@ -247,7 +560,7 @@ describe('funnelLogic', () => {
                                 { id: '$pageview', order: 1 },
                             ],
                         },
-                        result: ['result from api'],
+                        result: [{ result: 'from api' }],
                     }),
                     filters: {
                         insight: InsightType.FUNNELS,
