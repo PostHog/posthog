@@ -243,12 +243,16 @@ export function LemonTable<T extends Record<string, any>>({
                                                 })
                                             }
                                         >
-                                            {' '}
                                             <div className="LemonTable__header-content">
                                                 {column.title}
                                                 {column.sorter && (
                                                     <SortingIndicator
-                                                        order={currentSorting ? currentSorting.order : null}
+                                                        order={
+                                                            currentSorting?.columnKey ===
+                                                            determineColumnKey(column, 'sorting')
+                                                                ? currentSorting.order
+                                                                : null
+                                                        }
                                                     />
                                                 )}
                                             </div>
