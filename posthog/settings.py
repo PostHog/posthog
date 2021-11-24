@@ -120,7 +120,6 @@ if env_feature_flags != "0" and env_feature_flags.lower() != "false" and not DEB
         # Add hard-coded feature flags for static releases here
         "3638-trailing-wau-mau",  # pending UI/UX improvements; functionality ready
         "5440-multivariate-support",
-        "6063-rename-filters",
         "4141-event-columns",
         "new-paths-ui",
         "new-paths-ui-edge-weights",

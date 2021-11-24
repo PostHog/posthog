@@ -49,6 +49,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     /** What to show when there's no data. By default it's generic "No data" */
     emptyState?: React.ReactNode
     'data-attr'?: string
+    /** Class name to append to each row */
+    rowClassName?: string
 }
 
 export function LemonTable<T extends Record<string, any>>({
@@ -61,6 +63,7 @@ export function LemonTable<T extends Record<string, any>>({
     pagination,
     defaultSorting,
     emptyState = 'No data',
+    rowClassName,
     ...divProps
 }: LemonTableProps<T>): JSX.Element {
     /** Search param that will be used for storing and syncing the current page */
@@ -198,6 +201,7 @@ export function LemonTable<T extends Record<string, any>>({
                                         key={`LemonTable-row-${rowKey ? data[rowKey] : currentStartIndex + rowIndex}`}
                                         data-row-key={rowKey ? data[rowKey] : rowIndex}
                                         {...onRow?.(data)}
+                                        className={rowClassName}
                                     >
                                         {columns.map((column, columnIndex) => {
                                             const value = column.dataIndex ? data[column.dataIndex] : undefined

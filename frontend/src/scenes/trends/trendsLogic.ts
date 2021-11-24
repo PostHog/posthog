@@ -141,6 +141,7 @@ export const trendsLogic = kea<trendsLogicType>({
             const { filters } = values
             const response = await api.get(values.loadMoreBreakdownUrl)
             insightLogic(props).actions.loadResultsSuccess({
+                ...values.insight,
                 result: [...values.results, ...(response.result ? response.result : [])],
                 filters: filters,
                 next: response.next,
