@@ -32,7 +32,7 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
                 <PersonPageHeader hideGroupTabs={!!cohort} />
                 <Row style={{ gap: '0.75rem' }} className="mb" align="middle" justify="space-between">
                     <PersonsSearch autoFocus={!cohort} />
-                    <Row style={{ gap: '0.75rem' }} className="mb" align="middle">
+                    <Row style={{ gap: '0.75rem' }} align="middle">
                         <Radio.Group
                             buttonStyle="solid"
                             onChange={(e) => {
