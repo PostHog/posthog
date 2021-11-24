@@ -56,9 +56,9 @@ describe('sceneLogic', () => {
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
             scene: Scene.Annotations,
         })
-        router.actions.push(urls.savedInsights())
+        router.actions.push(urls.mySettings())
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
-            scene: Scene.SavedInsights,
+            scene: Scene.MySettings,
         })
     })
 
