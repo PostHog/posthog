@@ -134,7 +134,6 @@ export function FunnelTabWithSimpleMode(): JSX.Element {
                                     onChange={(newValue) => {
                                         setFilters({ aggregation_group_type_index: newValue })
                                     }}
-                                    style={{ flexGrow: 1 }}
                                 />
                             </div>
                         </Row>

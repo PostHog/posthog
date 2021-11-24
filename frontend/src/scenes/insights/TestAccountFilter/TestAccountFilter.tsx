@@ -27,23 +27,25 @@ export function TestAccountFilter({
             }
         >
             <Row style={{ alignItems: 'center', flexWrap: 'nowrap' }}>
-                <Link to="/project/settings#internal-users-filtering">
-                    <SettingOutlined
+                <div>
+                    <Link to="/project/settings#internal-users-filtering">
+                        <SettingOutlined
+                            style={{
+                                marginRight: 4,
+                                fontSize: '0.85em',
+                            }}
+                        />
+                    </Link>
+                    <label
                         style={{
-                            marginRight: 4,
-                            fontSize: '0.85em',
+                            marginRight: 6,
+                            fontWeight: 500,
                         }}
-                    />
-                </Link>
-                <label
-                    style={{
-                        marginRight: 6,
-                        fontWeight: 500,
-                    }}
-                    htmlFor="text-account-filter"
-                >
-                    Filter out internal and test users
-                </label>
+                        htmlFor="text-account-filter"
+                    >
+                        Filter out internal and test users
+                    </label>
+                </div>
                 <LemonSwitch
                     disabled={!hasFilters}
                     checked={hasFilters ? !!filters.filter_test_accounts : false}
