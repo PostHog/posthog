@@ -1,7 +1,6 @@
 from infi.clickhouse_orm import migrations
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.materialized_columns.columns import get_materialized_columns
 from ee.clickhouse.sql.session_recording_events import (
     SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL,
     SESSION_RECORDING_EVENTS_TABLE,
@@ -10,11 +9,6 @@ from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_REPLICATION
 
 
 def create_has_full_snapshot_materialized_column(database):
-
-    if "has_full_snapshot" in get_materialized_columns(SESSION_RECORDING_EVENTS_TABLE, use_cache=False):
-        # Field is already materialized
-        return
-
     if CLICKHOUSE_REPLICATION:
         sync_execute(
             f"""
