@@ -11,22 +11,6 @@ import { appScenes } from 'scenes/appScenes'
 
 jest.mock('lib/api')
 
-const expectedAnnotation = partial({
-    name: Scene.Annotations,
-    component: expect.any(Function),
-    logic: expect.any(Function),
-    sceneParams: { hashParams: {}, params: {}, searchParams: {} },
-    lastTouch: expect.any(Number),
-})
-
-const expectedDashboard = partial({
-    name: Scene.Dashboard,
-    component: expect.any(Function),
-    logic: expect.any(Function),
-    sceneParams: { hashParams: {}, params: { id: '123' }, searchParams: {} },
-    lastTouch: expect.any(Number),
-})
-
 describe('sceneLogic', () => {
     let logic: ReturnType<typeof sceneLogic.build>
 
@@ -63,6 +47,21 @@ describe('sceneLogic', () => {
     })
 
     it('persists the loaded scenes', async () => {
+        const expectedAnnotation = partial({
+            name: Scene.Annotations,
+            component: expect.any(Function),
+            logic: expect.any(Function),
+            sceneParams: { hashParams: {}, params: {}, searchParams: {} },
+            lastTouch: expect.any(Number),
+        })
+
+        const expectedMySettings = partial({
+            name: Scene.MySettings,
+            component: expect.any(Function),
+            sceneParams: { hashParams: {}, params: {}, searchParams: {} },
+            lastTouch: expect.any(Number),
+        })
+
         await expectLogic(logic)
             .delay(1)
             .toMatchValues({
@@ -70,13 +69,13 @@ describe('sceneLogic', () => {
                     [Scene.Annotations]: expectedAnnotation,
                 }),
             })
-        router.actions.push(urls.dashboard(123))
+        router.actions.push(urls.mySettings())
         await expectLogic(logic)
             .delay(1)
             .toMatchValues({
                 loadedScenes: partial({
                     [Scene.Annotations]: expectedAnnotation,
-                    [Scene.Dashboard]: expectedDashboard,
+                    [Scene.MySettings]: expectedMySettings,
                 }),
             })
     })
