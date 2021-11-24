@@ -20,7 +20,7 @@ describe('cleanFilters', () => {
             )
         ).toEqual(
             expect.objectContaining({
-                insight: InsightType.RETENTION,
+                insight: InsightType.TRENDS,
                 display: ChartDisplayType.ActionsBarChartValue,
                 breakdown: 'email',
             })
