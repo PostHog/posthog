@@ -22,13 +22,13 @@ import { featureFlagLogic } from './featureFlagLogic'
 import { featureFlagLogic as featureFlagClientLogic } from 'lib/logic/featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
-import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { IconExternalLink, IconJavascript, IconPython } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SceneExport } from 'scenes/sceneTypes'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { APISnippet, JSSnippet, PythonSnippet } from 'scenes/feature-flags/FeatureFlagSnippets'
+import { LemonSpacer } from 'lib/components/LemonRow'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -72,6 +72,8 @@ export function FeatureFlag(): JSX.Element {
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
     // whether to warn the user that their variants will be lost
     const [showVariantDiscardWarning, setShowVariantDiscardWarning] = useState(false)
+
+    const aggregationTargetName = 'users'
 
     useEffect(() => {
         form.setFieldsValue({ ...featureFlag })
@@ -453,9 +455,10 @@ export function FeatureFlag(): JSX.Element {
                         </div>
                     )}
 
-                    <h3 className="l3">Release condition groups ({featureFlag.filters.groups.length})</h3>
+                    <h3 className="l3">Release conditions</h3>
                     <div className="text-muted mb">
-                        Specify which users or groups of users to which you want to release this flag.
+                        Specify the {aggregationTargetName} to which you want to release this flag. Note that condition
+                        sets are rolled out independently of each other.
                     </div>
                     <Button
                         type="dashed"
@@ -468,9 +471,8 @@ export function FeatureFlag(): JSX.Element {
                     </Button>
                     <Row gutter={16}>
                         {featureFlag.filters.groups.map((group, index) => (
-                            <Col span={24} md={12} key={`${index}-${featureFlag.filters.groups.length}`}>
+                            <Col span={24} md={24} key={`${index}-${featureFlag.filters.groups.length}`}>
                                 <Card style={{ position: 'relative', marginBottom: 32, paddingBottom: 16 }}>
-                                    {index > 0 && <div className="stateful-badge pos-center-end or">OR</div>}
                                     {featureFlag.filters.groups.length > 1 && (
                                         <>
                                             <span style={{ position: 'absolute', top: 0, right: 0, margin: 4 }}>
@@ -498,62 +500,54 @@ export function FeatureFlag(): JSX.Element {
                                         </>
                                     )}
 
-                                    <Form.Item style={{ position: 'relative', marginBottom: 16 }}>
-                                        {group.properties?.length ? (
-                                            <b>Matching users with filters</b>
-                                        ) : (
-                                            <b>
-                                                {featureFlag.filters.groups.length > 1 ? 'Group will match ' : 'Match '}
-                                                <span style={{ color: 'var(--warning)' }}>all users</span>
-                                            </b>
-                                        )}
-                                        <PropertyFilters
-                                            pageKey={`feature-flag-${featureFlag.id}-${index}-${featureFlag.filters.groups.length}`}
-                                            propertyFilters={group?.properties}
-                                            onChange={(properties) => updateMatchGroup(index, undefined, properties)}
-                                            endpoint="person"
-                                            taxonomicGroupTypes={[
-                                                TaxonomicFilterGroupType.PersonProperties,
-                                                TaxonomicFilterGroupType.Cohorts,
-                                            ]}
-                                            showConditionBadge
-                                        />
-                                    </Form.Item>
-
-                                    <Form.Item style={{ marginBottom: 0 }}>
-                                        <>
-                                            <Checkbox
-                                                checked={!!group.rollout_percentage}
-                                                onChange={(e) =>
-                                                    e.target.checked
-                                                        ? updateMatchGroup(index, 30)
-                                                        : updateMatchGroup(index, null)
-                                                }
-                                                data-attr="feature-flag-switch"
-                                            >
-                                                <b>
-                                                    Roll out to only a percentage of users
-                                                    {featureFlag.filters.groups.length > 1 && ' in this group'}
-                                                </b>
-                                            </Checkbox>
-                                            {group.rollout_percentage === null ? (
-                                                <div className="mt">
-                                                    Rolling out to <b>100%</b> of users
-                                                    {featureFlag.filters.groups.length > 1 && ' in this group'}
-                                                </div>
+                                    <div className="flag-form-row">
+                                        <div>
+                                            <Tag color="blue">Set 1</Tag>
+                                            {group.properties?.length ? (
+                                                <>
+                                                    Matching <b>{aggregationTargetName}</b> with filters
+                                                </>
                                             ) : (
-                                                <Slider
-                                                    tooltipPlacement="top"
-                                                    tipFormatter={(value) => value + '%'}
-                                                    tooltipVisible
-                                                    value={group.rollout_percentage}
-                                                    onChange={(value: number) => {
-                                                        updateMatchGroup(index, value)
-                                                    }}
-                                                />
+                                                <>
+                                                    Condition set will match <b>all {aggregationTargetName}</b>
+                                                </>
                                             )}
-                                        </>
-                                    </Form.Item>
+                                        </div>
+                                        <div>Duplicate delete</div>
+                                    </div>
+
+                                    <LemonSpacer />
+                                    <PropertyFilters
+                                        pageKey={`feature-flag-${featureFlag.id}-${index}-${featureFlag.filters.groups.length}`}
+                                        propertyFilters={group?.properties}
+                                        onChange={(properties) => updateMatchGroup(index, undefined, properties)}
+                                        endpoint="person"
+                                        taxonomicGroupTypes={[
+                                            TaxonomicFilterGroupType.PersonProperties,
+                                            TaxonomicFilterGroupType.Cohorts,
+                                        ]}
+                                        showConditionBadge
+                                    />
+                                    <LemonSpacer />
+
+                                    <div className="flag-form-row">
+                                        <div>
+                                            Roll out to{' '}
+                                            {group.rollout_percentage != null ? group.rollout_percentage : 100}% of{' '}
+                                            <b>{aggregationTargetName}</b> in this set
+                                        </div>
+
+                                        <Slider
+                                            data-attr="feature-flag-rollout-slider"
+                                            style={{ width: '50%' }}
+                                            tooltipPlacement="top"
+                                            tipFormatter={(value) => value + '%'}
+                                            value={group.rollout_percentage != null ? group.rollout_percentage : 100}
+                                            onChange={(value: number) => {
+                                                updateMatchGroup(index, value)
+                                            }}
+                                        />
+                                    </div>
                                 </Card>
                             </Col>
                         ))}
