@@ -18,7 +18,7 @@ export interface Sorting {
 
 export interface LemonTableColumn<T extends Record<string, any>, D extends keyof T> {
     title?: string | React.ReactNode
-    key?: keyof T
+    key?: string
     dataIndex?: D
     render?: (dataValue: T[D] | undefined, record: T) => React.ReactNode | string | boolean | null | undefined
     sorter?: (a: T, b: T) => number
