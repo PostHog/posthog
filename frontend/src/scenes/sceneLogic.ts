@@ -30,7 +30,9 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
 }
 
 export const sceneLogic = kea<sceneLogicType>({
-    props: {} as { scenes?: Record<Scene, () => any> },
+    props: {} as {
+        scenes?: Record<Scene, () => any>
+    },
     path: ['scenes', 'sceneLogic'],
     actions: {
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -148,7 +150,14 @@ export const sceneLogic = kea<sceneLogicType>({
     urlToAction: ({ actions }) => {
         const mapping: Record<
             string,
-            (params: Params, searchParams: Params, hashParams: Params, payload: { method: string }) => any
+            (
+                params: Params,
+                searchParams: Params,
+                hashParams: Params,
+                payload: {
+                    method: string
+                }
+            ) => any
         > = {}
 
         for (const path of Object.keys(redirects)) {

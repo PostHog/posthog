@@ -16,7 +16,7 @@ export function CorrelationMatrix(): JSX.Element {
     const logic = funnelLogic(insightProps)
     const { funnelCorrelationDetailsParams, correlationsLoading, correlationDetails, parseDisplayNameForCorrelation } =
         useValues(logic)
-    const { setFilters } = useActions(logic)
+    const { setFunnelCorrelationDetailsParams } = useActions(logic)
 
     let displayName = <></>
 
@@ -36,7 +36,7 @@ export function CorrelationMatrix(): JSX.Element {
     }
 
     const dismiss = (): void => {
-        setFilters({ funnel_correlation_details: undefined })
+        setFunnelCorrelationDetailsParams(null)
     }
 
     return (

@@ -2,7 +2,7 @@ import { BreakPointFunction, kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { average, autoCaptureEventToDescription, successToast, sum, fromParamsGivenUrl } from 'lib/utils'
+import { average, autoCaptureEventToDescription, successToast, sum } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
 import {
@@ -60,6 +60,7 @@ import { userLogic } from 'scenes/userLogic'
 import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilitySensorLogic'
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { groupsModel } from '~/models/groupsModel'
+import { router } from 'kea-router'
 
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 // Chosen via heuristics by eyeballing some values
@@ -171,7 +172,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         addNestedTableExpandedKey: (expandKey: string) => ({ expandKey }),
         removeNestedTableExpandedKey: (expandKey: string) => ({ expandKey }),
 
-        setFunnelCorrelationDetailsParams: (payload: FunnelCorrelationDetails) => ({ payload }),
+        setFunnelCorrelationDetailsParams: (payload: FunnelCorrelationDetails | null) => ({ payload }),
     }),
 
     loaders: ({ values }) => ({
@@ -1355,13 +1356,26 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/insights': (_, __, { funnel_correlation_details }: { funnel_correlation_details?: string }) => {
+        '/insights': (
+            _,
+            __,
+            {
+                funnel_correlation_details,
+            }: {
+                funnel_correlation_details?: FunnelCorrelationDetails
+            }
+        ) => {
             if (funnel_correlation_details) {
-                actions.setFunnelCorrelationDetailsParams(
-                    fromParamsGivenUrl(funnel_correlation_details) as FunnelCorrelationDetails
-                )
+                actions.setFunnelCorrelationDetailsParams(funnel_correlation_details)
             }
         },
+    }),
+    actionToUrl: () => ({
+        setFunnelCorrelationDetailsParams: ({ payload }) => [
+            '/insights',
+            router.values.searchParams,
+            { ...router.values.hashParams, funnel_correlation_details: payload ?? undefined },
+        ],
     }),
 })
 
