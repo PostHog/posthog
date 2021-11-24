@@ -197,10 +197,7 @@ export function FunnelTabWithSimpleMode(): JSX.Element {
                             <h4 className="secondary" style={{ flexGrow: 1 }}>
                                 Advanced options{' '}
                                 {!advancedMode && !!advancedOptionsUsedCount && (
-                                    <Tag className="lemonade-tag">{`${pluralize(
-                                        advancedOptionsUsedCount,
-                                        'option'
-                                    )} applied`}</Tag>
+                                    <Tag className="lemonade-tag">{advancedOptionsUsedCount}</Tag>
                                 )}
                             </h4>
                             <div>
