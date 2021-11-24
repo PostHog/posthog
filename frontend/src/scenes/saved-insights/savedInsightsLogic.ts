@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
+import { errorToast, objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
 import { DashboardItemType, LayoutView, SavedInsightsTabs } from '~/types'
 import { savedInsightsLogicType } from './savedInsightsLogicType'
 import { prompt } from 'lib/logic/prompt'
@@ -242,17 +242,26 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         [urls.savedInsights()]: async (_, searchParams, hashParams) => {
             if (hashParams.fromItem && String(hashParams.fromItem).match(/^[0-9]+$/)) {
                 // `fromItem` for legacy /insights url redirect support
+                const insightId = parseInt(hashParams.fromItem)
                 try {
                     const { short_id }: DashboardItemType = await api.get(
-                        `api/projects/${teamLogic.values.currentTeamId}/insights/${hashParams.fromItem}`
+                        `api/projects/${teamLogic.values.currentTeamId}/insights/${insightId}`
                     )
+                    if (!short_id) {
+                        throw new Error('Could not find short_id')
+                    }
                     router.actions.replace(
                         hashParams.edit
                             ? urls.insightEdit(short_id, searchParams)
                             : urls.insightView(short_id, searchParams)
                     )
                 } catch (e) {
-                    router.actions.push(urls.e)
+                    errorToast(
+                        'Could not find insight',
+                        `The insight with the id "${insightId}" could not be retrieved.`,
+                        ' ' // adding a " " removes "Unknown Exception" from the toast
+                    )
+                    router.actions.push(urls.savedInsights())
                 }
                 return
             } else if (searchParams.insight) {
