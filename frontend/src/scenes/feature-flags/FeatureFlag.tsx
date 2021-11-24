@@ -61,8 +61,8 @@ export function FeatureFlag(): JSX.Element {
         variantRolloutSum,
     } = useValues(featureFlagLogic)
     const {
-        addMatchGroup,
-        updateMatchGroup,
+        addConditionSet,
+        updateConditionSet,
         removeConditionSet,
         duplicateConditionSet,
         saveFeatureFlag,
@@ -514,7 +514,7 @@ export function FeatureFlag(): JSX.Element {
                                         style={{ marginLeft: 15 }}
                                         pageKey={`feature-flag-${featureFlag.id}-${index}-${featureFlag.filters.groups.length}`}
                                         propertyFilters={group?.properties}
-                                        onChange={(properties) => updateMatchGroup(index, undefined, properties)}
+                                        onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                         endpoint="person"
                                         taxonomicGroupTypes={[
                                             TaxonomicFilterGroupType.PersonProperties,
@@ -530,7 +530,7 @@ export function FeatureFlag(): JSX.Element {
                                             <InputNumber
                                                 style={{ width: 100, marginLeft: 8, marginRight: 8 }}
                                                 onChange={(value): void => {
-                                                    updateMatchGroup(index, value as number)
+                                                    updateConditionSet(index, value as number)
                                                 }}
                                                 value={
                                                     group.rollout_percentage != null ? group.rollout_percentage : 100
@@ -549,7 +549,7 @@ export function FeatureFlag(): JSX.Element {
                                             tipFormatter={(value) => value + '%'}
                                             value={group.rollout_percentage != null ? group.rollout_percentage : 100}
                                             onChange={(value: number) => {
-                                                updateMatchGroup(index, value)
+                                                updateConditionSet(index, value)
                                             }}
                                         />
                                     </div>
@@ -558,7 +558,7 @@ export function FeatureFlag(): JSX.Element {
                         ))}
                     </Row>
                     <Card size="small" style={{ marginBottom: 16 }}>
-                        <Button type="link" onClick={addMatchGroup} style={{ marginLeft: 5 }}>
+                        <Button type="link" onClick={addConditionSet} style={{ marginLeft: 5 }}>
                             <PlusOutlined style={{ marginRight: 15 }} /> Add condition set
                         </Button>
                     </Card>
