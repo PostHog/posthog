@@ -171,7 +171,7 @@ export function CorrelationMatrix(): JSX.Element {
                                     </td>
                                 </tr>
                                 <tr>
-                                    <td className="horizontal-header"></td>
+                                    <td className="horizontal-header" />
                                     <td>
                                         <b>100%</b>
                                     </td>
