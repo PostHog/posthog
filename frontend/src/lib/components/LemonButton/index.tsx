@@ -69,7 +69,8 @@ export interface LemonButtonWithSideActionProps extends LemonButtonPropsBase {
 export function LemonButtonWithSideAction({ sideAction, ...buttonProps }: LemonButtonWithSideActionProps): JSX.Element {
     return (
         <div className="LemonButtonWithSideAction">
-            <LemonButton {...buttonProps} />
+            {/* Bogus `sideIcon` div prevents overflow under the side button. */}
+            <LemonButton {...buttonProps} sideIcon={<div />} />{' '}
             <LemonButton className="side-button" compact {...sideAction} />
         </div>
     )
