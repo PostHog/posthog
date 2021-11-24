@@ -1,16 +1,18 @@
 export interface PaginationBase {
-    /** Size of each page (except the last one which can be smaller)/ */
-    pageSize: number
     /** By default pagination is only shown when there are multiple pages, but will always shown if this is `false`. */
     hideOnSinglePage?: boolean
 }
 
 export interface PaginationAuto extends PaginationBase {
     controlled?: false
+    /** Size of each page (except the last one which can be smaller)/ */
+    pageSize: number
 }
 
 export interface PaginationManual extends PaginationBase {
     controlled: true
+    /** Size of each page (except the last one which can be smaller)/ */
+    pageSize?: number
     /** Page currently on display. */
     currentPage?: number
     /** Total entry count for determining current position using `currentPage`. If not set, position is not shown. */

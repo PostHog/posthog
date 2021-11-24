@@ -101,13 +101,12 @@ export function LemonTable<T extends Record<string, any>>({
     /** Number of entries in total. */
     const entryCount: number | null = pagination?.controlled ? pagination.entryCount || null : dataSource.length
     /** Number of pages. */
-    const pageCount: number | null = entryCount && (pagination ? Math.ceil(entryCount / pagination.pageSize) : 1)
+    const pageCount: number | null =
+        entryCount && (pagination ? (pagination.pageSize ? Math.ceil(entryCount / pagination.pageSize) : 1) : null)
     /** Page adjusted for `pageCount` possibly having gotten smaller since last page param update. */
     const currentPage: number | null = pagination?.controlled
         ? pagination.currentPage || null
         : Math.min(parseInt(searchParams[currentPageParam]) || 1, pageCount as number)
-    /** Whether there's reason to show pagination. */
-    const showPagination: boolean = pageCount === null || pageCount > 1 || pagination?.hideOnSinglePage === true
     /** Whether pages previous and next are available. */
     const isPreviousAvailable: boolean =
         currentPage !== null ? currentPage > 1 : !!(pagination?.controlled && pagination.onBackward)
@@ -115,6 +114,8 @@ export function LemonTable<T extends Record<string, any>>({
         currentPage !== null && pageCount !== null
             ? currentPage < pageCount
             : !!(pagination?.controlled && pagination.onForward)
+    /** Whether there's reason to show pagination. */
+    const showPagination: boolean = isPreviousAvailable || isNextAvailable || pagination?.hideOnSinglePage === false
 
     const updateIsScrollable = useCallback(() => {
         const element = scrollRef.current
@@ -153,7 +154,8 @@ export function LemonTable<T extends Record<string, any>>({
                 processedDataSource = processedDataSource.slice().sort((a, b) => sortOrder * sorter(a, b))
             }
         }
-        const calculatedStartIndex = pagination && currentPage ? (currentPage - 1) * pagination.pageSize : 0
+        const calculatedStartIndex =
+            pagination && currentPage && pagination.pageSize ? (currentPage - 1) * pagination.pageSize : 0
         const calculatedFrame =
             pagination && !pagination.controlled
                 ? processedDataSource.slice(calculatedStartIndex, calculatedStartIndex + pagination.pageSize)
