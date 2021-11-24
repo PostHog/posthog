@@ -1,3 +1,4 @@
+import re
 from typing import List, cast
 from unittest.case import skip
 from uuid import uuid4
@@ -22,6 +23,7 @@ from posthog.constants import INSIGHT_FUNNELS
 from posthog.models import Element
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
+from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
@@ -1331,3 +1333,145 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             ClickhouseFunnel(Filter(data=filter_with_breakdown), self.team).run()
         except KeyError as ke:
             assert False, f"Should not have raised a key error: {ke}"
+
+    @snapshot_clickhouse_queries
+    def test_funnel_with_cohorts_step_filter(self):
+
+        _create_person(distinct_ids=["user_1"], team_id=self.team.pk, properties={"email": "n@test.com"})
+        _create_event(
+            team=self.team, event="user signed up", distinct_id="user_1", timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team, event="paid", distinct_id="user_1", timestamp="2020-01-10T14:00:00Z",
+        )
+
+        _create_person(distinct_ids=["user_2"], team_id=self.team.pk)
+        _create_event(
+            team=self.team, event="user signed up", distinct_id="user_2", timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team, event="paid", distinct_id="user_2", timestamp="2020-01-10T14:00:00Z",
+        )
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}]}],
+        )
+
+        filters = {
+            "events": [
+                {
+                    "id": "user signed up",
+                    "type": "events",
+                    "order": 0,
+                    "properties": [{"type": "cohort", "key": "id", "value": cohort.pk}],
+                },
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+        }
+
+        result = ClickhouseFunnel(Filter(data=filters), self.team).run()
+
+        self.assertEqual(result[0]["name"], "user signed up")
+        self.assertEqual(result[0]["count"], 1)
+
+        self.assertEqual(result[1]["name"], "paid")
+        self.assertEqual(result[1]["count"], 1)
+
+    @snapshot_clickhouse_queries
+    def test_funnel_with_precalculated_cohort_step_filter(self):
+
+        _create_person(distinct_ids=["user_1"], team_id=self.team.pk, properties={"email": "n@test.com"})
+        _create_event(
+            team=self.team, event="user signed up", distinct_id="user_1", timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team, event="paid", distinct_id="user_1", timestamp="2020-01-10T14:00:00Z",
+        )
+
+        _create_person(distinct_ids=["user_2"], team_id=self.team.pk)
+        _create_event(
+            team=self.team, event="user signed up", distinct_id="user_2", timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team, event="paid", distinct_id="user_2", timestamp="2020-01-10T14:00:00Z",
+        )
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}]}],
+        )
+
+        filters = {
+            "events": [
+                {
+                    "id": "user signed up",
+                    "type": "events",
+                    "order": 0,
+                    "properties": [{"type": "precalculated-cohort", "key": "id", "value": cohort.pk}],
+                },
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+        }
+
+        # converts to precalculated-cohort due to simplify filters
+        cohort.calculate_people_ch()
+
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+            result = ClickhouseFunnel(Filter(data=filters), self.team).run()
+            self.assertEqual(result[0]["name"], "user signed up")
+            self.assertEqual(result[0]["count"], 1)
+
+            self.assertEqual(result[1]["name"], "paid")
+            self.assertEqual(result[1]["count"], 1)
+
+    @snapshot_clickhouse_queries
+    def test_funnel_with_static_cohort_step_filter(self):
+
+        _create_person(distinct_ids=["user_1"], team_id=self.team.pk, properties={"email": "n@test.com"})
+        _create_event(
+            team=self.team, event="user signed up", distinct_id="user_1", timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team, event="paid", distinct_id="user_1", timestamp="2020-01-10T14:00:00Z",
+        )
+
+        _create_person(distinct_ids=["user_2"], team_id=self.team.pk)
+        _create_event(
+            team=self.team, event="user signed up", distinct_id="user_2", timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team, event="paid", distinct_id="user_2", timestamp="2020-01-10T14:00:00Z",
+        )
+
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+        cohort.insert_users_by_list(["user_2", "rando"])
+
+        filters = {
+            "events": [
+                {
+                    "id": "user signed up",
+                    "type": "events",
+                    "order": 0,
+                    "properties": [{"type": "static-cohort", "key": "id", "value": cohort.pk}],
+                },
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+        }
+
+        result = ClickhouseFunnel(Filter(data=filters), self.team).run()
+
+        self.assertEqual(result[0]["name"], "user signed up")
+        self.assertEqual(result[0]["count"], 1)
+
+        self.assertEqual(result[1]["name"], "paid")
+        self.assertEqual(result[1]["count"], 1)
