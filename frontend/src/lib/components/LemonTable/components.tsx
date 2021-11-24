@@ -32,7 +32,7 @@ export function TableRow<T extends Record<string, any>>({
                     <td>
                         {rowExpandable && (
                             <LemonButton
-                                type="stealth"
+                                type={isRowExpanded ? 'highlighted' : 'stealth'}
                                 onClick={() => setIsRowExpanded((state) => !state)}
                                 icon={isRowExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                 tooltip={isRowExpanded ? 'Shrink' : 'Expand'}
