@@ -62,7 +62,6 @@ export function FunnelStepTable(): JSX.Element | null {
     function getColumns(): ColumnsType<FlattenedFunnelStep> | ColumnsType<FlattenedFunnelStepByBreakdown> {
         if (isNewVertical) {
             const _columns: ColumnsType<FlattenedFunnelStepByBreakdown> = []
-            const useCustomName = !!featureFlags[FEATURE_FLAGS.RENAME_FILTERS]
             const isOnlySeries = flattenedBreakdowns.length === 1
 
             _columns.push({
@@ -115,8 +114,7 @@ export function FunnelStepTable(): JSX.Element | null {
                         />,
                         showLabels,
                         undefined,
-                        dashboardItemId,
-                        useCustomName
+                        dashboardItemId
                     )
                 },
                 fixed: 'left',
@@ -147,8 +145,7 @@ export function FunnelStepTable(): JSX.Element | null {
                         renderColumnTitle('Breakdown'),
                         showLabels,
                         undefined,
-                        dashboardItemId,
-                        useCustomName
+                        dashboardItemId
                     )
                 },
                 fixed: 'left',
@@ -165,8 +162,7 @@ export function FunnelStepTable(): JSX.Element | null {
                         renderSubColumnTitle('Rate'),
                         showLabels,
                         undefined,
-                        dashboardItemId,
-                        useCustomName
+                        dashboardItemId
                     )
                 },
                 fixed: 'left',
@@ -204,8 +200,7 @@ export function FunnelStepTable(): JSX.Element | null {
                             ),
                             showLabels,
                             step,
-                            dashboardItemId,
-                            useCustomName
+                            dashboardItemId
                         )
                     },
                     width: 80,
@@ -245,8 +240,7 @@ export function FunnelStepTable(): JSX.Element | null {
                             renderSubColumnTitle('Rate'),
                             showLabels,
                             step,
-                            dashboardItemId,
-                            useCustomName
+                            dashboardItemId
                         )
                     },
                     width: 80,
@@ -286,8 +280,7 @@ export function FunnelStepTable(): JSX.Element | null {
                                 ),
                                 showLabels,
                                 step,
-                                dashboardItemId,
-                                useCustomName
+                                dashboardItemId
                             )
                         },
                         width: 80,
@@ -328,8 +321,7 @@ export function FunnelStepTable(): JSX.Element | null {
                                 renderSubColumnTitle('Rate'),
                                 showLabels,
                                 step,
-                                dashboardItemId,
-                                useCustomName
+                                dashboardItemId
                             )
                         },
                         width: 80,
@@ -354,8 +346,7 @@ export function FunnelStepTable(): JSX.Element | null {
                                 renderSubColumnTitle('Avg. time'),
                                 showLabels,
                                 step,
-                                dashboardItemId,
-                                useCustomName
+                                dashboardItemId
                             )
                         },
                         width: 80,
@@ -457,7 +448,7 @@ export function FunnelStepTable(): JSX.Element | null {
                         iconStyle={{ marginRight: 12 }}
                         hideIcon={!isBreakdownChild}
                         allowWrap
-                        useCustomName={!!featureFlags[FEATURE_FLAGS.RENAME_FILTERS]}
+                        useCustomName
                     />
                 )
             },

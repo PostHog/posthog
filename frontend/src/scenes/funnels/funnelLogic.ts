@@ -520,7 +520,8 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                     }
                 }
 
-                // Handle metrics for steps and trends
+                // Handle metrics for steps
+                // no concept of funnel_from_step and funnel_to_step here
                 if (stepsWithCount.length <= 1) {
                     return {
                         averageTime: 0,
@@ -529,16 +530,14 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                     }
                 }
 
-                const isAllSteps = loadedFilters.funnel_from_step === -1
-                const fromStep = isAllSteps
-                    ? getReferenceStep(stepsWithCount, FunnelStepReference.total)
-                    : stepsWithCount[loadedFilters.funnel_from_step ?? 0]
-                const toStep = isAllSteps
-                    ? getLastFilledStep(stepsWithCount)
-                    : stepsWithCount[loadedFilters.funnel_to_step ?? 0]
+                const toStep = getLastFilledStep(stepsWithCount)
+                const fromStep = getReferenceStep(stepsWithCount, FunnelStepReference.total)
 
                 return {
-                    averageTime: toStep?.average_conversion_time || 0,
+                    averageTime: stepsWithCount.reduce(
+                        (conversion_time, step) => conversion_time + (step.average_conversion_time || 0),
+                        0
+                    ),
                     stepRate: toStep.count / fromStep.count,
                     totalRate: stepsWithCount[stepsWithCount.length - 1].count / stepsWithCount[0].count,
                 }
@@ -1086,7 +1085,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             }
 
             // load correlation table after funnel. Maybe parallel?
-            if (values.correlationAnalysisAvailable) {
+            if (values.correlationAnalysisAvailable && insight.filters?.funnel_viz_type === FunnelVizType.Steps) {
                 actions.loadCorrelations()
                 actions.setPropertyNames(values.allProperties) // select all properties by default
             }

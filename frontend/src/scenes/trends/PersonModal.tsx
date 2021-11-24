@@ -68,7 +68,8 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
     )
 
     const isDownloadCsvAvailable = view === InsightType.TRENDS
-    const isSaveAsCohortAvailable = clickhouseFeaturesEnabled
+    const isSaveAsCohortAvailable =
+        clickhouseFeaturesEnabled && (view === InsightType.TRENDS || view === InsightType.STICKINESS)
 
     return (
         <Modal
