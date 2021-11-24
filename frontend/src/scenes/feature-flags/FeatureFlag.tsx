@@ -516,8 +516,9 @@ export function FeatureFlag(): JSX.Element {
                                         <div>Duplicate delete</div>
                                     </div>
 
-                                    <LemonSpacer />
+                                    <LemonSpacer large />
                                     <PropertyFilters
+                                        style={{ marginLeft: 15 }}
                                         pageKey={`feature-flag-${featureFlag.id}-${index}-${featureFlag.filters.groups.length}`}
                                         propertyFilters={group?.properties}
                                         onChange={(properties) => updateMatchGroup(index, undefined, properties)}
@@ -528,13 +529,23 @@ export function FeatureFlag(): JSX.Element {
                                         ]}
                                         showConditionBadge
                                     />
-                                    <LemonSpacer />
+                                    <LemonSpacer large />
 
                                     <div className="flag-form-row">
                                         <div>
                                             Roll out to{' '}
-                                            {group.rollout_percentage != null ? group.rollout_percentage : 100}% of{' '}
-                                            <b>{aggregationTargetName}</b> in this set
+                                            <InputNumber
+                                                style={{ width: 70 }}
+                                                onChange={(value): void => {
+                                                    updateMatchGroup(index, value as number)
+                                                }}
+                                                value={
+                                                    group.rollout_percentage != null ? group.rollout_percentage : 100
+                                                }
+                                                min={0}
+                                                max={100}
+                                            />{' '}
+                                            of <b>{aggregationTargetName}</b> in this set
                                         </div>
 
                                         <Slider
