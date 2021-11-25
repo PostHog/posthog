@@ -55,14 +55,16 @@ export function Annotations(): JSX.Element {
         },
         {
             title: 'For date',
+            dataIndex: 'date_marker',
             render: function RenderDateMarker(_, annotation: AnnotationType): JSX.Element {
                 return <span>{dayjs(annotation.date_marker).format('MMMM DD, YYYY')}</span>
             },
             sorter: (a, b) => dayjs(a.date_marker).diff(b.date_marker),
         },
-        createdByColumn() as LemonTableColumn<AnnotationType, keyof AnnotationType>,
+        createdByColumn() as LemonTableColumn<AnnotationType, keyof AnnotationType | undefined>,
         {
             title: 'Last updated',
+            dataIndex: 'updated_at',
             render: function RenderLastUpdated(_, annotation: AnnotationType): JSX.Element {
                 return <TZLabel time={annotation.updated_at} />
             },

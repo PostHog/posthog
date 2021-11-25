@@ -8,7 +8,6 @@ import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { PersonType } from '~/types'
 import { RetentionTrendPayload, RetentionTrendPeoplePayload } from 'scenes/retention/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { dayjs } from 'lib/dayjs'
 
 interface RetentionLineGraphProps {
     dashboardItemId?: number | null
@@ -79,11 +78,7 @@ export function RetentionLineGraph({
                 ) : (
                     <p>Loading persons…</p>
                 )}
-                <PersonsTable
-                    loading={peopleLoading}
-                    people={peopleData}
-                    date={filters.date_to ? dayjs(filters.date_to).format('YYYY-MM-DD') : undefined}
-                />
+                <PersonsTable loading={peopleLoading} people={peopleData} compact />
                 <div
                     style={{
                         margin: '1rem',
