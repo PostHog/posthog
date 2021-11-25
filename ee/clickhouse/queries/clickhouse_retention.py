@@ -2,7 +2,7 @@ from typing import Any, Dict, Iterable, List, Tuple, cast
 
 from django.db.models.query import Prefetch
 
-from ee.clickhouse.client import sync_execute
+from ee.clickhouse.client import substitute_params, sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.person import get_persons_by_uuids
 from ee.clickhouse.models.property import parse_prop_clauses
@@ -45,10 +45,13 @@ class ClickhouseRetention(Retention):
         date_from = filter.date_from
         trunc_func = get_trunc_func_ch(period)
 
-        returning_event_query, returning_event_params = RetentionEventsQuery(
+        returning_event_query_templated, returning_event_params = RetentionEventsQuery(
             filter=filter, team_id=team.pk, event_query_type=RetentionQueryType.RETURNING
         ).get_query()
-        target_event_query, target_event_params = RetentionEventsQuery(
+
+        returning_event_query = substitute_params(returning_event_query_templated, returning_event_params)
+
+        target_event_query_templated, target_event_params = RetentionEventsQuery(
             filter=filter,
             team_id=team.pk,
             event_query_type=RetentionQueryType.TARGET_FIRST_TIME
@@ -56,27 +59,28 @@ class ClickhouseRetention(Retention):
             else RetentionQueryType.TARGET,
         ).get_query()
 
+        target_event_query = substitute_params(target_event_query_templated, target_event_params)
+
         all_params = {
             "team_id": team.pk,
             "start_date": date_from.strftime(
                 "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
             ),
-            **returning_event_params,
-            **target_event_params,
             "period": period,
         }
 
         result = sync_execute(
-            RETENTION_SQL.format(
+            substitute_params(RETENTION_SQL, all_params).format(
                 returning_event_query=returning_event_query,
                 trunc_func=trunc_func,
                 target_event_query=target_event_query,
-            ),
-            all_params,
+            )
         )
 
         initial_interval_result = sync_execute(
-            INITIAL_INTERVAL_SQL.format(reference_event_sql=target_event_query, trunc_func=trunc_func,), all_params
+            substitute_params(INITIAL_INTERVAL_SQL, all_params).format(
+                reference_event_sql=target_event_query, trunc_func=trunc_func,
+            ),
         )
 
         result_dict = {}

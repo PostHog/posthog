@@ -3,7 +3,7 @@ import hashlib
 import json
 import types
 from time import perf_counter
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 import sqlparse
 from aioch import Client
@@ -67,7 +67,7 @@ def make_ch_pool(**overrides) -> ChPool:
 
 
 if PRIMARY_DB != AnalyticsDBMS.CLICKHOUSE:
-    ch_client = None  # type: Client
+    ch_client: Optional[Client] = None
 
     class ClickHouseNotConfigured(NotImplementedError):
         def __init__(self, msg='This function only works if PRIMARY_DB is set to indicate ClickHouse!"', *args):
@@ -166,6 +166,9 @@ else:
                     save_query(prepared_sql, execution_time)
         return result
 
+    def substitute_params(query, params):
+        return cast(SyncClient, ch_client).substitute_params(query, params)
+
 
 def _prepare_query(client: SyncClient, query: str, args: QueryArgs):
     """
@@ -189,10 +192,10 @@ def _prepare_query(client: SyncClient, query: str, args: QueryArgs):
     clickhouse_driver at this moment in time decides based on the
     below predicate.
     """
-    if isinstance(args, (list, tuple, types.GeneratorType)):
+    if args is None or isinstance(args, (list, tuple, types.GeneratorType)):
         rendered_sql = query
     else:
-        rendered_sql = client.substitute_params(query, args or {})
+        rendered_sql = client.substitute_params(query, args)
         args = None
 
     formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)
