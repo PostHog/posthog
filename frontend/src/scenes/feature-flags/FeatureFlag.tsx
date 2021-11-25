@@ -325,7 +325,7 @@ export function FeatureFlag(): JSX.Element {
                                 </Popconfirm>
                             </div>
                             <div className="text-muted mb">
-                                Users will be served{' '}
+                                {capitalizeFirstLetter(aggregationTargetName)} will be served{' '}
                                 {multivariateEnabled ? (
                                     <>
                                         <strong>a variant key</strong> according to the below distribution
@@ -477,7 +477,7 @@ export function FeatureFlag(): JSX.Element {
                         </div>
                         {showGroupsOptions && (
                             <div className="centered">
-                                Entity
+                                Match by
                                 <Select
                                     value={
                                         featureFlag.filters.aggregation_group_type_index != null
