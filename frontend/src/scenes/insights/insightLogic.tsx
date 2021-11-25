@@ -581,7 +581,7 @@ export const insightLogic = kea<insightLogicType>({
             actions.setInsight(insight, { fromPersistentApi: true })
             savedInsightsLogic.findMounted()?.actions.loadInsights()
             if (values.syncWithUrl) {
-                router.actions.push(urls.insightEdit(insight.id))
+                router.actions.push(urls.insightEdit(insight.id, values.filters))
             }
         },
         loadInsightSuccess: async ({ payload, insight }) => {
