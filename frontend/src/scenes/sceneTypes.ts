@@ -84,7 +84,7 @@ export interface SceneConfig {
     onlyUnauthenticated?: boolean
     /** Route **can** be accessed when logged out (i.e. can be accessed when logged in too; should be added to posthog/urls.py too) */
     allowUnauthenticated?: boolean
-    /** Hides some navigation UI like the sidebar and breaddcrumbs. */
+    /** Hides most navigation UI, like the sidebar and breadcrumbs. */
     plain?: boolean
     /** Hides demo project warnings (DemoWarning.tsx) */
     hideDemoWarnings?: boolean
