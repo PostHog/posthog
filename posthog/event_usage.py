@@ -7,11 +7,13 @@ from typing import Any, Dict, List, Optional
 import posthoganalytics
 
 from posthog.models import Organization, User
+from posthog.models.team import Team
+from posthog.settings import SITE_URL
 from posthog.utils import get_instance_realm
 
 
 def report_user_signed_up(
-    distinct_id: str,
+    user: User,
     is_instance_first_user: bool,
     is_organization_first_user: bool,
     new_onboarding_enabled: bool = False,
@@ -41,8 +43,10 @@ def report_user_signed_up(
             props[f"org__{k}"] = v
 
     # TODO: This should be $set_once as user props.
-    posthoganalytics.identify(distinct_id, props)
-    posthoganalytics.capture(distinct_id, "user signed up", properties=props)
+    posthoganalytics.identify(user.distinct_id, props)
+    posthoganalytics.capture(
+        user.distinct_id, "user signed up", properties=props, groups=groups(user.organization, user.team),
+    )
 
 
 def report_user_joined_organization(organization: Organization, current_user: User) -> None:
@@ -59,9 +63,11 @@ def report_user_joined_organization(organization: Organization, current_user: Us
             "org_current_project_count": organization.teams.count(),
             "org_current_members_count": organization.memberships.count(),
         },
+        groups=groups(organization),
     )
 
 
+# :TODO:
 def report_user_logged_in(
     distinct_id: str,
     social_provider: str = "",  # which third-party provider processed the login (empty = no third-party)
@@ -82,7 +88,10 @@ def report_onboarding_completed(organization: Organization, current_user: User) 
     # TODO: This should be $set_once as user props.
     posthoganalytics.identify(current_user.distinct_id, {"onboarding_completed": True})
     posthoganalytics.capture(
-        current_user.distinct_id, "onboarding completed", properties={"team_members_count": team_members_count},
+        current_user.distinct_id,
+        "onboarding completed",
+        properties={"team_members_count": team_members_count},
+        groups=groups(organization, current_user.current_team),
     )
 
 
@@ -93,7 +102,10 @@ def report_user_updated(user: User, updated_attrs: List[str]) -> None:
 
     updated_attrs.sort()
     posthoganalytics.capture(
-        user.distinct_id, "user updated", properties={"updated_attrs": updated_attrs},
+        user.distinct_id,
+        "user updated",
+        properties={"updated_attrs": updated_attrs},
+        groups=groups(user.current_organization, user.current_team),
     )
 
 
@@ -101,9 +113,12 @@ def report_user_password_reset(user: User) -> None:
     """
     Reports a user resetting their password.
     """
-    posthoganalytics.capture(user.distinct_id, "user password reset")
+    posthoganalytics.capture(
+        user.distinct_id, "user password reset", groups=groups(user.current_organization, user.current_team)
+    )
 
 
+# :TODO:
 def report_team_member_invited(
     distinct_id: str, name_provided: bool, current_invite_count: int, current_member_count: int, email_available: bool,
 ) -> None:
@@ -123,6 +138,7 @@ def report_team_member_invited(
     )
 
 
+# :TODO:
 def report_bulk_invited(
     distinct_id: str,
     invitee_count: int,
@@ -147,6 +163,7 @@ def report_bulk_invited(
     )
 
 
+# :TODO:
 def report_org_usage(distinct_id: str, properties: Dict[str, Any]) -> None:
     """
     Triggered daily by Celery scheduler.
@@ -156,5 +173,15 @@ def report_org_usage(distinct_id: str, properties: Dict[str, Any]) -> None:
     )
 
 
+# :TODO:
 def report_org_usage_failure(distinct_id: str, err: str) -> None:
     posthoganalytics.capture(distinct_id, "organization usage report failure", properties={"error": err,})
+
+
+def groups(organization: Optional[Organization] = None, team: Optional[Team] = None):
+    result = {"instance": SITE_URL}
+    if organization is not None:
+        result["organization"] = organization.pk
+    if team is not None:
+        result["project"] = team.uuid
+    return result
