@@ -6,6 +6,7 @@ import { getNextKey } from 'lib/components/Annotations/utils'
 import { annotationsModelType } from './annotationsModelType'
 import { AnnotationScope, AnnotationType } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 export const annotationsModel = kea<annotationsModelType>({
     path: ['models', 'annotationsModel'],
@@ -52,9 +53,9 @@ export const annotationsModel = kea<annotationsModelType>({
                     date_marker: date_marker,
                     created_at: created_at.toISOString(),
                     updated_at: created_at.toISOString(),
-                    created_by: 'local',
+                    created_by: userLogic.values.user,
                     scope: AnnotationScope.Organization,
-                },
+                } as AnnotationType,
             ],
             deleteGlobalAnnotation: (state, { id }) => {
                 return state.filter((a) => a.id !== id)

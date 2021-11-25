@@ -194,10 +194,8 @@ export function AnnotationMarker({
                                         <Row justify="space-between" align="middle">
                                             <div>
                                                 <b style={{ marginRight: 5 }}>
-                                                    {data.created_by === 'local'
-                                                        ? user?.first_name || user?.email
-                                                        : data.created_by &&
-                                                          (data.created_by.first_name || data.created_by.email)}
+                                                    {data.created_by &&
+                                                        (data.created_by.first_name || data.created_by.email)}
                                                 </b>
                                                 <i style={{ color: 'gray', marginRight: 6 }}>
                                                     {humanFriendlyDetailedTime(data.created_at)}
@@ -216,9 +214,7 @@ export function AnnotationMarker({
                                                     </Tooltip>
                                                 ) : null}
                                             </div>
-                                            {(!data.created_by ||
-                                                data.created_by === 'local' ||
-                                                data.created_by.uuid === user?.uuid) && (
+                                            {(!data.created_by || data.created_by.uuid === user?.uuid) && (
                                                 <DeleteOutlined
                                                     className="button-border clickable text-danger"
                                                     onClick={() => onDelete?.(data)}
