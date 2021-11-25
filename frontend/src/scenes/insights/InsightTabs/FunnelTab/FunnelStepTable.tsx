@@ -434,7 +434,7 @@ export function FunnelStepTable(): JSX.Element | null {
                                 ? undefined
                                 : getActionFilterFromFunnelStep(step)
                         }
-                        hasMultipleSeries={steps.length > 1}
+                        hasMultipleSeries={!isBreakdownChild && steps.length > 1}
                         breakdownValue={
                             step.breakdown === ''
                                 ? 'None'
