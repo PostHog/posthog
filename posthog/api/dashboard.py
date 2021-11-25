@@ -20,6 +20,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import INSIGHT_TRENDS
+from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, Insight, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
@@ -102,8 +103,8 @@ class DashboardSerializer(serializers.ModelSerializer):
                     team=team,
                 )
 
-        posthoganalytics.capture(
-            request.user.distinct_id,
+        report_user_action(
+            request.user,
             "dashboard created",
             {
                 **dashboard.get_analytics_metadata(),
@@ -124,9 +125,7 @@ class DashboardSerializer(serializers.ModelSerializer):
         instance = super().update(instance, validated_data)
 
         if "request" in self.context:
-            posthoganalytics.capture(
-                self.context["request"].user.distinct_id, "dashboard updated", instance.get_analytics_metadata()
-            )
+            report_user_action(self.context["request"].user, "dashboard updated", instance.get_analytics_metadata())
 
         return instance
 
