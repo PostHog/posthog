@@ -41,6 +41,7 @@ This includes handling the urls and view state
 */
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
+
 export const defaultFilterTestAccounts = (): boolean => {
     return localStorage.getItem('default_filter_test_accounts') === 'true' || false
 }
