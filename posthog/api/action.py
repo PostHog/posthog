@@ -23,6 +23,7 @@ from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthenticat
 from posthog.celery import update_cache_item_task
 from posthog.constants import INSIGHT_STICKINESS, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_STICKINESS
 from posthog.decorators import CacheType, cached_function
+from posthog.event_usage import report_user_action
 from posthog.models import (
     Action,
     ActionStep,
@@ -126,9 +127,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
             )
 
         calculate_action.delay(action_id=instance.pk)
-        posthoganalytics.capture(
-            validated_data["created_by"].distinct_id, "action created", instance.get_analytics_metadata()
-        )
+        report_user_action(validated_data["created_by"], "action created", instance.get_analytics_metadata())
 
         return instance
 
@@ -156,8 +155,8 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
         instance = super().update(instance, validated_data)
         calculate_action.delay(action_id=instance.pk)
         instance.refresh_from_db()
-        posthoganalytics.capture(
-            self.context["request"].user.distinct_id,
+        report_user_action(
+            self.context["request"].user,
             "action updated",
             {
                 **instance.get_analytics_metadata(),
