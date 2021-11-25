@@ -212,6 +212,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
 
     const _onSubmit = (input: string, date: dayjs.Dayjs): void => {
         props.onSubmit(input, date)
+        // Reset input
         setTextInput('')
         setDate(dayjs())
         setScope(AnnotationScope.Project)
@@ -244,23 +245,11 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                     This annotation will appear on all
                     <Dropdown
                         overlay={
-                            <Menu activeKey={scope}>
-                                <Menu.Item
-                                    onClick={() => {
-                                        setScope(AnnotationScope.Project)
-                                    }}
-                                    key={AnnotationScope.Project}
-                                    icon={<ProjectOutlined />}
-                                >
+                            <Menu activeKey={scope} onSelect={(e) => setScope(e.key as AnnotationScope)}>
+                                <Menu.Item key={AnnotationScope.Project} icon={<ProjectOutlined />}>
                                     Project
                                 </Menu.Item>
-                                <Menu.Item
-                                    onClick={() => {
-                                        setScope(AnnotationScope.Organization)
-                                    }}
-                                    key={AnnotationScope.Organization}
-                                    icon={<DeploymentUnitOutlined />}
-                                >
+                                <Menu.Item key={AnnotationScope.Organization} icon={<DeploymentUnitOutlined />}>
                                     Organization
                                 </Menu.Item>
                             </Menu>
