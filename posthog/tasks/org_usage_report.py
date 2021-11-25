@@ -99,7 +99,7 @@ def send_all_reports(
 
     for team in Team.objects.exclude(organization__for_internal_metrics=True):
         org = team.organization
-        organization_id = str(org.organization_id)
+        organization_id = str(org.id)
         if organization_id in org_data:
             org_data[organization_id]["teams"].append(team.id)
         else:

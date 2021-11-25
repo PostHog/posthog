@@ -20,9 +20,7 @@ class AnalyticsDestroyModelMixin:
 
         instance = self.get_object()  # type: ignore
 
-        metadata: Optional[Dict] = instance.get_analytics_metadata() if hasattr(
-            instance, "get_analytics_metadata",
-        ) else None
+        metadata = instance.get_analytics_metadata() if hasattr(instance, "get_analytics_metadata",) else {}
 
         self.perform_destroy(instance)
 
