@@ -54,7 +54,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
 
         if not self.context.get("bulk_create"):
             report_team_member_invited(
-                self.context["request"].user.distinct_id,
+                self.context["request"].user,
                 name_provided=bool(validated_data.get("first_name")),
                 current_invite_count=invite.organization.active_invites.count(),
                 current_member_count=OrganizationMembership.objects.filter(

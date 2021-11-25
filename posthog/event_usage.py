@@ -121,16 +121,15 @@ def report_user_password_reset(user: User) -> None:
     )
 
 
-# :TODO:
 def report_team_member_invited(
-    distinct_id: str, name_provided: bool, current_invite_count: int, current_member_count: int, email_available: bool,
+    user: User, name_provided: bool, current_invite_count: int, current_member_count: int, email_available: bool,
 ) -> None:
     """
     Triggered after a user creates an **individual** invite for a new team member. See `report_bulk_invited`
     for bulk invite creation.
     """
     posthoganalytics.capture(
-        distinct_id,
+        user.distinct_id,
         "team invite executed",
         properties={
             "name_provided": name_provided,
@@ -138,6 +137,7 @@ def report_team_member_invited(
             "current_member_count": current_member_count,
             "email_available": email_available,
         },
+        groups=groups(user.current_organization, user.current_team),
     )
 
 
