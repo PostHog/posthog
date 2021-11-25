@@ -1,7 +1,6 @@
 from unittest.mock import patch
 from uuid import uuid4
 
-import posthoganalytics
 from freezegun import freeze_time
 
 from ee.api.test.base import LicensedTestMixin

@@ -1,7 +1,6 @@
 import json
 from typing import Any, Dict, Optional, cast
 
-import posthoganalytics
 from django.db.models import Prefetch, QuerySet
 from rest_framework import authentication, exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action

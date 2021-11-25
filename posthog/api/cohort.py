@@ -1,7 +1,6 @@
 import csv
 from typing import Any, Dict, List, Optional, cast
 
-import posthoganalytics
 from django.db.models import Count, QuerySet
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated

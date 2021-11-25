@@ -1,7 +1,6 @@
 import json
 from typing import Any, Dict, List, Union, cast
 
-import posthoganalytics
 from django.core.cache import cache
 from django.db.models import Count, Exists, OuterRef, Prefetch, QuerySet
 from django.db.models.signals import post_save
