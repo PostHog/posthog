@@ -15,6 +15,7 @@ export const annotationsModel = kea<annotationsModelType>({
             content,
             date_marker,
             created_at: dayjs() as Dayjs,
+            created_by: userLogic.values.user,
             insightId,
         }),
         deleteGlobalAnnotation: (id) => ({ id }),
@@ -45,7 +46,7 @@ export const annotationsModel = kea<annotationsModelType>({
     }),
     reducers: {
         globalAnnotations: {
-            createGlobalAnnotation: (state, { content, date_marker, created_at }) => [
+            createGlobalAnnotation: (state, { content, date_marker, created_at, created_by }) => [
                 ...state,
                 {
                     id: getNextKey(state).toString(),
@@ -53,7 +54,7 @@ export const annotationsModel = kea<annotationsModelType>({
                     date_marker: date_marker,
                     created_at: created_at.toISOString(),
                     updated_at: created_at.toISOString(),
-                    created_by: userLogic.values.user,
+                    created_by,
                     scope: AnnotationScope.Organization,
                 } as AnnotationType,
             ],
