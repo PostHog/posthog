@@ -4,6 +4,7 @@ Django settings for PostHog Enterprise Edition.
 import os
 from typing import Dict, List
 
+from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION as DEFAULT_KAFKA_EVENTS_PLUGIN_INGESTION
 from posthog.constants import AnalyticsDBMS
 from posthog.settings import AUTHENTICATION_BACKENDS, PRIMARY_DB, SITE_URL, TEST, get_from_env
 from posthog.utils import str_to_bool
@@ -85,3 +86,8 @@ MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS = get_from_env(
 MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS = get_from_env("MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS", 90, type_cast=int)
 # Maximum number of columns to materialize at once. Avoids running into resource bottlenecks (storage + ingest + backfilling).
 MATERIALIZE_COLUMNS_MAX_AT_ONCE = get_from_env("MATERIALIZE_COLUMNS_MAX_AT_ONCE", 10, type_cast=int)
+
+# Topic to write events to between clickhouse
+KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC: str = os.getenv(
+    "KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC", DEFAULT_KAFKA_EVENTS_PLUGIN_INGESTION
+)

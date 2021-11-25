@@ -84,7 +84,7 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
             className="background"
             style={{
                 display: 'flex',
-                height: 'calc(100vh - 50px)',
+                height: 'calc(100vh - 3.5rem)', // To account for the TopBar
                 width: '100vw',
                 alignItems: 'center',
                 justifyContent: 'center',
