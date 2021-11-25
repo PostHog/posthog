@@ -215,7 +215,11 @@ export function SavedInsights(): JSX.Element {
                 const selectedType = insight.filters?.insight || InsightType.TRENDS
                 const type = insightTypes.find(({ type: _type }) => _type === selectedType)
                 if (type && type.icon) {
-                    return <type.icon />
+                    return (
+                        <span style={{ fontSize: '2rem' }}>
+                            <type.icon />
+                        </span>
+                    )
                 }
             },
         },
