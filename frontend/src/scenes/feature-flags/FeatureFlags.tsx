@@ -56,7 +56,7 @@ export function FeatureFlags(): JSX.Element {
             title: 'Rollout',
             width: 200,
             render: function Render(_, featureFlag: FeatureFlagType) {
-                return <GroupFilters groups={featureFlag.filters.groups} />
+                return groupFilters(featureFlag.filters.groups)
             },
         },
         {
@@ -179,7 +179,7 @@ export function FeatureFlags(): JSX.Element {
     )
 }
 
-function GroupFilters({ groups }: { groups: FeatureFlagGroupType[] }): JSX.Element | string {
+function groupFilters(groups: FeatureFlagGroupType[]): JSX.Element | string {
     if (groups.length === 0 || !groups.some((group) => group.rollout_percentage !== 0)) {
         // There are no rollout groups or all are at 0%
         return 'No users'

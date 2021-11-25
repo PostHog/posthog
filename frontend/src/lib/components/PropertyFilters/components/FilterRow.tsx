@@ -65,8 +65,7 @@ export const FilterRow = React.memo(function FilterRow({
             data-attr={'property-filter-' + index}
             style={{
                 width: '100%',
-                margin: '0.25rem 0',
-                padding: '0.25rem 0',
+                margin: 0,
             }}
             wrap={false}
         >

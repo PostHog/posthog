@@ -10,7 +10,7 @@ type Props = {
 
 const PropertyFiltersDisplay: React.FunctionComponent<Props> = ({ filters, style, greyBadges }: Props) => {
     return (
-        <div className="mb" style={style}>
+        <div className="mb" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', ...style }}>
             {filters &&
                 filters.map((item) => {
                     return <PropertyFilterButton key={item.key} item={item} greyBadges={greyBadges} />

@@ -31,7 +31,7 @@ export function FilterButton({ greyBadges, onClick, setRef, children }: FilterRo
         <Button
             type="primary"
             shape="round"
-            style={{ maxWidth: '75%' }}
+            style={{ overflow: 'hidden' }}
             onClick={onClick}
             ref={setRef}
             className={greyBadges ? 'property-filter-grey' : undefined}
