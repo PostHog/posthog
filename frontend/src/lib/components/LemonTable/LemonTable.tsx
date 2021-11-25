@@ -6,7 +6,7 @@ import { useResizeObserver } from '../../hooks/useResizeObserver'
 import { IconChevronLeft, IconChevronRight } from '../icons'
 import { LemonButton } from '../LemonButton'
 import { Tooltip } from '../Tooltip'
-import { TableRow } from './components'
+import { TableRow } from './TableRow'
 import './LemonTable.scss'
 import { Sorting, SortingIndicator, getNextSorting } from './sorting'
 import { ExpandableConfig, LemonTableColumn, LemonTableColumns, PaginationAuto, PaginationManual } from './types'
@@ -104,6 +104,7 @@ export function LemonTable<T extends Record<string, any>>({
     const pageCount: number | null =
         entryCount && (pagination ? (pagination.pageSize ? Math.ceil(entryCount / pagination.pageSize) : 1) : null)
     /** Page adjusted for `pageCount` possibly having gotten smaller since last page param update. */
+    // Note: `pageCount` can logically only be null if pagination is controlled
     const currentPage: number | null = pagination?.controlled
         ? pagination.currentPage || null
         : Math.min(parseInt(searchParams[currentPageParam]) || 1, pageCount as number)
