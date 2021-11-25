@@ -24,8 +24,5 @@ class SpecialMigrationDefinition:
     def precheck():
         return (True, None)
 
-    def cancel():
-        return False
-
     def rollback(migration_instance):
         return False

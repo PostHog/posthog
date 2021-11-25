@@ -84,6 +84,23 @@ class Migration(SpecialMigrationDefinition):
         return progress
 
     def rollback(migration_instance):
-        if migration_instance.current_operation_index < 2:
-            return True
-        return False
+        current_operation_index = migration_instance.current_operation_index
+        if current_operation_index > 4:
+            sync_execute(
+                f"""
+                RENAME TABLE
+                    {CLICKHOUSE_DATABASE}.{TEMPORARY_TABLE_NAME} to {CLICKHOUSE_DATABASE}.person_distinct_id_backup,
+                    {CLICKHOUSE_DATABASE}.{PERSONS_DISTINCT_ID_TABLE} to {CLICKHOUSE_DATABASE}.{TEMPORARY_TABLE_NAME}
+                ON CLUSTER {CLICKHOUSE_CLUSTER}
+            """
+            )
+
+        sync_execute(f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}")
+
+        if current_operation_index < 5:
+            sync_execute(KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL)
+
+        if current_operation_index < 6:
+            sync_execute(PERSONS_DISTINCT_ID_TABLE_MV_SQL)
+
+        return True
