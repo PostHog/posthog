@@ -212,7 +212,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                     }
                 },
                 setAggregationGroupTypeIndex: (state, { value }) => {
-                    if (!state) {
+                    if (!state || state.filters.aggregation_group_type_index == value) {
                         return state
                     }
 
@@ -221,6 +221,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                         filters: {
                             ...state.filters,
                             aggregation_group_type_index: value,
+                            // :TRICKY: We reset property filters after changing what you're aggregating by.
+                            groups: state.filters.groups.map((group) => ({ ...group, properties: [] })),
                         },
                     }
                 },

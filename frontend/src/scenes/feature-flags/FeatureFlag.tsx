@@ -34,7 +34,6 @@ import { IconExternalLink, IconJavascript, IconPython } from 'lib/components/ico
 import { Tooltip } from 'lib/components/Tooltip'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SceneExport } from 'scenes/sceneTypes'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { APISnippet, JSSnippet, PythonSnippet, UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { LemonSpacer } from 'lib/components/LemonRow'
 import { groupsModel } from '~/models/groupsModel'
@@ -552,7 +551,7 @@ export function FeatureFlag(): JSX.Element {
                                     <LemonSpacer large />
                                     <PropertyFilters
                                         style={{ marginLeft: 15 }}
-                                        pageKey={`feature-flag-${featureFlag.id}-${index}-${featureFlag.filters.groups.length}`}
+                                        pageKey={`feature-flag-${featureFlag.id}-${index}-${featureFlag.filters.groups.length}-${featureFlag.filters.aggregation_group_type_index}`}
                                         propertyFilters={group?.properties}
                                         onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                         taxonomicGroupTypes={taxonomicGroupTypes}
