@@ -5,6 +5,10 @@ from clickhouse_driver.errors import ServerException
 from posthog.exceptions import EstimatedQueryExecutionTimeTooLong
 
 
+class CHQueryErrorCannotCompileRegexp(ServerException):
+    pass
+
+
 def wrap_query_error(err: Exception) -> Exception:
     "Beautifies clickhouse client errors, using custom error classes for every code"
     if not isinstance(err, ServerException):
@@ -17,6 +21,9 @@ def wrap_query_error(err: Exception) -> Exception:
 
     # :TRICKY: Return a custom class for every code by looking up the short name and creating a class dynamically.
     if hasattr(err, "code"):
+        if err.code == 427:
+            return CHQueryErrorCannotCompileRegexp(err.message, code=err.code)
+
         name = CLICKHOUSE_ERROR_CODE_LOOKUP.get(err.code, "UNKNOWN")
         name = f"CHQueryError{name.replace('_', ' ').title().replace(' ', '')}"
         return type(name, (ServerException,), {})(err.message, code=err.code)

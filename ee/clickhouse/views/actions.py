@@ -4,11 +4,13 @@ from typing import Any, Dict, List, Optional
 
 from rest_framework import serializers
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_csv import renderers as csvrenderers
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.errors import CHQueryErrorCannotCompileRegexp
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.queries.trends.person import TrendsPersonQuery
 from ee.clickhouse.sql.person import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
@@ -90,10 +92,13 @@ class ClickhouseActionsViewSet(ActionViewSet):
         if query == "":
             return Response({"count": 0})
 
-        results = sync_execute(
-            "SELECT count(1) FROM events WHERE team_id = %(team_id)s AND {}".format(query),
-            {"team_id": action.team_id, **params},
-        )
+        try:
+            results = sync_execute(
+                "SELECT count(1) FROM events WHERE team_id = %(team_id)s AND {}".format(query),
+                {"team_id": action.team_id, **params},
+            )
+        except CHQueryErrorCannotCompileRegexp:
+            raise ValidationError("Invalid filters for action count")
         return Response({"count": results[0][0]})
 
 

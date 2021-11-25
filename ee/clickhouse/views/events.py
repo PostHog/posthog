@@ -4,11 +4,12 @@ from typing import Any, Dict, List, Optional, Union
 
 from django.utils.timezone import now
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.errors import CHQueryErrorCannotCompileRegexp
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.event import ClickhouseEventSerializer, determine_event_conditions
 from ee.clickhouse.models.person import get_persons_by_distinct_ids
@@ -100,7 +101,10 @@ class ClickhouseEventsViewSet(EventViewSet):
         team = self.team
         filter = Filter(request=request, team=self.team)
 
-        query_result = self._query_events_list(filter, team, request, limit=limit)
+        try:
+            query_result = self._query_events_list(filter, team, request, limit=limit)
+        except CHQueryErrorCannotCompileRegexp:
+            raise ValidationError("Invalid filter for events")
 
         # Retry the query without the 1 day optimization
         if len(query_result) < limit and not request.GET.get("after"):

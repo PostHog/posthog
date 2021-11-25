@@ -299,7 +299,8 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 try {
                     apiResponse = await api.get(`api/projects/${values.currentTeamId}/events/?${urlParams}`)
                 } catch (error) {
-                    actions.fetchOrPollFailure(error)
+                    console.log('error in events: ', error)
+                    actions.fetchOrPollFailure({ statusText: error.detail, ...error })
                     return
                 }
 
