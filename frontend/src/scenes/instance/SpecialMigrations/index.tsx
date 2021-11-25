@@ -5,10 +5,9 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { Progress, Table } from 'antd'
 import { useActions, useValues } from 'kea'
-import { specialMigrationsLogic } from './specialMigrationsLogic'
+import { SpecialMigration, specialMigrationsLogic } from './specialMigrationsLogic'
 import { PlayCircleOutlined, StopOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import { SystemStatusSubrows } from '~/types'
 
 const migrationStatusNumberToMessage = {
     0: 'Not started',
@@ -29,7 +28,7 @@ export function SpecialMigrations(): JSX.Element {
     const columns = [
         {
             title: '',
-            render: function RenderTriggerButton(specialMigration: Record<string, any>): JSX.Element {
+            render: function RenderTriggerButton(specialMigration: SpecialMigration): JSX.Element {
                 return (
                     <div>
                         {specialMigration.status === 0 ? (
@@ -121,27 +120,9 @@ export function SpecialMigrations(): JSX.Element {
             <Table
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                 loading={specialMigrationsLoading}
-                expandable={{
-                    expandedRowRender: function renderExpand(row) {
-                        return row.subrows ? <Subrows {...row.subrows} /> : null
-                    },
-                    rowExpandable: (row) => !!row.subrows && row.subrows.rows.length > 0,
-                    expandRowByClick: true,
-                }}
                 columns={columns}
                 dataSource={specialMigrations || []}
             />
         </div>
-    )
-}
-
-function Subrows(props: SystemStatusSubrows): JSX.Element {
-    return (
-        <Table
-            rowKey="metric"
-            pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-            dataSource={props.rows}
-            columns={props.columns.map((title, dataIndex) => ({ title, dataIndex }))}
-        />
     )
 }
