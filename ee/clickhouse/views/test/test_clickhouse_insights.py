@@ -1,29 +1,20 @@
 import json
+from datetime import datetime
 from typing import Any, Dict, List, Union
-from unittest.mock import patch
 from uuid import uuid4
 
 from django.test.client import Client
-from freezegun.api import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.util import deep_dump_object
 from ee.clickhouse.test.test_journeys import journeys_for
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from ee.clickhouse.util import ClickhouseTestMixin
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.api.test.test_insight import insight_test_factory
-from posthog.api.test.test_trends import (
-    TrendsRequest,
-    TrendsRequestBreakdown,
-    get_trends_aggregate_ok,
-    get_trends_people_ok,
-    get_trends_time_series_ok,
-)
 from posthog.models.organization import OrganizationMembership
 from posthog.models.person import Person
-from posthog.test.base import APIBaseTest, test_with_materialized_columns
+from posthog.test.base import APIBaseTest
 
 
 def _create_person(**kwargs):
@@ -77,13 +68,13 @@ class ClickhouseTestInsights(
 
 class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
     def test_funnel_unordered_basic_post(self):
-        _create_person(distinct_ids=["1"], team=self.team)
-        _create_event(team=self.team, event="step one", distinct_id="1")
-        _create_event(team=self.team, event="step two", distinct_id="1")
-
-        _create_person(distinct_ids=["2"], team=self.team)
-        _create_event(team=self.team, event="step two", distinct_id="2")
-        _create_event(team=self.team, event="step one", distinct_id="2")
+        journeys_for(
+            {
+                "1": [{"event": "step one"}, {"event": "step two"},],
+                "2": [{"event": "step one"}, {"event": "step two"},],
+            },
+            self.team,
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/funnel/",
@@ -166,14 +157,13 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         ]
 
     def test_funnel_strict_basic_post(self):
-        _create_person(distinct_ids=["1"], team=self.team)
-        _create_event(team=self.team, event="step one", distinct_id="1")
-        _create_event(team=self.team, event="step two", distinct_id="1")
-
-        _create_person(distinct_ids=["2"], team=self.team)
-        _create_event(team=self.team, event="step one", distinct_id="2")
-        _create_event(team=self.team, event="blahh", distinct_id="2")
-        _create_event(team=self.team, event="step two", distinct_id="2")
+        journeys_for(
+            {
+                "1": [{"event": "step one"}, {"event": "step two"},],
+                "2": [{"event": "step one"}, {"event": "blahh"}, {"event": "step two"},],
+            },
+            self.team,
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/funnel/",
@@ -321,18 +311,21 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         ]
 
     def test_funnel_trends_basic_post(self):
-        _create_person(distinct_ids=["user_one"], team=self.team)
-        _create_person(distinct_ids=["user_two"], team=self.team)
-
-        # user_one, funnel steps: one, two three
-        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 01:00:00")
-        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-03 00:00:00")
-        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-05 00:00:00")
-
-        # user_two, funnel steps: one, two
-        _create_event(event="step one", distinct_id="user_two", team=self.team, timestamp="2021-05-02 00:00:00")
-        _create_event(event="step two", distinct_id="user_two", team=self.team, timestamp="2021-05-04 00:00:00")
-        _create_event(event="step three", distinct_id="user_two", team=self.team, timestamp="2021-05-05 00:00:00")
+        journeys_for(
+            {
+                "user_one": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 1)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 3)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5)},
+                ],
+                "user_two": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 2)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 4)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5)},
+                ],
+            },
+            self.team,
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/funnel/",
@@ -354,17 +347,21 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response["result"][0]["data"], [100, 100, 0, 0, 0, 0, 0])
 
     def test_funnel_trends_unordered_basic_post(self):
-        _create_person(distinct_ids=["user_one"], team=self.team)
-        _create_person(distinct_ids=["user_two"], team=self.team)
-        # user_one, funnel steps: one, two three
-        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 01:00:00")
-        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-03 00:00:00")
-        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-05 00:00:00")
-
-        # user_two, funnel steps: one, two, three
-        _create_event(event="step three", distinct_id="user_two", team=self.team, timestamp="2021-05-02 00:00:00")
-        _create_event(event="step one", distinct_id="user_two", team=self.team, timestamp="2021-05-03 00:00:00")
-        _create_event(event="step two", distinct_id="user_two", team=self.team, timestamp="2021-05-04 00:00:00")
+        journeys_for(
+            {
+                "user_one": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 1)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 3)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 5)},
+                ],
+                "user_two": [
+                    {"event": "step three", "timestamp": datetime(2021, 5, 2)},
+                    {"event": "step one", "timestamp": datetime(2021, 5, 4)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 5)},
+                ],
+            },
+            self.team,
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/funnel/",
@@ -387,18 +384,21 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response["result"][0]["data"], [100, 100, 0, 0, 0, 0, 0])
 
     def test_funnel_trends_basic_post_backwards_compatibility(self):
-        _create_person(distinct_ids=["user_one"], team=self.team)
-        _create_person(distinct_ids=["user_two"], team=self.team)
-
-        # user_one, funnel steps: one, two three
-        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 01:00:00")
-        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-03 00:00:00")
-        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-05 00:00:00")
-
-        # user_two, funnel steps: one, two
-        _create_event(event="step one", distinct_id="user_two", team=self.team, timestamp="2021-05-02 00:00:00")
-        _create_event(event="step two", distinct_id="user_two", team=self.team, timestamp="2021-05-04 00:00:00")
-        _create_event(event="step three", distinct_id="user_two", team=self.team, timestamp="2021-05-05 00:00:00")
+        journeys_for(
+            {
+                "user_one": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 1)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 3)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5)},
+                ],
+                "user_two": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 2)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 4)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5)},
+                ],
+            },
+            self.team,
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/funnel/",
@@ -420,25 +420,27 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response["result"][0]["data"], [100, 100, 0, 0, 0, 0, 0])
 
     def test_funnel_trends_strict_basic_post(self):
-        _create_person(distinct_ids=["user_one"], team=self.team)
-        _create_person(distinct_ids=["user_two"], team=self.team)
-        _create_person(distinct_ids=["user_three"], team=self.team)
-
-        # user_one, funnel steps: one, two three
-        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 01:00:00")
-        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-03 00:00:00")
-        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-05 00:00:00")
-
-        # user_two, funnel steps: one, two
-        _create_event(event="step one", distinct_id="user_two", team=self.team, timestamp="2021-05-02 00:00:00")
-        _create_event(event="step two", distinct_id="user_two", team=self.team, timestamp="2021-05-04 00:00:00")
-        _create_event(event="blah", distinct_id="user_two", team=self.team, timestamp="2021-05-04 02:00:00")
-        _create_event(event="step three", distinct_id="user_two", team=self.team, timestamp="2021-05-05 00:00:00")
-
-        # user_three, funnel steps: one, two, three
-        _create_event(event="step one", distinct_id="user_three", team=self.team, timestamp="2021-05-02 00:00:00")
-        _create_event(event="step two", distinct_id="user_three", team=self.team, timestamp="2021-05-04 00:00:00")
-        _create_event(event="step three", distinct_id="user_three", team=self.team, timestamp="2021-05-05 00:00:00")
+        journeys_for(
+            {
+                "user_one": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 1)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 3)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5)},
+                ],
+                "user_two": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 2)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 4)},
+                    {"event": "blah", "timestamp": datetime(2021, 5, 4, 2)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5)},
+                ],
+                "user_three": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 2)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 4)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5)},
+                ],
+            },
+            self.team,
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/funnel/",
@@ -461,23 +463,28 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response["result"][0]["data"], [100, 50, 0, 0, 0, 0, 0])
 
     def test_funnel_time_to_convert_auto_bins(self):
-        _create_person(distinct_ids=["user a"], team=self.team)
-        _create_person(distinct_ids=["user b"], team=self.team)
-        _create_person(distinct_ids=["user c"], team=self.team)
-
-        _create_event(event="step one", distinct_id="user a", team=self.team, timestamp="2021-06-08 18:00:00")
-        _create_event(event="blah", distinct_id="user a", team=self.team, timestamp="2021-06-08 18:30:00")
-        _create_event(event="step two", distinct_id="user a", team=self.team, timestamp="2021-06-08 19:00:00")
-        # Converted from 0 to 1 in 3600 s
-        _create_event(event="step three", distinct_id="user a", team=self.team, timestamp="2021-06-08 21:00:00")
-
-        _create_event(event="step one", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:00:00")
-        _create_event(event="step two", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:37:00")
-        # Converted from 0 to 1 in 2200 s
-
-        _create_event(event="step one", distinct_id="user c", team=self.team, timestamp="2021-06-11 07:00:00")
-        _create_event(event="step two", distinct_id="user c", team=self.team, timestamp="2021-06-12 06:00:00")
-        # Converted from 0 to 1 in 82_800 s
+        journeys_for(
+            {
+                "user a": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 8, 18)},
+                    {"event": "blah", "timestamp": datetime(2021, 6, 8, 18, 30)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 8, 19)},
+                    # Converted from 0 to 1 in 3600 s
+                    {"event": "step three", "timestamp": datetime(2021, 6, 8, 21)},
+                ],
+                "user b": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 9, 13)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 9, 13, 37)},
+                    # Converted from 0 to 1 in 2200 s
+                ],
+                "user c": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 11, 7)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 12, 6)},
+                    # Converted from 0 to 1 in 82_800 s
+                ],
+            },
+            self.team,
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/funnel/",
@@ -512,22 +519,27 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_funnel_time_to_convert_auto_bins_strict(self):
-        _create_person(distinct_ids=["user a"], team=self.team)
-        _create_person(distinct_ids=["user b"], team=self.team)
-        _create_person(distinct_ids=["user c"], team=self.team)
-
-        _create_event(event="step one", distinct_id="user a", team=self.team, timestamp="2021-06-08 18:00:00")
-        _create_event(event="step two", distinct_id="user a", team=self.team, timestamp="2021-06-08 19:00:00")
-        # Converted from 0 to 1 in 3600 s
-        _create_event(event="step three", distinct_id="user a", team=self.team, timestamp="2021-06-08 21:00:00")
-
-        _create_event(event="step one", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:00:00")
-        _create_event(event="step two", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:37:00")
-        # Converted from 0 to 1 in 2200 s
-
-        _create_event(event="step one", distinct_id="user c", team=self.team, timestamp="2021-06-11 07:00:00")
-        _create_event(event="step two", distinct_id="user c", team=self.team, timestamp="2021-06-12 06:00:00")
-        # Converted from 0 to 1 in 82_800 s
+        journeys_for(
+            {
+                "user a": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 8, 18)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 8, 19)},
+                    # Converted from 0 to 1 in 3600 s
+                    {"event": "step three", "timestamp": datetime(2021, 6, 8, 21)},
+                ],
+                "user b": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 9, 13)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 9, 13, 37)},
+                    # Converted from 0 to 1 in 2200 s
+                ],
+                "user c": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 11, 7)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 12, 6)},
+                    # Converted from 0 to 1 in 82_800 s
+                ],
+            },
+            self.team,
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/funnel/",
@@ -563,22 +575,27 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_funnel_time_to_convert_auto_bins_unordered(self):
-        _create_person(distinct_ids=["user a"], team=self.team)
-        _create_person(distinct_ids=["user b"], team=self.team)
-        _create_person(distinct_ids=["user c"], team=self.team)
-
-        _create_event(event="step one", distinct_id="user a", team=self.team, timestamp="2021-06-08 18:00:00")
-        _create_event(event="step two", distinct_id="user a", team=self.team, timestamp="2021-06-08 19:00:00")
-        # Converted from 0 to 1 in 3600 s
-        _create_event(event="step three", distinct_id="user a", team=self.team, timestamp="2021-06-08 21:00:00")
-
-        _create_event(event="step two", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:00:00")
-        _create_event(event="step one", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:37:00")
-        # Converted from 0 to 1 in 2200 s
-
-        _create_event(event="step one", distinct_id="user c", team=self.team, timestamp="2021-06-11 07:00:00")
-        _create_event(event="step two", distinct_id="user c", team=self.team, timestamp="2021-06-12 06:00:00")
-        # Converted from 0 to 1 in 82_800 s
+        journeys_for(
+            {
+                "user a": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 8, 18)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 8, 19)},
+                    # Converted from 0 to 1 in 3600 s
+                    {"event": "step three", "timestamp": datetime(2021, 6, 8, 21)},
+                ],
+                "user b": [
+                    {"event": "step two", "timestamp": datetime(2021, 6, 9, 13)},
+                    {"event": "step one", "timestamp": datetime(2021, 6, 9, 13, 37)},
+                    # Converted from 0 to 1 in 2200 s
+                ],
+                "user c": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 11, 7)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 12, 6)},
+                    # Converted from 0 to 1 in 82_800 s
+                ],
+            },
+            self.team,
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/funnel/",
@@ -623,14 +640,13 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json(), self.validation_error_response("Action ID 666 does not exist!"))
 
     def test_funnel_basic_exclusions(self):
-        _create_person(distinct_ids=["1"], team=self.team)
-        _create_event(team=self.team, event="step one", distinct_id="1")
-        _create_event(team=self.team, event="step x", distinct_id="1")
-        _create_event(team=self.team, event="step two", distinct_id="1")
-
-        _create_person(distinct_ids=["2"], team=self.team)
-        _create_event(team=self.team, event="step one", distinct_id="2")
-        _create_event(team=self.team, event="step two", distinct_id="2")
+        journeys_for(
+            {
+                "1": [{"event": "step one"}, {"event": "step x"}, {"event": "step two"},],
+                "2": [{"event": "step one"}, {"event": "step two"},],
+            },
+            self.team,
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/funnel/",
@@ -660,14 +676,13 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         ]
 
     def test_funnel_invalid_exclusions(self):
-        _create_person(distinct_ids=["1"], team=self.team)
-        _create_event(team=self.team, event="step one", distinct_id="1")
-        _create_event(team=self.team, event="step x", distinct_id="1")
-        _create_event(team=self.team, event="step two", distinct_id="1")
-
-        _create_person(distinct_ids=["2"], team=self.team)
-        _create_event(team=self.team, event="step one", distinct_id="2")
-        _create_event(team=self.team, event="step two", distinct_id="2")
+        journeys_for(
+            {
+                "1": [{"event": "step one"}, {"event": "step x"}, {"event": "step two"},],
+                "2": [{"event": "step one"}, {"event": "step two"},],
+            },
+            self.team,
+        )
 
         for exclusion_id, exclusion_from_step, exclusion_to_step, error in [
             ("step one", 0, 1, True),
