@@ -1,7 +1,8 @@
 import json
 import numbers
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
-from typing import List, Literal, TypedDict, Union
+from typing import List, Literal, Optional, TypedDict, Union
 
 from django.test import TestCase
 from django.test.client import Client
@@ -114,7 +115,8 @@ def user_activity_by_day(daily_activity, target_event, returning_event, team):
     ]
 
 
-class RetentionRequest(TypedDict):
+@dataclass
+class RetentionRequest:
     date_from: str  # From what I can tell, this doesn't do anything, rather `total_intervals` is used
     total_intervals: int
     date_to: str
@@ -123,8 +125,8 @@ class RetentionRequest(TypedDict):
     period: Union[Literal["Hour"], Literal["Day"], Literal["Week"], Literal["Month"]]
     retention_type: Literal["retention_first_time"]  # probably not an exhaustive list
 
-    breakdown: str
-    breakdown_type: Literal["person", "event"]
+    breakdown: Optional[str] = None
+    breakdown_type: Literal["person", "event"] = "person"
 
 
 class Value(TypedDict):
@@ -151,7 +153,7 @@ def get_retention(client: Client, team_id: int, request: RetentionRequest):
     return client.get(
         f"/api/projects/{team_id}/insights/retention/",
         # NOTE: for get requests we need to JSON encode non-scalars
-        data={k: (v if isinstance(v, (str, numbers.Number)) else json.dumps(v)) for k, v in request.items()},
+        data={k: (v if isinstance(v, (str, numbers.Number)) else json.dumps(v)) for k, v in asdict(request).items()},
     )
 
 
