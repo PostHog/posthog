@@ -16,7 +16,7 @@ interface SaveToDashboardModalProps {
 }
 
 export function SaveToDashboardModal({ visible, closeModal, insight }: SaveToDashboardModalProps): JSX.Element {
-    const logic = saveToDashboardModalLogic({ id: insight.id, fromDashboard: insight.dashboard || undefined })
+    const logic = saveToDashboardModalLogic({ id: insight.short_id, fromDashboard: insight.dashboard || undefined })
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { dashboardId } = useValues(logic)
     const { addNewDashboard, setDashboardId } = useActions(logic)

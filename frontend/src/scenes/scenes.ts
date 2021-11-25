@@ -3,6 +3,7 @@ import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { urls } from 'scenes/urls'
+import { InsightShortId } from '~/types'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -33,7 +34,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Dashboard]: {
         projectBased: true,
     },
-    [Scene.Insights]: {
+    [Scene.Insight]: {
         projectBased: true,
         name: 'Insights',
     },
@@ -175,6 +176,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
 
 export const redirects: Record<string, string | ((params: Params) => string)> = {
     '/': urls.savedInsights(),
+    '/saved_insights': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
     '/plugins': urls.plugins(),
     '/actions': '/events/actions',
@@ -186,9 +188,11 @@ export const routes: Record<string, Scene> = {
     [urls.dashboard(':id')]: Scene.Dashboard,
     [urls.createAction()]: Scene.Action,
     [urls.action(':id')]: Scene.Action,
-    [urls.newInsight()]: Scene.InsightRouter,
-    [urls.insights()]: Scene.Insights,
-    [urls.insightRouter(':id')]: Scene.InsightRouter,
+    [urls.insightNew()]: Scene.Insight,
+    [urls.insightEdit(':shortId' as InsightShortId)]: Scene.Insight,
+    [urls.insightView(':shortId' as InsightShortId)]: Scene.Insight,
+    [urls.savedInsights()]: Scene.SavedInsights,
+    [urls.insightRouter(':shortId')]: Scene.InsightRouter,
     [urls.actions()]: Scene.Actions,
     [urls.eventStats()]: Scene.EventStats,
     [urls.eventPropertyStats()]: Scene.EventPropertyStats,
@@ -214,7 +218,6 @@ export const routes: Record<string, Scene> = {
     [urls.systemStatus()]: Scene.SystemStatus,
     [urls.systemStatusPage(':id')]: Scene.SystemStatus,
     [urls.mySettings()]: Scene.MySettings,
-    [urls.savedInsights()]: Scene.SavedInsights,
     // Onboarding / setup routes
     [urls.login()]: Scene.Login,
     [urls.preflight()]: Scene.PreflightCheck,
