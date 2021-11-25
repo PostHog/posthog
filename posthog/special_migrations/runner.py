@@ -21,12 +21,11 @@ def start_special_migration(migration_name):
             process_error(
                 migration_instance,
                 f"Service {service_version_requirement.service} is in version {version}. Expected range: {str(service_version_requirement.supported_version)}.",
-                migration_definition.rollback,
             )
 
     ok, error = migration_definition.precheck()
     if not ok:
-        process_error(migration_instance, error, migration_definition.rollback)
+        process_error(migration_instance, error)
         return
 
     migration_instance.status = MigrationStatus.Running
@@ -61,7 +60,7 @@ def run_special_migration_next_op(migration_name, migration_instance=None):
         migration_instance.current_operation_index += 1
     except Exception as e:
         error = str(e)
-        process_error(migration_instance, error, migration_definition.rollback, False)
+        process_error(migration_instance, error, False)
 
     migration_instance.save()
 
@@ -103,7 +102,8 @@ def process_error(migration_instance, error, rollback, save=True):
     migration_instance.error = error
     migration_instance.finished_at = datetime.now()
     try:
-        success = rollback()
+        rollback = ALL_SPECIAL_MIGRATIONS[migration_instance.name].Migration.rollback
+        success = rollback(migration_instance)
         if success:
             migration_instance.status = MigrationStatus.RolledBack
     except:
