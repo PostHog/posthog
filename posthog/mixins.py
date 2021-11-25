@@ -1,7 +1,8 @@
 from typing import Dict, Optional
 
-import posthoganalytics
 from rest_framework import response, status
+
+from posthog.event_usage import report_user_action
 
 
 class AnalyticsDestroyModelMixin:
@@ -25,8 +26,5 @@ class AnalyticsDestroyModelMixin:
 
         self.perform_destroy(instance)
 
-        posthoganalytics.capture(
-            request.user.distinct_id, f"{instance._meta.verbose_name} deleted", metadata,
-        )
-
+        report_user_action(request.user, f"{instance._meta.verbose_name} deleted", metadata)
         return response.Response(status=status.HTTP_204_NO_CONTENT)
