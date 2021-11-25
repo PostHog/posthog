@@ -422,6 +422,7 @@ export function SavedInsights(): JSX.Element {
                             columns={columns}
                             dataSource={insights.results}
                             pagination={{
+                                controlled: true,
                                 pageSize: INSIGHTS_PER_PAGE,
                                 currentPage: page,
                                 entryCount: count,

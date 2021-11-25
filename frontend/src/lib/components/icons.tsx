@@ -579,6 +579,18 @@ export function IconHelpOutline(props: React.SVGProps<SVGSVGElement>): JSX.Eleme
     )
 }
 
+/** Material Design Info icon. */
+export function IconInfo(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="m11 7h2v2h-2zm0 4h2v6h-2zm1-9c-5.52 0-10 4.48-10 10s4.48 10 10 10 10-4.48 10-10-4.48-10-10-10zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
 /** Material Design Mail icon. */
 export function IconMail(): JSX.Element {
     return (

@@ -114,12 +114,7 @@ body strong {
 .page-caption {
     @extend .text-default;
     max-width: 640px;
-    &.tabbed {
-        margin-bottom: 16px;
-    }
-    &:not(.tabbed) {
-        margin-bottom: 32px;
-    }
+    margin-bottom: 16px;
 }
 
 .subtitle-row {

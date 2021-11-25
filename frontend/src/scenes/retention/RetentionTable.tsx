@@ -10,14 +10,12 @@ import {
     RetentionTablePeoplePayload,
     RetentionTableAppearanceType,
 } from 'scenes/retention/types'
-
-import './RetentionTable.scss'
-
 import { ColumnsType } from 'antd/lib/table'
 import clsx from 'clsx'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/components/Spinner/Spinner'
+import './RetentionTable.scss'
 
 export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: number | null }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)

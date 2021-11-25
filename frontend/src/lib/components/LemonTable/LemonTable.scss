@@ -28,37 +28,6 @@
     &.LemonTable--scrollable-right::after {
         box-shadow: -16px 0 16px -16px rgba(0, 0, 0, 0.25) inset;
     }
-    table {
-        width: 100%;
-        border-collapse: collapse;
-        border-spacing: 0;
-    }
-    thead {
-        background: var(--bg-mid);
-        font-size: 0.75rem;
-        font-weight: 600;
-        letter-spacing: 0.03125rem;
-        text-transform: uppercase;
-    }
-    tbody {
-        tr {
-            border-top: 1px solid var(--border);
-        }
-        td {
-            padding-top: 0.5rem;
-            padding-bottom: 0.5rem;
-        }
-    }
-    tr {
-        height: 3rem;
-    }
-    th,
-    td {
-        padding-left: 1rem;
-        &:last-child {
-            padding-right: 1rem;
-        }
-    }
 
     h4.row-name {
         font-size: 0.875rem;
@@ -69,6 +38,41 @@
 
     span.row-description {
         font-size: 0.75rem;
+    }
+}
+
+.LemonTable__content > table {
+    width: 100%;
+    border-collapse: collapse;
+    border-spacing: 0;
+    > thead {
+        background: var(--bg-mid);
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.03125rem;
+        text-transform: uppercase;
+    }
+    > tbody {
+        > tr {
+            border-top: 1px solid var(--border);
+            > td {
+                padding-top: 0.5rem;
+                padding-bottom: 0.5rem;
+            }
+        }
+    }
+    > thead,
+    > tbody {
+        > tr {
+            height: 3rem;
+            > th,
+            > td {
+                padding-left: 1rem;
+                &:last-child {
+                    padding-right: 1rem;
+                }
+            }
+        }
     }
 }
 
@@ -142,6 +146,14 @@
     display: flex;
     align-items: center;
     line-height: 1.5;
+}
+
+.LemonTable__expansion {
+    background: var(--bg-side);
+    // Ensuring that child tables blend in with the background
+    table {
+        background: var(--bg-side);
+    }
 }
 
 @keyframes loading-bar {
