@@ -1,6 +1,6 @@
 import React from 'react'
 import { Space, Tag } from 'antd'
-import { BreakdownType, FilterType, InsightType } from '~/types'
+import { Breakdown, BreakdownType, FilterType, InsightType } from '~/types'
 import {
     propertyFilterTypeToTaxonomicFilterType,
     taxonomicFilterTypeToPropertyFilterType,
@@ -19,6 +19,14 @@ export interface TaxonomicBreakdownFilterProps {
     filters: Partial<FilterType>
     setFilters: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
 }
+
+const isAllCohort = (t: number | string): t is string => typeof t === 'string' && t == 'all'
+
+const isCohort = (t: number | string): t is number => typeof t === 'number'
+
+const isCohortBreakdown = (t: number | string): t is number | string => isAllCohort(t) || isCohort(t)
+
+const isPersonEventOrGroup = (t: number | string): t is string => typeof t === 'string' && t !== 'all'
 
 export function BreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilterProps): JSX.Element {
     const { breakdown, breakdowns, breakdown_type } = filters
@@ -40,58 +48,53 @@ export function BreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilte
 
     const breakdownArray = multiPropertyBreakdownIsEnabled
         ? (breakdowns || []).map((b) => b.property) // for now we ignore the breakdowns' type
-        : (Array.isArray(breakdown) ? breakdown : [breakdown]).filter((b) => !!b)
+        : (Array.isArray(breakdown) ? breakdown : [breakdown]).filter((b): b is string | number => !!b)
 
-    const breakdownParts = breakdownArray.map((b) => (isNaN(Number(b)) ? b : Number(b))).filter((b) => !!b)
+    const breakdownParts = breakdownArray.map((b) => (isNaN(Number(b)) ? b : Number(b)))
 
-    /**
-     * There are several cases
-     *
-     *  * value is "all" - we are selecting a cohort
-     *  * value is an int - we are selecting a cohort
-     *  * value is a string - we are selecting event, person, or group
-     *
-     *  We need to be able to distinguish. Cohort already has multi select.
-     *
-     *  Not adding groups multi select now
-     */
+    const onCloseFor = (t: string | number, index: number): (() => void) => {
+        return () => {
+            if (isCohortBreakdown(t)) {
+                const newParts = breakdownParts.filter((_, i): _ is string | number => i !== index)
+                if (newParts.length === 0) {
+                    setFilters({ breakdown: null, breakdown_type: null })
+                } else {
+                    setFilters({ breakdown: newParts, breakdown_type: 'cohort' })
+                }
+            } else {
+                if (multiPropertyBreakdownIsEnabled) {
+                    if (!breakdown_type) {
+                        console.error(new Error(`Unknown breakdown_type: "${breakdown_type}"`))
+                    } else {
+                        const newParts = breakdownParts.filter((_, i) => i !== index)
+                        setFilters({
+                            breakdowns: newParts.map((np): Breakdown => ({ property: np, type: breakdown_type })),
+                            breakdown_type: breakdown_type,
+                        })
+                    }
+                } else {
+                    setFilters({ breakdown: undefined, breakdown_type: null })
+                }
+            }
+        }
+    }
 
     const tags = !breakdown_type
         ? []
-        : breakdownArray
-              .filter((b): b is string | number => !!b)
-              .map((t, index) => {
-                  const onClose =
-                      typeof t === 'string' && t !== 'all'
-                          ? () => {
-                                if (multiPropertyBreakdownIsEnabled) {
-                                    const newParts = breakdownParts.filter((_, i): _ is string | number => i !== index)
-                                    setFilters({
-                                        breakdowns: newParts.map((np) => ({ property: np, type: breakdown_type })),
-                                        breakdown_type: breakdown_type,
-                                    })
-                                } else {
-                                    setFilters({ breakdown: undefined, breakdown_type: null })
-                                }
-                            }
-                          : () => {
-                                const newParts = breakdownParts.filter((_, i): _ is string | number => i !== index)
-                                if (newParts.length === 0) {
-                                    setFilters({ breakdown: null, breakdown_type: null })
-                                } else {
-                                    setFilters({ breakdown: newParts, breakdown_type: 'cohort' })
-                                }
-                            }
-                  return (
-                      <Tag className="taxonomic-breakdown-filter tag-pill" key={t} closable={true} onClose={onClose}>
-                          {typeof t === 'string' && t !== 'all' && <PropertyKeyInfo value={t} />}
-                          {typeof t === 'string' && t == 'all' && <PropertyKeyInfo value={'All Users'} />}
-                          {typeof t === 'number' && (
-                              <PropertyKeyInfo value={cohorts.filter((c) => c.id == t)[0]?.name || `Cohort ${t}`} />
-                          )}
-                      </Tag>
-                  )
-              })
+        : breakdownArray.map((t, index) => (
+              <Tag
+                  className="taxonomic-breakdown-filter tag-pill"
+                  key={t}
+                  closable={true}
+                  onClose={onCloseFor(t, index)}
+              >
+                  {isPersonEventOrGroup(t) && <PropertyKeyInfo value={t} />}
+                  {isAllCohort(t) && <PropertyKeyInfo value={'All Users'} />}
+                  {isCohort(t) && (
+                      <PropertyKeyInfo value={cohorts.filter((c) => c.id == t)[0]?.name || `Cohort ${t}`} />
+                  )}
+              </Tag>
+          ))
 
     const onChange = (changedBreakdown: TaxonomicFilterValue, groupType: TaxonomicFilterGroupType): void => {
         const changedBreakdownType = taxonomicFilterTypeToPropertyFilterType(groupType) as BreakdownType
