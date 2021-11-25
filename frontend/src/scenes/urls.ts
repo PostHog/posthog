@@ -14,7 +14,6 @@ export const urls = {
     eventPropertyStats: () => '/events/properties',
     events: () => '/events',
     insightNew: (filters?: Partial<FilterType>) => `/insights/new${filters ? combineUrl('', filters).search : ''}`,
-    insightRouter: (id: string) => `/i/${id}`,
     insightEdit: (id: InsightShortId, filters?: Partial<FilterType>) =>
         `/insights/${id}/edit${filters ? combineUrl('', filters).search : ''}`,
     insightView: (id: InsightShortId, filters?: Partial<FilterType>) =>
