@@ -442,7 +442,7 @@ export function FunnelStepTable(): JSX.Element | null {
                                 ? step.breakdown
                                 : undefined
                         }
-                        hideBreakdown
+                        hideBreakdown={!isBreakdownChild}
                         iconSize={IconSize.Small}
                         iconStyle={{ marginRight: 12 }}
                         hideIcon={!isBreakdownChild}

@@ -26,10 +26,16 @@ export function getStepColor(step: FlattenedFunnelStep, isBreakdown?: boolean): 
     return getColor(step, 'var(--text-default)', isBreakdown)
 }
 
+/**
+ * While we have both multi and single property breakdown modes.
+ * And FlattenedFunnelStep['breakdowns'] property is being copied onto FlattenedFunnelStep['breakdown']
+ * This might receive an Array of strings
+ * @param stepBreakdown
+ */
 export function isBreakdownChildType(
-    stepBreakdown: FlattenedFunnelStep['breakdown']
-): stepBreakdown is string | number | undefined {
-    return ['string', 'number', 'undefined'].includes(typeof stepBreakdown)
+    stepBreakdown: FlattenedFunnelStep['breakdown'] | Array<string | number>
+): stepBreakdown is string | number | undefined | Array<string | number> {
+    return Array.isArray(stepBreakdown) || ['string', 'number', 'undefined'].includes(typeof stepBreakdown)
 }
 
 export const renderSubColumnTitle = (title: string | JSX.Element): JSX.Element => (

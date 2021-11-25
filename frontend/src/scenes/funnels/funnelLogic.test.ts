@@ -1182,6 +1182,7 @@ describe('funnelLogic', () => {
                 ],
             })
         })
+
         it('can load a funnel with multi property breakdown', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setFilters({
@@ -1208,7 +1209,7 @@ describe('funnelLogic', () => {
                         action_id: '$pageview',
                         average_conversion_time: null,
                         breakdown: '$browser::$browser_version',
-                        breakdown_value: 'Chrome::95',
+                        breakdown_value: ['Chrome', '95'],
                         converted_people_url: '/api/person/funnel/?blah=etc',
                         count: 1,
                         custom_name: null,
@@ -1219,8 +1220,8 @@ describe('funnelLogic', () => {
                             {
                                 action_id: '$pageview',
                                 average_conversion_time: null,
-                                breakdown: 'Chrome::95',
-                                breakdown_value: 'Chrome::95',
+                                breakdown: ['Chrome', '95'],
+                                breakdown_value: ['Chrome', '95'],
                                 converted_people_url: '/api/person/funnel/?blah=etc',
                                 count: 1,
                                 custom_name: null,
@@ -1240,7 +1241,7 @@ describe('funnelLogic', () => {
                         action_id: '$pageview',
                         average_conversion_time: null,
                         breakdown: '$browser::$browser_version',
-                        breakdown_value: 'Chrome::95',
+                        breakdown_value: ['Chrome', '95'],
                         converted_people_url: '/api/person/funnel/?blah=etc',
                         count: 1,
                         custom_name: null,
@@ -1251,8 +1252,8 @@ describe('funnelLogic', () => {
                             {
                                 action_id: '$pageview',
                                 average_conversion_time: 605.3581661891118,
-                                breakdown: 'Chrome::95',
-                                breakdown_value: 'Chrome::95',
+                                breakdown: ['Chrome', '95'],
+                                breakdown_value: ['Chrome', '95'],
                                 converted_people_url: '/api/person/funnel/?blah=etc',
                                 count: 1,
                                 custom_name: null,
@@ -1274,7 +1275,7 @@ describe('funnelLogic', () => {
                         action_id: '$pageview',
                         average_conversion_time: null,
                         breakdown: '$browser::$browser_version',
-                        breakdown_value: 'Chrome::95',
+                        breakdown_value: ['Chrome', '95'],
                         converted_people_url: '/api/person/funnel/?blah=etc',
                         count: 1,
                         custom_name: null,
@@ -1285,8 +1286,8 @@ describe('funnelLogic', () => {
                             {
                                 action_id: '$pageview',
                                 average_conversion_time: null,
-                                breakdown: 'Chrome::95',
-                                breakdown_value: 'Chrome::95',
+                                breakdown: ['Chrome', '95'],
+                                breakdown_value: ['Chrome', '95'],
                                 converted_people_url: '/api/person/funnel/?blah=etc',
                                 count: 1,
                                 custom_name: null,
@@ -1306,7 +1307,7 @@ describe('funnelLogic', () => {
                         action_id: '$pageview',
                         average_conversion_time: null,
                         breakdown: '$browser::$browser_version',
-                        breakdown_value: 'Chrome::95',
+                        breakdown_value: ['Chrome', '95'],
                         converted_people_url: '/api/person/funnel/?blah=etc',
                         count: 1,
                         custom_name: null,
@@ -1317,8 +1318,8 @@ describe('funnelLogic', () => {
                             {
                                 action_id: '$pageview',
                                 average_conversion_time: 605.3581661891118,
-                                breakdown: 'Chrome::95',
-                                breakdown_value: 'Chrome::95',
+                                breakdown: ['Chrome', '95'],
+                                breakdown_value: ['Chrome', '95'],
                                 converted_people_url: '/api/person/funnel/?blah=etc',
                                 count: 1,
                                 custom_name: null,
@@ -1340,7 +1341,7 @@ describe('funnelLogic', () => {
                         action_id: '$pageview',
                         average_conversion_time: null,
                         breakdown: '$browser::$browser_version',
-                        breakdown_value: 'Chrome::95',
+                        breakdown_value: ['Chrome', '95'],
                         conversionRates: {
                             fromBasisStep: 1,
                             fromPrevious: 1,
@@ -1357,8 +1358,8 @@ describe('funnelLogic', () => {
                             {
                                 action_id: '$pageview',
                                 average_conversion_time: null,
-                                breakdown: 'Chrome::95',
-                                breakdown_value: 'Chrome::95',
+                                breakdown: ['Chrome', '95'],
+                                breakdown_value: ['Chrome', '95'],
                                 conversionRates: {
                                     fromBasisStep: 1,
                                     fromPrevious: 0,
@@ -1389,7 +1390,7 @@ describe('funnelLogic', () => {
                         action_id: '$pageview',
                         average_conversion_time: null,
                         breakdown: '$browser::$browser_version',
-                        breakdown_value: 'Chrome::95',
+                        breakdown_value: ['Chrome', '95'],
                         conversionRates: {
                             fromBasisStep: 1,
                             fromPrevious: 1,
@@ -1406,8 +1407,8 @@ describe('funnelLogic', () => {
                             {
                                 action_id: '$pageview',
                                 average_conversion_time: 605.3581661891118,
-                                breakdown: 'Chrome::95',
-                                breakdown_value: 'Chrome::95',
+                                breakdown: ['Chrome', '95'],
+                                breakdown_value: ['Chrome', '95'],
                                 conversionRates: {
                                     fromBasisStep: 1,
                                     fromPrevious: 1,
@@ -1440,7 +1441,7 @@ describe('funnelLogic', () => {
                         action_id: '$pageview',
                         average_conversion_time: null,
                         breakdown: '$browser::$browser_version',
-                        breakdown_value: 'Chrome::95',
+                        breakdown_value: ['Chrome', '95'],
                         conversionRates: {
                             fromBasisStep: 1,
                             fromPrevious: 1,
@@ -1454,13 +1455,13 @@ describe('funnelLogic', () => {
                         isBreakdownParent: true,
                         median_conversion_time: null,
                         name: '$pageview',
-                        nestedRowKeys: ['events/$pageview/0/Chrome::95'],
+                        nestedRowKeys: ['events/$pageview/0/Chrome,95'],
                         nested_breakdown: [
                             {
                                 action_id: '$pageview',
                                 average_conversion_time: null,
-                                breakdown: 'Chrome::95',
-                                breakdown_value: 'Chrome::95',
+                                breakdown: ['Chrome', '95'],
+                                breakdown_value: ['Chrome', '95'],
                                 conversionRates: {
                                     fromBasisStep: 1,
                                     fromPrevious: 0,
@@ -1491,9 +1492,9 @@ describe('funnelLogic', () => {
                     {
                         action_id: '$pageview',
                         average_conversion_time: null,
-                        breakdown: 'Chrome::95',
+                        breakdown: ['Chrome', '95'],
                         breakdownIndex: 0,
-                        breakdown_value: 'Chrome::95',
+                        breakdown_value: ['Chrome', '95'],
                         conversionRates: {
                             fromBasisStep: 1,
                             fromPrevious: 0,
@@ -1508,7 +1509,7 @@ describe('funnelLogic', () => {
                         name: '$pageview',
                         order: 0,
                         people: [],
-                        rowKey: 'events/$pageview/0/Chrome::95',
+                        rowKey: 'events/$pageview/0/Chrome,95',
                         significant: {
                             fromBasisStep: false,
                             fromPrevious: false,
@@ -1520,7 +1521,7 @@ describe('funnelLogic', () => {
                         action_id: '$pageview',
                         average_conversion_time: null,
                         breakdown: '$browser::$browser_version',
-                        breakdown_value: 'Chrome::95',
+                        breakdown_value: ['Chrome', '95'],
                         conversionRates: {
                             fromBasisStep: 1,
                             fromPrevious: 1,
@@ -1534,13 +1535,13 @@ describe('funnelLogic', () => {
                         isBreakdownParent: true,
                         median_conversion_time: 3,
                         name: '$pageview',
-                        nestedRowKeys: ['events/$pageview/1/Chrome::95'],
+                        nestedRowKeys: ['events/$pageview/1/Chrome,95'],
                         nested_breakdown: [
                             {
                                 action_id: '$pageview',
                                 average_conversion_time: 605.3581661891118,
-                                breakdown: 'Chrome::95',
-                                breakdown_value: 'Chrome::95',
+                                breakdown: ['Chrome', '95'],
+                                breakdown_value: ['Chrome', '95'],
                                 conversionRates: {
                                     fromBasisStep: 1,
                                     fromPrevious: 1,
@@ -1571,9 +1572,9 @@ describe('funnelLogic', () => {
                     {
                         action_id: '$pageview',
                         average_conversion_time: 605.3581661891118,
-                        breakdown: 'Chrome::95',
+                        breakdown: ['Chrome', '95'],
                         breakdownIndex: 0,
-                        breakdown_value: 'Chrome::95',
+                        breakdown_value: ['Chrome', '95'],
                         conversionRates: {
                             fromBasisStep: 1,
                             fromPrevious: 1,
@@ -1588,7 +1589,7 @@ describe('funnelLogic', () => {
                         name: '$pageview',
                         order: 0,
                         people: [],
-                        rowKey: 'events/$pageview/1/Chrome::95',
+                        rowKey: 'events/$pageview/1/Chrome,95',
                         significant: {
                             fromBasisStep: false,
                             fromPrevious: false,
@@ -1608,21 +1609,21 @@ describe('funnelLogic', () => {
                         rowKey: 'table-header',
                     },
                     {
-                        breakdown: 'Chrome::95',
+                        breakdown: ['Chrome', '95'],
                         breakdownIndex: 0,
-                        breakdown_value: 'Chrome::95',
+                        breakdown_value: ['Chrome', '95'],
                         conversionRates: {
                             total: 1,
                         },
                         isBaseline: false,
-                        rowKey: 'Chrome::95',
+                        rowKey: ['Chrome', '95'],
                         significant: false,
                         steps: [
                             {
                                 action_id: '$pageview',
                                 average_conversion_time: null,
-                                breakdown: 'Chrome::95',
-                                breakdown_value: 'Chrome::95',
+                                breakdown: ['Chrome', '95'],
+                                breakdown_value: ['Chrome', '95'],
                                 conversionRates: {
                                     fromBasisStep: 1,
                                     fromPrevious: 0,
@@ -1647,8 +1648,8 @@ describe('funnelLogic', () => {
                             {
                                 action_id: '$pageview',
                                 average_conversion_time: 605.3581661891118,
-                                breakdown: 'Chrome::95',
-                                breakdown_value: 'Chrome::95',
+                                breakdown: ['Chrome', '95'],
+                                breakdown_value: ['Chrome', '95'],
                                 conversionRates: {
                                     fromBasisStep: 1,
                                     fromPrevious: 1,
@@ -1675,21 +1676,21 @@ describe('funnelLogic', () => {
                 ],
                 flattenedBreakdowns: [
                     {
-                        breakdown: 'Chrome::95',
+                        breakdown: ['Chrome', '95'],
                         breakdownIndex: 0,
-                        breakdown_value: 'Chrome::95',
+                        breakdown_value: ['Chrome', '95'],
                         conversionRates: {
                             total: 1,
                         },
                         isBaseline: false,
-                        rowKey: 'Chrome::95',
+                        rowKey: ['Chrome', '95'],
                         significant: false,
                         steps: [
                             {
                                 action_id: '$pageview',
                                 average_conversion_time: null,
-                                breakdown: 'Chrome::95',
-                                breakdown_value: 'Chrome::95',
+                                breakdown: ['Chrome', '95'],
+                                breakdown_value: ['Chrome', '95'],
                                 conversionRates: {
                                     fromBasisStep: 1,
                                     fromPrevious: 0,
@@ -1714,8 +1715,8 @@ describe('funnelLogic', () => {
                             {
                                 action_id: '$pageview',
                                 average_conversion_time: 605.3581661891118,
-                                breakdown: 'Chrome::95',
-                                breakdown_value: 'Chrome::95',
+                                breakdown: ['Chrome', '95'],
+                                breakdown_value: ['Chrome', '95'],
                                 conversionRates: {
                                     fromBasisStep: 1,
                                     fromPrevious: 1,

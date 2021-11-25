@@ -83,12 +83,15 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
         }
 
         if (filters.funnel_viz_type === FunnelVizType.Steps) {
+            cleanedParams['breakdown'] = undefined
+            cleanedParams['breakdowns'] = undefined
+            cleanedParams['breakdown_type'] = undefined
+            cleanedParams['breakdown_group_type_index'] = undefined
+
             if (Array.isArray(filters['breakdowns']) && filters['breakdowns']?.length > 0) {
                 cleanedParams['breakdowns'] = filters['breakdowns']
-            } else {
-                if (filters.breakdown) {
-                    cleanedParams['breakdown'] = filters.breakdown
-                }
+            } else if (filters.breakdown) {
+                cleanedParams['breakdown'] = filters.breakdown
             }
 
             if (filters.breakdown_type && (cleanedParams['breakdown'] || cleanedParams['breakdowns'])) {

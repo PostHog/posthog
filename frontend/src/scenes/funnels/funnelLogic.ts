@@ -401,8 +401,8 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                         // breakdowns ["a", "b"] becomes breakdown: "a::b"
                         const mappedResults = result[0].map((r) => {
                             const { breakdowns, breakdown_value, ...singlePropertyClone } = r
-                            singlePropertyClone.breakdown = breakdowns.join('::')
-                            singlePropertyClone.breakdown_value = breakdown_value.join('::')
+                            singlePropertyClone.breakdown = breakdowns
+                            singlePropertyClone.breakdown_value = breakdown_value
                             return singlePropertyClone
                         })
                         return [mappedResults]

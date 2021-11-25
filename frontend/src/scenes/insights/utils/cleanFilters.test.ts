@@ -31,7 +31,7 @@ describe('cleanFilters', () => {
             { breakdown: '$browser', insight: InsightType.FUNNELS, funnel_viz_type: 'steps' }
         )
 
-        expect(cleanedFilters).not.toHaveProperty('breakdown')
+        expect(cleanedFilters).toHaveProperty('breakdown', undefined)
 
         expect(cleanedFilters).toEqual(
             expect.objectContaining({ breakdowns: [{ property: '$browser', type: 'event' }] })
@@ -83,9 +83,9 @@ describe('cleanFilters', () => {
             }
         )
 
-        expect(cleanedFilters).not.toHaveProperty('breakdowns')
-        expect(cleanedFilters).not.toHaveProperty('breakdown')
-        expect(cleanedFilters).not.toHaveProperty('breakdown_type')
+        expect(cleanedFilters).toHaveProperty('breakdowns', undefined)
+        expect(cleanedFilters).toHaveProperty('breakdown', undefined)
+        expect(cleanedFilters).toHaveProperty('breakdown_type', undefined)
     })
 
     it('does not include breakdown properties if funnel is not type steps', () => {
@@ -106,9 +106,9 @@ describe('cleanFilters', () => {
             }
         )
 
-        expect(cleanedFilters).not.toHaveProperty('breakdowns')
-        expect(cleanedFilters).not.toHaveProperty('breakdown')
-        expect(cleanedFilters).not.toHaveProperty('breakdown_type')
-        expect(cleanedFilters).not.toHaveProperty('breakdown_group_type_index')
+        expect(cleanedFilters).toHaveProperty('breakdowns', undefined)
+        expect(cleanedFilters).toHaveProperty('breakdown', undefined)
+        expect(cleanedFilters).toHaveProperty('breakdown_type', undefined)
+        expect(cleanedFilters).toHaveProperty('breakdown_group_type_index', undefined)
     })
 })
