@@ -1,6 +1,5 @@
 import React from 'react'
 import { TZLabel } from '../TimezoneAware'
-import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { Row } from 'antd'
 import { ProfilePicture } from '../ProfilePicture'
 import { LemonTableColumn } from './LemonTable'
