@@ -442,8 +442,16 @@ export const insightLogic = kea<insightLogicType>({
             const insightChanged = values.loadedFilters?.insight && filters.insight !== values.loadedFilters?.insight
 
             const backendFilterChanged = !objectsEqual(
-                Object.assign({}, values.filters, { layout: undefined, hiddenLegendKeys: undefined }),
-                Object.assign({}, values.loadedFilters, { layout: undefined, hiddenLegendKeys: undefined })
+                Object.assign({}, values.filters, {
+                    layout: undefined,
+                    hiddenLegendKeys: undefined,
+                    funnel_advanced: undefined,
+                }),
+                Object.assign({}, values.loadedFilters, {
+                    layout: undefined,
+                    hiddenLegendKeys: undefined,
+                    funnel_advanced: undefined,
+                })
             )
 
             // Auto-reload when setting filters
@@ -593,7 +601,7 @@ export const insightLogic = kea<insightLogicType>({
             actions.setInsight(insight, { fromPersistentApi: true })
             savedInsightsLogic.findMounted()?.actions.loadInsights()
             if (values.syncWithUrl) {
-                router.actions.push(urls.insightEdit(insight.short_id))
+                router.actions.push(urls.insightEdit(insight.short_id, values.filters))
             }
         },
         loadInsightSuccess: async ({ payload, insight }) => {

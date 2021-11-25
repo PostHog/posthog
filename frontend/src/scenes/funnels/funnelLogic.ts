@@ -32,6 +32,7 @@ import {
     EntityTypes,
     PropertyFilter,
     PropertyOperator,
+    StepOrderValue,
 } from '~/types'
 import { FunnelLayout, BinCountAuto, FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -151,6 +152,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         toggleVisibility: (index: string) => ({ index }),
         toggleVisibilityByBreakdown: (breakdownValue?: number | string) => ({ breakdownValue }),
         setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
+        toggleAdvancedMode: true,
 
         // Correlation related actions
         setCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
@@ -348,7 +350,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 },
             },
         ],
-
         nestedTableExpandedKeys: [
             [] as string[],
             {
@@ -1038,6 +1039,22 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 return { singular: 'user', plural: 'users' }
             },
         ],
+        advancedOptionsUsedCount: [
+            (s) => [s.filters, s.stepReference],
+            (filters: FilterType, stepReference: FunnelStepReference): number => {
+                let count = 0
+                if (filters.funnel_order_type && filters.funnel_order_type !== StepOrderValue.ORDERED) {
+                    count = count + 1
+                }
+                if (stepReference !== FunnelStepReference.total) {
+                    count = count + 1
+                }
+                if (filters.exclusions?.length) {
+                    count = count + 1
+                }
+                return count
+            },
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -1204,7 +1221,9 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         setConversionWindow: async () => {
             actions.setFilters(values.conversionWindow)
         },
-
+        toggleAdvancedMode: () => {
+            actions.setFilters({ funnel_advanced: !values.filters.funnel_advanced })
+        },
         excludeEventPropertyFromProject: async ({ propertyName }) => {
             appendToCorrelationConfig('excluded_event_property_names', values.excludedEventPropertyNames, propertyName)
 
@@ -1216,7 +1235,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 }
             )
         },
-
         excludeEventFromProject: async ({ eventName }) => {
             appendToCorrelationConfig('excluded_event_names', values.excludedEventNames, eventName)
 
@@ -1224,7 +1242,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 event_name: eventName,
             })
         },
-
         excludePropertyFromProject: ({ propertyName }) => {
             appendToCorrelationConfig('excluded_person_property_names', values.excludedPropertyNames, propertyName)
 
@@ -1236,14 +1253,12 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 }
             )
         },
-
         hideSkewWarning: () => {
             eventUsageLogic.actions.reportCorrelationInteraction(
                 FunnelCorrelationResultsType.Events,
                 'hide skew warning'
             )
         },
-
         setCorrelationTypes: ({ types }) => {
             eventUsageLogic.actions.reportCorrelationInteraction(
                 FunnelCorrelationResultsType.Events,
@@ -1251,7 +1266,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 { types }
             )
         },
-
         setPropertyCorrelationTypes: ({ types }) => {
             eventUsageLogic.actions.reportCorrelationInteraction(
                 FunnelCorrelationResultsType.Properties,
@@ -1259,7 +1273,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 { types }
             )
         },
-
         setPropertyNames: async ({ propertyNames }) => {
             actions.loadPropertyCorrelations()
             eventUsageLogic.actions.reportCorrelationInteraction(
@@ -1268,7 +1281,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 { property_names: propertyNames.length === values.allProperties.length ? '$all' : propertyNames }
             )
         },
-
         sendCorrelationAnalysisFeedback: () => {
             eventUsageLogic.actions.reportCorrelationAnalysisDetailedFeedback(
                 values.correlationFeedbackRating,
@@ -1286,7 +1298,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 eventUsageLogic.actions.reportCorrelationAnalysisFeedback(rating)
             }
         },
-
         [visibilitySensorLogic({ id: values.correlationPropKey }).actionTypes.setVisible]: async (
             {
                 visible,

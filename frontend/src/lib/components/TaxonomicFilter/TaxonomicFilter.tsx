@@ -43,29 +43,19 @@ export function TaxonomicFilter({
         optionsFromProp,
     }
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
-    const { searchQuery } = useValues(logic)
+    const { searchQuery, searchPlaceholder } = useValues(logic)
     const { setSearchQuery, moveUp, moveDown, tabLeft, tabRight, selectSelected } = useActions(logic)
 
     useEffect(() => {
         window.setTimeout(() => focusInput(), 1)
     }, [])
 
-    const placeholder = taxonomicGroupTypes
-        .filter((type) => !type.includes('groups'))
-        .map(
-            (type, index) =>
-                `${index !== 0 ? (index === taxonomicGroupTypes.length - 1 ? ' or ' : ', ') : ''}${type
-                    .split('_')
-                    .join(' ')}`
-        )
-        .join('')
-
     return (
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
             <div className={`taxonomic-filter${taxonomicGroupTypes.length === 1 ? ' one-taxonomic-tab' : ''}`}>
                 <Input
                     data-attr="taxonomic-filter-searchfield"
-                    placeholder={`Search ${placeholder}`}
+                    placeholder={`Search ${searchPlaceholder}`}
                     value={searchQuery}
                     ref={(ref) => (searchInputRef.current = ref)}
                     onChange={(e) => setSearchQuery(e.target.value)}

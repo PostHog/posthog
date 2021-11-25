@@ -105,6 +105,17 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
         },
     })
 
+    /* These are insight specific filters. They each have insight specific logics */
+    const insightTab = {
+        [`${InsightType.TRENDS}`]: <TrendTab view={InsightType.TRENDS} />,
+        [`${InsightType.STICKINESS}`]: <TrendTab view={InsightType.STICKINESS} />,
+        [`${InsightType.LIFECYCLE}`]: <TrendTab view={InsightType.LIFECYCLE} />,
+        [`${InsightType.SESSIONS}`]: <SessionTab />,
+        [`${InsightType.FUNNELS}`]: <FunnelTab />,
+        [`${InsightType.RETENTION}`]: <RetentionTab />,
+        [`${InsightType.PATHS}`]: <PathTab />,
+    }[activeView]
+
     const insightScene = (
         <div className="insights-page">
             <div className="insight-metadata">
@@ -224,24 +235,18 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                         />
                     )}
 
-                    <Row gutter={16}>
+                    <Row gutter={16} style={verticalLayout ? { marginBottom: 64 } : undefined}>
                         <Col span={24} xl={verticalLayout ? 8 : undefined}>
-                            <Card className="insight-controls">
-                                <div className="tabs-inner">
-                                    {/* These are insight specific filters. They each have insight specific logics */}
-                                    {
-                                        {
-                                            [`${InsightType.TRENDS}`]: <TrendTab view={InsightType.TRENDS} />,
-                                            [`${InsightType.STICKINESS}`]: <TrendTab view={InsightType.STICKINESS} />,
-                                            [`${InsightType.LIFECYCLE}`]: <TrendTab view={InsightType.LIFECYCLE} />,
-                                            [`${InsightType.SESSIONS}`]: <SessionTab />,
-                                            [`${InsightType.FUNNELS}`]: <FunnelTab />,
-                                            [`${InsightType.RETENTION}`]: <RetentionTab />,
-                                            [`${InsightType.PATHS}`]: <PathTab />,
-                                        }[activeView]
-                                    }
-                                </div>
-                            </Card>
+                            {featureFlags[FEATURE_FLAGS.FUNNEL_SIMPLE_MODE] && verticalLayout ? (
+                                insightTab
+                            ) : (
+                                <Card className="insight-controls">
+                                    <div className="tabs-inner">
+                                        {/* These are insight specific filters. They each have insight specific logics */}
+                                        {insightTab}
+                                    </div>
+                                </Card>
+                            )}
                         </Col>
                         <Col span={24} xl={verticalLayout ? 16 : undefined}>
                             <InsightContainer />

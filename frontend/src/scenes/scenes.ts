@@ -108,7 +108,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Personalization]: {
         projectBased: true,
         plain: true,
-        hideTopNav: true,
     },
     [Scene.Ingestion]: {
         projectBased: true,
@@ -167,7 +166,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.BillingSubscribed]: {
         plain: true,
-        hideTopNav: true,
         allowUnauthenticated: true,
     },
 }
