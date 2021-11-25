@@ -84,6 +84,7 @@ export const FEATURE_FLAGS = {
     GROUP_ANALYTICS: 'group-analytics', // owner: @macobo
     SESSION_INSIGHT_REMOVAL: 'session-insight-removal', // owner: @paolodamico
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @paolodamico
+    FUNNELS_CUE_ENABLED: 'funnels-cue-enabled', // owner: @paolodamico
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

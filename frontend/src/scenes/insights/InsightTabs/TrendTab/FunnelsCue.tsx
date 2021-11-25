@@ -55,6 +55,9 @@ const funnelsCueLogic = kea<funnelsCueLogicType>({
             actions.setPermanentOptOut()
         },
         setFilters: async ({ filters }) => {
+            if (!values.featureFlags[FEATURE_FLAGS.FUNNELS_CUE_ENABLED]) {
+                return
+            }
             const step_count = (filters.events?.length ?? 0) + (filters.actions?.length ?? 0)
             if (!values.isFirstLoad && filters.insight === InsightType.TRENDS && step_count >= 3) {
                 actions.setShouldShow(true)
