@@ -18,7 +18,7 @@ export interface Sorting {
 
 export interface LemonTableColumn<T extends Record<string, any>, D extends keyof T> {
     title?: string | React.ReactNode
-    key?: keyof T
+    key?: string
     dataIndex?: D
     render?: (dataValue: T[D] | undefined, record: T) => React.ReactNode | string | boolean | null | undefined
     sorter?: (a: T, b: T) => number
@@ -49,6 +49,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     /** What to show when there's no data. By default it's generic "No data" */
     emptyState?: React.ReactNode
     'data-attr'?: string
+    /** Class name to append to each row */
+    rowClassName?: string
 }
 
 export function LemonTable<T extends Record<string, any>>({
@@ -61,6 +63,7 @@ export function LemonTable<T extends Record<string, any>>({
     pagination,
     defaultSorting,
     emptyState = 'No data',
+    rowClassName,
     ...divProps
 }: LemonTableProps<T>): JSX.Element {
     /** Search param that will be used for storing and syncing the current page */
@@ -195,22 +198,19 @@ export function LemonTable<T extends Record<string, any>>({
                             {dataSource.length ? (
                                 currentFrame.map((data, rowIndex) => (
                                     <tr
-                                        key={`LemonTable-row-${rowKey ? data[rowKey] : currentStartIndex + rowIndex}`}
+                                        key={`LemonTable-td-${rowKey ? data[rowKey] : currentStartIndex + rowIndex}`}
                                         data-row-key={rowKey ? data[rowKey] : rowIndex}
                                         {...onRow?.(data)}
+                                        className={rowClassName}
                                     >
                                         {columns.map((column, columnIndex) => {
                                             const value = column.dataIndex ? data[column.dataIndex] : undefined
                                             const contents = column.render ? column.render(value, data) : value
                                             return (
                                                 <td
-                                                    key={
-                                                        column.key
-                                                            ? data[column.key]
-                                                            : column.dataIndex
-                                                            ? data[column.dataIndex]
-                                                            : columnIndex
-                                                    }
+                                                    key={`LemonTable-td-${
+                                                        column.key || column.dataIndex?.toString() || columnIndex
+                                                    }`}
                                                     className={column.className}
                                                     style={{ textAlign: column.align }}
                                                 >

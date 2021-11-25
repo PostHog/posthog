@@ -6,7 +6,7 @@ import { personsLogic } from './personsLogic'
 export const PersonsSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JSX.Element => {
     const { loadPersons, setListFilters } = useActions(personsLogic)
     const { exampleEmail, listFilters } = useValues(personsLogic)
-    const [searchTerm, setSearchTerm] = useState('')
+    const [searchTerm, setSearchTerm] = useState('' as string | undefined)
 
     useEffect(() => {
         setSearchTerm(listFilters.search)

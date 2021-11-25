@@ -8,6 +8,7 @@ import { useValues } from 'kea'
 import { LinkButton } from '../LinkButton'
 import { urls } from '../../../scenes/urls'
 import { Tooltip } from '../Tooltip'
+import { combineUrl } from 'kea-router'
 
 interface Props {
     insight: Partial<DashboardItemType>
@@ -24,7 +25,7 @@ export function SaveToDashboard({ insight }: Props): JSX.Element {
             {dashboard ? (
                 <Tooltip title={`Go to dashboard "${dashboard?.name}"`} placement="bottom">
                     <LinkButton
-                        to={`${urls.dashboard(dashboard.id)}?highlightInsightId=${insight.id}`}
+                        to={combineUrl(urls.dashboard(dashboard.id), { highlightInsightId: insight.short_id }).url}
                         type="default"
                         style={{ color: 'var(--primary)' }}
                         icon={<CheckSquareOutlined />}

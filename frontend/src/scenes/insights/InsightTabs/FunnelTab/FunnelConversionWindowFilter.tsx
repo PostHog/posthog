@@ -9,6 +9,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { RefSelectProps } from 'antd/lib/select'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useDebouncedCallback } from 'use-debounce'
+import clsx from 'clsx'
 
 const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
     [FunnelConversionWindowTimeUnit.Minute]: [1, 1440],
@@ -18,7 +19,7 @@ const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
     [FunnelConversionWindowTimeUnit.Month]: [1, 12],
 }
 
-export function FunnelConversionWindowFilter(): JSX.Element {
+export function FunnelConversionWindowFilter({ horizontal }: { horizontal?: boolean }): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { conversionWindow, aggregationTargetLabel } = useValues(funnelLogic(insightProps))
     const { setFilters } = useActions(funnelLogic(insightProps))
@@ -42,7 +43,10 @@ export function FunnelConversionWindowFilter(): JSX.Element {
     }, 200)
 
     return (
-        <div className="funnel-options-container">
+        <div
+            className={clsx('funnel-options-container', horizontal && 'flex-center')}
+            style={horizontal ? { flexDirection: 'row' } : undefined}
+        >
             <span className="funnel-options-label">
                 Conversion window limit{' '}
                 <Tooltip
@@ -57,7 +61,7 @@ export function FunnelConversionWindowFilter(): JSX.Element {
                     <InfoCircleOutlined className="info-indicator" />
                 </Tooltip>
             </span>
-            <Row className="funnel-options-inputs">
+            <Row className="funnel-options-inputs" style={horizontal ? { paddingLeft: 8 } : undefined}>
                 <InputNumber
                     className="time-value-input"
                     min={intervalBounds[0]}

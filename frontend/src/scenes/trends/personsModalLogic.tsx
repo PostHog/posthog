@@ -419,7 +419,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/insights': (_, {}, { personModal }) => {
+        '/insights/': (_, {}, { personModal }) => {
             if (personModal && !values.showingPeople) {
                 actions.loadPeople(personModal)
             }

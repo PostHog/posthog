@@ -6,16 +6,16 @@ import { annotationsModel } from '~/models/annotationsModel'
 import { getNextKey } from './utils'
 import { annotationsLogicType } from './annotationsLogicType'
 import { AnnotationScope, AnnotationType } from '~/types'
-import { teamLogic } from '../../../scenes/teamLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 interface AnnotationsLogicProps {
-    pageKey?: string | number | null
+    insightId?: number
 }
 
 export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>({
     path: (key) => ['lib', 'components', 'Annotations', 'annotationsLogic', key],
     props: {} as AnnotationsLogicProps,
-    key: (props) => (props.pageKey ? `${props.pageKey}_annotations` : 'annotations_default'),
+    key: (props) => String(props.insightId || 'default'),
     connect: {
         actions: [annotationsModel, ['deleteGlobalAnnotation', 'createGlobalAnnotation']],
         values: [annotationsModel, ['activeGlobalAnnotations']],
@@ -51,7 +51,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
             __default: [] as AnnotationType[],
             loadAnnotations: async () => {
                 const params = {
-                    ...(props.pageKey ? { dashboardItemId: props.pageKey } : {}),
+                    ...(props.insightId ? { dashboardItemId: props.insightId } : {}),
                     scope: AnnotationScope.DashboardItem,
                     deleted: false,
                 }
@@ -139,7 +139,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
                 content,
                 date_marker: dayjs(date_marker),
                 created_at,
-                dashboard_item: props.pageKey,
+                dashboard_item: props.insightId,
                 scope,
             })
             actions.loadAnnotations()
@@ -157,6 +157,6 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
         },
     }),
     events: ({ actions, props }) => ({
-        afterMount: () => props.pageKey && actions.loadAnnotations(),
+        afterMount: () => props.insightId && actions.loadAnnotations(),
     }),
 })
