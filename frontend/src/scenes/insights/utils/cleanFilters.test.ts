@@ -111,4 +111,52 @@ describe('cleanFilters', () => {
         expect(cleanedFilters).toHaveProperty('breakdown_type', undefined)
         expect(cleanedFilters).toHaveProperty('breakdown_group_type_index', undefined)
     })
+
+    it('removes breakdowns properties when changing away from funnel', () => {
+        const cleanedFilters = cleanFilters(
+            {
+                breakdowns: [{ property: 'any', type: 'event' }],
+                breakdown: 'something',
+                breakdown_type: 'event',
+                breakdown_group_type_index: 1,
+                insight: InsightType.TRENDS,
+            },
+            {
+                breakdowns: [{ property: 'something', type: 'event' }],
+                breakdown: 'something',
+                breakdown_type: 'event',
+                insight: InsightType.FUNNELS,
+                funnel_viz_type: 'steps',
+            }
+        )
+
+        expect(cleanedFilters).toHaveProperty('breakdowns', undefined)
+        expect(cleanedFilters).toHaveProperty('breakdown', 'something')
+        expect(cleanedFilters).toHaveProperty('breakdown_type', 'event')
+        expect(cleanedFilters).toHaveProperty('breakdown_group_type_index', 1)
+    })
+
+    it('cleans breakdown params for Trends', () => {
+        const cleanedFilters = cleanFilters(
+            {
+                breakdowns: [{ property: 'any', type: 'event' }],
+                breakdown: 'something',
+                breakdown_type: 'group',
+                breakdown_group_type_index: 1,
+                insight: InsightType.TRENDS,
+            },
+            {
+                breakdowns: [{ property: 'something', type: 'event' }],
+                breakdown: 'one thing',
+                breakdown_type: 'event',
+                insight: InsightType.FUNNELS,
+                funnel_viz_type: 'steps',
+            }
+        )
+
+        expect(cleanedFilters).toHaveProperty('breakdowns', undefined)
+        expect(cleanedFilters).toHaveProperty('breakdown', 'something')
+        expect(cleanedFilters).toHaveProperty('breakdown_type', 'group')
+        expect(cleanedFilters).toHaveProperty('breakdown_group_type_index', 1)
+    })
 })

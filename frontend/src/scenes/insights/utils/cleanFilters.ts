@@ -17,6 +17,34 @@ export function getDefaultEvent(): Entity {
     }
 }
 
+const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Partial<FilterType>): void => {
+    const isStepsFunnel = filters.insight === InsightType.FUNNELS && filters.funnel_viz_type === FunnelVizType.Steps
+    const canBreakdown = isStepsFunnel || filters.insight === InsightType.TRENDS
+
+    const canMultiPropertyBreakdown = isStepsFunnel
+
+    cleanedParams['breakdowns'] = undefined
+    cleanedParams['breakdown'] = undefined
+    cleanedParams['breakdown_type'] = undefined
+    cleanedParams['breakdown_group_type_index'] = undefined
+
+    if (canBreakdown) {
+        if (canMultiPropertyBreakdown && Array.isArray(filters['breakdowns']) && filters['breakdowns']?.length > 0) {
+            cleanedParams['breakdowns'] = filters['breakdowns']
+        } else if (filters.breakdown) {
+            cleanedParams['breakdown'] = filters.breakdown
+        }
+
+        if (filters.breakdown_type && (cleanedParams['breakdown'] || cleanedParams['breakdowns'])) {
+            cleanedParams['breakdown_type'] = filters.breakdown_type
+        }
+
+        if (filters.breakdown_group_type_index) {
+            cleanedParams['breakdown_group_type_index'] = filters.breakdown_group_type_index
+        }
+    }
+}
+
 export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<FilterType>): Partial<FilterType> {
     const insightChanged = oldFilters?.insight && filters.insight !== oldFilters?.insight
 
@@ -83,26 +111,7 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
                 : {}),
         }
 
-        if (filters.funnel_viz_type === FunnelVizType.Steps) {
-            cleanedParams['breakdown'] = undefined
-            cleanedParams['breakdowns'] = undefined
-            cleanedParams['breakdown_type'] = undefined
-            cleanedParams['breakdown_group_type_index'] = undefined
-
-            if (Array.isArray(filters['breakdowns']) && filters['breakdowns']?.length > 0) {
-                cleanedParams['breakdowns'] = filters['breakdowns']
-            } else if (filters.breakdown) {
-                cleanedParams['breakdown'] = filters.breakdown
-            }
-
-            if (filters.breakdown_type && (cleanedParams['breakdown'] || cleanedParams['breakdowns'])) {
-                cleanedParams['breakdown_type'] = filters.breakdown_type
-            }
-
-            if (filters.breakdown_group_type_index) {
-                cleanedParams['breakdown_group_type_index'] = filters.breakdown_group_type_index
-            }
-        }
+        cleanBreakdownParams(cleanedParams, filters)
 
         // if we came from an URL with just `#q={insight:TRENDS}` (no `events`/`actions`), add the default states `[]`
         if (isStepsUndefined(cleanedParams)) {
@@ -161,6 +170,8 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
             properties: filters.properties || [],
             ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
         }
+
+        cleanBreakdownParams(cleanSearchParams, filters)
 
         if (Object.keys(filters).length === 0 || (!filters.actions && !filters.events)) {
             cleanSearchParams.filter_test_accounts = defaultFilterTestAccounts()
