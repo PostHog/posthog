@@ -40,7 +40,6 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
                 : {}),
         }
     } else if (filters.insight === InsightType.FUNNELS) {
-        const breakdownEnabled = filters.funnel_viz_type === FunnelVizType.Steps
         const cleanedParams: Partial<FilterType> = {
             insight: InsightType.FUNNELS,
             ...(filters.date_from ? { date_from: filters.date_from } : {}),
@@ -75,11 +74,6 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
             ...(filters.hiddenLegendKeys ? { hiddenLegendKeys: filters.hiddenLegendKeys } : {}),
             exclusions: deepCleanFunnelExclusionEvents(filters),
             interval: autocorrectInterval(filters),
-            breakdown_type: breakdownEnabled ? filters.breakdown_type || undefined : undefined,
-            breakdown_group_type_index:
-                breakdownEnabled && filters.breakdown_group_type_index != undefined
-                    ? filters.breakdown_group_type_index
-                    : undefined,
             funnel_correlation_person_entity: filters.funnel_correlation_person_entity || undefined,
             funnel_correlation_person_converted: filters.funnel_correlation_person_converted || undefined,
             funnel_custom_steps: filters.funnel_custom_steps || undefined,
@@ -88,10 +82,22 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
                 : {}),
         }
 
-        if (Array.isArray(filters['breakdowns'])) {
-            cleanedParams['breakdowns'] = filters['breakdowns']
-        } else {
-            cleanedParams['breakdown'] = breakdownEnabled ? filters.breakdown || undefined : undefined
+        if (filters.funnel_viz_type === FunnelVizType.Steps) {
+            if (Array.isArray(filters['breakdowns']) && filters['breakdowns']?.length > 0) {
+                cleanedParams['breakdowns'] = filters['breakdowns']
+            } else {
+                if (filters.breakdown) {
+                    cleanedParams['breakdown'] = filters.breakdown
+                }
+            }
+
+            if (filters.breakdown_type && (cleanedParams['breakdown'] || cleanedParams['breakdowns'])) {
+                cleanedParams['breakdown_type'] = filters.breakdown_type
+            }
+
+            if (filters.breakdown_group_type_index) {
+                cleanedParams['breakdown_group_type_index'] = filters.breakdown_group_type_index
+            }
         }
 
         // if we came from an URL with just `#q={insight:TRENDS}` (no `events`/`actions`), add the default states `[]`

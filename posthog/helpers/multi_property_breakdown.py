@@ -1,10 +1,10 @@
 import copy
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
 
 
 def protect_old_clients_from_multi_property_default(
-    data: Dict[str, Any], result: List[List[Dict[str, Any]]]
-) -> List[List[Dict[str, Any]]]:
+    data: Dict[str, Any], result: Union[list[list[dict[str, Any]]], list[dict[str, Any]]]
+) -> Union[list[list[dict[str, Any]]], list[dict[str, Any]]]:
     """
     Implementing multi property breakdown will default breakdown to a list even if it is received as a string.
     This is a breaking change for clients.
@@ -16,21 +16,19 @@ def protect_old_clients_from_multi_property_default(
     :return:
     """
 
+    is_breakdown_request = (
+        "insight" in data
+        and data["insight"] == "FUNNELS"
+        and "breakdown_type" in data
+        and data["breakdown_type"] in ["person", "event"]
+    )
+    is_breakdown_result = isinstance(result, List) and len(result) > 0 and isinstance(result[0], List)
+
     is_single_property_breakdown = (
-        "insight" in data
-        and data["insight"] == "FUNNELS"
-        and "breakdown_type" in data
-        and data["breakdown_type"] in ["person", "event"]
-        and "breakdown" in data
-        and isinstance(data["breakdown"], str)
+        is_breakdown_request and "breakdown" in data and isinstance(data["breakdown"], str) and is_breakdown_result
     )
-    is_multi_property_breakdown = (
-        "insight" in data
-        and data["insight"] == "FUNNELS"
-        and "breakdown_type" in data
-        and data["breakdown_type"] in ["person", "event"]
-        and "breakdowns" in data
-    )
+    is_multi_property_breakdown = is_breakdown_request and "breakdowns" in data and is_breakdown_result
+
     if is_single_property_breakdown or is_multi_property_breakdown:
         copied_result = copy.deepcopy(result)
         for series_index, series in enumerate(result):

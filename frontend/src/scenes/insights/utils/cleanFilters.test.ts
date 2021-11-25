@@ -37,4 +37,78 @@ describe('cleanFilters', () => {
             expect.objectContaining({ breakdowns: [{ property: '$browser', type: 'event' }] })
         )
     })
+
+    it('adds breakdown_type when adding breakdown', () => {
+        const cleanedFilters = cleanFilters(
+            {
+                breakdown: '$thing',
+                breakdown_type: 'event',
+                insight: InsightType.FUNNELS,
+                funnel_viz_type: 'steps',
+            },
+            { insight: InsightType.FUNNELS, funnel_viz_type: 'steps' }
+        )
+
+        expect(cleanedFilters).toHaveProperty('breakdown', '$thing')
+        expect(cleanedFilters).toHaveProperty('breakdown_type', 'event')
+    })
+
+    it('adds breakdown_type when adding breakdowns', () => {
+        const cleanedFilters = cleanFilters(
+            {
+                breakdowns: [{ property: '$browser', type: 'event' }],
+                breakdown_type: 'event',
+                insight: InsightType.FUNNELS,
+                funnel_viz_type: 'steps',
+            },
+            { insight: InsightType.FUNNELS, funnel_viz_type: 'steps' }
+        )
+
+        expect(cleanedFilters).toHaveProperty('breakdowns', [{ property: '$browser', type: 'event' }])
+        expect(cleanedFilters).toHaveProperty('breakdown_type', 'event')
+    })
+
+    it('removes empty breakdowns array', () => {
+        const cleanedFilters = cleanFilters(
+            {
+                breakdowns: [],
+                insight: InsightType.FUNNELS,
+                funnel_viz_type: 'steps',
+            },
+            {
+                breakdowns: [{ property: 'something', type: 'event' }],
+                breakdown_type: 'event',
+                insight: InsightType.FUNNELS,
+                funnel_viz_type: 'steps',
+            }
+        )
+
+        expect(cleanedFilters).not.toHaveProperty('breakdowns')
+        expect(cleanedFilters).not.toHaveProperty('breakdown')
+        expect(cleanedFilters).not.toHaveProperty('breakdown_type')
+    })
+
+    it('does not include breakdown properties if funnel is not type steps', () => {
+        const cleanedFilters = cleanFilters(
+            {
+                breakdowns: [{ property: 'any', type: 'event' }],
+                breakdown: 'something',
+                breakdown_type: 'event',
+                breakdown_group_type_index: 1,
+                insight: InsightType.FUNNELS,
+                funnel_viz_type: 'anything but steps',
+            },
+            {
+                breakdowns: [{ property: 'something', type: 'event' }],
+                breakdown_type: 'event',
+                insight: InsightType.FUNNELS,
+                funnel_viz_type: 'steps',
+            }
+        )
+
+        expect(cleanedFilters).not.toHaveProperty('breakdowns')
+        expect(cleanedFilters).not.toHaveProperty('breakdown')
+        expect(cleanedFilters).not.toHaveProperty('breakdown_type')
+        expect(cleanedFilters).not.toHaveProperty('breakdown_group_type_index')
+    })
 })
