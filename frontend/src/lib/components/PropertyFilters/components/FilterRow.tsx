@@ -28,6 +28,7 @@ interface FilterRowProps {
     label: string
     onRemove: (index: number) => void
     addButtonType?: ButtonType
+    greyBadges?: boolean
 }
 
 export const FilterRow = React.memo(function FilterRow({
@@ -43,6 +44,7 @@ export const FilterRow = React.memo(function FilterRow({
     filterComponent,
     label,
     onRemove,
+    greyBadges,
     addButtonType = 'link',
 }: FilterRowProps) {
     const [open, setOpen] = useState(false)
@@ -106,6 +108,7 @@ export const FilterRow = React.memo(function FilterRow({
                                             onClick={() => setOpen(!open)}
                                             item={item}
                                             setRef={setRef}
+                                            greyBadges={greyBadges}
                                         />
                                     ) : isValidPathCleanFilter(item) ? (
                                         <FilterButton onClick={() => setOpen(!open)} setRef={setRef}>

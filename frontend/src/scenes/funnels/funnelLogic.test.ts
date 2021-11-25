@@ -14,6 +14,7 @@ import {
     TeamType,
     InsightType,
     FunnelVizType,
+    InsightShortId,
 } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -23,6 +24,8 @@ import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 
 jest.mock('lib/api')
 jest.mock('posthog-js')
+
+const Insight123 = '123' as InsightShortId
 
 describe('funnelLogic', () => {
     let logic: ReturnType<typeof funnelLogic.build>
@@ -224,7 +227,7 @@ describe('funnelLogic', () => {
                 .toDispatchActions(['loadResults'])
                 .toMatchValues({
                     insight: expect.objectContaining({
-                        id: undefined,
+                        short_id: undefined,
                         filters: {},
                         result: null,
                     }),
@@ -334,7 +337,7 @@ describe('funnelLogic', () => {
     })
 
     describe('syncs with insightLogic', () => {
-        const props = { dashboardItemId: 123 }
+        const props = { dashboardItemId: Insight123 }
         initKeaTestLogic({
             logic: funnelLogic,
             props,
@@ -380,7 +383,7 @@ describe('funnelLogic', () => {
     })
 
     describe('it is connected with personsModalLogic', () => {
-        const props = { dashboardItemId: 123 }
+        const props = { dashboardItemId: Insight123 }
         initKeaTestLogic({
             logic: funnelLogic,
             props,
@@ -855,7 +858,9 @@ describe('funnelLogic', () => {
                 logic.actions.toggleAdvancedMode()
             })
                 .toDispatchActions(['toggleAdvancedMode', 'setFilters'])
-                .toNotHaveDispatchedActions([insightLogic({ dashboardItemId: 123 }).actionCreators.loadResults()])
+                .toNotHaveDispatchedActions([
+                    insightLogic({ dashboardItemId: Insight123 }).actionCreators.loadResults(),
+                ])
         })
     })
 })

@@ -23,6 +23,7 @@ interface PropertyFiltersProps {
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     showNestedArrow?: boolean
     addButtonType?: ButtonType
+    greyBadges?: boolean
 }
 
 export function PropertyFilters({
@@ -37,6 +38,7 @@ export function PropertyFilters({
     style = {},
     showNestedArrow = false,
     addButtonType = 'link',
+    greyBadges = false,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filters } = useValues(propertyFilterLogic(logicProps))
@@ -63,6 +65,7 @@ export function PropertyFilters({
                                 label={'Add filter'}
                                 addButtonType={addButtonType}
                                 onRemove={remove}
+                                greyBadges={greyBadges}
                                 filterComponent={(onComplete) => {
                                     const propertyFilterCommonProps = {
                                         key: index,
