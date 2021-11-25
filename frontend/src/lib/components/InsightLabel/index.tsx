@@ -1,5 +1,5 @@
 import React from 'react'
-import { Col, Row, Tag } from 'antd'
+import { Col, Row, Space, Tag, Typography } from 'antd'
 import { ActionFilter } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, hexToRGBA } from 'lib/utils'
@@ -141,13 +141,15 @@ export function InsightLabel({
                     )}
 
                     {breakdownValue && !hideBreakdown && Array.isArray(breakdownValue) && (
-                        <>
+                        <Space direction={'horizontal'} wrap={true}>
                             {breakdownValue.map((bv) => (
                                 <Tag className="tag-pill" key={bv} closable={false}>
-                                    {bv}
+                                    <Typography.Text ellipsis={{ tooltip: bv }} style={{ maxWidth: 400 }}>
+                                        {bv}
+                                    </Typography.Text>
                                 </Tag>
                             ))}
-                        </>
+                        </Space>
                     )}
 
                     {breakdownValue && !hideBreakdown && !Array.isArray(breakdownValue) && (
