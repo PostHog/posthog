@@ -15,18 +15,7 @@ from posthog.api.test.test_user import create_user
 
 
 class RetentionTests(TestCase):
-    def test_retention_includes_periods_past_requested_date_to_if_before_now(self):
-        """
-        Typically we display cohort analysis as a top left triangle, as if we
-        are looking at cohorts up to today, we do not have subsequent periods
-        for all cohorts available (they are in the future).  However, say we
-        specify date_to in the past. In this case we should be able to get more
-        periods.
-
-        Main driver here is to be able to specify a past date and to be able to
-        get a nice "J-Curve" line graph, which doesn't have all periods.
-        """
-
+    def test_can_get_retention_cohort_breakdown(self):
         organization = create_organization(name="test")
         team = create_team(organization=organization)
         user = create_user(email="test@posthog.com", password="1234", organization=organization)
@@ -67,7 +56,7 @@ class RetentionTests(TestCase):
 
         assert retention_by_cohort_by_period == {
             "2020-01-01": {"2020-01-01": 2, "2020-01-02": 1,},  # ["person 1", "person 2"]  # ["person 1"]
-            "2020-01-02": {"2020-01-02": 1, "2020-01-03": 1,},  # ["person 3"]  # ["person 3"]
+            "2020-01-02": {"2020-01-02": 1,},  # ["person 3"]
         }
 
 
@@ -120,7 +109,9 @@ def get_retention(client: Client, team_id: int, request: RetentionRequest):
 def get_by_cohort_by_period_from_response(response: RetentionResponse):
     return {
         cohort["date"][:10]: {
-            datetime.isoformat(datetime.fromisoformat(cohort["date"][:10]) + timedelta(days=1))[:10]: value["count"]
+            datetime.isoformat(datetime.fromisoformat(cohort["date"][:10]) + timedelta(days=period))[:10]: value[
+                "count"
+            ]
             for period, value in enumerate(cohort["values"])
         }
         for cohort in response["result"]
