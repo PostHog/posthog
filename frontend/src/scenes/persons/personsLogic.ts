@@ -3,12 +3,13 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { personsLogicType } from './personsLogicType'
-import { CohortType, PersonsTabType, PersonType } from '~/types'
+import { CohortType, PersonsTabType, PersonType, AnyPropertyFilter } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
+import { toParams } from 'lib/utils'
 
 interface PersonPaginatedResponse {
     next: string | null
@@ -16,14 +17,18 @@ interface PersonPaginatedResponse {
     results: PersonType[]
 }
 
-const FILTER_ALLOWLIST: string[] = ['is_identified', 'search', 'cohort']
+interface Filters {
+    properties?: AnyPropertyFilter[]
+    search?: string
+    cohort?: number
+}
 
 export interface PersonLogicProps {
     cohort?: number | 'new' | 'personsModalNew'
     syncWithUrl?: boolean
 }
 
-export const personsLogic = kea<personsLogicType<PersonLogicProps, PersonPaginatedResponse>>({
+export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, PersonPaginatedResponse>>({
     props: {} as PersonLogicProps,
     key: (props) => {
         if (!props.cohort && !props.syncWithUrl) {
@@ -40,7 +45,7 @@ export const personsLogic = kea<personsLogicType<PersonLogicProps, PersonPaginat
         setPerson: (person: PersonType) => ({ person }),
         loadPerson: (id: string) => ({ id }),
         loadPersons: (url: string | null = '') => ({ url }),
-        setListFilters: (payload) => ({ payload }),
+        setListFilters: (payload: Filters) => ({ payload }),
         editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
         setHasNewKeys: true,
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
@@ -49,9 +54,15 @@ export const personsLogic = kea<personsLogicType<PersonLogicProps, PersonPaginat
     },
     reducers: {
         listFilters: [
-            {} as Record<string, string>,
+            {} as Filters,
             {
-                setListFilters: (state, { payload }) => ({ ...state, ...payload }),
+                setListFilters: (state, { payload }) => {
+                    const newFilters = { ...state, ...payload }
+                    if (newFilters.properties?.length === 0) {
+                        delete newFilters['properties']
+                    }
+                    return newFilters
+                },
             },
         ],
         hasNewKeys: [
@@ -179,20 +190,7 @@ export const personsLogic = kea<personsLogicType<PersonLogicProps, PersonPaginat
             {
                 loadPersons: async ({ url }) => {
                     if (!url) {
-                        const qs = Object.keys(values.listFilters)
-                            .filter((key) =>
-                                key !== 'is_identified'
-                                    ? FILTER_ALLOWLIST.includes(key)
-                                    : !url?.includes('is_identified')
-                            )
-                            .reduce(function (result, key) {
-                                const value = values.listFilters[key]
-                                if (value !== undefined && value !== null) {
-                                    result.push(`${key}=${encodeURIComponent(value)}`)
-                                }
-                                return result
-                            }, [] as string[])
-                        url = `api/person/${qs.length ? '?' + qs.join('&') : ''}`
+                        url = `api/person/?${toParams(values.listFilters)}`
                     }
                     return await api.get(url)
                 },

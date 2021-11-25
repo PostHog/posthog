@@ -9,5 +9,5 @@ export const scene: SceneExport = {
 }
 
 export function OrganizationCreate(): JSX.Element {
-    return <CreateOrganizationModal isVisible />
+    return <CreateOrganizationModal isVisible mask={false} />
 }

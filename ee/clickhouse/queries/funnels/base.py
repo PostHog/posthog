@@ -414,6 +414,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             self._team.pk,
             prepend=str(index),
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_id_joined_alias="aggregation_target",
         )
         self.params.update(prop_filter_params)
         if entity.properties:

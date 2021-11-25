@@ -265,7 +265,7 @@ export function LemonTable<T extends Record<string, any>>({
                             {entryCount ? (
                                 currentFrame.map((data, rowIndex) => (
                                     <tr
-                                        key={`LemonTable-row-${rowKey ? data[rowKey] : currentStartIndex + rowIndex}`}
+                                        key={`LemonTable-td-${rowKey ? data[rowKey] : currentStartIndex + rowIndex}`}
                                         data-row-key={rowKey ? data[rowKey] : rowIndex}
                                         {...onRow?.(data)}
                                         className={rowClassName}
@@ -279,7 +279,7 @@ export function LemonTable<T extends Record<string, any>>({
                                                 : value
                                             return (
                                                 <td
-                                                    key={columnKeyOrIndex}
+                                                    key={`LemonTable-td-${columnKeyOrIndex}`}
                                                     className={column.className}
                                                     style={{ textAlign: column.align }}
                                                 >

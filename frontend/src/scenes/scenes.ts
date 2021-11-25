@@ -111,7 +111,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Personalization]: {
         projectBased: true,
         plain: true,
-        hideTopNav: true,
     },
     [Scene.Ingestion]: {
         projectBased: true,
@@ -123,13 +122,13 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     // Organization-based routes
     [Scene.OrganizationCreateFirst]: {
-        plain: true,
+        name: 'Organization creation',
     },
     [Scene.OrganizationSettings]: {
         organizationBased: true,
     },
     [Scene.ProjectCreateFirst]: {
-        plain: true,
+        name: 'Project creation',
         organizationBased: true,
     },
     // Onboarding/setup routes
@@ -170,7 +169,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.BillingSubscribed]: {
         plain: true,
-        hideTopNav: true,
         allowUnauthenticated: true,
     },
 }

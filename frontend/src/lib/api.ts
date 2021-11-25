@@ -276,6 +276,7 @@ const api = {
             },
             body: isFormData ? data : JSON.stringify(data),
         })
+
         if (!response.ok) {
             reportError('PATCH', url, response, startTime)
             const jsonData = await getJSONOrThrow(response)
@@ -299,6 +300,7 @@ const api = {
             },
             body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
         })
+
         if (!response.ok) {
             reportError('POST', url, response, startTime)
             const jsonData = await getJSONOrThrow(response)
@@ -320,6 +322,7 @@ const api = {
                 'X-CSRFToken': getCookie('csrftoken') || '',
             },
         })
+
         if (!response.ok) {
             reportError('DELETE', url, response, startTime)
             const data = await getJSONOrThrow(response)
