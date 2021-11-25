@@ -8,7 +8,7 @@ import { dashboardsModel } from './dashboardsModel'
 import { Link } from 'lib/components/Link'
 import { dashboardItemsModelType } from './dashboardItemsModelType'
 import { urls } from 'scenes/urls'
-import { teamLogic } from '../scenes/teamLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 export const dashboardItemsModel = kea<dashboardItemsModelType>({
     path: ['models', 'dashboardItemsModel'],
@@ -24,7 +24,7 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
     }),
     listeners: ({ actions }) => ({
         renameDashboardItem: async ({ item }) => {
-            prompt({ key: `rename-dashboard-item-${item.id}` }).actions.prompt({
+            prompt({ key: `rename-dashboard-item-${item.short_id}` }).actions.prompt({
                 title: 'Rename insight',
                 placeholder: 'Please enter the new name',
                 value: item.name,
@@ -48,7 +48,7 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
                 layouts[size] = { w, h }
             })
 
-            const { id: _discard, ...rest } = item // eslint-disable-line
+            const { id: _discard, short_id: __discard, ...rest } = item // eslint-disable-line
             const newItem = dashboardId ? { ...rest, dashboard: dashboardId, layouts } : { ...rest, layouts }
             const addedItem = await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights`, newItem)
 

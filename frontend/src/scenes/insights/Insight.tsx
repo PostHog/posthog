@@ -6,7 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { FunnelTab, PathTab, RetentionTab, SessionTab, TrendTab } from './InsightTabs'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
-import { HotKeys, ItemMode, InsightType } from '~/types'
+import { HotKeys, ItemMode, InsightType, InsightShortId } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
@@ -28,13 +28,13 @@ import { helpButtonLogic } from 'lib/components/HelpButton/HelpButton'
 export const scene: SceneExport = {
     component: Insight,
     logic: insightLogic,
-    paramsToProps: ({ params: { id } }) => ({ dashboardItemId: id ? parseInt(id) : null, syncWithUrl: true }),
+    paramsToProps: ({ params: { shortId } }) => ({ dashboardItemId: shortId, syncWithUrl: true }),
 }
 
-export function Insight({ id }: { id?: string } = {}): JSX.Element {
+export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Element {
     useMountedLogic(insightCommandLogic)
 
-    const logic = insightLogic({ dashboardItemId: id ? parseInt(id) : null, syncWithUrl: true })
+    const logic = insightLogic({ dashboardItemId: shortId, syncWithUrl: true })
     const {
         insightProps,
         activeView,
@@ -149,8 +149,7 @@ export function Insight({ id }: { id?: string } = {}): JSX.Element {
                                 </Button>
                             </Popconfirm>
                         ) : null}
-                        {insight.id && <SaveToDashboard insight={insight} />}
-
+                        {insight.short_id && <SaveToDashboard insight={insight} />}
                         {insightMode === ItemMode.View ? (
                             <HotkeyButton
                                 type="primary"

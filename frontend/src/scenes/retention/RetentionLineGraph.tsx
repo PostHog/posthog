@@ -22,7 +22,7 @@ export function RetentionLineGraph({
     color = 'white',
     inSharedMode = false,
 }: RetentionLineGraphProps): JSX.Element | null {
-    const { insightProps, insight } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const logic = retentionTableLogic(insightProps)
     const { filters, results: _results, people: _people, peopleLoading, loadingMore } = useValues(logic)
     const results = _results as RetentionTrendPayload[]
@@ -49,9 +49,7 @@ export function RetentionLineGraph({
                 datasets={results}
                 labels={(results[0] && results[0].labels) || []}
                 isInProgress={!filters.date_to}
-                dashboardItemId={
-                    dashboardItemId || insight.id /* used only for annotations, not to init any other logic */
-                }
+                dashboardItemId={dashboardItemId}
                 inSharedMode={inSharedMode}
                 percentage={true}
                 onClick={

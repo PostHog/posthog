@@ -25,6 +25,7 @@ import {
     InsightType,
     FilterType,
     InsightLogicProps,
+    InsightShortId,
 } from '~/types'
 import { ActionsBarValueGraph } from 'scenes/trends/viz'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -47,11 +48,11 @@ import { teamLogic } from '../teamLogic'
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
-interface Props {
+interface DashboardItemProps {
     item: DashboardItemType
     dashboardId?: number
-    updateItemColor?: (id: number, itemClassName: string) => void
-    setDiveDashboard?: (id: number, dashboardId: number | null) => void
+    updateItemColor?: (insightId: number, itemClassName: string) => void
+    setDiveDashboard?: (insightId: number, diveDashboard: number | null) => void
     loadDashboardItems?: () => void
     isDraggingRef?: RefObject<boolean>
     isReloading?: boolean
@@ -76,99 +77,55 @@ interface DisplayProps {
     className: string
     element: (props: any) => JSX.Element | null
     viewText: string
-    link: (item: DashboardItemType) => string
 }
+
+// const insightLink = ({ filters, short_id, dashboard, name }: DashboardItemType): string =>
 
 export const displayMap: Record<DisplayedType, DisplayProps> = {
     ActionsLineGraph: {
         className: 'graph',
         element: ActionsLineGraph,
         viewText: 'View graph',
-        link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
-            combineUrl(urls.insightView(id, filters), undefined, {
-                fromItemName: name,
-                fromDashboard: dashboard,
-            }).url,
     },
     ActionsLineGraphCumulative: {
         className: 'graph',
         element: ActionsLineGraph,
         viewText: 'View graph',
-        link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
-            combineUrl(urls.insightView(id, filters), undefined, {
-                fromItemName: name,
-                fromDashboard: dashboard,
-            }).url,
     },
     ActionsBar: {
         className: 'bar',
         element: ActionsLineGraph,
         viewText: 'View graph',
-        link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
-            combineUrl(urls.insightView(id, filters), undefined, {
-                fromItemName: name,
-                fromDashboard: dashboard,
-            }).url,
     },
     ActionsBarValue: {
         className: 'bar',
         element: ActionsBarValueGraph,
         viewText: 'View graph',
-        link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
-            combineUrl(urls.insightView(id, filters), undefined, {
-                fromItemName: name,
-                fromDashboard: dashboard,
-            }).url,
     },
     ActionsTable: {
         className: 'table',
         element: ActionsTable,
         viewText: 'View table',
-        link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
-            combineUrl(urls.insightView(id, filters), undefined, {
-                fromItemName: name,
-                fromDashboard: dashboard,
-            }).url,
     },
     ActionsPie: {
         className: 'pie',
         element: ActionsPie,
         viewText: 'View graph',
-        link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
-            combineUrl(urls.insightView(id, filters), undefined, {
-                fromItemName: name,
-                fromDashboard: dashboard,
-            }).url,
     },
     FunnelViz: {
         className: 'funnel',
         element: Funnel,
         viewText: 'View funnel',
-        link: ({ id, dashboard, name, filters }: DashboardItemType): string =>
-            combineUrl(urls.insightView(id, filters), undefined, {
-                fromItemName: name,
-                fromDashboard: dashboard,
-            }).url,
     },
     RetentionContainer: {
         className: 'retention',
         element: RetentionContainer,
         viewText: 'View graph',
-        link: ({ id, dashboard, name, filters }: DashboardItemType): string =>
-            combineUrl(urls.insightView(id, filters), undefined, {
-                fromItemName: name,
-                fromDashboard: dashboard,
-            }).url,
     },
     PathsViz: {
         className: 'paths-viz',
         element: Paths,
         viewText: 'View graph',
-        link: ({ id, dashboard, name, filters }: DashboardItemType): string =>
-            combineUrl(urls.insightView(id, filters), undefined, {
-                fromItemName: name,
-                fromDashboard: dashboard,
-            }).url,
     },
 }
 
@@ -184,8 +141,8 @@ export function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
     ) as DisplayedType
 }
 
-const dashboardDiveLink = (dive_dashboard: number, dive_source_id: number): string => {
-    return combineUrl(`/dashboard/${dive_dashboard}`, { dive_source_id: dive_source_id.toString() }).url
+const dashboardDiveLink = (dive_dashboard: number, dive_source_id: InsightShortId): string => {
+    return combineUrl(`/dashboard/${dive_dashboard}`, { dive_source_id: dive_source_id }).url
 }
 
 export function DashboardItem({
@@ -209,7 +166,7 @@ export function DashboardItem({
     duplicateDashboardItem,
     isHighlighted = false,
     doNotLoad = false,
-}: Props): JSX.Element {
+}: DashboardItemProps): JSX.Element {
     const [initialLoaded, setInitialLoaded] = useState(false)
     const [showSaveModal, setShowSaveModal] = useState(false)
     const { currentTeamId } = useValues(teamLogic)
@@ -235,7 +192,9 @@ export function DashboardItem({
     const className = displayMap[_type].className
     const Element = displayMap[_type].element
     const viewText = displayMap[_type].viewText
-    const link = displayMap[_type].link(item)
+    const link = combineUrl(urls.insightView(item.short_id, item.filters), undefined, {
+        fromDashboard: item.dashboard,
+    }).url
     const color = item.color || 'white'
     const otherDashboards: DashboardType[] = nameSortedDashboards.filter((d: DashboardType) => d.id !== dashboardId)
     const getDashboard = (id: number): DashboardType | undefined => nameSortedDashboards.find((d) => d.id === id)
@@ -247,9 +206,9 @@ export function DashboardItem({
         exclude: 'table, table *',
     })
 
-    const filters = { ...item.filters, from_dashboard: item.id }
+    const filters = { ...item.filters, from_dashboard: item.dashboard || undefined }
     const logicProps: InsightLogicProps = {
-        dashboardItemId: item.id,
+        dashboardItemId: item.short_id,
         filters: filters,
         cachedResults: (item as any).result,
         doNotLoad,
@@ -307,7 +266,7 @@ export function DashboardItem({
 
     const response = (
         <div
-            key={item.id}
+            key={item.short_id}
             className={`dashboard-item ${item.color || 'white'} di-width-${layout?.w || 0} di-height-${
                 layout?.h || 0
             } ph-no-capture`}
@@ -377,7 +336,7 @@ export function DashboardItem({
                                         typeof item.dive_dashboard === 'number' && (
                                             <Tooltip title={`Dive to ${diveDashboard?.name || 'connected dashboard'}`}>
                                                 <LinkButton
-                                                    to={dashboardDiveLink(item.dive_dashboard, item.id)}
+                                                    to={dashboardDiveLink(item.dive_dashboard, item.short_id)}
                                                     icon={
                                                         <span role="img" aria-label="dive" className="anticon">
                                                             <DiveIcon />
@@ -620,7 +579,7 @@ export function DashboardItem({
                                 <Skeleton />
                             ) : (
                                 <Element
-                                    dashboardItemId={item.id}
+                                    dashboardItemId={item.short_id}
                                     cachedResults={item.result}
                                     filters={filters}
                                     color={color}

@@ -60,8 +60,8 @@ export function InsightContainer(): JSX.Element {
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
         funnelLogic(insightProps)
     )
-    const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: insight.id }))
-    const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: insight.id }))
+    const { clearAnnotationsToCreate } = useActions(annotationsLogic({ insightId: insight.id }))
+    const { annotationsToCreate } = useValues(annotationsLogic({ insightId: insight.id }))
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {

@@ -9,6 +9,7 @@ import {
     DashboardItemType,
     FilterType,
     InsightLogicProps,
+    InsightShortId,
     InsightType,
     ItemMode,
     SetInsightOptions,
@@ -24,7 +25,7 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { pollFunnel } from 'scenes/funnels/funnelUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { extractObjectDiffKeys, findInsightFromMountedLogic } from './utils'
+import { extractObjectDiffKeys, findInsightFromMountedLogic, getInsightId } from './utils'
 import { teamLogic } from '../teamLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
@@ -97,8 +98,8 @@ export const insightLogic = kea<insightLogicType>({
         saveInsight: (options?: Record<string, any>) => ({ setViewMode: options?.setViewMode }),
         setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
         fetchedResults: (filters: Partial<FilterType>) => ({ filters }),
-        loadInsight: (id: number, { doNotLoadResults }: { doNotLoadResults?: boolean } = {}) => ({
-            id,
+        loadInsight: (shortId: InsightShortId, { doNotLoadResults }: { doNotLoadResults?: boolean } = {}) => ({
+            shortId,
             doNotLoadResults,
         }),
         updateInsight: (
@@ -112,14 +113,20 @@ export const insightLogic = kea<insightLogicType>({
     loaders: ({ actions, cache, values, props }) => ({
         insight: [
             {
-                id: props.dashboardItemId,
+                short_id: props.dashboardItemId,
                 tags: [],
                 filters: props.cachedResults ? props.filters || {} : {},
                 result: props.cachedResults || null,
             } as Partial<DashboardItemType>,
             {
-                loadInsight: async ({ id }) => {
-                    return await api.get(`api/projects/${teamLogic.values.currentTeamId}/insights/${id}`)
+                loadInsight: async ({ shortId }) => {
+                    return (
+                        await api.get(
+                            `api/projects/${teamLogic.values.currentTeamId}/insights/?short_id=${encodeURIComponent(
+                                shortId
+                            )}`
+                        )
+                    ).results[0]
                 },
                 updateInsight: async ({ insight, callback }, breakpoint) => {
                     if (!Object.entries(insight).length) {
@@ -275,12 +282,12 @@ export const insightLogic = kea<insightLogicType>({
     }),
     reducers: ({ props }) => ({
         insight: {
-            loadInsight: (state, { id }) =>
-                id === state.id
+            loadInsight: (state, { shortId }) =>
+                shortId === state.short_id
                     ? state
                     : {
                           // blank slate if switched to a new insight
-                          id,
+                          short_id: shortId,
                           tags: [],
                           result: null,
                           filters: {},
@@ -548,12 +555,14 @@ export const insightLogic = kea<insightLogicType>({
             actions.setInsightMetadata({ tags: values.insight.tags?.filter((_tag) => _tag !== tag) })
         },
         saveInsight: async ({ setViewMode }) => {
-            const savedInsight = await api.update(
-                `api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}`,
-                {
-                    ...values.insight,
-                    saved: true,
-                }
+            const insightId =
+                values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
+            if (!insightId) {
+                throw new Error('Can only save saved insights whose id is known.')
+            }
+            const savedInsight: DashboardItemType = await api.update(
+                `api/projects/${teamLogic.values.currentTeamId}/insights/${insightId}`,
+                { ...values.insight, saved: true }
             )
             actions.setInsight(
                 { ...savedInsight, result: savedInsight.result || values.insight.result },
@@ -581,16 +590,19 @@ export const insightLogic = kea<insightLogicType>({
             })
         },
         saveAsNamingSuccess: async ({ name }) => {
-            const insight = await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, {
-                name,
-                filters: values.filters,
-                saved: true,
-            })
+            const insight: DashboardItemType = await api.create(
+                `api/projects/${teamLogic.values.currentTeamId}/insights/`,
+                {
+                    name,
+                    filters: values.filters,
+                    saved: true,
+                }
+            )
             toast(`You're now working on a copy of ${values.insight.name}`)
             actions.setInsight(insight, { fromPersistentApi: true })
             savedInsightsLogic.findMounted()?.actions.loadInsights()
             if (values.syncWithUrl) {
-                router.actions.push(urls.insightEdit(insight.id, values.filters))
+                router.actions.push(urls.insightEdit(insight.short_id, values.filters))
             }
         },
         loadInsightSuccess: async ({ payload, insight }) => {
@@ -604,10 +616,13 @@ export const insightLogic = kea<insightLogicType>({
             if (props.doNotPersist) {
                 return
             }
-            if (!insight.id) {
-                const createdInsight = await api.create(`api/projects/${values.currentTeamId}/insights`, {
-                    filters: insight.filters,
-                })
+            if (!insight.short_id) {
+                const createdInsight: DashboardItemType = await api.create(
+                    `api/projects/${values.currentTeamId}/insights`,
+                    {
+                        filters: insight.filters,
+                    }
+                )
                 breakpoint()
                 actions.setInsight(
                     { ...insight, ...createdInsight, result: createdInsight.result || insight.result },
@@ -616,8 +631,8 @@ export const insightLogic = kea<insightLogicType>({
                 if (values.syncWithUrl) {
                     router.actions.replace(
                         values.insightMode === ItemMode.Edit
-                            ? urls.insightEdit(createdInsight.id, values.filters)
-                            : urls.insightView(createdInsight.id, values.filters)
+                            ? urls.insightEdit(createdInsight.short_id, values.filters)
+                            : urls.insightView(createdInsight.short_id, values.filters)
                     )
                 }
             }
@@ -630,23 +645,23 @@ export const insightLogic = kea<insightLogicType>({
                 filters: cleanFilters(filters || {}),
                 result: null,
             }
-            const createdInsight = await api.create(
+            const createdInsight: DashboardItemType = await api.create(
                 `api/projects/${teamLogic.values.currentTeamId}/insights`,
                 newInsight
             )
             breakpoint()
             router.actions.replace(
-                urls.insightEdit(createdInsight.id, cleanFilters(createdInsight.filters || filters || {}))
+                urls.insightEdit(createdInsight.short_id, cleanFilters(createdInsight.filters || filters || {}))
             )
         },
     }),
     actionToUrl: ({ values }) => {
         const actionToUrl = (): [string, undefined, undefined, { replace: boolean }] | void => {
-            if (values.syncWithUrl && values.insight.id) {
+            if (values.syncWithUrl && values.insight.short_id) {
                 return [
                     values.insightMode === ItemMode.Edit
-                        ? urls.insightEdit(values.insight.id, values.filters)
-                        : urls.insightView(values.insight.id, values.filters),
+                        ? urls.insightEdit(values.insight.short_id, values.filters)
+                        : urls.insightView(values.insight.short_id, values.filters),
                     undefined,
                     undefined,
                     { replace: true },
@@ -659,18 +674,18 @@ export const insightLogic = kea<insightLogicType>({
         }
     },
     urlToAction: ({ actions, values }) => ({
-        '/insights/:id(/:mode)': (params, searchParams, hashParams) => {
+        '/insights/:shortId(/:mode)': (params, searchParams, hashParams) => {
             if (values.syncWithUrl) {
                 if (searchParams.insight === 'HISTORY') {
                     // Legacy redirect because the insight history scene was toggled via the insight type.
                     router.actions.replace(urls.savedInsights())
                     return
                 }
-                if (params.id === 'new') {
+                if (params.shortId === 'new') {
                     actions.createAndRedirectToNewInsight(searchParams)
                     return
                 }
-                const insightId = params.id ? parseInt(params.id) : null
+                const insightId = params.shortId ? (String(params.shortId) as InsightShortId) : null
                 if (!insightId) {
                     // only allow editing insights with IDs for now
                     router.actions.replace(urls.insightNew(searchParams))
@@ -678,7 +693,7 @@ export const insightLogic = kea<insightLogicType>({
                 }
 
                 let loadedFromAnotherLogic = false
-                const insightIdChanged = !values.insight.id || values.insight.id !== insightId
+                const insightIdChanged = !values.insight.short_id || values.insight.short_id !== insightId
 
                 if (!values.insight.result || insightIdChanged) {
                     const insight = findInsightFromMountedLogic(insightId, hashParams.fromDashboard)

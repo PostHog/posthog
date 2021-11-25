@@ -16,7 +16,7 @@ export function ActionsLineGraph({
     inSharedMode = false,
     showPersonsModal = true,
 }: ChartParams): JSX.Element | null {
-    const { insightProps, insight } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { filters, indexedResults, visibilityMap } = useValues(logic)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
@@ -32,7 +32,7 @@ export function ActionsLineGraph({
             visibilityMap={visibilityMap}
             labels={(indexedResults[0] && indexedResults[0].labels) || []}
             isInProgress={!filters.date_to}
-            dashboardItemId={dashboardItemId || insight.id /* used only for annotations, not to init any other logic */}
+            dashboardItemId={dashboardItemId}
             inSharedMode={inSharedMode}
             interval={filters.interval}
             showPersonsModal={showPersonsModal}

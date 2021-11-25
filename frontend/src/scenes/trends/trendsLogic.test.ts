@@ -4,10 +4,12 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { trendsLogicType } from 'scenes/trends/trendsLogicType'
-import { TrendResult } from '~/types'
+import { InsightShortId, TrendResult } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 jest.mock('lib/api')
+
+const Insight123 = '123' as InsightShortId
 
 describe('trendsLogic', () => {
     let logic: BuiltLogic<trendsLogicType>
@@ -72,7 +74,7 @@ describe('trendsLogic', () => {
     })
 
     describe('syncs with insightLogic', () => {
-        const props = { dashboardItemId: 123 }
+        const props = { dashboardItemId: Insight123 }
         initKeaTestLogic({
             logic: trendsLogic,
             props,
