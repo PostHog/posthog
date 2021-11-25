@@ -55,6 +55,7 @@ export function Dashboards(): JSX.Element {
         {
             title: 'Name',
             dataIndex: 'name',
+            width: '40%',
             render: function Render(name, { id, description, _highlight }) {
                 return (
                     <div className={_highlight ? 'highlighted' : undefined} style={{ display: 'inline-block' }}>
@@ -73,14 +74,9 @@ export function Dashboards(): JSX.Element {
             ? [
                   {
                       title: 'Tags',
-                      dataIndex: 'tags',
-                      key: 'tags',
+                      dataIndex: 'tags' as keyof DashboardType,
                       render: function Render(tags: DashboardType['tags']) {
-                          return tags.length ? (
-                              <ObjectTags tags={tags} staticOnly />
-                          ) : (
-                              <span style={{ color: 'var(--muted)' }}>-</span>
-                          )
+                          return <ObjectTags tags={tags} staticOnly />
                       },
                   } as LemonTableColumn<DashboardType, keyof DashboardType>,
               ]

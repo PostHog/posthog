@@ -152,6 +152,33 @@ $funnel_canvas_background: #fafafa;
         }
     }
 
+    .action-filters-bordered {
+        .draggable-action-filter {
+            border-bottom: 1px solid $border;
+            padding: $default_spacing $default_spacing / 4;
+            margin-top: 0;
+        }
+        .row-action-btn {
+            color: $primary_alt;
+        }
+    }
+
+    .advanced-options-dropdown {
+        font-size: 1.4em;
+        color: $primary_alt;
+        &.expanded {
+            transform: rotateX(180deg);
+        }
+    }
+
+    .funnel-advanced-options {
+        .funnel-exclusions-filter {
+            .mt:first-of-type {
+                margin-top: $default_spacing / 2;
+            }
+        }
+    }
+
     .retention-date-picker {
         background-color: transparent;
         border: 0;

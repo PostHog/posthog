@@ -19,6 +19,7 @@ import { LemonSwitch } from '../../lib/components/LemonSwitch/LemonSwitch'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '../../lib/components/LemonTable/LemonTable'
 import { More } from '../../lib/components/LemonButton/More'
 import { createdAtColumn, createdByColumn } from '../../lib/components/LemonTable/columnUtils'
+import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -95,12 +96,18 @@ export function FeatureFlags(): JSX.Element {
                                 >
                                     Copy key
                                 </LemonButton>
-                                <LemonButton type="stealth" to={`/feature_flags/${featureFlag.id}`} fullWidth>
-                                    Edit
-                                </LemonButton>
+                                {featureFlag.id && (
+                                    <LemonButton type="stealth" to={urls.featureFlag(featureFlag.id)} fullWidth>
+                                        Edit
+                                    </LemonButton>
+                                )}
                                 <LemonButton
                                     type="stealth"
-                                    to={`/insights?events=[{"id":"$pageview","name":"$pageview","type":"events","math":"dau"}]&breakdown_type=event&breakdown=$feature/${featureFlag.key}`}
+                                    to={urls.insightNew({
+                                        events: [{ id: '$pageview', name: '$pageview', type: 'events', math: 'dau' }],
+                                        breakdown_type: 'event',
+                                        breakdown: `$feature/${featureFlag.key}`,
+                                    })}
                                     data-attr="usage"
                                     fullWidth
                                 >
@@ -172,29 +179,34 @@ export function FeatureFlags(): JSX.Element {
     )
 }
 
-function GroupFilters({ groups }: { groups: FeatureFlagGroupType[] }): JSX.Element {
-    if (groups.length === 0) {
-        return <>No groups</>
+function GroupFilters({ groups }: { groups: FeatureFlagGroupType[] }): JSX.Element | string {
+    if (groups.length === 0 || !groups.some((group) => group.rollout_percentage !== 0)) {
+        // There are no rollout groups or all are at 0%
+        return 'No users'
     }
-    const omniGroup = groups.find(
-        (group) => !group.properties?.length && [null, undefined, 100].includes(group.rollout_percentage)
-    )
-    if (omniGroup) {
-        return <>All users</>
+    if (
+        groups.some((group) => !group.properties?.length && [null, undefined, 100].includes(group.rollout_percentage))
+    ) {
+        // There's some group without filters that has 100% rollout
+        return 'All users'
     }
     if (groups.length === 1) {
         const { properties, rollout_percentage = null } = groups[0]
-        if (rollout_percentage !== null && rollout_percentage !== 100) {
+        if (properties?.length > 0 && rollout_percentage != null) {
             return (
-                <>
-                    {rollout_percentage}% of {properties?.length ? '1 group with filters' : 'all users'}
-                </>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <span style={{ flexShrink: 0, marginRight: 5 }}>{rollout_percentage}% of</span>
+                    <PropertyFiltersDisplay filters={properties} style={{ margin: 0, width: '100%' }} greyBadges />
+                </div>
             )
-        } else if (properties?.length) {
-            return <>1 group with filters</>
+        } else if (properties?.length > 0) {
+            return <PropertyFiltersDisplay filters={properties} style={{ margin: 0 }} greyBadges />
+        } else if (rollout_percentage !== null) {
+            return `${rollout_percentage}% of all users`
         } else {
-            return <>?</> // This case should be covered by omniGroup already - it means full rollout
+            console.error('A group with full rollout was not detected early')
+            return 'All users'
         }
     }
-    return <>{groups.length} groups</>
+    return `${groups.length} groups`
 }

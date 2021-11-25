@@ -1,3 +1,5 @@
+@import '~/vars';
+
 .property-filter-row {
     .property-filter-button-spacing {
         color: #c4c4c4;
@@ -10,5 +12,14 @@
         position: relative;
         top: -4px;
         user-select: none;
+    }
+
+    .property-filter-grey {
+        color: #2d2d2d;
+        border-color: $grey;
+        background: $grey;
+
+        text-shadow: none;
+        box-shadow: none;
     }
 }

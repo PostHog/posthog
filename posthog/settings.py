@@ -739,7 +739,7 @@ SKIP_SERVICE_VERSION_REQUIREMENTS = get_from_env(
 )
 
 if SKIP_SERVICE_VERSION_REQUIREMENTS:
-    print_warning("Skipping service version requirements. This is dangerous and PostHog might not work as expected!")
+    print_warning(["Skipping service version requirements. This is dangerous and PostHog might not work as expected!"])
 
 SERVICE_VERSION_REQUIREMENTS = [
     ServiceVersionRequirement(service="postgresql", supported_version=">=11.0.0,<=14.1.0",),

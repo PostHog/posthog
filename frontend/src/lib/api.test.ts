@@ -6,6 +6,7 @@ describe('API helper', () => {
 
         beforeEach(() => {
             fakeFetch = jest.fn()
+            fakeFetch.mockReturnValue({ ok: true, json: () => Promise.resolve('["fake api"]') })
             window.fetch = fakeFetch
         })
 

@@ -8,6 +8,7 @@ import { AnyPropertyFilter } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Placement } from '@popperjs/core'
 import { PropertyFilter } from '.'
+import { ButtonType } from 'antd/lib/button'
 
 interface PropertyFiltersProps {
     endpoint?: string | null
@@ -21,6 +22,8 @@ interface PropertyFiltersProps {
     style?: CSSProperties
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     showNestedArrow?: boolean
+    addButtonType?: ButtonType
+    greyBadges?: boolean
 }
 
 export function PropertyFilters({
@@ -34,6 +37,8 @@ export function PropertyFilters({
     taxonomicGroupTypes,
     style = {},
     showNestedArrow = false,
+    addButtonType = 'link',
+    greyBadges = false,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filters } = useValues(propertyFilterLogic(logicProps))
@@ -58,7 +63,9 @@ export function PropertyFilters({
                                 taxonomicPopoverPlacement={taxonomicPopoverPlacement}
                                 showNestedArrow={showNestedArrow}
                                 label={'Add filter'}
+                                addButtonType={addButtonType}
                                 onRemove={remove}
+                                greyBadges={greyBadges}
                                 filterComponent={(onComplete) => {
                                     const propertyFilterCommonProps = {
                                         key: index,

@@ -13,7 +13,6 @@ export function ToolbarSettings(): JSX.Element {
             <Row style={{ flexFlow: 'row' }}>
                 <Col>
                     <Switch
-                        // @ts-expect-error - id works just fine despite not being in CompoundedComponent
                         id="posthog-toolbar-switch"
                         onChange={() => {
                             updateUser({
