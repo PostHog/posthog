@@ -580,17 +580,6 @@ export function FeatureFlag(): JSX.Element {
                                             />{' '}
                                             of <b>{aggregationTargetName}</b> in this set
                                         </div>
-
-                                        <Slider
-                                            data-attr="feature-flag-rollout-slider"
-                                            style={{ width: '50%' }}
-                                            tooltipPlacement="top"
-                                            tipFormatter={(value) => value + '%'}
-                                            value={group.rollout_percentage != null ? group.rollout_percentage : 100}
-                                            onChange={(value: number) => {
-                                                updateConditionSet(index, value)
-                                            }}
-                                        />
                                     </div>
                                 </Card>
                             </Col>
