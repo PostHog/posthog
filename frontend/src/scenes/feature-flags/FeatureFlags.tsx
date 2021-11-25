@@ -101,12 +101,18 @@ export function FeatureFlags(): JSX.Element {
                                 >
                                     Copy key
                                 </LemonButton>
-                                <LemonButton type="stealth" to={`/feature_flags/${featureFlag.id}`} fullWidth>
-                                    Edit
-                                </LemonButton>
+                                {featureFlag.id && (
+                                    <LemonButton type="stealth" to={urls.featureFlag(featureFlag.id)} fullWidth>
+                                        Edit
+                                    </LemonButton>
+                                )}
                                 <LemonButton
                                     type="stealth"
-                                    to={`/insights?events=[{"id":"$pageview","name":"$pageview","type":"events","math":"dau"}]&breakdown_type=event&breakdown=$feature/${featureFlag.key}`}
+                                    to={urls.insightNew({
+                                        events: [{ id: '$pageview', name: '$pageview', type: 'events', math: 'dau' }],
+                                        breakdown_type: 'event',
+                                        breakdown: `$feature/${featureFlag.key}`,
+                                    })}
                                     data-attr="usage"
                                     fullWidth
                                 >
@@ -182,11 +188,11 @@ function GroupFilters({ group }: { group: FeatureFlagGroupType }): JSX.Element |
         return (
             <div style={{ display: 'flex', alignItems: 'center' }}>
                 <span style={{ flexShrink: 0, marginRight: 5 }}>{group.rollout_percentage}% of</span>
-                <PropertyFiltersDisplay filters={group.properties} style={{ margin: 0, width: '100%' }} />
+                <PropertyFiltersDisplay filters={group.properties} style={{ margin: 0, width: '100%' }} greyBadges />
             </div>
         )
     } else if (group.properties && group.properties.length > 0) {
-        return <PropertyFiltersDisplay filters={group.properties} style={{ margin: 0 }} />
+        return <PropertyFiltersDisplay filters={group.properties} style={{ margin: 0 }} greyBadges />
     } else if (group.rollout_percentage !== null && group.rollout_percentage !== undefined) {
         return `${group.rollout_percentage}% of all users`
     } else {

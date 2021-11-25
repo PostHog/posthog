@@ -3,7 +3,6 @@ import { LineGraph } from 'scenes/insights/LineGraph'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { useActions, useValues } from 'kea'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
-import { router } from 'kea-router'
 import { ChartParams } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -16,9 +15,6 @@ export function FunnelLineGraph({
     const logic = funnelLogic(insightProps)
     const { steps, filters } = useValues(logic)
     const { loadPeople } = useActions(personsModalLogic)
-    const {
-        hashParams: { fromItem },
-    } = useValues(router)
 
     return (
         <LineGraph
@@ -28,7 +24,7 @@ export function FunnelLineGraph({
             datasets={steps}
             labels={steps?.[0]?.labels ?? ([] as string[])}
             isInProgress={!filters.date_to}
-            dashboardItemId={dashboardItemId || fromItem /* used only for annotations, not to init any other logic */}
+            dashboardItemId={dashboardItemId}
             inSharedMode={inSharedMode}
             percentage={true}
             onClick={

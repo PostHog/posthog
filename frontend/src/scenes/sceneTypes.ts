@@ -8,7 +8,7 @@ export enum Scene {
     ErrorProjectUnavailable = 'ProjectUnavailable',
     Dashboards = 'Dashboards',
     Dashboard = 'Dashboard',
-    Insights = 'Insights',
+    Insight = 'Insight',
     InsightRouter = 'InsightRouter',
     Cohorts = 'Cohorts',
     Events = 'Events',

@@ -618,10 +618,15 @@ export interface PlanInterface {
     price_string: string
 }
 
+// Creating a nominal type: https://github.com/microsoft/TypeScript/issues/202#issuecomment-961853101
+export type InsightShortId = string & { readonly '': unique symbol }
+
 export interface DashboardItemType {
+    /** The unique key we use when communicating with the user, e.g. in URLs */
+    short_id: InsightShortId
+    /** The primary key in the database, used as well in API endpoints */
     id: number
     name: string
-    short_id: string
     description?: string
     favorited?: boolean
     filters: Partial<FilterType>
@@ -641,7 +646,8 @@ export interface DashboardItemType {
     result: any | null
     updated_at: string
     tags: string[]
-    next?: string // only used in the frontend to store the next breakdown url
+    /** Only used in the frontend to store the next breakdown url */
+    next?: string
 }
 
 export interface DashboardType {
@@ -1091,7 +1097,7 @@ export interface FlattenedFunnelStepByBreakdown {
 }
 
 export interface ChartParams {
-    dashboardItemId?: number
+    dashboardItemId?: InsightShortId
     color?: string
     filters: Partial<FilterType>
     inSharedMode?: boolean
@@ -1102,7 +1108,7 @@ export interface ChartParams {
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
 export interface InsightLogicProps {
     /** currently persisted insight */
-    dashboardItemId?: number | null
+    dashboardItemId?: InsightShortId | null
     /** enable url handling for this insight */
     syncWithUrl?: boolean
     /** cached results, avoid making a request */
@@ -1141,6 +1147,7 @@ export interface MultivariateFlagOptions {
 interface FeatureFlagFilters {
     groups: FeatureFlagGroupType[]
     multivariate: MultivariateFlagOptions | null
+    aggregation_group_type_index?: number | null
 }
 
 export interface FeatureFlagType {

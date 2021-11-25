@@ -3,23 +3,32 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightType } from '~/types'
+import { InsightShortId, InsightType } from '~/types'
 
 jest.mock('lib/api')
+
+const Insight123 = '123' as InsightShortId
 
 describe('pathsLogic', () => {
     let logic: ReturnType<typeof pathsLogic.build>
 
     mockAPI(async (url) => {
         const { pathname } = url
-        if (`api/projects/${MOCK_TEAM_ID}/insights/paths/` === pathname) {
+        if (
+            [
+                `api/projects/${MOCK_TEAM_ID}/insights/path`,
+                `api/projects/${MOCK_TEAM_ID}/insights/paths/`,
+                `api/projects/${MOCK_TEAM_ID}/insights/123`,
+                `api/projects/${MOCK_TEAM_ID}/insights`,
+            ].includes(pathname)
+        ) {
             return { result: ['result from api'] }
         }
         return defaultAPIMocks(url)
     })
 
     describe('syncs with insightLogic', () => {
-        const props = { dashboardItemId: 123 }
+        const props = { dashboardItemId: Insight123 }
         initKeaTestLogic({
             logic: pathsLogic,
             props,

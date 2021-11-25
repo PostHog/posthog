@@ -704,12 +704,10 @@ code.code {
 
 .simple-tag {
     border-radius: $radius;
-    font-weight: bold;
     padding: 2px 6px;
 
-    &.tag-light-lilac {
-        background-color: $hc_light_lilac;
-        color: $hc_navy;
+    &.tag-light-blue {
+        background-color: $blue_100;
     }
 }
 

@@ -5,6 +5,7 @@ import {
     FunnelStep,
     FunnelStepReference,
     FunnelStepWithConversionMetrics,
+    InsightShortId,
 } from '~/types'
 import { getReferenceStep, getSeriesColor, humanizeOrder } from 'scenes/funnels/funnelUtils'
 import { RenderedCell } from 'rc-table/lib/interface'
@@ -52,7 +53,7 @@ function BreakdownBarGroupWrapper({
     showLabels,
 }: {
     step: FunnelStepWithConversionMetrics
-    dashboardItemId?: number
+    dashboardItemId?: InsightShortId
     showLabels: boolean
 }): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -105,7 +106,7 @@ export const renderGraphAndHeader = (
     headerElement: JSX.Element,
     showLabels: boolean,
     step?: FunnelStepWithConversionMetrics,
-    dashboardItemId?: number
+    dashboardItemId?: InsightShortId
 ): JSX.Element | RenderedCell<FlattenedFunnelStepByBreakdown> => {
     const stepIndex = step?.order ?? 0
     if (rowIndex === 0 || rowIndex === 1) {

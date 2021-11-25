@@ -6,14 +6,14 @@ import { Link } from 'lib/components/Link'
 import { Button, Col, Row } from 'antd'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
-import { autoCaptureEventToDescription, toParams } from 'lib/utils'
+import { autoCaptureEventToDescription } from 'lib/utils'
 import './EventsTable.scss'
 import { eventsTableLogic } from './eventsTableLogic'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { ResizableColumnType, ResizableTable, TableConfig } from 'lib/components/ResizableTable'
-import { ActionType, EventsTableRowItem, EventType, InsightType } from '~/types'
+import { ActionType, ChartDisplayType, EventsTableRowItem, EventType, FilterType, InsightType } from '~/types'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { EventName } from 'scenes/actions/EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
@@ -187,12 +187,12 @@ export function EventsTable({
                         return <></>
                     }
 
-                    let params
+                    let params: Partial<FilterType>
                     if (event.event === '$pageview') {
                         params = {
                             insight: InsightType.TRENDS,
                             interval: 'day',
-                            display: 'ActionsLineGraph',
+                            display: ChartDisplayType.ActionsLineGraphLinear,
                             actions: [],
                             events: [
                                 {
@@ -214,7 +214,7 @@ export function EventsTable({
                         params = {
                             insight: InsightType.TRENDS,
                             interval: 'day',
-                            display: 'ActionsLineGraph',
+                            display: ChartDisplayType.ActionsLineGraphLinear,
                             actions: [],
                             events: [
                                 {
@@ -227,8 +227,7 @@ export function EventsTable({
                             ],
                         }
                     }
-                    const encodedParams = toParams(params)
-                    const eventLink = `/insights?${encodedParams}`
+                    const eventLink = urls.insightNew(params)
 
                     return (
                         <Link to={eventLink} data-attr="events-table-usage">
