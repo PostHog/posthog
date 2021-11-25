@@ -49,7 +49,7 @@ export function BreakdownFilter({ filters, setFilters, buttonType }: TaxonomicBr
         preflight?.is_clickhouse_enabled //breakdown is not available on postgres anyway but for completeness is checked here
 
     const breakdownArray = multiPropertyBreakdownIsEnabled
-        ? (breakdowns || []).map((b) => b.property) // for now we ignore the breakdowns' type
+        ? (breakdowns || []).map((b) => b.property)
         : (Array.isArray(breakdown) ? breakdown : [breakdown]).filter((b): b is string | number => !!b)
 
     const breakdownParts = breakdownArray.map((b) => (isNaN(Number(b)) ? b : Number(b)))
