@@ -47,7 +47,11 @@ export function TableRow<T extends Record<string, any>>({
                     const value = column.dataIndex ? record[column.dataIndex] : undefined
                     const contents = column.render ? column.render(value as T[keyof T], record, recordIndex) : value
                     return (
-                        <td key={columnKeyOrIndex} className={column.className} style={{ textAlign: column.align }}>
+                        <td
+                            key={`LemonTable-td-${columnKeyOrIndex}`}
+                            className={column.className}
+                            style={{ textAlign: column.align }}
+                        >
                             {contents}
                         </td>
                     )
