@@ -166,19 +166,25 @@ def report_bulk_invited(
     )
 
 
-# :TODO:
-def report_org_usage(distinct_id: str, properties: Dict[str, Any]) -> None:
+def report_org_usage(organization_id: str, distinct_id: str, properties: Dict[str, Any]) -> None:
     """
     Triggered daily by Celery scheduler.
     """
     posthoganalytics.capture(
-        distinct_id, "organization usage report", properties,
+        distinct_id,
+        "organization usage report",
+        properties,
+        groups={"organization": organization_id, "instance": SITE_URL},
     )
 
 
-# :TODO:
-def report_org_usage_failure(distinct_id: str, err: str) -> None:
-    posthoganalytics.capture(distinct_id, "organization usage report failure", properties={"error": err,})
+def report_org_usage_failure(organization_id: str, distinct_id: str, err: str) -> None:
+    posthoganalytics.capture(
+        distinct_id,
+        "organization usage report failure",
+        properties={"error": err,},
+        groups={"organization": organization_id, "instance": SITE_URL},
+    )
 
 
 def groups(organization: Optional[Organization] = None, team: Optional[Team] = None):
