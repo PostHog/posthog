@@ -1,9 +1,8 @@
 import { kea, useActions, useValues } from 'kea'
-import { IconLightBulb, InsightsFunnelsIcon } from 'lib/components/icons'
+import { IconLightBulb } from 'lib/components/icons'
 import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
 import { Link } from 'lib/components/Link'
 import React from 'react'
-import { ArrowRightOutlined } from '@ant-design/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightLogicProps, InsightType } from '~/types'
 import { toParams } from 'lib/utils'
@@ -13,6 +12,7 @@ import './FunnelsCue.scss'
 import { funnelsCueLogicType } from './FunnelsCueType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { Button } from 'antd'
 
 const funnelsCueLogic = kea<funnelsCueLogicType>({
     path: ['scenes', 'insights', 'InsightTabs', 'TrendTab', 'FunnelsCue'],
@@ -106,11 +106,17 @@ export function FunnelsCue({ props }: { props: InsightLogicProps }): JSX.Element
                 icon={<IconLightBulb style={{ color: 'var(--warning)', fontSize: '1.3em' }} />}
                 onClose={optOut}
             >
-                <div>
-                    Looks like you have multiple events. A funnel can help better visualize your user's progression
-                    across each event.{' '}
-                    <Link to={destPath} data-attr="funnel-cue-7301">
-                        Try this graph as a <InsightsFunnelsIcon /> funnel <ArrowRightOutlined />
+                <div className="flex-center">
+                    <div style={{ paddingRight: 16 }}>
+                        Looks like you have multiple events. A funnel can help better visualize your user's progression
+                        across each event.
+                    </div>
+                    <Link
+                        to={destPath}
+                        data-attr="funnel-cue-7301"
+                        tag={<Button style={{ color: 'var(--primary)', fontWeight: 500 }} />}
+                    >
+                        Try this insight as a funnel
                     </Link>
                 </div>
             </InlineMessage>

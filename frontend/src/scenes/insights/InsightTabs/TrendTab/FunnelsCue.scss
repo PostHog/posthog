@@ -1,12 +1,18 @@
 @import '~/vars';
 
 .funnels-product-cue {
-    margin-top: $default_spacing;
+    margin-bottom: $default_spacing;
     transform: scaleY(0);
     transition: transform 0.4s ease;
 
     &.shown {
         transform: scaleY(1);
         transform-origin: top;
+    }
+
+    .inline-message {
+        border: 1px solid $primary;
+        background-color: white;
+        max-width: 800px;
     }
 }
