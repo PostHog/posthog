@@ -6,26 +6,6 @@ import { userLogic } from 'scenes/userLogic'
 import { specialMigrationsLogicType } from './specialMigrationsLogicType'
 export type TabName = 'overview' | 'internal_metrics'
 
-// id: models.BigAutoField = models.BigAutoField(primary_key=True)
-// name: models.CharField = models.CharField(max_length=400, null=False, blank=False)
-// progress: models.IntegerField = models.IntegerField(null=False, blank=False, default=0)
-// status: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
-//     null=False, blank=False, default=MigrationStatus.NotStarted
-// )
-
-// current_operation_index: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
-//     null=False, blank=False, default=0
-// )
-// current_query_id: models.CharField = models.CharField(max_length=400, null=False, blank=False, default="")
-// celery_task_id: models.CharField = models.CharField(max_length=400, null=False, blank=False, default="")
-
-// started_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
-
-// # Can finish with status 'CompletedSuccessfully', 'Errored', or 'RolledBack'
-// finished_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
-
-// error: models.TextField = models.TextField(null=True, blank=True)
-
 export enum SpecialMigrationStatus {
     NotStarted = 0,
     Running = 1,
