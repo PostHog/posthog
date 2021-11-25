@@ -141,9 +141,8 @@ def report_team_member_invited(
     )
 
 
-# :TODO:
 def report_bulk_invited(
-    distinct_id: str,
+    user: User,
     invitee_count: int,
     name_count: int,
     current_invite_count: int,
@@ -154,7 +153,7 @@ def report_bulk_invited(
     Triggered after a user bulk creates invites for another user.
     """
     posthoganalytics.capture(
-        distinct_id,
+        user.distinct_id,
         "bulk invite executed",
         properties={
             "invitee_count": invitee_count,
@@ -163,6 +162,7 @@ def report_bulk_invited(
             "current_member_count": current_member_count,
             "email_available": email_available,
         },
+        groups=groups(user.current_organization, user.current_team),
     )
 
 
