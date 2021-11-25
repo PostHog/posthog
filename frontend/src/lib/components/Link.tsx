@@ -26,7 +26,7 @@ export function Link({ to, preventClick = false, tag = 'a', ...props }: LinkProp
                 }
             }
         }
-        props.onClick && props.onClick(event)
+        props.onClick?.(event)
     }
 
     const elProps = {

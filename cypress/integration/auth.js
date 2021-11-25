@@ -27,7 +27,7 @@ describe('Auth', () => {
         cy.get('[data-attr=password]').type('wrong password').should('have.value', 'wrong password')
         cy.get('[type=submit]').click()
 
-        cy.get('.error-message').should('contain', 'Invalid email or password.')
+        cy.get('.inline-message.danger').should('contain', 'Invalid email or password.')
     })
 
     it('Redirect to appropriate place after login', () => {
@@ -94,7 +94,7 @@ describe('Password Reset', () => {
         cy.get('.ant-progress-bg').should('be.visible')
         cy.get('#passwordConfirm').type('1234567A')
         cy.get('button[type=submit]').click()
-        cy.get('.error-message').should('contain', 'Password confirmation does not match.')
+        cy.get('.inline-message.danger').should('contain', 'Password confirmation does not match.')
         cy.location('pathname').should('eq', '/reset/e2e_test_user/e2e_test_token') // not going anywhere
     })
 

@@ -5,7 +5,7 @@ import { Col, Row, Form, Button, Skeleton } from 'antd'
 import React from 'react'
 import { WelcomeLogo } from './WelcomeLogo'
 import './PasswordReset.scss'
-import { ErrorMessage } from 'lib/components/ErrorMessage/ErrorMessage'
+import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
 import { PasswordInput } from './PasswordInput'
 import { ExclamationCircleFilled, StopOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
@@ -58,10 +58,10 @@ function NewPasswordForm(): JSX.Element {
         <>
             <div className="text-center mb">Please enter a new password for your account.</div>
             {!newPasswordResponseLoading && newPasswordResponse?.errorCode && (
-                <ErrorMessage style={{ marginBottom: 16 }}>
+                <InlineMessage style={{ marginBottom: 16 }} type="danger">
                     {newPasswordResponse.errorDetail ||
                         'Could not complete your password reset request. Please try again.'}
-                </ErrorMessage>
+                </InlineMessage>
             )}
             <Form
                 layout="vertical"

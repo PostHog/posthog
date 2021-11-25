@@ -129,7 +129,9 @@ function NewInsightButton(): JSX.Element {
                             <Row wrap={false}>
                                 <Col flex="none">
                                     {listedInsightType.icon && (
-                                        <listedInsightType.icon color="var(--muted-alt)" noBackground />
+                                        <div style={{ fontSize: '2rem' }}>
+                                            <listedInsightType.icon color="var(--muted-alt)" noBackground />
+                                        </div>
                                     )}
                                 </Col>
                                 <Col flex="Auto" style={{ paddingLeft: '1rem' }}>
@@ -186,7 +188,11 @@ export function SavedInsights(): JSX.Element {
                 const rawType = insight.filters?.insight || InsightType.TRENDS
                 const type = insightTypes.find(({ type: iterationType }) => iterationType === rawType)
                 if (type && type.icon) {
-                    return <type.icon />
+                    return (
+                        <span style={{ fontSize: '2rem' }}>
+                            <type.icon />
+                        </span>
+                    )
                 }
             },
         },
