@@ -551,7 +551,9 @@ export function FeatureFlag(): JSX.Element {
                                     <LemonSpacer large />
                                     <PropertyFilters
                                         style={{ marginLeft: 15 }}
-                                        pageKey={`feature-flag-${featureFlag.id}-${index}-${featureFlag.filters.groups.length}-${featureFlag.filters.aggregation_group_type_index}`}
+                                        pageKey={`feature-flag-${featureFlag.id}-${index}-${
+                                            featureFlag.filters.groups.length
+                                        }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
                                         propertyFilters={group?.properties}
                                         onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                         taxonomicGroupTypes={taxonomicGroupTypes}
