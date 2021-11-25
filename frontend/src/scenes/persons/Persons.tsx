@@ -1,7 +1,7 @@
 import React from 'react'
 import { useValues, useActions, BindLogic } from 'kea'
 import { PersonsTable } from './PersonsTable'
-import { Button } from 'antd'
+import { Button, Row } from 'antd'
 import { ExportOutlined, ClockCircleFilled } from '@ant-design/icons'
 import { PersonLogicProps, personsLogic } from './personsLogic'
 import { CohortType } from '~/types'
@@ -31,9 +31,29 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
         <BindLogic logic={personsLogic} props={personsLogicProps}>
             <div className="persons-list">
                 <PersonPageHeader hideGroupTabs={!!cohort} />
-                <div className="mb">
+                <Row gutter={12} align="middle" justify="space-between" className="mb">
                     <PersonsSearch autoFocus={!cohort} />
-                </div>
+                    <div>
+                        {cohort ? (
+                            <LinkButton
+                                to={`/sessions?${toParams({
+                                    properties: [{ key: 'id', value: cohort.id, type: 'cohort' }],
+                                })}`}
+                                target="_blank"
+                            >
+                                <ClockCircleFilled /> View sessions
+                            </LinkButton>
+                        ) : null}
+                        <Button
+                            type="default"
+                            icon={<ExportOutlined />}
+                            href={'/api/person.csv' + (listFilters.cohort ? '?cohort=' + listFilters.cohort : '')}
+                            style={{ marginLeft: 8 }}
+                        >
+                            Export
+                        </Button>
+                    </div>
+                </Row>
                 <PropertyFilters
                     pageKey="persons-list-page"
                     propertyFilters={listFilters.properties}
@@ -45,26 +65,6 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
                     taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
                     showConditionBadge
                 />
-                <div className="mb text-right">
-                    {cohort ? (
-                        <LinkButton
-                            to={`/sessions?${toParams({
-                                properties: [{ key: 'id', value: cohort.id, type: 'cohort' }],
-                            })}`}
-                            target="_blank"
-                        >
-                            <ClockCircleFilled /> View sessions
-                        </LinkButton>
-                    ) : null}
-                    <Button
-                        type="default"
-                        icon={<ExportOutlined />}
-                        href={'/api/person.csv' + (listFilters.cohort ? '?cohort=' + listFilters.cohort : '')}
-                        style={{ marginLeft: 8 }}
-                    >
-                        Export
-                    </Button>
-                </div>
                 <PersonsTable
                     people={persons.results}
                     loading={personsLoading}

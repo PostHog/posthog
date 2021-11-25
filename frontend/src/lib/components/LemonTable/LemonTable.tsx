@@ -268,7 +268,7 @@ export function LemonTable<T extends Record<string, any>>({
                                 ))
                             ) : (
                                 <tr>
-                                    <td colSpan={columns.length}>{emptyState}</td>
+                                    <td colSpan={columns.length + Number(!!expandable)}>{emptyState}</td>
                                 </tr>
                             )}
                         </tbody>

@@ -23,7 +23,7 @@ export function TableRow<T extends Record<string, any>>({
     expandable,
 }: TableRowProps<T>): JSX.Element {
     const [isRowExpanded, setIsRowExpanded] = useState(false)
-    const rowExpandable: boolean = !!expandable?.rowExpandable?.(record)
+    const rowExpandable: boolean = !!expandable && (!expandable.rowExpandable || expandable.rowExpandable(record))
 
     return (
         <>
@@ -60,7 +60,8 @@ export function TableRow<T extends Record<string, any>>({
 
             {expandable && rowExpandable && isRowExpanded && (
                 <tr className="LemonTable__expansion">
-                    <td colSpan={columns.length + 1}>{expandable.expandedRowRender(record, recordIndex)}</td>
+                    <td />
+                    <td colSpan={columns.length}>{expandable.expandedRowRender(record, recordIndex)}</td>
                 </tr>
             )}
         </>

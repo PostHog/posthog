@@ -92,9 +92,12 @@ export function PersonsTable({
             }}
             expandable={{
                 expandedRowRender: function RenderPropertiesTable({ properties }) {
-                    return <PropertiesTable properties={properties} />
+                    return Object.keys(properties).length ? (
+                        <PropertiesTable properties={properties} />
+                    ) : (
+                        'This person has no properties.'
+                    )
                 },
-                rowExpandable: ({ properties }) => Object.keys(properties).length > 0,
             }}
             dataSource={people}
             nouns={['person', 'persons']}
