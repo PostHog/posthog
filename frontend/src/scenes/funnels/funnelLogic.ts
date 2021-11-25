@@ -32,7 +32,6 @@ import {
     EntityTypes,
     PropertyFilter,
     PropertyOperator,
-    FunnelCorrelationDetails,
 } from '~/types'
 import { FunnelLayout, BinCountAuto, FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -172,7 +171,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         addNestedTableExpandedKey: (expandKey: string) => ({ expandKey }),
         removeNestedTableExpandedKey: (expandKey: string) => ({ expandKey }),
 
-        setFunnelCorrelationDetailsParams: (payload: FunnelCorrelationDetails | null) => ({ payload }),
+        setFunnelCorrelationDetails: (payload: FunnelCorrelation | null) => ({ payload }),
     }),
 
     loaders: ({ values }) => ({
@@ -389,10 +388,10 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 },
             },
         ],
-        funnelCorrelationDetailsParams: [
-            null as null | FunnelCorrelationDetails,
+        funnelCorrelationDetails: [
+            null as null | FunnelCorrelation,
             {
-                setFunnelCorrelationDetailsParams: (_, { payload }) => payload,
+                setFunnelCorrelationDetails: (_, { payload }) => payload,
             },
         ],
     }),
@@ -940,33 +939,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 }
             },
         ],
-        correlationDetails: [
-            (s) => [
-                s.funnelCorrelationDetailsParams,
-                s.correlationValues,
-                s.propertyCorrelationValues,
-                s.correlationsLoading,
-            ],
-            (
-                correlationDetailsParams,
-                eventcorrelationValues,
-                propertyCorrelationValues,
-                loading
-            ): FunnelCorrelation | null => {
-                if (!correlationDetailsParams || loading) {
-                    return null
-                }
-                const correlValues =
-                    correlationDetailsParams.type === 'property' ? propertyCorrelationValues : eventcorrelationValues
-
-                for (const item of correlValues) {
-                    if (item.event.event === correlationDetailsParams.key) {
-                        return item
-                    }
-                }
-                return null
-            },
-        ],
         parseDisplayNameForCorrelation: [
             () => [],
             (): ((record: FunnelCorrelation) => {
@@ -1071,6 +1043,50 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                     return { singular: groupType.group_type, plural: `${groupType.group_type}(s)` }
                 }
                 return { singular: 'user', plural: 'users' }
+            },
+        ],
+        correlationMatrixAndScore: [
+            (s) => [s.funnelCorrelationDetails, s.steps],
+            (
+                funnelCorrelationDetails,
+                steps
+            ): {
+                truePositive: number
+                falsePositive: number
+                trueNegative: number
+                falseNegative: number
+                correlationScore: number
+            } => {
+                if (!funnelCorrelationDetails) {
+                    return {
+                        truePositive: 0,
+                        falsePositive: 0,
+                        trueNegative: 0,
+                        falseNegative: 0,
+                        correlationScore: 0,
+                    }
+                }
+
+                const successTotal = steps[steps.length - 1].count
+                const failureTotal = steps[0].count - successTotal
+                const success = funnelCorrelationDetails.success_count
+                const failure = funnelCorrelationDetails.failure_count
+
+                const truePositive = success // has property, converted
+                const falseNegative = failure // has property, but dropped off
+                const trueNegative = failureTotal - failure // doesn't have property, dropped off
+                const falsePositive = successTotal - success // doesn't have property, converted
+
+                // Phi coefficient: https://en.wikipedia.org/wiki/Phi_coefficient
+                const correlationScore =
+                    (truePositive * trueNegative - falsePositive * falseNegative) /
+                    Math.sqrt(
+                        (truePositive + falsePositive) *
+                            (truePositive + falseNegative) *
+                            (trueNegative + falsePositive) *
+                            (trueNegative + falseNegative)
+                    )
+                return { correlationScore, truePositive, falsePositive, trueNegative, falseNegative }
             },
         ],
     }),
@@ -1351,28 +1367,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 eventUsageLogic.actions.reportCorrelationViewed(values.filters, 10, true)
             }
         },
-    }),
-    urlToAction: ({ actions }) => ({
-        '/insights': (
-            _,
-            __,
-            {
-                funnel_correlation_details,
-            }: {
-                funnel_correlation_details?: FunnelCorrelationDetails
-            }
-        ) => {
-            if (funnel_correlation_details) {
-                actions.setFunnelCorrelationDetailsParams(funnel_correlation_details)
-            }
-        },
-    }),
-    actionToUrl: () => ({
-        setFunnelCorrelationDetailsParams: ({ payload }) => [
-            '/insights',
-            router.values.searchParams,
-            { ...router.values.hashParams, funnel_correlation_details: payload ?? undefined },
-        ],
     }),
 })
 

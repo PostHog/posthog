@@ -342,8 +342,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
 const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
-    const { excludeEventPropertyFromProject, excludeEventFromProject, setFunnelCorrelationDetailsParams } =
-        useActions(logic)
+    const { excludeEventPropertyFromProject, excludeEventFromProject, setFunnelCorrelationDetails } = useActions(logic)
     const { isEventPropertyExcluded, isEventExcluded } = useValues(logic)
     const components = record.event.event.split('::')
     const [popoverOpen, setPopoverOpen] = useState(false)
@@ -357,11 +356,7 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
                 overlay={
                     <>
                         {record.result_type === FunnelCorrelationResultsType.Events && (
-                            <LemonButton
-                                onClick={() => setFunnelCorrelationDetailsParams({ key: components[0], type: 'event' })}
-                                fullWidth
-                                type="stealth"
-                            >
+                            <LemonButton onClick={() => setFunnelCorrelationDetails(record)} fullWidth type="stealth">
                                 View correlation details
                             </LemonButton>
                         )}

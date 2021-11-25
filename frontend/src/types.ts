@@ -875,11 +875,6 @@ export interface FilterType {
     aggregation_group_type_index?: number | undefined // Groups aggregation
 }
 
-export interface FunnelCorrelationDetails {
-    key: string // Event or property name
-    type: 'event' | 'property'
-}
-
 export interface RecordingEventsFilters {
     query: string
 }

@@ -251,7 +251,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
 const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
-    const { excludePropertyFromProject, setFunnelCorrelationDetailsParams } = useActions(logic)
+    const { excludePropertyFromProject, setFunnelCorrelationDetails } = useActions(logic)
     const { isPropertyExcludedFromProject } = useValues(logic)
     const propertyName = (record.event.event || '').split('::')[0]
 
@@ -265,13 +265,7 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
                 onClickOutside={() => setPopoverOpen(false)}
                 overlay={
                     <>
-                        <LemonButton
-                            onClick={() =>
-                                setFunnelCorrelationDetailsParams({ key: record.event.event, type: 'property' })
-                            }
-                            fullWidth
-                            type="stealth"
-                        >
+                        <LemonButton onClick={() => setFunnelCorrelationDetails(record)} fullWidth type="stealth">
                             View correlation details
                         </LemonButton>
                         <LemonButton
