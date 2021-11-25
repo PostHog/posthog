@@ -858,7 +858,9 @@ describe('funnelLogic', () => {
                 logic.actions.toggleAdvancedMode()
             })
                 .toDispatchActions(['toggleAdvancedMode', 'setFilters'])
-                .toNotHaveDispatchedActions([insightLogic({ dashboardItemId: 123 }).actionCreators.loadResults()])
+                .toNotHaveDispatchedActions([
+                    insightLogic({ dashboardItemId: Insight123 }).actionCreators.loadResults(),
+                ])
         })
     })
 })
