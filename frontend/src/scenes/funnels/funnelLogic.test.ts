@@ -272,7 +272,7 @@ describe('funnelLogic', () => {
                                 { id: '$pageview', order: 1 },
                             ],
                         },
-                        result: ['result from api'],
+                        result: expect.arrayContaining([expect.objectContaining({ count: 19 })]),
                     }),
                     filters: {
                         insight: InsightType.FUNNELS,

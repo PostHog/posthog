@@ -12,7 +12,6 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Link } from 'lib/components/Link'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
-import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 
 export function CorrelationMatrix(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -45,7 +44,7 @@ export function CorrelationMatrix(): JSX.Element {
 
     const { correlationScore, truePositive, falsePositive, trueNegative, falseNegative } = correlationMatrixAndScore
 
-    const dismiss = () => setFunnelCorrelationDetails(null)
+    const dismiss = (): void => setFunnelCorrelationDetails(null)
 
     return (
         <Modal
