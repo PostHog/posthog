@@ -39,7 +39,7 @@ def send_license_usage():
                     "events_count": events_count,
                     "organization_name": user.current_organization.name,  # type: ignore
                 },
-                groups={"organization": user.current_organization.pk, "instance": SITE_URL,},
+                groups={"organization": user.current_organization.pk, "instance": SITE_URL,},  # type: ignore
             )
             return
 
@@ -52,7 +52,7 @@ def send_license_usage():
                 "license_keys": get_instance_licenses(),
                 "organization_name": user.current_organization.name,  # type: ignore
             },
-            groups={"organization": user.current_organization.pk, "instance": SITE_URL,},
+            groups={"organization": user.current_organization.pk, "instance": SITE_URL,},  # type: ignore
         )
     except Exception as err:
         posthoganalytics.capture(
@@ -63,5 +63,5 @@ def send_license_usage():
                 "date": date_from.strftime("%Y-%m-%d"),
                 "organization_name": user.current_organization.name,  # type: ignore
             },
-            groups={"organization": user.current_organization.pk, "instance": SITE_URL,},
+            groups={"organization": user.current_organization.pk, "instance": SITE_URL,},  # type: ignore
         )
