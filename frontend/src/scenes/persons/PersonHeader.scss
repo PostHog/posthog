@@ -9,14 +9,6 @@
         margin-right: 0.5rem;
     }
 
-    &.anonymous {
-        color: $text_muted;
-    }
-
-    &.identified {
-        color: $text_default;
-    }
-
     &:hover {
         text-decoration: underline;
     }

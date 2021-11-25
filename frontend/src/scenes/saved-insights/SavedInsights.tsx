@@ -7,7 +7,7 @@ import { deleteWithUndo } from 'lib/utils'
 import React from 'react'
 import { DashboardItemType, LayoutView, SavedInsightsTabs, InsightType } from '~/types'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
-import { AppstoreFilled, StarFilled, StarOutlined, UnorderedListOutlined } from '@ant-design/icons'
+import { AppstoreFilled, StarFilled, StarOutlined, PlusOutlined, UnorderedListOutlined } from '@ant-design/icons'
 import './SavedInsights.scss'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { DashboardItem, displayMap, getDisplayedType } from 'scenes/dashboard/DashboardItem'
@@ -150,7 +150,6 @@ function NewInsightButton(): JSX.Element {
         <Dropdown.Button
             overlayStyle={{ borderColor: 'var(--primary)' }}
             style={{ marginLeft: 8 }}
-            size="large"
             type="primary"
             onClick={() => {
                 router.actions.push(urls.newInsight(InsightType.TRENDS))
@@ -158,6 +157,7 @@ function NewInsightButton(): JSX.Element {
             overlay={menu}
             icon={<IconArrowDropDown style={{ fontSize: 25 }} data-attr="saved-insights-new-insight-dropdown" />}
         >
+            <PlusOutlined />
             New Insight
         </Dropdown.Button>
     )

@@ -11,7 +11,7 @@ export const PersonsSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JS
     const [searchTerm, setSearchTerm] = useState('')
 
     useEffect(() => {
-        setSearchTerm(listFilters.search)
+        setSearchTerm(listFilters.search || '')
     }, [])
 
     return (
