@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 import { teamLogic } from '../teamLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { groupsModel } from '~/models/groupsModel'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 const NEW_FLAG: FeatureFlagType = {
     id: null,
@@ -41,7 +42,7 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
 export const featureFlagLogic = kea<featureFlagLogicType>({
     path: ['scenes', 'feature-flags', 'featureFlagLogic'],
     connect: {
-        values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes']],
+        values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes', 'groupsTaxonomicTypes']],
     },
     actions: {
         setFeatureFlagId: (id: number | 'new') => ({ id }),
@@ -299,15 +300,25 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         aggregationTargetName: [
             (s) => [s.featureFlag, s.groupTypes],
             (featureFlag, groupTypes): string => {
-                if (
-                    featureFlag &&
-                    featureFlag.filters.aggregation_group_type_index != undefined &&
-                    groupTypes.length > 0
-                ) {
+                if (featureFlag && featureFlag.filters.aggregation_group_type_index != null && groupTypes.length > 0) {
                     const groupType = groupTypes[featureFlag.filters.aggregation_group_type_index]
                     return `${groupType.group_type}(s)`
                 }
                 return 'users'
+            },
+        ],
+        taxonomicGroupTypes: [
+            (s) => [s.featureFlag, s.groupsTaxonomicTypes],
+            (featureFlag, groupsTaxonomicTypes): TaxonomicFilterGroupType[] => {
+                if (
+                    featureFlag &&
+                    featureFlag.filters.aggregation_group_type_index != null &&
+                    groupsTaxonomicTypes.length > 0
+                ) {
+                    return [groupsTaxonomicTypes[featureFlag.filters.aggregation_group_type_index]]
+                }
+
+                return [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]
             },
         ],
     },

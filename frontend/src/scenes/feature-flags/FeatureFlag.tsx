@@ -63,6 +63,7 @@ export function FeatureFlag(): JSX.Element {
         variantRolloutSum,
         groupTypes,
         aggregationTargetName,
+        taxonomicGroupTypes,
     } = useValues(featureFlagLogic)
     const {
         addConditionSet,
@@ -554,11 +555,7 @@ export function FeatureFlag(): JSX.Element {
                                         pageKey={`feature-flag-${featureFlag.id}-${index}-${featureFlag.filters.groups.length}`}
                                         propertyFilters={group?.properties}
                                         onChange={(properties) => updateConditionSet(index, undefined, properties)}
-                                        endpoint="person"
-                                        taxonomicGroupTypes={[
-                                            TaxonomicFilterGroupType.PersonProperties,
-                                            TaxonomicFilterGroupType.Cohorts,
-                                        ]}
+                                        taxonomicGroupTypes={taxonomicGroupTypes}
                                         showConditionBadge
                                         greyBadges
                                     />
