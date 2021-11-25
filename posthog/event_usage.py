@@ -196,7 +196,7 @@ def report_user_action(user: User, event: str, properties: Dict = {}):
 def groups(organization: Optional[Organization] = None, team: Optional[Team] = None):
     result = {"instance": SITE_URL}
     if organization is not None:
-        result["organization"] = organization.pk
+        result["organization"] = str(organization.pk)
     if team is not None:
-        result["project"] = team.uuid
+        result["project"] = str(team.uuid)
     return result
