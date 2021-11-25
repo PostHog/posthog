@@ -4,7 +4,7 @@ import React from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { Progress, Table } from 'antd'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { specialMigrationsLogic } from './specialMigrationsLogic'
 import { PlayCircleOutlined, StopOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
@@ -24,6 +24,8 @@ export const scene: SceneExport = {
 
 export function SpecialMigrations(): JSX.Element {
     const { specialMigrations, specialMigrationsLoading } = useValues(specialMigrationsLogic)
+    const { triggerMigration, forceStopMigration } = useActions(specialMigrationsLogic)
+
     const columns = [
         {
             title: '',
@@ -31,9 +33,15 @@ export function SpecialMigrations(): JSX.Element {
                 return (
                     <div>
                         {specialMigration.status === 0 ? (
-                            <PlayCircleOutlined className="trigger-migration-button" onClick={() => {}} />
+                            <PlayCircleOutlined
+                                className="trigger-migration-button"
+                                onClick={() => triggerMigration(specialMigration.id)}
+                            />
                         ) : specialMigration.status === 1 ? (
-                            <StopOutlined className="force-stop-migration-button" onClick={() => {}} />
+                            <StopOutlined
+                                className="force-stop-migration-button"
+                                onClick={() => forceStopMigration(specialMigration.id)}
+                            />
                         ) : null}
                     </div>
                 )

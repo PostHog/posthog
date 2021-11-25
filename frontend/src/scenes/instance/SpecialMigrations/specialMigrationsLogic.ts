@@ -28,7 +28,7 @@ export const specialMigrationsLogic = kea<specialMigrationsLogicType>({
 
     listeners: ({ actions }) => ({
         triggerMigration: async ({ migrationId }) => {
-            const res = await api.create(`/api/special_migration/${migrationId}/trigger`)
+            const res = await api.create(`/api/special_migrations/${migrationId}/trigger`)
             if (res.success) {
                 successToast('Migration triggered successfully')
                 actions.loadSpecialMigrations()
@@ -37,7 +37,7 @@ export const specialMigrationsLogic = kea<specialMigrationsLogicType>({
             }
         },
         forceStopMigration: async ({ migrationId }) => {
-            const res = await api.create(`/api/special_migration/${migrationId}/force_stop`)
+            const res = await api.create(`/api/special_migrations/${migrationId}/force_stop`)
             if (res.success) {
                 successToast('Force stop triggered successfully')
                 actions.loadSpecialMigrations()
