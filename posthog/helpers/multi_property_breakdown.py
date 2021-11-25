@@ -16,7 +16,7 @@ def protect_old_clients_from_multi_property_default(
     :return:
     """
 
-    if len(result) > 0 and not isinstance(result[0], List):
+    if isinstance(result, Dict) or (len(result) > 1) and isinstance(result[0], Dict):
         return result
 
     is_breakdown_request = (
