@@ -465,7 +465,6 @@ export interface PersonType {
     name?: string
     distinct_ids: string[]
     properties: Record<string, any>
-    is_identified: boolean
     created_at?: string
 }
 
@@ -879,6 +878,7 @@ export interface FilterType {
     funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
     funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
     aggregation_group_type_index?: number | undefined // Groups aggregation
+    funnel_advanced?: boolean // used to toggle advanced options on or off
 }
 
 export interface RecordingEventsFilters {

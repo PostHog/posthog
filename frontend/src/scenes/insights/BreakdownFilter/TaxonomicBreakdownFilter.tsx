@@ -14,10 +14,12 @@ import './TaxonomicBreakdownFilter.scss'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { ButtonType } from 'antd/lib/button'
 
 export interface TaxonomicBreakdownFilterProps {
     filters: Partial<FilterType>
     setFilters: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
+    buttonType?: ButtonType
 }
 
 const isAllCohort = (t: number | string): t is string => typeof t === 'string' && t == 'all'
@@ -28,7 +30,7 @@ const isCohortBreakdown = (t: number | string): t is number | string => isAllCoh
 
 const isPersonEventOrGroup = (t: number | string): t is string => typeof t === 'string' && t !== 'all'
 
-export function BreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilterProps): JSX.Element {
+export function BreakdownFilter({ filters, setFilters, buttonType }: TaxonomicBreakdownFilterProps): JSX.Element {
     const { breakdown, breakdowns, breakdown_type } = filters
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
@@ -125,7 +127,11 @@ export function BreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilte
             <Space direction={'horizontal'} wrap={true}>
                 {tags}
                 {!hasSelectedBreakdown || multiPropertyBreakdownIsEnabled ? (
-                    <TaxonomicBreakdownButton breakdownType={breakdownType} onChange={onChange} />
+                    <TaxonomicBreakdownButton
+                        buttonType={buttonType}
+                        breakdownType={breakdownType}
+                        onChange={onChange}
+                    />
                 ) : null}
             </Space>
         </>

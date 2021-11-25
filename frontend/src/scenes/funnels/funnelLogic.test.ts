@@ -2396,4 +2396,14 @@ describe('funnelLogic', () => {
             })
         })
     })
+
+    describe('funnel simple vs. advanced mode', () => {
+        it("toggleAdvancedMode() doesn't trigger a load result", async () => {
+            await expectLogic(logic, () => {
+                logic.actions.toggleAdvancedMode()
+            })
+                .toDispatchActions(['toggleAdvancedMode', 'setFilters'])
+                .toNotHaveDispatchedActions([insightLogic({ dashboardItemId: 123 }).actionCreators.loadResults()])
+        })
+    })
 })

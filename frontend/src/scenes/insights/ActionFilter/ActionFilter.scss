@@ -18,7 +18,7 @@
     }
 }
 
-.add-action-event-button {
+.add-action-event-button:not(.ant-btn-link) {
     border-color: $border_dark;
     color: $primary;
     padding-left: $default_spacing * 2.5;

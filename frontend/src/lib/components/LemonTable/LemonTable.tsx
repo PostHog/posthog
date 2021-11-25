@@ -18,7 +18,7 @@ export interface Sorting {
 
 export interface LemonTableColumn<T extends Record<string, any>, D extends keyof T> {
     title?: string | React.ReactNode
-    key?: keyof T
+    key?: string
     dataIndex?: D
     render?: (dataValue: T[D] | undefined, record: T) => React.ReactNode | string | boolean | null | undefined
     sorter?: (a: T, b: T) => number
@@ -198,7 +198,7 @@ export function LemonTable<T extends Record<string, any>>({
                             {dataSource.length ? (
                                 currentFrame.map((data, rowIndex) => (
                                     <tr
-                                        key={`LemonTable-row-${rowKey ? data[rowKey] : currentStartIndex + rowIndex}`}
+                                        key={`LemonTable-td-${rowKey ? data[rowKey] : currentStartIndex + rowIndex}`}
                                         data-row-key={rowKey ? data[rowKey] : rowIndex}
                                         {...onRow?.(data)}
                                         className={rowClassName}
@@ -208,13 +208,9 @@ export function LemonTable<T extends Record<string, any>>({
                                             const contents = column.render ? column.render(value, data) : value
                                             return (
                                                 <td
-                                                    key={
-                                                        column.key
-                                                            ? data[column.key]
-                                                            : column.dataIndex
-                                                            ? data[column.dataIndex]
-                                                            : columnIndex
-                                                    }
+                                                    key={`LemonTable-td-${
+                                                        column.key || column.dataIndex?.toString() || columnIndex
+                                                    }`}
                                                     className={column.className}
                                                     style={{ textAlign: column.align }}
                                                 >

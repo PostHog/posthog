@@ -33,20 +33,6 @@ describe('Person Visualization Check', () => {
     })
 })
 
-describe('Person Show All Distinct Checks', () => {
-    beforeEach(() => {
-        cy.clickNavMenu('persons')
-        cy.get('.ant-spin-spinning').should('not.exist') // Wait until initial table load
-    })
-
-    it('Should have no Show All Distinct Id Button', () => {
-        cy.get('[data-attr=persons-search]').type('fernand{enter}')
-        cy.get('.ant-radio-button-wrapper').contains('All persons').click()
-        cy.contains('deborah.fernandez@gmail.com').click()
-        cy.get('[data-cy="show-more-distinct-id"]').should('not.exist')
-    })
-})
-
 describe('Merge person', () => {
     beforeEach(() => {
         cy.clickNavMenu('persons')
