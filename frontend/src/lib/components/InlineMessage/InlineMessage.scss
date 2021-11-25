@@ -9,7 +9,7 @@
     align-items: center;
     color: $primary_alt;
 
-    &.error {
+    &.danger {
         background-color: rgba($danger, 0.09);
         color: $danger;
     }
