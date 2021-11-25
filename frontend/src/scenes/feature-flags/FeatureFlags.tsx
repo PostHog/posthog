@@ -6,7 +6,6 @@ import { Link } from 'lib/components/Link'
 import { copyToClipboard, deleteWithUndo } from 'lib/utils'
 import { PlusOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
-import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { FeatureFlagGroupType, FeatureFlagType } from '~/types'
 import { LinkButton } from 'lib/components/LinkButton'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
@@ -20,6 +19,7 @@ import { LemonSwitch } from '../../lib/components/LemonSwitch/LemonSwitch'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '../../lib/components/LemonTable/LemonTable'
 import { More } from '../../lib/components/LemonButton/More'
 import { createdAtColumn, createdByColumn } from '../../lib/components/LemonTable/columnUtils'
+import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -37,7 +37,7 @@ export function FeatureFlags(): JSX.Element {
             dataIndex: 'key',
             className: 'ph-no-capture',
             sticky: true,
-            width: '15%',
+            width: '40%',
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => (a.key || '').localeCompare(b.key || ''),
             render: function Render(_, featureFlag: FeatureFlagType) {
                 return (
@@ -53,21 +53,16 @@ export function FeatureFlags(): JSX.Element {
         createdByColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType>,
         createdAtColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType>,
         {
-            title: 'Release conditions',
+            title: 'Rollout',
+            width: 200,
             render: function Render(_, featureFlag: FeatureFlagType) {
-                if (!featureFlag.filters?.groups) {
-                    return 'N/A'
-                }
-                if (featureFlag.filters.groups.length > 1) {
-                    return 'Multiple groups'
-                }
-                return GroupFilters({ group: featureFlag.filters.groups[0] })
+                return groupFilters(featureFlag.filters.groups)
             },
         },
         {
             title: 'Status',
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => Number(a.active) - Number(b.active),
-            width: 90,
+            width: 100,
             render: function RenderActive(_, featureFlag: FeatureFlagType) {
                 const switchId = `feature-flag-${featureFlag.id}-switch`
                 return (
@@ -151,6 +146,7 @@ export function FeatureFlags(): JSX.Element {
             />
             <div>
                 <Input.Search
+                    placeholder="Search for feature flags"
                     allowClear
                     enterButton
                     style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
@@ -183,19 +179,34 @@ export function FeatureFlags(): JSX.Element {
     )
 }
 
-function GroupFilters({ group }: { group: FeatureFlagGroupType }): JSX.Element | string {
-    if (group.properties && group.properties.length > 0 && group.rollout_percentage != null) {
-        return (
-            <div style={{ display: 'flex', alignItems: 'center' }}>
-                <span style={{ flexShrink: 0, marginRight: 5 }}>{group.rollout_percentage}% of</span>
-                <PropertyFiltersDisplay filters={group.properties} style={{ margin: 0, width: '100%' }} greyBadges />
-            </div>
-        )
-    } else if (group.properties && group.properties.length > 0) {
-        return <PropertyFiltersDisplay filters={group.properties} style={{ margin: 0 }} greyBadges />
-    } else if (group.rollout_percentage !== null && group.rollout_percentage !== undefined) {
-        return `${group.rollout_percentage}% of all users`
-    } else {
-        return '100% of all users'
+function groupFilters(groups: FeatureFlagGroupType[]): JSX.Element | string {
+    if (groups.length === 0 || !groups.some((group) => group.rollout_percentage !== 0)) {
+        // There are no rollout groups or all are at 0%
+        return 'No users'
     }
+    if (
+        groups.some((group) => !group.properties?.length && [null, undefined, 100].includes(group.rollout_percentage))
+    ) {
+        // There's some group without filters that has 100% rollout
+        return 'All users'
+    }
+    if (groups.length === 1) {
+        const { properties, rollout_percentage = null } = groups[0]
+        if (properties?.length > 0 && rollout_percentage != null) {
+            return (
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <span style={{ flexShrink: 0, marginRight: 5 }}>{rollout_percentage}% of</span>
+                    <PropertyFiltersDisplay filters={properties} style={{ margin: 0, width: '100%' }} greyBadges />
+                </div>
+            )
+        } else if (properties?.length > 0) {
+            return <PropertyFiltersDisplay filters={properties} style={{ margin: 0 }} greyBadges />
+        } else if (rollout_percentage !== null) {
+            return `${rollout_percentage}% of all users`
+        } else {
+            console.error('A group with full rollout was not detected early')
+            return 'All users'
+        }
+    }
+    return `${groups.length} groups`
 }

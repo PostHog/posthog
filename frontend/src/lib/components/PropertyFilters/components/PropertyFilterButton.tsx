@@ -5,6 +5,7 @@ import React from 'react'
 import { cohortsModel } from '~/models/cohortsModel'
 import { AnyPropertyFilter } from '~/types'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
+import clsx from 'clsx'
 
 export interface Props {
     item: AnyPropertyFilter
@@ -31,10 +32,10 @@ export function FilterButton({ greyBadges, onClick, setRef, children }: FilterRo
         <Button
             type="primary"
             shape="round"
-            style={{ maxWidth: '75%' }}
+            style={{ overflow: 'hidden' }}
             onClick={onClick}
             ref={setRef}
-            className={greyBadges ? 'property-filter-grey' : undefined}
+            className={clsx('property-filter', greyBadges && 'property-filter-grey')}
         >
             <span
                 className="ph-no-capture property-filter-button-label"
