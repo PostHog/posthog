@@ -28,7 +28,7 @@ import {
     AccessLevelIndicator,
     NewOrganizationButton,
     OtherOrganizationButton,
-} from '~/layout/Navigation/OrganizationSwitcher'
+} from '~/layout/navigation/OrganizationSwitcher'
 import { dayjs } from 'lib/dayjs'
 
 function SitePopoverSection({ title, children }: { title?: string; children: any }): JSX.Element {

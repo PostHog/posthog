@@ -13,7 +13,7 @@ import { models } from '~/models'
 import { teamLogic } from './teamLogic'
 import { LoadedScene } from 'scenes/sceneTypes'
 import { appScenes } from 'scenes/appScenes'
-import { Navigation } from '~/layout/Navigation/Navigation'
+import { Navigation } from '~/layout/navigation/Navigation'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],

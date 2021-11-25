@@ -4,7 +4,7 @@ import { Link } from 'lib/components/Link'
 import React, { useState } from 'react'
 import { sceneConfigurations } from 'scenes/scenes'
 import { PushpinOutlined } from '@ant-design/icons'
-import { ProjectSwitcherOverlay } from '~/layout/Navigation/ProjectSwitcher'
+import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import {
     IconArrowDropDown,
     IconBarChart,
@@ -23,17 +23,17 @@ import {
 import { LemonButton, LemonButtonProps, LemonButtonWithSideAction, SideAction } from 'lib/components/LemonButton'
 import { LemonSpacer } from 'lib/components/LemonRow'
 import { Lettermark } from 'lib/components/Lettermark/Lettermark'
-import { dashboardsModel } from '../../../models/dashboardsModel'
-import { organizationLogic } from '../../../scenes/organizationLogic'
-import { canViewPlugins } from '../../../scenes/plugins/access'
-import { sceneLogic } from '../../../scenes/sceneLogic'
-import { Scene } from '../../../scenes/sceneTypes'
-import { teamLogic } from '../../../scenes/teamLogic'
-import { urls } from '../../../scenes/urls'
-import { InsightType } from '../../../types'
-import { ToolbarModal } from '../../ToolbarModal/ToolbarModal'
-import { navigationLogic } from '../navigationLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { organizationLogic } from '~/scenes/organizationLogic'
+import { canViewPlugins } from '~/scenes/plugins/access'
+import { sceneLogic } from '~/scenes/sceneLogic'
+import { Scene } from '~/scenes/sceneTypes'
+import { teamLogic } from '~/scenes/teamLogic'
+import { urls } from '~/scenes/urls'
+import { InsightType } from '~/types'
 import './SideBar.scss'
+import { navigationLogic } from '../navigationLogic'
+import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 
 function ProjectSwitcherInternal(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)

@@ -47,7 +47,7 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
     },
     reducers: {
         isSideBarShownRaw: [
-            window.innerWidth >= 992, // Sync width threshold with Sass variable $lg!
+            window.innerWidth >= 992,
             {
                 toggleSideBar: (state) => !state,
                 hideSideBar: () => false,
