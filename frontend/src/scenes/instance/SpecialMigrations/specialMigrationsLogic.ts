@@ -26,23 +26,23 @@ export const specialMigrationsLogic = kea<specialMigrationsLogicType>({
         ],
     }),
 
-    listeners: () => ({
+    listeners: ({ actions }) => ({
         triggerMigration: async ({ migrationId }) => {
             const res = await api.create(`/api/special_migration/${migrationId}/trigger`)
-            const resJson = await res.json()
-            if (resJson.success) {
+            if (res.success) {
                 successToast('Migration triggered successfully')
+                actions.loadSpecialMigrations()
             } else {
-                successToast('Failed to trigger migration', resJson.error)
+                successToast('Failed to trigger migration', res.error)
             }
         },
         forceStopMigration: async ({ migrationId }) => {
             const res = await api.create(`/api/special_migration/${migrationId}/force_stop`)
-            const resJson = await res.json()
-            if (resJson.success) {
+            if (res.success) {
                 successToast('Force stop triggered successfully')
+                actions.loadSpecialMigrations()
             } else {
-                successToast('Failed to trigger force stop', resJson.error)
+                successToast('Failed to trigger force stop', res.error)
             }
         },
     }),
