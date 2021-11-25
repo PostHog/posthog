@@ -136,7 +136,7 @@ export function FunnelStepTable(): JSX.Element | null {
                             )}
                             hasMultipleSeries={steps.length > 1}
                             breakdownValue={breakdown.breakdown_value}
-                            hideBreakdown
+                            hideBreakdown={false}
                             iconSize={IconSize.Small}
                             iconStyle={{ marginRight: 12 }}
                             allowWrap
