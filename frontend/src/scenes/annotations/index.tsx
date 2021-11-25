@@ -60,7 +60,7 @@ export function Annotations(): JSX.Element {
             },
             sorter: (a, b) => dayjs(a.date_marker).diff(b.date_marker),
         },
-        createdByColumn() as LemonTableColumn<AnnotationType, keyof AnnotationType>,
+        createdByColumn() as LemonTableColumn<AnnotationType, keyof AnnotationType | undefined>,
         {
             title: 'Last updated',
             render: function RenderLastUpdated(_, annotation: AnnotationType): JSX.Element {
