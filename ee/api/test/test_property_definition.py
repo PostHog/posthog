@@ -80,6 +80,11 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 0)
 
+        response = self.client.get(f"/api/projects/@current/property_definitions/?search=")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 2)
+
     def test_update_property_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
