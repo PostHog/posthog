@@ -46,6 +46,7 @@ def run_special_migration_next_op(migration_name, migration_instance=None):
     if migration_instance.current_operation_index > len(migration_definition.operations) - 1:
         migration_instance.status = MigrationStatus.CompletedSuccessfully
         migration_instance.finished_at = datetime.now()
+        migration_instance.progress = 100
         migration_instance.save()
         return True
 
