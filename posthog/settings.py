@@ -119,8 +119,6 @@ default_flag_persistence = [
     # Add hard-coded feature flags for static self-hosted releases here
     "3638-trailing-wau-mau",  # pending UI/UX improvements; functionality ready
     "5440-multivariate-support",
-    "4141-event-columns",
-    "new-paths-ui",
     "new-paths-ui-edge-weights",
 ]
 
