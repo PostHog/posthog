@@ -24,7 +24,6 @@ import {
 } from '@ant-design/icons'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -141,7 +140,6 @@ export function ActionFilterRow({
         duplicateFilter,
     } = useActions(logic)
     const { numericalPropertyNames } = useValues(propertyDefinitionsModel)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { mathDefinitions } = useValues(mathsLogic)
 
     const visible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
@@ -238,11 +236,7 @@ export function ActionFilterRow({
                     }}
                 >
                     <span className="text-overflow" style={{ maxWidth: '100%' }}>
-                        {featureFlags[FEATURE_FLAGS.RENAME_FILTERS] ? (
-                            <EntityFilterInfo filter={filter} />
-                        ) : (
-                            <PropertyKeyInfo value={name || 'Select action'} disablePopover />
-                        )}
+                        <EntityFilterInfo filter={filter} />
                     </span>
                     <DownOutlined style={{ fontSize: 10 }} />
                 </Button>
@@ -398,9 +392,7 @@ export function ActionFilterRow({
                             </>
                         )}
                         {(horizontalUI || fullWidth) && !hideFilter && <Col>{propertyFiltersButton}</Col>}
-                        {featureFlags[FEATURE_FLAGS.RENAME_FILTERS] && (horizontalUI || fullWidth) && !hideRename && (
-                            <Col>{renameRowButton}</Col>
-                        )}
+                        {(horizontalUI || fullWidth) && !hideRename && <Col>{renameRowButton}</Col>}
                         {(horizontalUI || fullWidth) && !hideFilter && <Col>{duplicateRowButton}</Col>}
                         {!hideDeleteBtn && !horizontalUI && !singleFilter && (
                             <Col className="column-delete-btn">{deleteButton}</Col>

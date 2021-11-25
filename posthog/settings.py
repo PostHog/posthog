@@ -120,7 +120,6 @@ if env_feature_flags != "0" and env_feature_flags.lower() != "false" and not DEB
         # Add hard-coded feature flags for static releases here
         "3638-trailing-wau-mau",  # pending UI/UX improvements; functionality ready
         "5440-multivariate-support",
-        "6063-rename-filters",
         "4141-event-columns",
         "new-paths-ui",
         "new-paths-ui-edge-weights",
@@ -740,7 +739,7 @@ SKIP_SERVICE_VERSION_REQUIREMENTS = get_from_env(
 )
 
 if SKIP_SERVICE_VERSION_REQUIREMENTS:
-    print_warning("Skipping service version requirements. This is dangerous and PostHog might not work as expected!")
+    print_warning(["Skipping service version requirements. This is dangerous and PostHog might not work as expected!"])
 
 SERVICE_VERSION_REQUIREMENTS = [
     ServiceVersionRequirement(service="postgresql", supported_version=">=11.0.0,<=14.1.0",),

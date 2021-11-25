@@ -14,21 +14,6 @@ describe('<Person /> ', () => {
         helpers.setLocation('/persons')
     })
 
-    it('person type tabs', () => {
-        mount()
-        cy.contains('Persons').should('be.visible')
-        cy.wait('@api_persons').map(helpers.getSearchParameters).should('be.empty')
-        cy.get('[data-attr="people-types-tab-identified"]').click({ force: true })
-        cy.wait('@api_persons').map(helpers.getSearchParameters).should('include', {
-            is_identified: 'true',
-        })
-
-        cy.get('[data-attr="people-types-tab-anonymous"]').click({ force: true })
-        cy.wait('@api_persons').map(helpers.getSearchParameters).should('include', {
-            is_identified: 'false',
-        })
-    })
-
     it('person search', () => {
         mount()
 

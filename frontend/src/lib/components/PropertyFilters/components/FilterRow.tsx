@@ -11,6 +11,7 @@ import { PlusCircleOutlined } from '@ant-design/icons'
 import '../../../../scenes/actions/Actions.scss' // TODO: we should decouple this styling from this component sooner than later
 import './FilterRow.scss'
 import { Placement } from '@popperjs/core'
+import { ButtonType } from 'antd/lib/button'
 
 interface FilterRowProps {
     item: Record<string, any>
@@ -26,6 +27,7 @@ interface FilterRowProps {
     filterComponent: (onComplete: () => void) => JSX.Element
     label: string
     onRemove: (index: number) => void
+    addButtonType?: ButtonType
 }
 
 export const FilterRow = React.memo(function FilterRow({
@@ -41,6 +43,7 @@ export const FilterRow = React.memo(function FilterRow({
     filterComponent,
     label,
     onRemove,
+    addButtonType = 'link',
 }: FilterRowProps) {
     const [open, setOpen] = useState(false)
 
@@ -114,8 +117,8 @@ export const FilterRow = React.memo(function FilterRow({
                                             onClick={() => setOpen(!open)}
                                             className="new-prop-filter"
                                             data-attr={'new-prop-filter-' + pageKey}
-                                            type="link"
-                                            style={{ paddingLeft: 0 }}
+                                            type={addButtonType}
+                                            style={addButtonType === 'link' ? { paddingLeft: 0 } : undefined}
                                             icon={<PlusCircleOutlined />}
                                         >
                                             {label}

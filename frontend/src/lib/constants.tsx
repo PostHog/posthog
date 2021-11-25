@@ -76,7 +76,6 @@ export const FEATURE_FLAGS = {
     NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights', // owner: @neilkakkar
     REMOVE_SESSIONS: '6050-remove-sessions', // owner: @rcmarron
     FUNNEL_VERTICAL_BREAKDOWN: '5733-funnel-vertical-breakdown', // owner: @alexkim205
-    RENAME_FILTERS: '6063-rename-filters', // owner: @alexkim205
     SIGMA_ANALYSIS: 'sigma-analysis', // owner: @neilkakkar
     NEW_SESSIONS_PLAYER: 'new-sessions-player', // owner: @rcmarron
     NEW_SESSIONS_PLAYER_EVENTS_LIST: 'new-sessions-player-events-list', // owner: @rcmarron / @alexkim205
@@ -85,6 +84,7 @@ export const FEATURE_FLAGS = {
     SESSION_INSIGHT_REMOVAL: 'session-insight-removal', // owner: @paolodamico
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @paolodamico
     FUNNELS_CUE_ENABLED: 'funnels-cue-enabled', // owner: @paolodamico
+    FUNNEL_SIMPLE_MODE: 'funnel-simple-mode', // owner: @paolodamico
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
