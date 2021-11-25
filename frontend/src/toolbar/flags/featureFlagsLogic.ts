@@ -4,7 +4,9 @@ import { featureFlagsLogicType } from './featureFlagsLogicType'
 import { toolbarFetch } from '~/toolbar/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import Fuse from 'fuse.js'
+import { PostHog } from 'posthog-js'
 import { posthog } from '~/toolbar/posthog'
+import { encodeParams } from 'kea-router'
 
 export const featureFlagsLogic = kea<featureFlagsLogicType>({
     path: ['toolbar', 'flags', 'featureFlagsLogic'],
@@ -21,7 +23,12 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             [] as CombinedFeatureFlagAndOverrideType[],
             {
                 getUserFlags: async (_, breakpoint) => {
-                    const response = await toolbarFetch('/api/projects/@current/feature_flags/my_flags')
+                    const params = {
+                        groups: getGroups(toolbarLogic.values.posthog),
+                    }
+                    const response = await toolbarFetch(
+                        `/api/projects/@current/feature_flags/my_flags${encodeParams(params, '?')}`
+                    )
 
                     if (response.status >= 400) {
                         toolbarLogic.actions.tokenExpired()
@@ -136,3 +143,11 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         },
     }),
 })
+
+function getGroups(posthogInstance: PostHog | null): Record<string, any> {
+    try {
+        return posthogInstance?.getGroups() || {}
+    } catch {
+        return {}
+    }
+}

@@ -1,4 +1,5 @@
-from typing import Any, Dict, Optional, Union, cast
+import json
+from typing import Any, Dict, Optional, cast
 
 import posthoganalytics
 from django.db.models import Prefetch, QuerySet
@@ -128,11 +129,11 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
             queryset = queryset.filter(deleted=False)
         return queryset.order_by("-created_at")
 
-    # :TODO: Add groups support to this endpoint
     @action(methods=["GET"], detail=False)
     def my_flags(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
+
         feature_flags = (
             FeatureFlag.objects.filter(team=self.team, active=True, deleted=False)
             .prefetch_related(
@@ -144,6 +145,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
             )
             .order_by("-created_at")
         )
+        groups = json.loads(request.GET.get("groups", "{}"))
         flags = []
         for feature_flag in feature_flags:
             my_overrides = feature_flag.my_overrides  # type: ignore
@@ -151,7 +153,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
             if len(my_overrides) > 0:
                 override = my_overrides[0]
 
-            match = feature_flag.matches(request.user.distinct_id)
+            match = feature_flag.matches(request.user.distinct_id, groups)
             value_for_user_without_override = (match.variant or True) if match else False
 
             flags.append(
