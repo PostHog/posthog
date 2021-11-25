@@ -2,24 +2,22 @@ import React from 'react'
 import { useValues, useActions, BindLogic } from 'kea'
 import { PersonsTable } from './PersonsTable'
 import { Button, Row } from 'antd'
-import { ExportOutlined } from '@ant-design/icons'
+import { ExportOutlined, ClockCircleFilled } from '@ant-design/icons'
 import { PersonLogicProps, personsLogic } from './personsLogic'
 import { CohortType } from '~/types'
-import { LinkButton } from 'lib/components/LinkButton'
-import { ClockCircleFilled } from '@ant-design/icons'
-import { toParams } from 'lib/utils'
 import { PersonsSearch } from './PersonsSearch'
 import { SceneExport } from 'scenes/sceneTypes'
 import { PersonPageHeader } from './PersonPageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { LinkButton } from 'lib/components/LinkButton'
+import { toParams } from 'lib/utils'
 
 export const scene: SceneExport = {
     component: Persons,
     logic: personsLogic,
     paramsToProps: () => ({ syncWithUrl: true }),
 }
-
 interface PersonsProps {
     cohort?: CohortType
 }
@@ -33,9 +31,27 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
         <BindLogic logic={personsLogic} props={personsLogicProps}>
             <div className="persons-list">
                 <PersonPageHeader hideGroupTabs={!!cohort} />
-                <Row style={{ gap: '0.75rem' }} className="mb">
-                    <div style={{ flexGrow: 1, maxWidth: 600 }}>
-                        <PersonsSearch autoFocus={!cohort} />
+                <Row gutter={12} align="middle" justify="space-between" className="mb">
+                    <PersonsSearch autoFocus={!cohort} />
+                    <div>
+                        {cohort ? (
+                            <LinkButton
+                                to={`/sessions?${toParams({
+                                    properties: [{ key: 'id', value: cohort.id, type: 'cohort' }],
+                                })}`}
+                                target="_blank"
+                            >
+                                <ClockCircleFilled /> View sessions
+                            </LinkButton>
+                        ) : null}
+                        <Button
+                            type="default"
+                            icon={<ExportOutlined />}
+                            href={'/api/person.csv' + (listFilters.cohort ? '?cohort=' + listFilters.cohort : '')}
+                            style={{ marginLeft: 8 }}
+                        >
+                            Export
+                        </Button>
                     </div>
                 </Row>
                 <PropertyFilters
@@ -49,38 +65,14 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
                     taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
                     showConditionBadge
                 />
-                <div className="mb text-right">
-                    {cohort ? (
-                        <LinkButton
-                            to={`/sessions?${toParams({
-                                properties: [{ key: 'id', value: cohort.id, type: 'cohort' }],
-                            })}`}
-                            target="_blank"
-                        >
-                            <ClockCircleFilled /> View sessions
-                        </LinkButton>
-                    ) : null}
-                    <Button
-                        type="default"
-                        icon={<ExportOutlined />}
-                        href={'/api/person.csv' + (listFilters.cohort ? '?cohort=' + listFilters.cohort : '')}
-                        style={{ marginLeft: 8 }}
-                    >
-                        Export
-                    </Button>
-                </div>
-
-                <div>
-                    <PersonsTable
-                        people={persons.results}
-                        loading={personsLoading}
-                        hasPrevious={!!persons.previous}
-                        hasNext={!!persons.next}
-                        loadPrevious={() => loadPersons(persons.previous)}
-                        loadNext={() => loadPersons(persons.next)}
-                        allColumns
-                    />
-                </div>
+                <PersonsTable
+                    people={persons.results}
+                    loading={personsLoading}
+                    hasPrevious={!!persons.previous}
+                    hasNext={!!persons.next}
+                    loadPrevious={() => loadPersons(persons.previous)}
+                    loadNext={() => loadPersons(persons.next)}
+                />
             </div>
         </BindLogic>
     )

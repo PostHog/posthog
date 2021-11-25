@@ -172,9 +172,9 @@ function Pages(): JSX.Element {
                 to={urls.savedInsights()}
                 sideAction={{
                     icon: <IconPlus />,
-                    to: urls.newInsight(InsightType.TRENDS),
+                    to: urls.insightNew({ insight: InsightType.TRENDS }),
                     tooltip: 'New insight',
-                    identifier: Scene.Insights,
+                    identifier: Scene.Insight,
                 }}
             />
             <PageButton icon={<IconRecording />} identifier={Scene.SessionRecordings} to={urls.sessionRecordings()} />

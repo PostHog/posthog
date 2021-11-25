@@ -1,13 +1,12 @@
-import './Insights.scss'
+import './Insight.scss'
 import React from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 import { Row, Col, Card, Button, Popconfirm, Alert } from 'antd'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { router } from 'kea-router'
 import { FunnelTab, PathTab, RetentionTab, SessionTab, TrendTab } from './InsightTabs'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
-import { HotKeys, ItemMode, InsightType } from '~/types'
+import { HotKeys, ItemMode, InsightType, InsightShortId } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
@@ -27,18 +26,15 @@ import posthog from 'posthog-js'
 import { helpButtonLogic } from 'lib/components/HelpButton/HelpButton'
 
 export const scene: SceneExport = {
-    component: Insights,
+    component: Insight,
     logic: insightLogic,
-    paramsToProps: ({ hashParams: { fromItem } }) => ({ dashboardItemId: fromItem, syncWithUrl: true }),
+    paramsToProps: ({ params: { shortId } }) => ({ dashboardItemId: shortId, syncWithUrl: true }),
 }
 
-export function Insights(): JSX.Element {
+export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Element {
     useMountedLogic(insightCommandLogic)
-    const {
-        hashParams: { fromItem },
-    } = useValues(router)
 
-    const logic = insightLogic({ dashboardItemId: fromItem, syncWithUrl: true })
+    const logic = insightLogic({ dashboardItemId: shortId, syncWithUrl: true })
     const {
         insightProps,
         activeView,
@@ -153,8 +149,7 @@ export function Insights(): JSX.Element {
                                 </Button>
                             </Popconfirm>
                         ) : null}
-                        {insight.id && <SaveToDashboard insight={insight} />}
-
+                        {insight.short_id && <SaveToDashboard insight={insight} />}
                         {insightMode === ItemMode.View ? (
                             <HotkeyButton
                                 type="primary"

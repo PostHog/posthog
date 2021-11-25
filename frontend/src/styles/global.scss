@@ -114,12 +114,7 @@ body strong {
 .page-caption {
     @extend .text-default;
     max-width: 640px;
-    &.tabbed {
-        margin-bottom: 16px;
-    }
-    &:not(.tabbed) {
-        margin-bottom: 32px;
-    }
+    margin-bottom: 16px;
 }
 
 .subtitle-row {
@@ -704,12 +699,10 @@ code.code {
 
 .simple-tag {
     border-radius: $radius;
-    font-weight: bold;
     padding: 2px 6px;
 
-    &.tag-light-lilac {
-        background-color: $hc_light_lilac;
-        color: $hc_navy;
+    &.tag-light-blue {
+        background-color: $blue_100;
     }
 }
 
@@ -767,8 +760,8 @@ code.code {
     }
 }
 
-// AntD overrrides, placed inside #root to increase specifity (nicely avoiding the need for !important)
-#root {
+// AntD overrrides, placed inside `body` to increase specifity (nicely avoiding the need for !important)
+body {
     // AntD uses its own border color for the bottom of tab lists, but we want to use `var(--border)`
     .ant-tabs-top,
     .ant-tabs-bottom {
@@ -778,5 +771,11 @@ code.code {
                 border-bottom-color: var(--border);
             }
         }
+    }
+    .ant-dropdown {
+        border-radius: var(--radius);
+    }
+    .ant-dropdown-menu {
+        border-radius: var(--radius);
     }
 }

@@ -16,7 +16,6 @@ import { InsightsTable } from 'scenes/insights/InsightsTable'
 import React from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { annotationsLogic } from 'lib/components/Annotations'
-import { router } from 'kea-router'
 import {
     FunnelInvalidExclusionState,
     FunnelSingleStepState,
@@ -46,11 +45,7 @@ export function InsightContainer(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const {
-        hashParams: { fromItem },
-    } = useValues(router)
-    const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
-    const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
-    const {
+        insight,
         insightProps,
         lastRefresh,
         isLoading,
@@ -65,6 +60,8 @@ export function InsightContainer(): JSX.Element {
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
         funnelLogic(insightProps)
     )
+    const { clearAnnotationsToCreate } = useActions(annotationsLogic({ insightId: insight.id }))
+    const { annotationsToCreate } = useValues(annotationsLogic({ insightId: insight.id }))
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {

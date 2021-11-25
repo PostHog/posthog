@@ -1,32 +1,18 @@
-import { Col, Dropdown, Input, Menu, Radio, Row, Select, Table, Tabs } from 'antd'
+import { Col, Dropdown, Input, Menu, Radio, Row, Select, Tabs } from 'antd'
 import { router } from 'kea-router'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { deleteWithUndo } from 'lib/utils'
 import React from 'react'
-import { DashboardItemType, LayoutView, SavedInsightsTabs, InsightType } from '~/types'
+import { DashboardItemType, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
-import {
-    AppstoreFilled,
-    ArrowDownOutlined,
-    ArrowUpOutlined,
-    EllipsisOutlined,
-    LeftOutlined,
-    MenuOutlined,
-    RightOutlined,
-    StarFilled,
-    StarOutlined,
-    PlusOutlined,
-    UnorderedListOutlined,
-} from '@ant-design/icons'
+import { AppstoreFilled, StarFilled, StarOutlined, PlusOutlined, UnorderedListOutlined } from '@ant-design/icons'
 import './SavedInsights.scss'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { DashboardItem, displayMap, getDisplayedType } from 'scenes/dashboard/DashboardItem'
+import { DashboardItem } from 'scenes/dashboard/DashboardItem'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
-import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-
 import { PageHeader } from 'lib/components/PageHeader'
 import { SavedInsightsEmptyState, UNNAMED_INSIGHT_NAME } from 'scenes/insights/EmptyStates'
 import { teamLogic } from '../teamLogic'
@@ -42,11 +28,14 @@ import {
 } from 'lib/components/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { TZLabel } from 'lib/components/TimezoneAware'
-import { ColumnsType } from 'antd/lib/table'
-import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { urls } from 'scenes/urls'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dayjs } from 'lib/dayjs'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
+import { LemonSpacer } from 'lib/components/LemonRow'
+import { More } from 'lib/components/LemonButton/More'
+import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
+import { LemonButton } from 'lib/components/LemonButton'
 
 const { TabPane } = Tabs
 
@@ -115,22 +104,6 @@ export const scene: SceneExport = {
     logic: savedInsightsLogic,
 }
 
-export const columnSort = (direction: 'up' | 'down' | 'none'): JSX.Element => (
-    <div
-        style={{
-            fontSize: 10,
-            paddingLeft: 8,
-            whiteSpace: 'nowrap',
-            width: 20,
-            display: 'flex',
-            justifyContent: 'center',
-        }}
-    >
-        {direction === 'down' ? <ArrowDownOutlined /> : direction === 'up' ? <ArrowUpOutlined /> : null}
-        <MenuOutlined />
-    </div>
-)
-
 function NewInsightButton(): JSX.Element {
     const menu = (
         <Menu
@@ -148,7 +121,7 @@ function NewInsightButton(): JSX.Element {
                             key={listedInsightType.type}
                             onClick={() => {
                                 eventUsageLogic.actions.reportSavedInsightNewInsightClicked(listedInsightType.type)
-                                router.actions.push(urls.newInsight(listedInsightType.type))
+                                router.actions.push(urls.insightNew({ insight: listedInsightType.type }))
                             }}
                             data-attr="saved-insights-create-new-insight"
                             data-attr-insight-type={listedInsightType.type}
@@ -181,7 +154,7 @@ function NewInsightButton(): JSX.Element {
             style={{ marginLeft: 8 }}
             type="primary"
             onClick={() => {
-                router.actions.push(urls.newInsight(InsightType.TRENDS))
+                router.actions.push(urls.insightNew({ insight: InsightType.TRENDS }))
             }}
             overlay={menu}
             icon={<IconArrowDropDown style={{ fontSize: 25 }} data-attr="saved-insights-new-insight-dropdown" />}
@@ -195,26 +168,25 @@ function NewInsightButton(): JSX.Element {
 export function SavedInsights(): JSX.Element {
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
         useActions(savedInsightsLogic)
-    const { insights, count, insightsLoading, filters } = useValues(savedInsightsLogic)
+    const { insights, count, insightsLoading, filters, sorting } = useValues(savedInsightsLogic)
 
     const { hasDashboardCollaboration } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { members } = useValues(membersLogic)
 
-    const { tab, order, createdBy, layoutView, search, insightType, dateFrom, dateTo, page } = filters
+    const { tab, createdBy, layoutView, search, insightType, dateFrom, dateTo, page } = filters
 
     const startCount = (page - 1) * INSIGHTS_PER_PAGE + 1
     const endCount = page * INSIGHTS_PER_PAGE < count ? page * INSIGHTS_PER_PAGE : count
 
-    const columns: ColumnsType<DashboardItemType> = [
+    const columns: LemonTableColumns<DashboardItemType> = [
         {
-            title: '',
-            dataIndex: 'id',
             key: 'id',
             className: 'icon-column',
+            width: 0,
             render: function renderType(_, insight) {
-                const selectedType = insight.filters?.insight || InsightType.TRENDS
-                const type = insightTypes.find(({ type: _type }) => _type === selectedType)
+                const rawType = insight.filters?.insight || InsightType.TRENDS
+                const type = insightTypes.find(({ type: iterationType }) => iterationType === rawType)
                 if (type && type.icon) {
                     return (
                         <span style={{ fontSize: '2rem' }}>
@@ -229,19 +201,15 @@ export function SavedInsights(): JSX.Element {
             dataIndex: 'name',
             key: 'name',
             render: function renderName(name: string, insight) {
-                const link = displayMap[getDisplayedType(insight.filters)].link(insight)
-
                 return (
                     <Col>
                         <Row wrap={false}>
-                            <Link to={link} style={{ marginRight: 12 }}>
-                                <strong>{name || <i>{UNNAMED_INSIGHT_NAME}</i>}</strong>
+                            <Link to={urls.insightView(insight.short_id, insight.filters)}>
+                                <h4 className="row-name">{name || <i>{UNNAMED_INSIGHT_NAME}</i>}</h4>
                             </Link>
                             <div
-                                style={{ cursor: 'pointer', width: 'fit-content' }}
-                                onClick={() =>
-                                    updateFavoritedInsight({ id: insight.id, favorited: !insight.favorited })
-                                }
+                                style={{ cursor: 'pointer', width: 'fit-content', marginLeft: 8 }}
+                                onClick={() => updateFavoritedInsight(insight, !insight.favorited)}
                             >
                                 {insight.favorited ? (
                                     <StarFilled className="text-warning" />
@@ -250,121 +218,86 @@ export function SavedInsights(): JSX.Element {
                                 )}
                             </div>
                         </Row>
-                        {hasDashboardCollaboration && (
-                            <div className="text-muted-alt">
-                                {insight.description || <i>No description provided</i>}
-                            </div>
+                        {hasDashboardCollaboration && insight.description && (
+                            <span className="row-description">{insight.description}</span>
                         )}
                     </Col>
                 )
             },
         },
-        hasDashboardCollaboration
-            ? {
-                  title: 'Tags',
-                  dataIndex: 'tags',
-                  key: 'tags',
-                  render: function renderTags(tags: string[]) {
-                      return <ObjectTags tags={tags} staticOnly />
+        ...(hasDashboardCollaboration
+            ? [
+                  {
+                      title: 'Tags',
+                      dataIndex: 'tags' as keyof DashboardItemType,
+                      key: 'tags',
+                      render: function renderTags(tags: string[]) {
+                          return <ObjectTags tags={tags} staticOnly />
+                      },
                   },
-              }
-            : {},
+              ]
+            : []),
+        ...(tab === SavedInsightsTabs.Yours
+            ? []
+            : [createdByColumn() as LemonTableColumn<DashboardItemType, keyof DashboardItemType | undefined>]),
+        createdAtColumn() as LemonTableColumn<DashboardItemType, keyof DashboardItemType | undefined>,
         {
-            title: (
-                <div
-                    className="order-by"
-                    onClick={() =>
-                        setSavedInsightsFilters({ order: order === '-updated_at' ? 'updated_at' : '-updated_at' })
-                    }
-                >
-                    Last modified{' '}
-                    {columnSort(order === '-updated_at' ? 'down' : order === 'updated_at' ? 'up' : 'none')}
-                </div>
-            ),
+            title: 'Last modified',
+            sorter: true,
             dataIndex: 'updated_at',
-            key: 'updated_at',
             render: function renderLastModified(updated_at: string) {
                 return <div style={{ whiteSpace: 'nowrap' }}>{updated_at && <TZLabel time={updated_at} />}</div>
             },
         },
-        tab === SavedInsightsTabs.Yours
-            ? {}
-            : {
-                  title: (
-                      <div
-                          className="order-by"
-                          onClick={() =>
-                              setSavedInsightsFilters({ order: order === 'created_by' ? '-created_by' : 'created_by' })
-                          }
-                      >
-                          {normalizeColumnTitle('Created by')}{' '}
-                          {columnSort(order === '-created_by' ? 'up' : order === 'created_by' ? 'down' : 'none')}
-                      </div>
-                  ),
-                  render: function Render(_: any, item) {
-                      return item.created_by ? (
-                          <Row align="middle" wrap={false}>
-                              <ProfilePicture
-                                  name={item.created_by.first_name}
-                                  email={item.created_by.email}
-                                  size="md"
-                              />
-                              <div style={{ verticalAlign: 'middle', marginLeft: 8 }}>
-                                  {item.created_by.first_name || item.created_by.email}
-                              </div>
-                          </Row>
-                      ) : (
-                          '-'
-                      )
-                  },
-              },
         {
-            title: '',
-            className: 'options-column',
-            render: function Render(_: any, item) {
+            width: 0,
+            render: function Render(_, insight) {
                 return (
-                    <Row style={{ alignItems: 'center', justifyContent: 'space-between' }}>
-                        <Dropdown
-                            placement="bottomRight"
-                            trigger={['click']}
-                            overlayStyle={{ minWidth: 240, border: '1px solid var(--primary)' }}
-                            overlay={
-                                <Menu style={{ padding: '12px 4px' }} data-attr={`insight-${item.id}-dropdown-menu`}>
-                                    <Menu.Item
-                                        onClick={() => renameInsight(item.id)}
-                                        data-attr={`insight-item-${item.id}-dropdown-rename`}
-                                        title="Rename"
-                                    >
-                                        Rename
-                                    </Menu.Item>
-                                    <Menu.Item
-                                        onClick={() => duplicateInsight(item)}
-                                        data-attr={`insight-item-${item.id}-dropdown-duplicate`}
-                                    >
-                                        Duplicate
-                                    </Menu.Item>
-                                    <Menu.Item
-                                        onClick={() =>
-                                            deleteWithUndo({
-                                                object: item,
-                                                endpoint: `projects/${currentTeamId}/insights`,
-                                                callback: loadInsights,
-                                            })
-                                        }
-                                        style={{ color: 'var(--danger)' }}
-                                        data-attr={`insight-item-${item.id}-dropdown-remove`}
-                                    >
-                                        Remove
-                                    </Menu.Item>
-                                </Menu>
-                            }
-                        >
-                            <EllipsisOutlined
-                                style={{ color: 'var(--primary)' }}
-                                className="insight-dropdown-actions"
-                            />
-                        </Dropdown>
-                    </Row>
+                    <More
+                        overlay={
+                            <>
+                                <LemonButton
+                                    type="stealth"
+                                    to={urls.insightView(insight.short_id, insight.filters)}
+                                    fullWidth
+                                >
+                                    View
+                                </LemonButton>
+                                <LemonButton
+                                    type="stealth"
+                                    onClick={() => renameInsight(insight)}
+                                    data-attr={`insight-item-${insight.short_id}-dropdown-rename`}
+                                    fullWidth
+                                >
+                                    Rename
+                                </LemonButton>
+                                <LemonButton
+                                    type="stealth"
+                                    onClick={() => duplicateInsight(insight)}
+                                    data-attr={`insight-item-${insight.short_id}-dropdown-duplicate`}
+                                    fullWidth
+                                >
+                                    Duplicate
+                                </LemonButton>
+                                <LemonSpacer />
+                                <LemonButton
+                                    type="stealth"
+                                    style={{ color: 'var(--danger)' }}
+                                    onClick={() =>
+                                        deleteWithUndo({
+                                            object: insight,
+                                            endpoint: `projects/${currentTeamId}/insights`,
+                                            callback: loadInsights,
+                                        })
+                                    }
+                                    data-attr={`insight-item-${insight.short_id}-dropdown-remove`}
+                                    fullWidth
+                                >
+                                    Delete insight
+                                </LemonButton>
+                            </>
+                        }
+                    />
                 )
             },
         },
@@ -383,7 +316,7 @@ export function SavedInsights(): JSX.Element {
                 <TabPane tab="Your Insights" key={SavedInsightsTabs.Yours} />
                 <TabPane tab="Favorites" key={SavedInsightsTabs.Favorites} />
             </Tabs>
-            <Row style={{ paddingBottom: 16, justifyContent: 'space-between' }}>
+            <Row style={{ paddingBottom: 16, justifyContent: 'space-between', gap: '0.75rem' }}>
                 <Col>
                     <Input.Search
                         allowClear
@@ -395,125 +328,130 @@ export function SavedInsights(): JSX.Element {
                         onSearch={() => loadInsights()}
                     />
                 </Col>
-                <Col>
-                    Type
-                    <Select
-                        className="insight-type-icon-dropdown"
-                        value={insightType}
-                        style={{ paddingLeft: 8, width: 140 }}
-                        onChange={(it) => setSavedInsightsFilters({ insightType: it })}
-                    >
-                        {[
-                            { name: 'All types', type: 'All types' as InsightType, inMenu: false } as SavedInsightType,
-                            ...insightTypes,
-                        ].map((insight, index) => (
-                            <Select.Option key={index} value={insight.type}>
-                                <div className="insight-type-icon-wrapper">
-                                    {insight.icon ? (
-                                        <div className="icon-container">
-                                            <div className="icon-container-inner">
-                                                {<insight.icon color="#747EA2" noBackground />}
-                                            </div>
-                                        </div>
-                                    ) : null}
-                                    <div>{insight.name}</div>
-                                </div>
-                            </Select.Option>
-                        ))}
-                    </Select>
-                </Col>
-                <Col>
-                    <span style={{ paddingRight: 8 }}>Last modified</span>
-                    <DateFilter
-                        defaultValue="All time"
-                        disabled={false}
-                        bordered={true}
-                        dateFrom={dateFrom}
-                        dateTo={dateTo}
-                        onChange={(fromDate, toDate) => setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })}
-                    />
-                </Col>
-                {tab !== SavedInsightsTabs.Yours ? (
+                <Row style={{ gap: '0.75rem' }}>
                     <Col>
-                        Created by
+                        Type:
                         <Select
-                            value={createdBy}
+                            className="insight-type-icon-dropdown"
+                            value={insightType}
                             style={{ paddingLeft: 8, width: 140 }}
-                            onChange={(cb) => {
-                                setSavedInsightsFilters({ createdBy: cb })
-                            }}
+                            onChange={(it) => setSavedInsightsFilters({ insightType: it })}
                         >
-                            <Select.Option value={'All users'}>All users</Select.Option>
-                            {members.map((member) => (
-                                <Select.Option key={member.user.id} value={member.user.id}>
-                                    {member.user.first_name}
+                            {[
+                                {
+                                    name: 'All types',
+                                    type: 'All types' as InsightType,
+                                    inMenu: false,
+                                } as SavedInsightType,
+                                ...insightTypes,
+                            ].map((insight, index) => (
+                                <Select.Option key={index} value={insight.type}>
+                                    <div className="insight-type-icon-wrapper">
+                                        {insight.icon ? (
+                                            <div className="icon-container">
+                                                <div className="icon-container-inner">
+                                                    {<insight.icon color="#747EA2" noBackground />}
+                                                </div>
+                                            </div>
+                                        ) : null}
+                                        <div>{insight.name}</div>
+                                    </div>
                                 </Select.Option>
                             ))}
                         </Select>
                     </Col>
-                ) : null}
-            </Row>
-            {insights.count > 0 && (
-                <Row className="list-or-card-layout">
-                    Showing {startCount} - {endCount} of {count} insights
-                    <div>
-                        <Radio.Group
-                            onChange={(e) => setSavedInsightsFilters({ layoutView: e.target.value })}
-                            value={layoutView}
-                            buttonStyle="solid"
-                        >
-                            <Radio.Button value={LayoutView.List}>
-                                <UnorderedListOutlined className="mr-05" />
-                                List
-                            </Radio.Button>
-                            <Radio.Button value={LayoutView.Card}>
-                                <AppstoreFilled className="mr-05" />
-                                Card
-                            </Radio.Button>
-                        </Radio.Group>
-                    </div>
+                    <Col>
+                        Last modified:
+                        <DateFilter
+                            style={{ paddingLeft: 8 }}
+                            defaultValue="All time"
+                            disabled={false}
+                            bordered={true}
+                            dateFrom={dateFrom}
+                            dateTo={dateTo}
+                            onChange={(fromDate, toDate) =>
+                                setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })
+                            }
+                        />
+                    </Col>
+                    {tab !== SavedInsightsTabs.Yours ? (
+                        <Col>
+                            Created by:
+                            <Select
+                                value={createdBy}
+                                style={{ paddingLeft: 8, width: 140 }}
+                                onChange={(cb) => {
+                                    setSavedInsightsFilters({ createdBy: cb })
+                                }}
+                            >
+                                <Select.Option value={'All users'}>All users</Select.Option>
+                                {members.map((member) => (
+                                    <Select.Option key={member.user.id} value={member.user.id}>
+                                        {member.user.first_name}
+                                    </Select.Option>
+                                ))}
+                            </Select>
+                        </Col>
+                    ) : null}
                 </Row>
-            )}
+            </Row>
+            <Row className="list-or-card-layout">
+                {count
+                    ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
+                          count === 1 ? '' : 's'
+                      }`
+                    : 'No insights yet'}
+                <div>
+                    <Radio.Group
+                        onChange={(e) => setSavedInsightsFilters({ layoutView: e.target.value })}
+                        value={layoutView}
+                        buttonStyle="solid"
+                    >
+                        <Radio.Button value={LayoutView.List}>
+                            <UnorderedListOutlined className="mr-05" />
+                            List
+                        </Radio.Button>
+                        <Radio.Button value={LayoutView.Card}>
+                            <AppstoreFilled className="mr-05" />
+                            Card
+                        </Radio.Button>
+                    </Radio.Group>
+                </div>
+            </Row>
             {!insightsLoading && insights.count < 1 ? (
                 <SavedInsightsEmptyState />
             ) : (
                 <>
                     {layoutView === LayoutView.List ? (
-                        <Table
+                        <LemonTable
                             loading={insightsLoading}
                             columns={columns}
                             dataSource={insights.results}
-                            pagination={false}
+                            pagination={{
+                                controlled: true,
+                                pageSize: INSIGHTS_PER_PAGE,
+                                currentPage: page,
+                                entryCount: count,
+                                onBackward: () =>
+                                    setSavedInsightsFilters({
+                                        page: page - 1,
+                                    }),
+                                onForward: () =>
+                                    setSavedInsightsFilters({
+                                        page: page + 1,
+                                    }),
+                            }}
+                            disableSortingCancellation
+                            sorting={sorting}
+                            onSort={(newSorting) =>
+                                setSavedInsightsFilters({
+                                    order: newSorting
+                                        ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                        : undefined,
+                                })
+                            }
                             rowKey="id"
-                            footer={() => (
-                                <Row className="footer-pagination">
-                                    <span className="text-muted-alt">
-                                        {insights.count > 0 &&
-                                            `Showing ${startCount} - ${endCount} of ${count} insights`}
-                                    </span>
-                                    <LeftOutlined
-                                        style={{ paddingRight: 16 }}
-                                        className={`${page === 1 ? 'paginate-disabled' : ''}`}
-                                        onClick={() => {
-                                            if (page > 1) {
-                                                setSavedInsightsFilters({
-                                                    page: page - 1,
-                                                })
-                                            }
-                                        }}
-                                    />
-                                    <RightOutlined
-                                        className={`${page * INSIGHTS_PER_PAGE >= count ? 'paginate-disabled' : ''}`}
-                                        onClick={() => {
-                                            if (page * INSIGHTS_PER_PAGE < count) {
-                                                setSavedInsightsFilters({
-                                                    page: page + 1,
-                                                })
-                                            }
-                                        }}
-                                    />
-                                </Row>
-                            )}
+                            nouns={['insight', 'insights']}
                         />
                     ) : (
                         <Row gutter={[16, 16]}>
@@ -526,12 +464,12 @@ export function SavedInsights(): JSX.Element {
                                         lg={12}
                                         xl={12}
                                         xxl={8}
-                                        key={insight.id}
+                                        key={insight.short_id}
                                         style={{ height: 340 }}
                                     >
                                         <DashboardItem
                                             item={{ ...insight, color: null }}
-                                            key={insight.id + '_user'}
+                                            key={insight.short_id + '_user'}
                                             loadDashboardItems={() => {
                                                 loadInsights()
                                             }}

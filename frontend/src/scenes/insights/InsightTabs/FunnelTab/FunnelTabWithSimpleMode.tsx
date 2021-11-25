@@ -167,7 +167,6 @@ export function FunnelTabWithSimpleMode(): JSX.Element {
                         TaxonomicFilterGroupType.Cohorts,
                         TaxonomicFilterGroupType.Elements,
                     ]}
-                    addButtonType="default"
                 />
 
                 {clickhouseFeaturesEnabled && filters.funnel_viz_type === FunnelVizType.Steps && (
