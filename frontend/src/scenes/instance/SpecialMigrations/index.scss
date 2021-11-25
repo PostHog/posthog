@@ -1,0 +1,11 @@
+@import '~/vars';
+
+.trigger-migration-button {
+    color: $success;
+    cursor: pointer;
+}
+
+.force-stop-migration-button {
+    color: $danger;
+    cursor: pointer;
+}

@@ -29,6 +29,7 @@ export enum Scene {
     ProjectCreateFirst = 'ProjectCreate',
     SystemStatus = 'SystemStatus',
     Licenses = 'Licenses',
+    SpecialMigrations = 'SpecialMigrations',
     MySettings = 'MySettings',
     Annotations = 'Annotations',
     Billing = 'Billing',
