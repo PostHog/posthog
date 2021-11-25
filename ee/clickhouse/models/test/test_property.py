@@ -104,7 +104,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                     href="/a-url",
                     attr_class=["small"],
                     text='bla"bla',
-                    attributes={"data-graph-container": "valid"},
+                    attributes={},
                     nth_child=1,
                     nth_of_type=0,
                 ),
@@ -122,14 +122,6 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 Element(tag_name="button", attr_class=["btn", "btn-tertiary"], nth_child=0, nth_of_type=0),
             ],
         )
-        # _create_event(
-        #     event="$autocapture",
-        #     team=self.team,
-        #     distinct_id="whatever",
-        #     elements=[
-        #         Element(tag_name="custom", attributes={"data-custom-one": "valid", "data-custom-two": "meh"}, nth_child=0, nth_of_type=0,),
-        #     ],
-        # )
 
         # selector
 
@@ -156,31 +148,6 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
             }
         )
         self.assertEqual(len(self._run_query(filter)), 1)
-
-        filter = Filter(
-            data={
-                "properties": [
-                    {
-                        "key": "selector",
-                        "value": "[data-graph-container='valid']",
-                        "operator": "exact",
-                        "type": "element",
-                    }
-                ]
-            }
-        )
-        with self.settings(SHELL_PLUS_PRINT_SQL=True):
-            self.assertEqual(len(self._run_query(filter)), 1)
-
-        filter = Filter(
-            data={
-                "properties": [
-                    {"key": "selector", "value": "['data-graph-container']", "operator": "exact", "type": "element"}
-                ]
-            }
-        )
-        with self.settings(SHELL_PLUS_PRINT_SQL=True):
-            self.assertEqual(len(self._run_query(filter)), 1)
 
         filter = Filter(
             data={

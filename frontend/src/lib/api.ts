@@ -252,9 +252,7 @@ const api = {
         const startTime = new Date().getTime()
         try {
             response = await fetch(url, { signal })
-            console.log(response)
         } catch (e) {
-            console.log(e)
             throw { status: 0, message: e }
         }
 
