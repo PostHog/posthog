@@ -38,6 +38,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Insights',
     },
+    [Scene.InsightRouter]: {
+        projectBased: true,
+        name: 'Insights',
+    },
     [Scene.Cohorts]: {
         projectBased: true,
         name: 'Cohorts',
@@ -172,7 +176,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
 
 export const redirects: Record<string, string | ((params: Params) => string)> = {
     '/': urls.savedInsights(),
-    '/i/:id': ({ id }) => urls.insightView(id),
     '/saved_insights': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
     '/plugins': urls.plugins(),
@@ -189,6 +192,7 @@ export const routes: Record<string, Scene> = {
     [urls.insightEdit(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.insightView(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.savedInsights()]: Scene.SavedInsights,
+    [urls.insightRouter(':shortId')]: Scene.InsightRouter,
     [urls.actions()]: Scene.Actions,
     [urls.eventStats()]: Scene.EventStats,
     [urls.eventPropertyStats()]: Scene.EventPropertyStats,

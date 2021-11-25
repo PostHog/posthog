@@ -9,6 +9,7 @@ export enum Scene {
     Dashboards = 'Dashboards',
     Dashboard = 'Dashboard',
     Insight = 'Insight',
+    InsightRouter = 'InsightRouter',
     Cohorts = 'Cohorts',
     Events = 'Events',
     EventStats = 'EventsVolumeTable',
