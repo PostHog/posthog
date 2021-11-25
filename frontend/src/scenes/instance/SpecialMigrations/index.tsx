@@ -3,7 +3,7 @@ import './index.scss'
 import React from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
-import { Table } from 'antd'
+import { Progress, Table } from 'antd'
 import { useValues } from 'kea'
 import { specialMigrationsLogic } from './specialMigrationsLogic'
 import { PlayCircleOutlined, StopOutlined } from '@ant-design/icons'
@@ -46,6 +46,13 @@ export function SpecialMigrations(): JSX.Element {
         {
             title: 'Progress',
             dataIndex: 'progress',
+            render: function RenderMigrationProgress(progress: number): JSX.Element {
+                return (
+                    <div>
+                        <Progress percent={progress} />
+                    </div>
+                )
+            },
         },
         {
             title: 'Status',
