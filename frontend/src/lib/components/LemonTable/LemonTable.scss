@@ -148,6 +148,14 @@
     line-height: 1.5;
 }
 
+.LemonTable__expansion {
+    background: var(--bg-side);
+    // Ensuring that child tables blend in with the background
+    table {
+        background: var(--bg-side);
+    }
+}
+
 @keyframes loading-bar {
     0% {
         left: 0;

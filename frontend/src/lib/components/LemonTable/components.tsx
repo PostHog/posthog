@@ -55,7 +55,7 @@ export function TableRow<T extends Record<string, any>>({
             </tr>
 
             {expandable && rowExpandable && isRowExpanded && (
-                <tr>
+                <tr className="LemonTable__expansion">
                     <td colSpan={columns.length + 1}>{expandable.expandedRowRender(record, recordIndex)}</td>
                 </tr>
             )}
