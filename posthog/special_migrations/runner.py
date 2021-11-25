@@ -98,7 +98,7 @@ def execute_op_postgres(sql, query_id):
         cursor.execute(f"/* {query_id} */" + sql)
 
 
-def process_error(migration_instance, error, rollback, save=True):
+def process_error(migration_instance, error, save=True):
     migration_instance.status = MigrationStatus.Errored
     migration_instance.error = error
     migration_instance.finished_at = datetime.now()
