@@ -1,4 +1,4 @@
-from typing import Any, Union
+from typing import Any, Dict, List, Union
 from unittest import TestCase
 
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
@@ -11,8 +11,8 @@ class TestMultiPropertyBreakdown(TestCase):
     """
 
     def test_handles_empty_inputs(self):
-        data = {}
-        result: Union[list[list[dict[str, Any]]], list[dict[str, Any]]] = []
+        data: Dict[str, Any] = {}
+        result: List = []
 
         try:
             protect_old_clients_from_multi_property_default(data, result)
@@ -20,8 +20,8 @@ class TestMultiPropertyBreakdown(TestCase):
             assert False, "should not raise any KeyError"
 
     def test_handles_empty_breakdowns_array(self):
-        data = {"breakdowns": [], "insight": "FUNNELS", "breakdown_type": "event"}
-        result: Union[list[list[dict[str, Any]]], list[dict[str, Any]]] = [{}]
+        data: Dict[str, Any] = {"breakdowns": [], "insight": "FUNNELS", "breakdown_type": "event"}
+        result: List = []
 
         try:
             protect_old_clients_from_multi_property_default(data, result)
