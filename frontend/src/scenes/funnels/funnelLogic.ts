@@ -398,8 +398,8 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             ({ filters, result }): FunnelAPIResponse => {
                 if (filters?.insight === InsightType.FUNNELS) {
                     if (Array.isArray(result) && Array.isArray(result[0]) && result[0][0].breakdowns) {
-                        // before teaching the UI how to handle multi property breakdown simply collapse it
-                        // breakdowns ["a", "b"] becomes breakdown: "a::b"
+                        // in order to stop the UI having to check breakdowns and breakdown
+                        // this collapses breakdowns onto the breakdown property
                         const mappedResults = result[0].map((r) => {
                             const { breakdowns, breakdown_value, ...singlePropertyClone } = r
                             singlePropertyClone.breakdown = breakdowns
