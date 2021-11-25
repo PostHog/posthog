@@ -66,6 +66,17 @@ class SingleTenancyOrAdmin(BasePermission):
         return not settings.MULTI_TENANCY or request.user.is_staff
 
 
+class StaffUser(BasePermission):
+    """
+    Allows access to only staff users
+    """
+
+    message = "You are not a staff user, contact your instance admin."
+
+    def has_permission(self, request, view):
+        return request.user.is_staff
+
+
 class ProjectMembershipNecessaryPermissions(BasePermission):
     """Require organization and project membership to access endpoint."""
 
