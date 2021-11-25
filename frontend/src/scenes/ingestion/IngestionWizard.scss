@@ -1,4 +1,8 @@
-@import '~/vars.scss';
+@import '~/vars';
+
+.background {
+    background-color: $bg_bridge;
+}
 
 .platform-item {
     margin-right: 10px;

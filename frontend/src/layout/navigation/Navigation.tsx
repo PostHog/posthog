@@ -18,7 +18,7 @@ export function Navigation({ children }: { children: any }): JSX.Element {
                 <Layout.Content className={!sceneConfig?.plain ? 'main-app-content' : undefined}>
                     {!sceneConfig?.plain && (
                         <>
-                            <DemoWarnings />
+                            {!sceneConfig?.hideDemoWarnings && <DemoWarnings />}
                             <BillingAlerts />
                             <Breadcrumbs />
                         </>
