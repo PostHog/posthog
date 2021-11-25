@@ -77,99 +77,55 @@ interface DisplayProps {
     className: string
     element: (props: any) => JSX.Element | null
     viewText: string
-    link: (item: DashboardItemType) => string
 }
+
+// const insightLink = ({ filters, short_id, dashboard, name }: DashboardItemType): string =>
 
 export const displayMap: Record<DisplayedType, DisplayProps> = {
     ActionsLineGraph: {
         className: 'graph',
         element: ActionsLineGraph,
         viewText: 'View graph',
-        link: ({ filters, short_id, dashboard, name }: DashboardItemType): string =>
-            combineUrl(urls.insightView(short_id, filters), undefined, {
-                fromItemName: name,
-                fromDashboard: dashboard,
-            }).url,
     },
     ActionsLineGraphCumulative: {
         className: 'graph',
         element: ActionsLineGraph,
         viewText: 'View graph',
-        link: ({ filters, short_id, dashboard, name }: DashboardItemType): string =>
-            combineUrl(urls.insightView(short_id, filters), undefined, {
-                fromItemName: name,
-                fromDashboard: dashboard,
-            }).url,
     },
     ActionsBar: {
         className: 'bar',
         element: ActionsLineGraph,
         viewText: 'View graph',
-        link: ({ filters, short_id, dashboard, name }: DashboardItemType): string =>
-            combineUrl(urls.insightView(short_id, filters), undefined, {
-                fromItemName: name,
-                fromDashboard: dashboard,
-            }).url,
     },
     ActionsBarValue: {
         className: 'bar',
         element: ActionsBarValueGraph,
         viewText: 'View graph',
-        link: ({ filters, short_id, dashboard, name }: DashboardItemType): string =>
-            combineUrl(urls.insightView(short_id, filters), undefined, {
-                fromItemName: name,
-                fromDashboard: dashboard,
-            }).url,
     },
     ActionsTable: {
         className: 'table',
         element: ActionsTable,
         viewText: 'View table',
-        link: ({ filters, short_id, dashboard, name }: DashboardItemType): string =>
-            combineUrl(urls.insightView(short_id, filters), undefined, {
-                fromItemName: name,
-                fromDashboard: dashboard,
-            }).url,
     },
     ActionsPie: {
         className: 'pie',
         element: ActionsPie,
         viewText: 'View graph',
-        link: ({ filters, short_id, dashboard, name }: DashboardItemType): string =>
-            combineUrl(urls.insightView(short_id, filters), undefined, {
-                fromItemName: name,
-                fromDashboard: dashboard,
-            }).url,
     },
     FunnelViz: {
         className: 'funnel',
         element: Funnel,
         viewText: 'View funnel',
-        link: ({ short_id, dashboard, name, filters }: DashboardItemType): string =>
-            combineUrl(urls.insightView(short_id, filters), undefined, {
-                fromItemName: name,
-                fromDashboard: dashboard,
-            }).url,
     },
     RetentionContainer: {
         className: 'retention',
         element: RetentionContainer,
         viewText: 'View graph',
-        link: ({ short_id, dashboard, name, filters }: DashboardItemType): string =>
-            combineUrl(urls.insightView(short_id, filters), undefined, {
-                fromItemName: name,
-                fromDashboard: dashboard,
-            }).url,
     },
     PathsViz: {
         className: 'paths-viz',
         element: Paths,
         viewText: 'View graph',
-        link: ({ short_id, dashboard, name, filters }: DashboardItemType): string =>
-            combineUrl(urls.insightView(short_id, filters), undefined, {
-                fromItemName: name,
-                fromDashboard: dashboard,
-            }).url,
     },
 }
 
@@ -236,7 +192,9 @@ export function DashboardItem({
     const className = displayMap[_type].className
     const Element = displayMap[_type].element
     const viewText = displayMap[_type].viewText
-    const link = displayMap[_type].link(item)
+    const link = combineUrl(urls.insightView(item.short_id, item.filters), undefined, {
+        fromDashboard: item.dashboard,
+    }).url
     const color = item.color || 'white'
     const otherDashboards: DashboardType[] = nameSortedDashboards.filter((d: DashboardType) => d.id !== dashboardId)
     const getDashboard = (id: number): DashboardType | undefined => nameSortedDashboards.find((d) => d.id === id)

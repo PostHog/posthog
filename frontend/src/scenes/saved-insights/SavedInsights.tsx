@@ -22,7 +22,7 @@ import {
 } from '@ant-design/icons'
 import './SavedInsights.scss'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { DashboardItem, displayMap, getDisplayedType } from 'scenes/dashboard/DashboardItem'
+import { DashboardItem } from 'scenes/dashboard/DashboardItem'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -223,12 +223,10 @@ export function SavedInsights(): JSX.Element {
             dataIndex: 'name',
             key: 'name',
             render: function renderName(name: string, insight) {
-                const link = displayMap[getDisplayedType(insight.filters)].link(insight)
-
                 return (
                     <Col>
                         <Row wrap={false}>
-                            <Link to={link} style={{ marginRight: 12 }}>
+                            <Link to={urls.insightView(insight.short_id, insight.filters)} style={{ marginRight: 12 }}>
                                 <strong>{name || <i>{UNNAMED_INSIGHT_NAME}</i>}</strong>
                             </Link>
                             <div
