@@ -187,7 +187,7 @@ def report_org_usage_failure(organization_id: str, distinct_id: str, err: str) -
     )
 
 
-def report_user_action(user: User, event: str, properties: Dict):
+def report_user_action(user: User, event: str, properties: Dict = {}):
     posthoganalytics.capture(
         user.distinct_id, event, properties=properties, groups=groups(user.current_organization, user.current_team),
     )
