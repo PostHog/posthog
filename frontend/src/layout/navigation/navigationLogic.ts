@@ -47,7 +47,7 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
     },
     reducers: {
         isSideBarShownRaw: [
-            window.innerWidth >= 992,
+            window.innerWidth >= 992, // Sync width threshold with Sass variable $lg!
             {
                 toggleSideBar: (state) => !state,
                 hideSideBar: () => false,
@@ -113,6 +113,7 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
         fullscreen: (window) => !!window.document.fullscreenElement,
     }),
     selectors: {
+        /** `bareNav` whether the current scene should display a sidebar at all */
         bareNav: [(s) => [s.fullscreen, s.sceneConfig], (fullscreen, sceneConfig) => fullscreen || sceneConfig?.plain],
         isSideBarShown: [
             (s) => [s.isSideBarShownRaw, s.bareNav],
