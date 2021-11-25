@@ -560,6 +560,7 @@ export function FeatureFlag(): JSX.Element {
                                             TaxonomicFilterGroupType.Cohorts,
                                         ]}
                                         showConditionBadge
+                                        greyBadges
                                     />
                                     <LemonSpacer large />
 
