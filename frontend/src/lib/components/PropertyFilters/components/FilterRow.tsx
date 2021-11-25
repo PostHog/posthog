@@ -107,7 +107,7 @@ export const FilterRow = React.memo(function FilterRow({
                                             onClick={() => setOpen(!open)}
                                             className="new-prop-filter"
                                             data-attr={'new-prop-filter-' + pageKey}
-                                            style={{ padding: '0 10px' }}
+                                            style={{ padding: '0 12px' }}
                                             icon={<PlusCircleOutlined />}
                                             type="default"
                                             shape="round"
