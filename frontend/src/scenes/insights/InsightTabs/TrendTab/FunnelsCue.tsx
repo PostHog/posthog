@@ -23,7 +23,7 @@ const funnelsCueLogic = kea<funnelsCueLogicType>({
     }),
     actions: {
         setDestPath: (path: string) => ({ path }),
-        optOut: true,
+        optOut: (userOptedOut: boolean) => ({ userOptedOut }),
         setShouldShow: (show: boolean) => ({ show }),
         setPermanentOptOut: true,
     },
@@ -48,8 +48,8 @@ const funnelsCueLogic = kea<funnelsCueLogicType>({
         ],
     },
     listeners: ({ actions, values }) => ({
-        optOut: async () => {
-            posthog.capture('funnel cue 7301 - opted out')
+        optOut: async ({ userOptedOut }) => {
+            posthog.capture('funnel cue 7301 - terminated', { user_opted_out: userOptedOut })
             posthog.people.set({ funnels_cue_3701_opt_out: true })
             // funnels_cue_3701_opt_out -> will add the user to a FF that will permanently exclude the user
             actions.setPermanentOptOut()
@@ -59,6 +59,8 @@ const funnelsCueLogic = kea<funnelsCueLogicType>({
             if (!values.isFirstLoad && filters.insight === InsightType.TRENDS && step_count >= 3) {
                 actions.setShouldShow(true)
                 !values.permanentOptOut && posthog.capture('funnel cue 7301 - shown', { step_count })
+            } else if (values.shown && filters.insight === InsightType.FUNNELS) {
+                actions.optOut(false)
             } else {
                 actions.setShouldShow(false)
             }
@@ -94,7 +96,13 @@ const funnelsCueLogic = kea<funnelsCueLogicType>({
     }),
 })
 
-export function FunnelsCue({ props }: { props: InsightLogicProps }): JSX.Element | null {
+export function FunnelsCue({
+    props,
+    tooltipPosition,
+}: {
+    props: InsightLogicProps
+    tooltipPosition?: number
+}): JSX.Element | null {
     const logic = funnelsCueLogic(props)
     const { optOut } = useActions(logic)
     const { destPath, shown } = useValues(logic)
@@ -104,7 +112,7 @@ export function FunnelsCue({ props }: { props: InsightLogicProps }): JSX.Element
             <InlineMessage
                 closable
                 icon={<IconLightBulb style={{ color: 'var(--warning)', fontSize: '1.3em' }} />}
-                onClose={optOut}
+                onClose={() => optOut(true)}
             >
                 <div className="flex-center">
                     <div style={{ paddingRight: 16 }}>
@@ -120,6 +128,14 @@ export function FunnelsCue({ props }: { props: InsightLogicProps }): JSX.Element
                     </Link>
                 </div>
             </InlineMessage>
+            {tooltipPosition && (
+                <div
+                    className="tooltip-arrow"
+                    style={{
+                        left: tooltipPosition,
+                    }}
+                />
+            )}
         </div>
     )
 }

@@ -1,7 +1,7 @@
 import { Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
 import { isMobile } from 'lib/utils'
-import React from 'react'
+import React, { useRef } from 'react'
 import { HotKeys, InsightType } from '~/types'
 import { insightLogic } from './insightLogic'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -20,10 +20,17 @@ export function InsightsNav(): JSX.Element {
     const { activeView, insightProps } = useValues(insightLogic)
     const { setActiveView } = useActions(insightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const funnelTab = useRef<HTMLSpanElement>(null)
 
     return (
         <>
-            <FunnelsCue props={insightProps} />
+            <FunnelsCue
+                props={insightProps}
+                tooltipPosition={
+                    // 1.5x because it's 2 tabs (trends & funnels) + margin between tabs
+                    funnelTab?.current ? funnelTab.current.getBoundingClientRect().width * 1.5 + 16 : undefined
+                }
+            />
             <Tabs
                 activeKey={activeView}
                 className="top-bar"
@@ -41,7 +48,7 @@ export function InsightsNav(): JSX.Element {
                 />
                 <TabPane
                     tab={
-                        <span data-attr="insight-funnels-tab">
+                        <span data-attr="insight-funnels-tab" ref={funnelTab}>
                             Funnels
                             <InsightHotkey hotkey="f" />
                         </span>
