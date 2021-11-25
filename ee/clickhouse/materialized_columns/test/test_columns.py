@@ -31,6 +31,7 @@ def _create_event(**kwargs):
 class TestMaterializedColumns(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTest):
     def test_get_columns_default(self):
         self.assertCountEqual(get_materialized_columns("events"), GROUPS_COLUMNS)
+        self.assertCountEqual(get_materialized_columns("session_recording_events"), ["has_full_snapshot"])
         self.assertCountEqual(get_materialized_columns("person"), [])
 
     def test_caching_and_materializing(self):
