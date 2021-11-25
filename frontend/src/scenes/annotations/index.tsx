@@ -126,6 +126,7 @@ export function Annotations(): JSX.Element {
                             setOpen(true)
                         },
                     })}
+                    emptyState="No annotations yet"
                 />
                 <div
                     style={{
