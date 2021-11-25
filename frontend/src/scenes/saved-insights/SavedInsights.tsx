@@ -310,7 +310,7 @@ export function SavedInsights(): JSX.Element {
                 <TabPane tab="Your Insights" key={SavedInsightsTabs.Yours} />
                 <TabPane tab="Favorites" key={SavedInsightsTabs.Favorites} />
             </Tabs>
-            <Row style={{ paddingBottom: 16, justifyContent: 'space-between' }}>
+            <Row style={{ paddingBottom: 16, justifyContent: 'space-between', gap: '0.75rem' }}>
                 <Col>
                     <Input.Search
                         allowClear
@@ -322,70 +322,79 @@ export function SavedInsights(): JSX.Element {
                         onSearch={() => loadInsights()}
                     />
                 </Col>
-                <Col>
-                    Type
-                    <Select
-                        className="insight-type-icon-dropdown"
-                        value={insightType}
-                        style={{ paddingLeft: 8, width: 140 }}
-                        onChange={(it) => setSavedInsightsFilters({ insightType: it })}
-                    >
-                        {[
-                            { name: 'All types', type: 'All types' as InsightType, inMenu: false } as SavedInsightType,
-                            ...insightTypes,
-                        ].map((insight, index) => (
-                            <Select.Option key={index} value={insight.type}>
-                                <div className="insight-type-icon-wrapper">
-                                    {insight.icon ? (
-                                        <div className="icon-container">
-                                            <div className="icon-container-inner">
-                                                {<insight.icon color="#747EA2" noBackground />}
-                                            </div>
-                                        </div>
-                                    ) : null}
-                                    <div>{insight.name}</div>
-                                </div>
-                            </Select.Option>
-                        ))}
-                    </Select>
-                </Col>
-                <Col>
-                    <span style={{ paddingRight: 8 }}>Last modified</span>
-                    <DateFilter
-                        defaultValue="All time"
-                        disabled={false}
-                        bordered={true}
-                        dateFrom={dateFrom}
-                        dateTo={dateTo}
-                        onChange={(fromDate, toDate) => setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })}
-                    />
-                </Col>
-                {tab !== SavedInsightsTabs.Yours ? (
+                <Row style={{ gap: '0.75rem' }}>
                     <Col>
-                        Created by
+                        Type:
                         <Select
-                            value={createdBy}
+                            className="insight-type-icon-dropdown"
+                            value={insightType}
                             style={{ paddingLeft: 8, width: 140 }}
-                            onChange={(cb) => {
-                                setSavedInsightsFilters({ createdBy: cb })
-                            }}
+                            onChange={(it) => setSavedInsightsFilters({ insightType: it })}
                         >
-                            <Select.Option value={'All users'}>All users</Select.Option>
-                            {members.map((member) => (
-                                <Select.Option key={member.user.id} value={member.user.id}>
-                                    {member.user.first_name}
+                            {[
+                                {
+                                    name: 'All types',
+                                    type: 'All types' as InsightType,
+                                    inMenu: false,
+                                } as SavedInsightType,
+                                ...insightTypes,
+                            ].map((insight, index) => (
+                                <Select.Option key={index} value={insight.type}>
+                                    <div className="insight-type-icon-wrapper">
+                                        {insight.icon ? (
+                                            <div className="icon-container">
+                                                <div className="icon-container-inner">
+                                                    {<insight.icon color="#747EA2" noBackground />}
+                                                </div>
+                                            </div>
+                                        ) : null}
+                                        <div>{insight.name}</div>
+                                    </div>
                                 </Select.Option>
                             ))}
                         </Select>
                     </Col>
-                ) : null}
+                    <Col>
+                        Last modified:
+                        <DateFilter
+                            style={{ paddingLeft: 8 }}
+                            defaultValue="All time"
+                            disabled={false}
+                            bordered={true}
+                            dateFrom={dateFrom}
+                            dateTo={dateTo}
+                            onChange={(fromDate, toDate) =>
+                                setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })
+                            }
+                        />
+                    </Col>
+                    {tab !== SavedInsightsTabs.Yours ? (
+                        <Col>
+                            Created by:
+                            <Select
+                                value={createdBy}
+                                style={{ paddingLeft: 8, width: 140 }}
+                                onChange={(cb) => {
+                                    setSavedInsightsFilters({ createdBy: cb })
+                                }}
+                            >
+                                <Select.Option value={'All users'}>All users</Select.Option>
+                                {members.map((member) => (
+                                    <Select.Option key={member.user.id} value={member.user.id}>
+                                        {member.user.first_name}
+                                    </Select.Option>
+                                ))}
+                            </Select>
+                        </Col>
+                    ) : null}
+                </Row>
             </Row>
             <Row className="list-or-card-layout">
-                {insightsLoading
-                    ? 'Loading…'
-                    : `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
+                {count
+                    ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
                           count === 1 ? '' : 's'
-                      }`}
+                      }`
+                    : 'No insights yet'}
                 <div>
                     <Radio.Group
                         onChange={(e) => setSavedInsightsFilters({ layoutView: e.target.value })}
