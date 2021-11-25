@@ -4,7 +4,7 @@ from django.utils import timezone
 
 class Annotation(models.Model):
     class Scope(models.TextChoices):
-        DASHBOARD_ITEM = "dashboard_item", "insight"
+        DASHBOARD_ITEM = "dashboard_item", "dashboard item"
         PROJECT = "project", "project"
         ORGANIZATION = "organization", "organization"
 

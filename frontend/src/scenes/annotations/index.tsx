@@ -1,7 +1,6 @@
 import React, { useState, useEffect, HTMLAttributes } from 'react'
 import { useValues, useActions } from 'kea'
 import { Tag, Button, Modal, Input, Row, Menu, Dropdown } from 'antd'
-import { humanFriendlyDetailedTime } from 'lib/utils'
 import { annotationsModel } from '~/models/annotationsModel'
 import { annotationsTableLogic } from './logic'
 import { DeleteOutlined, RedoOutlined, ProjectOutlined, DeploymentUnitOutlined, DownOutlined } from '@ant-design/icons'
