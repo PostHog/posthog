@@ -13,6 +13,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
 from posthog.constants import TRENDS_STICKINESS
+from posthog.event_usage import report_user_action
 from posthog.models import Cohort, Entity
 from posthog.models.event import Event
 from posthog.models.filters.filter import Filter
@@ -80,7 +81,7 @@ class CohortSerializer(serializers.ModelSerializer):
             else:
                 calculate_cohort.delay(cohort.id)
 
-        posthoganalytics.capture(request.user.distinct_id, "cohort created", cohort.get_analytics_metadata())
+        report_user_action(request.user, "cohort created", cohort.get_analytics_metadata())
         return cohort
 
     def _handle_static(self, cohort: Cohort, request: Request):
@@ -151,8 +152,8 @@ class CohortSerializer(serializers.ModelSerializer):
                 else:
                     calculate_cohort.delay(cohort.id)
 
-        posthoganalytics.capture(
-            request.user.distinct_id,
+        report_user_action(
+            request.user,
             "cohort updated",
             {**cohort.get_analytics_metadata(), "updated_by_creator": request.user == cohort.created_by},
         )
