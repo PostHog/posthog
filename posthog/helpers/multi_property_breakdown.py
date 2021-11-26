@@ -51,9 +51,9 @@ def protect_old_clients_from_multi_property_default(
                     copied_item = copied_series[data_index]
 
                     if is_single_property_breakdown:
-                        if isinstance(data["breakdown"], List):
+                        if data.get("breakdown") and isinstance(data["breakdown"], List):
                             copied_item["breakdown"] = data["breakdown"][0]
-                        if isinstance(data["breakdown_value"], List):
+                        if data.get("breakdown_value") and isinstance(data["breakdown_value"], List):
                             copied_item["breakdown_value"] = data["breakdown_value"][0]
 
                     if is_multi_property_breakdown:
