@@ -112,7 +112,7 @@ export function Cohorts(): JSX.Element {
             render: function Render(name, { id, description }) {
                 return (
                     <>
-                        <Link data-attr="dashboard-name" to={combineUrl(urls.cohort(id), searchParams).url}>
+                        <Link to={combineUrl(urls.cohort(id), searchParams).url}>
                             <h4 className="row-name">{name || 'Untitled'}</h4>
                         </Link>
                         {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && description && (
