@@ -226,7 +226,16 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         },
     }),
     actionToUrl: ({ values }) => {
-        const changeUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] | void => {
+        const changeUrl = ():
+            | [
+                  string,
+                  Record<string, any>,
+                  Record<string, any>,
+                  {
+                      replace: boolean
+                  }
+              ]
+            | void => {
             const nextValues = cleanFilters(values.filters)
             const urlValues = cleanFilters(router.values.searchParams)
             if (!objectsEqual(nextValues, urlValues)) {
