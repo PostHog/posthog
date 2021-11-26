@@ -7,11 +7,11 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { capitalizeFirstLetter, percentage, pluralize } from 'lib/utils'
-import { ErrorMessage } from 'lib/components/ErrorMessage/ErrorMessage'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Link } from 'lib/components/Link'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
+import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
 
 export function CorrelationMatrix(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -185,10 +185,10 @@ export function CorrelationMatrix(): JSX.Element {
                     </>
                 ) : (
                     <div>
-                        <ErrorMessage>
+                        <InlineMessage type="danger">
                             We could not load the details for this correlation value. Please recreate your funnel and
                             try again.
-                        </ErrorMessage>
+                        </InlineMessage>
                     </div>
                 )}
             </div>
