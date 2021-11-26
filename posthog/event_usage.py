@@ -176,6 +176,7 @@ def report_org_usage(organization_id: str, distinct_id: str, properties: Dict[st
         properties,
         groups={"organization": organization_id, "instance": SITE_URL},
     )
+    posthoganalytics.group_identify("organization", organization_id, properties)
 
 
 def report_org_usage_failure(organization_id: str, distinct_id: str, err: str) -> None:
