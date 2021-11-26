@@ -12,7 +12,9 @@ class ClickhouseSessionsDist:
 
         parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter, team.pk)
 
-        filters, params = parse_prop_clauses(filter.properties, team.pk, has_person_id_joined=False)
+        filters, params = parse_prop_clauses(
+            filter.properties, team.pk, has_person_id_joined=False, group_properties_joined=False
+        )
 
         entity_conditions, entity_params = entity_query_conditions(filter, team)
         if not entity_conditions:
