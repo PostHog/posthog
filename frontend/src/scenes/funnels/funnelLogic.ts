@@ -30,9 +30,9 @@ import {
     PersonType,
     PropertyFilter,
     PropertyOperator,
+    StepOrderValue,
     TeamType,
     TrendResult,
-    StepOrderValue,
 } from '~/types'
 import { BinCountAuto, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -407,13 +407,14 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                     if (Array.isArray(result) && Array.isArray(result[0]) && result[0][0].breakdowns) {
                         // in order to stop the UI having to check breakdowns and breakdown
                         // this collapses breakdowns onto the breakdown property
-                        const mappedResults = result[0].map((r) => {
-                            const { breakdowns, breakdown_value, ...singlePropertyClone } = r
-                            singlePropertyClone.breakdown = breakdowns
-                            singlePropertyClone.breakdown_value = breakdown_value
-                            return singlePropertyClone
-                        })
-                        return [mappedResults]
+                        return result.map((series) =>
+                            series.map((r: { [x: string]: any; breakdowns: any; breakdown_value: any }) => {
+                                const { breakdowns, breakdown_value, ...singlePropertyClone } = r
+                                singlePropertyClone.breakdown = breakdowns
+                                singlePropertyClone.breakdown_value = breakdown_value
+                                return singlePropertyClone
+                            })
+                        )
                     }
                     return result
                 } else {
