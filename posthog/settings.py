@@ -690,6 +690,7 @@ EMAIL_REPORTS_ENABLED: bool = get_from_env("EMAIL_REPORTS_ENABLED", False, type_
 
 # Setup logging
 LOGGING_FORMATTER_NAME = os.getenv("LOGGING_FORMATTER_NAME", "default")
+DEFAULT_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "ERROR" if TEST else "INFO")
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -701,15 +702,15 @@ LOGGING = {
         "console": {"class": "logging.StreamHandler", "formatter": LOGGING_FORMATTER_NAME,},
         "null": {"class": "logging.NullHandler",},
     },
-    "root": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "INFO")},
+    "root": {"handlers": ["console"], "level": DEFAULT_LOG_LEVEL},
     "loggers": {
-        "django": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "INFO")},
+        "django": {"handlers": ["console"], "level": DEFAULT_LOG_LEVEL},
         "django.server": {"handlers": ["null"]},  # blackhole Django server logs (this is only needed in DEV)
         "django.utils.autoreload": {
             "handlers": ["null"],
         },  # blackhole Django autoreload logs (this is only needed in DEV)
-        "axes": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "INFO")},
-        "statsd": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "INFO")},
+        "axes": {"handlers": ["console"], "level": DEFAULT_LOG_LEVEL},
+        "statsd": {"handlers": ["console"], "level": DEFAULT_LOG_LEVEL},
     },
 }
 
@@ -738,7 +739,7 @@ SKIP_SERVICE_VERSION_REQUIREMENTS = get_from_env(
     "SKIP_SERVICE_VERSION_REQUIREMENTS", TEST or IS_COLLECT_STATIC, type_cast=str_to_bool
 )
 
-if SKIP_SERVICE_VERSION_REQUIREMENTS:
+if SKIP_SERVICE_VERSION_REQUIREMENTS and not (TEST or DEBUG):
     print_warning(["Skipping service version requirements. This is dangerous and PostHog might not work as expected!"])
 
 SERVICE_VERSION_REQUIREMENTS = [

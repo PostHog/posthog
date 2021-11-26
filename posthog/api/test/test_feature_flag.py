@@ -1,9 +1,9 @@
+import json
 from unittest.mock import patch
 
-from rest_framework import response, status
+from rest_framework import status
 
-from posthog.api import feature_flag
-from posthog.models import FeatureFlag, User
+from posthog.models import FeatureFlag, GroupTypeMapping, User
 from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.test.base import APIBaseTest
 
@@ -456,6 +456,33 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(first_flag["feature_flag"]["key"], "alpha-feature")
         self.assertEqual(first_flag["value_for_user_without_override"], False)
         self.assertEqual(first_flag["override"], None)
+
+    @patch("posthoganalytics.capture")
+    def test_my_flags_groups(self, mock_capture):
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "groups flag",
+                "key": "groups-flag",
+                "filters": {"aggregation_group_type_index": 0, "groups": [{"rollout_percentage": 100,}]},
+            },
+            format="json",
+        )
+
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        groups_flag = response.json()[0]
+        self.assertEqual(groups_flag["feature_flag"]["key"], "groups-flag")
+        self.assertEqual(groups_flag["value_for_user_without_override"], False)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/my_flags", data={"groups": json.dumps({"organization": "7"})}
+        )
+        groups_flag = response.json()[0]
+        self.assertEqual(groups_flag["feature_flag"]["key"], "groups-flag")
+        self.assertEqual(groups_flag["value_for_user_without_override"], True)
 
     def test_create_override(self):
         # Boolean override value
