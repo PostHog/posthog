@@ -267,7 +267,7 @@ export function LemonTable<T extends Record<string, any>>({
                             </thead>
                         )}
                         <tbody>
-                            {currentFrame ? (
+                            {currentFrame.length ? (
                                 currentFrame.map((record, rowIndex) => (
                                     <TableRow
                                         key={`LemonTable-row-${rowKey ? record[rowKey] : currentStartIndex + rowIndex}`}
