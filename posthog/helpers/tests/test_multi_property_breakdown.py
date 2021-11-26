@@ -28,13 +28,25 @@ class TestMultiPropertyBreakdown(TestCase):
         result: List[List[Dict[str, Any]]] = [[{"breakdown": ["a1", "b1"], "breakdown_value": ["a1", "b1"]}]]
 
         actual = protect_old_clients_from_multi_property_default(data, result)
-        assert actual[0][0]["breakdowns"] == ["a1", "b1"]
-        assert "breakdown" not in actual[0][0]
+
+        # to satisfy mypy
+        assert isinstance(actual, List)
+        series = actual[0]
+        assert isinstance(series, List)
+        data = series[0]
+        assert data["breakdowns"] == ["a1", "b1"]
+        assert "breakdown" not in data
 
     def test_flattens_multi_property_breakdown_for_single_property_requests(self):
         data: Dict[str, Any] = {"breakdown": "a", "insight": "FUNNELS", "breakdown_type": "event"}
         result: List[List[Dict[str, Any]]] = [[{"breakdown": ["a1"], "breakdown_value": ["a1", "b1"]}]]
 
         actual = protect_old_clients_from_multi_property_default(data, result)
-        assert actual[0][0]["breakdown"] == "a1"
-        assert "breakdowns" not in actual[0][0]
+
+        # to satisfy mypy
+        assert isinstance(actual, List)
+        series = actual[0]
+        assert isinstance(series, List)
+        data = series[0]
+        assert data["breakdown"] == "a1"
+        assert "breakdowns" not in data
