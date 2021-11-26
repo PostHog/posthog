@@ -6,7 +6,7 @@ possible_funnel_results_types = Union[funnel_with_breakdown_type, List[Dict[str,
 
 
 def protect_old_clients_from_multi_property_default(
-    data: Dict[str, Any], result: possible_funnel_results_types
+    request_filter: Dict[str, Any], result: possible_funnel_results_types
 ) -> possible_funnel_results_types:
     """
     Implementing multi property breakdown will default breakdown to a list even if it is received as a string.
@@ -20,7 +20,7 @@ def protect_old_clients_from_multi_property_default(
     * A List containing one or more Dicts
     * A List containing (exactly one) lists of Dicts
 
-    :param data: the data in the request
+    :param request_filter: the data in the request
     :param result: the query result which may contain an unwanted array breakdown
     :return:
     """
@@ -29,17 +29,20 @@ def protect_old_clients_from_multi_property_default(
         return result
 
     is_breakdown_request = (
-        "insight" in data
-        and data["insight"] == "FUNNELS"
-        and "breakdown_type" in data
-        and data["breakdown_type"] in ["person", "event"]
+        "insight" in request_filter
+        and request_filter["insight"] == "FUNNELS"
+        and "breakdown_type" in request_filter
+        and request_filter["breakdown_type"] in ["person", "event"]
     )
     is_breakdown_result = isinstance(result, List) and len(result) > 0 and isinstance(result[0], List)
 
     is_single_property_breakdown = (
-        is_breakdown_request and "breakdown" in data and isinstance(data["breakdown"], str) and is_breakdown_result
+        is_breakdown_request
+        and "breakdown" in request_filter
+        and isinstance(request_filter["breakdown"], str)
+        and is_breakdown_result
     )
-    is_multi_property_breakdown = is_breakdown_request and "breakdowns" in data and is_breakdown_result
+    is_multi_property_breakdown = is_breakdown_request and "breakdowns" in request_filter and is_breakdown_result
 
     if is_single_property_breakdown or is_multi_property_breakdown:
         copied_result = copy.deepcopy(result)
@@ -51,10 +54,10 @@ def protect_old_clients_from_multi_property_default(
                     copied_item = copied_series[data_index]
 
                     if is_single_property_breakdown:
-                        if data.get("breakdown") and isinstance(data["breakdown"], List):
-                            copied_item["breakdown"] = data["breakdown"][0]
-                        if data.get("breakdown_value") and isinstance(data["breakdown_value"], List):
-                            copied_item["breakdown_value"] = data["breakdown_value"][0]
+                        if copied_item.get("breakdown") and isinstance(copied_item["breakdown"], List):
+                            copied_item["breakdown"] = copied_item["breakdown"][0]
+                        if copied_item.get("breakdown_value") and isinstance(copied_item["breakdown_value"], List):
+                            copied_item["breakdown_value"] = copied_item["breakdown_value"][0]
 
                     if is_multi_property_breakdown:
                         breakdowns = copied_item.pop("breakdown", None)
