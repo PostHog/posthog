@@ -44,7 +44,7 @@ export function PersonCohorts(): JSX.Element {
             columns={columns}
             rowClassName="cursor-pointer"
             rowKey="id"
-            pagination={{ pageSize: 20, hideOnSinglePage: true }}
+            pagination={{ pageSize: 30, hideOnSinglePage: true }}
             embedded
             onRow={(cohort) => ({
                 onClick: () => navigateToCohort(cohort),
