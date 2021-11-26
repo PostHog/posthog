@@ -254,3 +254,8 @@ export function generateKafkaPersonUpdateMessage(
         ],
     }
 }
+
+// Very useful for debugging queries
+export function getFinalPostgresQuery(queryString: string, values: any[]): string {
+    return queryString.replace(/\$([0-9]+)/g, (m, v) => JSON.stringify(values[parseInt(v) - 1]))
+}
