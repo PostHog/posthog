@@ -5,7 +5,7 @@ import Skeleton from 'antd/lib/skeleton'
 import { CohortType } from '~/types'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
 
-export function PersonCohorts(): JSX.Element {
+export function PersonCohorts(): JSX.Element | string {
     const { cohorts, cohortsLoading } = useValues(personsLogic)
     const { loadCohorts, navigateToCohort } = useActions(personsLogic)
 
@@ -37,9 +37,9 @@ export function PersonCohorts(): JSX.Element {
         },
     ]
 
-    return (
+    return cohorts?.length ? (
         <LemonTable
-            dataSource={cohorts || []}
+            dataSource={cohorts}
             loading={cohortsLoading}
             columns={columns}
             rowClassName="cursor-pointer"
@@ -49,7 +49,8 @@ export function PersonCohorts(): JSX.Element {
             onRow={(cohort) => ({
                 onClick: () => navigateToCohort(cohort),
             })}
-            emptyState="This person doesn't belong to any cohort"
         />
+    ) : (
+        "This person doesn't belong to any cohort"
     )
 }

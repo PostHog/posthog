@@ -247,6 +247,7 @@ export function Cohorts(): JSX.Element {
                     rowKey="id"
                     pagination={{ pageSize: 30 }}
                     dataSource={searchTerm ? searchCohorts(cohorts, searchTerm) : cohorts}
+                    nouns={['cohort', 'cohorts']}
                 />
                 <Drawer
                     title={openCohort?.id === 'new' ? 'New cohort' : openCohort?.name}

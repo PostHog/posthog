@@ -56,7 +56,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
     sorting?: Sorting | null
     /** Sorting change handler for controlled sort order. */
     onSort?: (newSorting: Sorting | null) => void
-    /** What to show when there's no data. The default value is generic `'No data'`. */
+    /** What to show when there's no data. */
     emptyState?: React.ReactNode
     /** What to describe the entries as, singular and plural. The default value is `['entry', 'entries']`. */
     nouns?: [string, string]
@@ -83,7 +83,7 @@ export function LemonTable<T extends Record<string, any>>({
     defaultSorting = null,
     sorting,
     onSort,
-    emptyState = 'No data',
+    emptyState,
     nouns = ['entry', 'entries'],
     className,
     'data-attr': dataAttr,
@@ -311,7 +311,9 @@ export function LemonTable<T extends Record<string, any>>({
                                 ))
                             ) : (
                                 <tr>
-                                    <td colSpan={columns.length + Number(!!expandable)}>{emptyState}</td>
+                                    <td colSpan={columns.length + Number(!!expandable)}>
+                                        {emptyState || `No ${nouns[1]}`}
+                                    </td>
                                 </tr>
                             )}
                         </tbody>
