@@ -738,7 +738,7 @@ SKIP_SERVICE_VERSION_REQUIREMENTS = get_from_env(
     "SKIP_SERVICE_VERSION_REQUIREMENTS", TEST or IS_COLLECT_STATIC, type_cast=str_to_bool
 )
 
-if SKIP_SERVICE_VERSION_REQUIREMENTS:
+if SKIP_SERVICE_VERSION_REQUIREMENTS and not (TEST or DEBUG):
     print_warning(["Skipping service version requirements. This is dangerous and PostHog might not work as expected!"])
 
 SERVICE_VERSION_REQUIREMENTS = [
