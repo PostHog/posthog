@@ -193,6 +193,12 @@ def report_user_action(user: User, event: str, properties: Dict = {}):
     )
 
 
+def report_organization_deleted(user: User, organization: Organization):
+    posthoganalytics.capture(
+        user.distinct_id, "organization deleted", organization.get_analytics_metadata(), groups=groups(organization)
+    )
+
+
 def groups(organization: Optional[Organization] = None, team: Optional[Team] = None):
     result = {"instance": SITE_URL}
     if organization is not None:
