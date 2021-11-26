@@ -219,7 +219,7 @@ export function Cohorts(): JSX.Element {
                     columns={columns}
                     loading={cohortsLoading}
                     rowKey="id"
-                    pagination={{ pageSize: 100 }}
+                    pagination={{ pageSize: 20 }}
                     dataSource={searchTerm ? searchCohorts(cohorts, searchTerm) : cohorts}
                 />
                 <Drawer
