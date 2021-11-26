@@ -127,7 +127,7 @@ def send_all_reports(
             report: dict = {
                 **metadata,
                 **usage,
-                "organization_id": id,
+                "organization_id": organization_id,
                 "organization_name": org["name"],
                 "organization_created_at": org["created_at"],
                 "organization_user_count": org["user_count"],
