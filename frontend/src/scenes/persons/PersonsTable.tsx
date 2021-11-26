@@ -4,7 +4,6 @@ import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { PersonType } from '~/types'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { midEllipsis } from 'lib/utils'
 import { PersonHeader } from './PersonHeader'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
 
@@ -44,12 +43,10 @@ export function PersonsTable({
                         {person.distinct_ids.length && (
                             <CopyToClipboardInline
                                 explicitValue={person.distinct_ids[0]}
-                                tooltipMessage={null}
                                 iconStyle={{ color: 'var(--primary)' }}
-                                iconPosition="end"
-                                description="person ID"
+                                description="person distinct ID"
                             >
-                                {midEllipsis(person.distinct_ids[0], 32)}
+                                {person.distinct_ids[0]}
                             </CopyToClipboardInline>
                         )}
                     </div>

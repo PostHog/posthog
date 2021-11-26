@@ -13,7 +13,7 @@ describe('Person Visualization Check', () => {
 
         cy.get('.events').should('exist')
         cy.get('[data-attr="manage-events-table"] .ant-tabs-top').should('not.exist')
-        cy.get('[data-row-key="email"] .anticon-copy').click()
+        cy.get('[data-row-key="email"] .copy-icon').click()
         cy.window()
             .then((win) => {
                 const email = win.document.querySelector('[data-row-key="email"] .properties-table-value').textContent
