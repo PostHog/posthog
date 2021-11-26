@@ -861,3 +861,12 @@ def format_query_params_absolute_url(
 
 def get_milliseconds_between_dates(d1: dt.datetime, d2: dt.datetime) -> int:
     return abs(int((d1 - d2).total_seconds() * 1000))
+
+
+def get_instance_licenses() -> List[str]:
+    if settings.EE_AVAILABLE:
+        from ee.models import License
+
+        return [license.key for license in License.objects.all()]
+    else:
+        return []

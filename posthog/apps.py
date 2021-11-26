@@ -4,7 +4,8 @@ import posthoganalytics
 from django.apps import AppConfig
 from django.conf import settings
 
-from posthog.utils import get_git_branch, get_git_commit, get_machine_id
+from posthog.tasks.status_report import get_instance_licenses
+from posthog.utils import get_git_branch, get_git_commit, get_helm_info_env, get_instance_realm, get_machine_id
 from posthog.version import VERSION
 
 
@@ -32,6 +33,19 @@ class PostHogConfig(AppConfig):
             posthoganalytics.disabled = True
         elif settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
             posthoganalytics.disabled = True
+        else:
+            instance_properties = {
+                "posthog_version": VERSION,
+                "deployment": os.getenv("DEPLOYMENT", "unknown"),
+                "realm": get_instance_realm(),
+                "site_url": settings.SITE_URL,
+                "license_keys": get_instance_licenses(),
+                "helm": get_helm_info_env(),
+            }
+            posthoganalytics.capture(
+                get_machine_id(), "server launched", instance_properties, groups={"instance": settings.SITE_URL}
+            )
+            posthoganalytics.group_identify("instance", settings.SITE_URL, instance_properties)
 
         if not settings.SKIP_SERVICE_VERSION_REQUIREMENTS:
             for service_version_requirement in settings.SERVICE_VERSION_REQUIREMENTS:

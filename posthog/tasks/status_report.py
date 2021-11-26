@@ -16,6 +16,7 @@ from posthog.models.plugin import PluginConfig
 from posthog.models.utils import namedtuplefetchall
 from posthog.utils import (
     get_helm_info_env,
+    get_instance_licenses,
     get_instance_realm,
     get_machine_id,
     get_previous_week,
@@ -35,9 +36,8 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
         "period": {"start_inclusive": period_start.isoformat(), "end_inclusive": period_end.isoformat()},
         "site_url": os.getenv("SITE_URL", "unknown"),
         "license_keys": get_instance_licenses(),
+        "helm": get_helm_info_env(),
     }
-
-    report["helm"] = get_helm_info_env()
 
     report["users_who_logged_in"] = [
         {"id": user.id, "distinct_id": user.distinct_id}
@@ -212,12 +212,3 @@ def fetch_sql(sql_: str, params: Tuple[Any, ...]) -> List[Any]:
     with connection.cursor() as cursor:
         cursor.execute(sql.SQL(sql_), params)
         return namedtuplefetchall(cursor)
-
-
-def get_instance_licenses() -> List[str]:
-    if settings.EE_AVAILABLE:
-        from ee.models import License
-
-        return [license.key for license in License.objects.all()]
-    else:
-        return []
