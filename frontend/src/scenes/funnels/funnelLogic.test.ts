@@ -49,7 +49,29 @@ describe('funnelLogic', () => {
                 results: [{ people: [] }],
             }
         } else if (url.pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/`) {
-            let data: Record<string, any>[] = [{ result: 'from api' }]
+            let data: Record<string, any>[] = [
+                {
+                    action_id: '$pageview',
+                    count: 19,
+                    name: '$pageview',
+                    order: 0,
+                    type: 'events',
+                },
+                {
+                    action_id: '$pageview',
+                    count: 7,
+                    name: '$pageview',
+                    order: 0,
+                    type: 'events',
+                },
+                {
+                    action_id: '$pageview',
+                    count: 4,
+                    name: '$pageview',
+                    order: 0,
+                    type: 'events',
+                },
+            ]
             const currentTestName = expect.getState().currentTestName
 
             if (currentTestName === 'funnelLogic loading data can load a funnel with no breakdown') {
@@ -1798,7 +1820,7 @@ describe('funnelLogic', () => {
                                 { id: '$pageview', order: 1 },
                             ],
                         },
-                        result: [{ result: 'from api' }],
+                        result: expect.arrayContaining([expect.objectContaining({ count: 19 })]),
                     }),
                     filters: {
                         insight: InsightType.FUNNELS,
@@ -2055,6 +2077,32 @@ describe('funnelLogic', () => {
         })
     })
 
+    describe('funnel correlation matrix', () => {
+        it('Selecting a record returns appropriate values', async () => {
+            await expectLogic(logic, () =>
+                logic.actions.setFunnelCorrelationDetails({
+                    event: { event: 'some event', elements: [], properties: {} },
+                    success_people_url: '',
+                    failure_people_url: '',
+                    success_count: 2,
+                    failure_count: 4,
+                    odds_ratio: 3,
+                    correlation_type: FunnelCorrelationType.Success,
+                    result_type: FunnelCorrelationResultsType.Events,
+                })
+            ).toMatchValues({
+                correlationMatrixAndScore: {
+                    correlationScore: expect.anything(),
+                    truePositive: 2,
+                    falsePositive: 2,
+                    trueNegative: 11,
+                    falseNegative: 4,
+                },
+            })
+
+            expect(logic.values.correlationMatrixAndScore.correlationScore).toBeCloseTo(0.204)
+        })
+    })
     describe('funnel correlation properties', () => {
         // NOTE: we need to, in some of these tests, explicitly push the
         // teamLogic to update the currentTeam, and also explicitly mount the

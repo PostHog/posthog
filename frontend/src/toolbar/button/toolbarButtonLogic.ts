@@ -86,7 +86,10 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
             },
         ],
         flagsPosition: [
-            { x: 140, y: 100 } as { x: number; y: number },
+            { x: 140, y: 100 } as {
+                x: number
+                y: number
+            },
             {
                 saveFlagsPosition: (_, { x, y }) => ({ x, y }),
             },

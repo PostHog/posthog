@@ -30,11 +30,14 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
                 value: item.name,
                 error: 'You must enter name',
                 success: async (name: string) => {
-                    item = await api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`, {
-                        name,
-                    })
-                    toast('Successfully renamed item')
-                    actions.renameDashboardItemSuccess(item)
+                    const updatedItem = await api.update(
+                        `api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`,
+                        {
+                            name,
+                        }
+                    )
+                    toast(`Successfully renamed insight from "${item.name}" to "${name}"`)
+                    actions.renameDashboardItemSuccess(updatedItem)
                 },
             })
         },

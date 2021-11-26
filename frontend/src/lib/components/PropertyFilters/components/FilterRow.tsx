@@ -11,7 +11,6 @@ import { PlusCircleOutlined } from '@ant-design/icons'
 import '../../../../scenes/actions/Actions.scss' // TODO: we should decouple this styling from this component sooner than later
 import './FilterRow.scss'
 import { Placement } from '@popperjs/core'
-import { ButtonType } from 'antd/lib/button'
 
 interface FilterRowProps {
     item: Record<string, any>
@@ -27,7 +26,6 @@ interface FilterRowProps {
     filterComponent: (onComplete: () => void) => JSX.Element
     label: string
     onRemove: (index: number) => void
-    addButtonType?: ButtonType
     greyBadges?: boolean
 }
 
@@ -45,7 +43,6 @@ export const FilterRow = React.memo(function FilterRow({
     label,
     onRemove,
     greyBadges,
-    addButtonType = 'link',
 }: FilterRowProps) {
     const [open, setOpen] = useState(false)
 
@@ -59,17 +56,7 @@ export const FilterRow = React.memo(function FilterRow({
     }
 
     return (
-        <Row
-            align="middle"
-            className="property-filter-row mt-05 mb-05"
-            data-attr={'property-filter-' + index}
-            style={{
-                width: '100%',
-                margin: '0.25rem 0',
-                padding: '0.25rem 0',
-            }}
-            wrap={false}
-        >
+        <Row align="middle" className="property-filter-row" data-attr={'property-filter-' + index} wrap={false}>
             {disablePopover ? (
                 <>
                     {filterComponent(() => setOpen(false))}
@@ -120,9 +107,10 @@ export const FilterRow = React.memo(function FilterRow({
                                             onClick={() => setOpen(!open)}
                                             className="new-prop-filter"
                                             data-attr={'new-prop-filter-' + pageKey}
-                                            type={addButtonType}
-                                            style={addButtonType === 'link' ? { paddingLeft: 0 } : undefined}
+                                            style={{ padding: '0 12px' }}
                                             icon={<PlusCircleOutlined />}
+                                            type="default"
+                                            shape="round"
                                         >
                                             {label}
                                         </Button>

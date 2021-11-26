@@ -7,6 +7,7 @@ import { getNextKey } from './utils'
 import { annotationsLogicType } from './annotationsLogicType'
 import { AnnotationScope, AnnotationType } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 interface AnnotationsLogicProps {
     insightId?: number
@@ -72,7 +73,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
                     date_marker: date_marker,
                     created_at: created_at.toISOString(),
                     updated_at: created_at.toISOString(),
-                    created_by: 'local',
+                    created_by: userLogic.values.user,
                     scope,
                 },
             ],
@@ -96,7 +97,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
                         date_marker: date_marker,
                         created_at: created_at.toISOString(),
                         updated_at: created_at.toISOString(),
-                        created_by: 'local',
+                        created_by: userLogic.values.user,
                         scope,
                     },
                 ],

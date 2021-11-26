@@ -2,7 +2,7 @@
 Scene to request a password reset email.
 */
 import { Col, Row, Form, Input, Button, Skeleton, Divider } from 'antd'
-import { ErrorMessage } from 'lib/components/ErrorMessage/ErrorMessage'
+import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
 import React from 'react'
 import { WelcomeLogo } from './WelcomeLogo'
 import { ExclamationCircleFilled, CheckCircleOutlined } from '@ant-design/icons'
@@ -92,9 +92,9 @@ function ResetForm(): JSX.Element {
                 Enter your email address. If an account exists, you’ll receive an email with a password reset link soon.
             </div>
             {!resetResponseLoading && resetResponse?.errorCode && (
-                <ErrorMessage style={{ marginBottom: 16 }}>
+                <InlineMessage style={{ marginBottom: 16 }} type="danger">
                     {resetResponse.errorDetail || 'Could not complete your password reset request. Please try again.'}
-                </ErrorMessage>
+                </InlineMessage>
             )}
             <Form
                 layout="vertical"

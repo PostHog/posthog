@@ -200,7 +200,6 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         key="propertName"
                         render={(_, record: FunnelCorrelation) => renderOddsRatioTextRecord(record)}
                         align="left"
-                        width="60%"
                     />
                     <Column
                         title={
@@ -241,6 +240,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         key="actions"
                         render={(_, record: FunnelCorrelation) => <CorrelationActionsCell record={record} />}
                         align="center"
+                        width={30}
                     />
                 </Table>
             </div>
@@ -251,7 +251,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
 const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
-    const { excludePropertyFromProject } = useActions(logic)
+    const { excludePropertyFromProject, setFunnelCorrelationDetails } = useActions(logic)
     const { isPropertyExcludedFromProject } = useValues(logic)
     const propertyName = (record.event.event || '').split('::')[0]
 
@@ -265,13 +265,17 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
                 onClickOutside={() => setPopoverOpen(false)}
                 overlay={
                     <>
+                        <LemonButton onClick={() => setFunnelCorrelationDetails(record)} fullWidth type="stealth">
+                            View correlation details
+                        </LemonButton>
                         <LemonButton
                             disabled={isPropertyExcludedFromProject(propertyName)}
                             onClick={() => excludePropertyFromProject(propertyName)}
                             fullWidth
                             title="Remove this property from any correlation analysis report in this project."
+                            type="stealth"
                         >
-                            Exclude event from project
+                            Exclude property from project
                         </LemonButton>
                     </>
                 }
