@@ -42,7 +42,7 @@ export function PropertyFilters({
     const { remove } = useActions(propertyFilterLogic(logicProps))
 
     return (
-        <div className="mb property-filters" style={style}>
+        <div className="property-filters" style={style}>
             <BindLogic logic={propertyFilterLogic} props={logicProps}>
                 {filters?.length &&
                     filters.map((item, index) => {
