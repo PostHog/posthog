@@ -4,8 +4,10 @@ from textwrap import indent
 from django.core.management.base import BaseCommand
 from infi.clickhouse_orm import Database  # type: ignore
 from infi.clickhouse_orm.migrations import MigrationHistory  # type: ignore
-from infi.clickhouse_orm.utils import import_submodules  # type: ignore
+from infi.clickhouse_orm.utils import import_submodules
+from pygments.lexer import default
 
+from posthog.models.special_migration import MigrationStatus, SpecialMigration  # type: ignore
 from posthog.settings import (
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_HTTP_URL,
@@ -13,6 +15,8 @@ from posthog.settings import (
     CLICKHOUSE_REPLICATION,
     CLICKHOUSE_USER,
 )
+from posthog.special_migrations.manager import ALL_SPECIAL_MIGRATIONS
+from posthog.special_migrations.runner import start_special_migration
 
 MIGRATIONS_PACKAGE_NAME = "ee.clickhouse.migrations"
 
@@ -33,6 +37,12 @@ class Command(BaseCommand):
             action="store_true",
             help="Only use with --plan. Also prints SQL for each migration to be applied.",
         )
+        parser.add_argument(
+            "--skip-special-migrations",
+            type=bool,
+            default=False,
+            help="Skip running special migrations on a fresh instance",
+        )
 
     def handle(self, *args, **options):
         self.migrate(CLICKHOUSE_HTTP_URL, options)
@@ -45,7 +55,6 @@ class Command(BaseCommand):
             password=CLICKHOUSE_PASSWORD,
             verify_ssl_cert=False,
         )
-
         if options["plan"]:
             print("List of clickhouse migrations to be applied:")
             migrations = list(self.get_migrations(database, options["upto"]))
@@ -71,14 +80,22 @@ class Command(BaseCommand):
                 )
             print("Migrations done")
         else:
+            is_fresh_instance = len(self.get_applied_migrations(database)) == 0
             database.migrate(MIGRATIONS_PACKAGE_NAME, options["upto"], replicated=CLICKHOUSE_REPLICATION)
+            if is_fresh_instance and not options["skip_special_migrations"]:
+                for migration_name in ALL_SPECIAL_MIGRATIONS:
+                    sm = SpecialMigration.objects.get_or_create(name=migration_name)
+                    if sm.status != MigrationStatus.CompletedSuccessfully:
+                        print("Applying special migration", migration_name)
+                        start_special_migration(migration_name)
+                        if sm.status != MigrationStatus.CompletedSuccessfully:
+                            print(f"Unable to complete special migration {migration_name} with error", sm.error)
+                            return
             print("Migration successful")
 
     def get_migrations(self, database, upto):
-        applied_migrations = database._get_applied_migrations(
-            MIGRATIONS_PACKAGE_NAME, replicated=CLICKHOUSE_REPLICATION
-        )
         modules = import_submodules(MIGRATIONS_PACKAGE_NAME)
+        applied_migrations = self.get_applied_migrations(database)
         unapplied_migrations = set(modules.keys()) - applied_migrations
 
         for migration_name in sorted(unapplied_migrations):
@@ -86,3 +103,6 @@ class Command(BaseCommand):
 
             if int(migration_name[:4]) >= upto:
                 break
+
+    def get_applied_migrations(self, database):
+        return database._get_applied_migrations(MIGRATIONS_PACKAGE_NAME, replicated=CLICKHOUSE_REPLICATION)

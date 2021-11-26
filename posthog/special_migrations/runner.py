@@ -61,7 +61,7 @@ def run_special_migration_next_op(migration_name, migration_instance=None):
         migration_instance.current_operation_index += 1
     except Exception as e:
         error = str(e)
-        process_error(migration_instance, error, False)
+        process_error(migration_instance, error)
 
     migration_instance.save()
 
@@ -98,7 +98,7 @@ def execute_op_postgres(sql, query_id):
         cursor.execute(f"/* {query_id} */" + sql)
 
 
-def process_error(migration_instance, error, save=True):
+def process_error(migration_instance, error):
     migration_instance.status = MigrationStatus.Errored
     migration_instance.error = error
     migration_instance.finished_at = datetime.now()
@@ -110,5 +110,4 @@ def process_error(migration_instance, error, save=True):
     except:
         pass
 
-    if save:
-        migration_instance.save()
+    migration_instance.save()
