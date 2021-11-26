@@ -1,5 +1,3 @@
-from typing import Dict, Optional
-
 from rest_framework import response, status
 
 from posthog.event_usage import report_user_action
