@@ -47,7 +47,6 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element {
         personsLogic(personsLogicProps)
     )
 
-    console.log('person', urlId)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const ids = (

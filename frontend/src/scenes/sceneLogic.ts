@@ -208,7 +208,6 @@ export const sceneLogic = kea<sceneLogicType>({
             }
         },
         openScene: ({ scene, params, method }) => {
-            console.log(scene, params)
             const sceneConfig = sceneConfigurations[scene] || {}
             const { user } = userLogic.values
             const { preflight } = preflightLogic.values
