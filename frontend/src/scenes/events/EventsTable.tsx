@@ -282,7 +282,7 @@ export function EventsTable({
     )
 
     return (
-        <div data-attr="manage-events-table" style={sceneIsEventsPage ? { paddingTop: 16 } : undefined}>
+        <div data-attr="manage-events-table">
             <div className="events" data-attr="events-table">
                 <EventPageHeader activeTab={EventsTab.Events} hideTabs={!sceneIsEventsPage} />
 
