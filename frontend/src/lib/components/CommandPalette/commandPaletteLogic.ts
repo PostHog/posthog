@@ -245,7 +245,7 @@ export const commandPaletteLogic = kea<
         setInput: async ({ input }, breakpoint) => {
             await breakpoint(300)
             if (input.length > 8) {
-                const response = await api.get('api/person/?key_identifier=' + input)
+                const response = await api.get('api/person/?key_identifier=' + encodeURIComponent(input))
                 const person = response.results[0]
                 if (person) {
                     actions.registerCommand({
