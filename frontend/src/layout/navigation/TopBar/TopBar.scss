@@ -95,6 +95,7 @@
     border: 1px solid var(--border-dark);
     color: var(--text-muted);
     user-select: none;
+    cursor: pointer;
     &:hover {
         background-color: var(--bg-shaded);
     }
