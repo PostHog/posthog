@@ -98,7 +98,9 @@ class ClickhouseActionsViewSet(ActionViewSet):
                 {"team_id": action.team_id, **params},
             )
         except CHQueryErrorCannotCompileRegexp:
-            raise ValidationError("Invalid filters for action count")
+            raise ValidationError(
+                "Invalid filters for action count. Check that your selectors and regexes are defined properly."
+            )
         return Response({"count": results[0][0]})
 
 

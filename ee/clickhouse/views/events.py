@@ -104,7 +104,9 @@ class ClickhouseEventsViewSet(EventViewSet):
         try:
             query_result = self._query_events_list(filter, team, request, limit=limit)
         except CHQueryErrorCannotCompileRegexp:
-            raise ValidationError("Invalid filter for events")
+            raise ValidationError(
+                "Invalid filter for events. Check that your selectors and regexes are defined properly."
+            )
 
         # Retry the query without the 1 day optimization
         if len(query_result) < limit and not request.GET.get("after"):
