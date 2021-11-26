@@ -56,6 +56,7 @@ export function CopyToClipboardInline({
         >
             <span style={iconPosition === 'start' ? { flexGrow: 1 } : {}}>{children}</span>
             <IconCopy
+                className="copy-icon"
                 onClick={!selectable ? undefined : copy}
                 style={{
                     [iconPosition === 'end' ? 'marginLeft' : 'marginRight']: 4,

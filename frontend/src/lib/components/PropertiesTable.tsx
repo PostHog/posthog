@@ -229,6 +229,7 @@ export function PropertiesTable({
                 columns={columns}
                 showHeader={false}
                 size="small"
+                rowKey="0"
                 embedded
                 dataSource={objectProperties}
                 className={className}
