@@ -21,6 +21,8 @@ def wrap_query_error(err: Exception) -> Exception:
 
     # :TRICKY: Return a custom class for every code by looking up the short name and creating a class dynamically.
     if hasattr(err, "code"):
+        # Most errors are generated dynamically, except the ones we want to
+        # catch elsewhere in code.
         if err.code == 427:
             return CHQueryErrorCannotCompileRegexp(err.message, code=err.code)
 
