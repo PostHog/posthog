@@ -571,7 +571,9 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                                         <div style={{ wordWrap: 'break-word' }}>
                                                             <PropertyKeyInfo value={step.name} />
                                                             {' • '}
-                                                            {breakdown.breakdown || 'Other'}
+                                                            {(Array.isArray(breakdown.breakdown)
+                                                                ? breakdown.breakdown.join(', ')
+                                                                : breakdown.breakdown) || 'Other'}
                                                         </div>
                                                     }
                                                     popoverMetrics={[

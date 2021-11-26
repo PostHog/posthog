@@ -100,7 +100,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
         # Once multi property breakdown is implemented in Trends this becomes unnecessary
 
         if isinstance(self._filter.breakdowns, List) and self._filter.breakdown_type in ["person", "event", None]:
-            data.update({"breakdown": [b.property for b in self._filter.breakdowns]})
+            data.update({"breakdown": [b.get("property") for b in self._filter.breakdowns]})
 
         if isinstance(self._filter.breakdown, str) and self._filter.breakdown_type in ["person", "event", None]:
             boxed_breakdown: List[Union[str, int]] = box_value(self._filter.breakdown)
