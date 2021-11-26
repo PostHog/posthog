@@ -9,6 +9,7 @@ import { EntityTypes } from '~/types'
 import './FunnelPeople.scss'
 import { Card } from 'antd'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { urls } from 'scenes/urls'
 
 export function People(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -57,9 +58,7 @@ export function People(): JSX.Element | null {
                         {peopleSorted.map((person) => (
                             <tr key={person.id} data-attr="funnel-person">
                                 <td className="text-overflow">
-                                    <Link to={`/person/${encodeURIComponent(person.distinct_ids[0])}`}>
-                                        {person.name}
-                                    </Link>
+                                    <Link to={urls.person(person.distinct_ids[0])}>{person.name}</Link>
                                 </td>
                                 {stepsWithCount.map((step, index) => (
                                     <td

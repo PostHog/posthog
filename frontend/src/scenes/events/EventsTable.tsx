@@ -93,7 +93,7 @@ export function EventsTable({
                 return { props: { colSpan: 0 } }
             }
             return showLinkToPerson && event.person?.distinct_ids?.length ? (
-                <Link to={`/person/${encodeURIComponent(event.person.distinct_ids[0])}`}>
+                <Link to={urls.person(event.person.distinct_ids[0])}>
                     <PersonHeader withIcon person={event.person} />
                 </Link>
             ) : (
