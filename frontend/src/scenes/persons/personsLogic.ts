@@ -26,6 +26,7 @@ interface Filters {
 export interface PersonLogicProps {
     cohort?: number | 'new' | 'personsModalNew'
     syncWithUrl?: boolean
+    urlId?: string
 }
 
 export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, PersonPaginatedResponse>>({

@@ -27,11 +27,11 @@ const { TabPane } = Tabs
 export const scene: SceneExport = {
     component: Person,
     logic: personsLogic,
-    paramsToProps: () => ({ syncWithUrl: true }),
+    paramsToProps: ({ params }) => ({ syncWithUrl: true, id: params._ }), // wildcard is stored in _
 }
 
 export function Person({ id: urlId }: { id?: string } = {}): JSX.Element {
-    const personsLogicProps: PersonLogicProps = { syncWithUrl: true }
+    const personsLogicProps: PersonLogicProps = { syncWithUrl: true, urlId }
     const [activeCardTab, setActiveCardTab] = useState('properties')
     const {
         person,
@@ -47,6 +47,7 @@ export function Person({ id: urlId }: { id?: string } = {}): JSX.Element {
         personsLogic(personsLogicProps)
     )
 
+    console.log('person', urlId)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const ids = (
