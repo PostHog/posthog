@@ -73,7 +73,7 @@ export function PersonsTable({
             rowKey="id"
             pagination={{
                 controlled: true,
-                pageSize: 100,
+                pageSize: 100, // From `posthog/api/person.py`
                 onForward: hasNext
                     ? () => {
                           loadNext?.()
@@ -97,6 +97,7 @@ export function PersonsTable({
                 },
             }}
             dataSource={people}
+            emptyState="No persons"
             nouns={['person', 'persons']}
             className="persons-table"
         />

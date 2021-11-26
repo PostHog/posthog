@@ -5,7 +5,7 @@ import { ProfilePicture } from '../ProfilePicture'
 import { LemonTableColumn } from './LemonTable'
 import { UserBasicType } from '~/types'
 
-export function createdAtColumn<T extends { created_at: string | null }>(): LemonTableColumn<T, 'created_at'> {
+export function createdAtColumn<T extends { created_at?: string | null }>(): LemonTableColumn<T, 'created_at'> {
     return {
         title: 'Created',
         dataIndex: 'created_at',
