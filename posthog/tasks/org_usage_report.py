@@ -135,8 +135,10 @@ def send_all_reports(
             }
             org_reports.append(report)  # type: ignore
         except Exception as err:
-            report_org_usage_failure(organization_id, distinct_id, str(err))
-        if not (dry_run or settings.TEST or settings.DEBUG):
+            logger.warning("Organization usage report calculation failed", err)
+            if not dry_run:
+                report_org_usage_failure(organization_id, distinct_id, str(err))
+        if not dry_run:
             report_org_usage(organization_id, distinct_id, report)
             time.sleep(0.25)
 
