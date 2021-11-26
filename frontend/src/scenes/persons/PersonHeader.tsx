@@ -29,7 +29,7 @@ export const asDisplay = (person: Partial<PersonType> | null | undefined): strin
 }
 
 export const asLink = (person: Partial<PersonType> | null | undefined): string | undefined =>
-    person?.distinct_ids?.length ? urls.person(person.distinct_ids[0]) : undefined
+    person?.distinct_ids?.length ? urls.person(encodeURIComponent(person.distinct_ids[0])) : undefined
 
 export function PersonHeader(props: PersonHeaderProps): JSX.Element {
     return (

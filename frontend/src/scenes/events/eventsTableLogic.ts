@@ -243,7 +243,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
 
     urlToAction: ({ actions, values, props }) => ({
         [props.sceneUrl]: (_: Record<string, any>, searchParams: Record<string, any>): void => {
-            console.log('search params: ', searchParams, props.sceneUrl)
             actions.setProperties(searchParams.properties || values.properties || {})
 
             if (searchParams.autoload) {
@@ -294,8 +293,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                     ...(values.eventFilter ? { event: values.eventFilter } : {}),
                     orderBy: [values.orderBy],
                 })
-                console.log('fetching events!')
-                console.log(urlParams)
                 let apiResponse = null
 
                 try {

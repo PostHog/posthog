@@ -58,7 +58,9 @@ export function People(): JSX.Element | null {
                         {peopleSorted.map((person) => (
                             <tr key={person.id} data-attr="funnel-person">
                                 <td className="text-overflow">
-                                    <Link to={urls.person(person.distinct_ids[0])}>{person.name}</Link>
+                                    <Link to={urls.person(encodeURIComponent(person.distinct_ids[0]))}>
+                                        {person.name}
+                                    </Link>
                                 </td>
                                 {stepsWithCount.map((step, index) => (
                                     <td

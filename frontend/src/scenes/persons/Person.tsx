@@ -30,7 +30,7 @@ export const scene: SceneExport = {
     paramsToProps: ({ params }) => ({ syncWithUrl: true, id: params._ }), // wildcard is stored in _
 }
 
-export function Person({ id: urlId }: { id?: string } = {}): JSX.Element {
+export function Person({ _: urlId }: { _?: string } = {}): JSX.Element {
     const personsLogicProps: PersonLogicProps = { syncWithUrl: true, urlId }
     const [activeCardTab, setActiveCardTab] = useState('properties')
     const {
