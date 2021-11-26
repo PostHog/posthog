@@ -83,7 +83,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             is_valid = properties_all_match(lambda prop: prop.type in ["person", "cohort"])
             if not is_valid:
                 raise serializers.ValidationError("Filters are not valid (can only use person and cohort properties)")
-        elif aggregation_group_type_index is not None:
+        else:
             is_valid = properties_all_match(
                 lambda prop: prop.type == "group" and prop.group_type_index == aggregation_group_type_index
             )

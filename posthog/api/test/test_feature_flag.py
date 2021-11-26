@@ -94,7 +94,8 @@ class TestFeatureFlag(APIBaseTest):
         ).json()
         self.assertFalse(feature_flag["is_simple_flag"])
 
-    def test_is_simple_flag_groups(self):
+    @patch("posthoganalytics.capture")
+    def test_is_simple_flag_groups(self, mock_capture):
         feature_flag = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             data={
@@ -105,6 +106,22 @@ class TestFeatureFlag(APIBaseTest):
             format="json",
         ).json()
         self.assertFalse(feature_flag["is_simple_flag"])
+        # Assert analytics are sent
+        instance = FeatureFlag.objects.get(id=feature_flag["id"])
+        mock_capture.assert_called_once_with(
+            self.user.distinct_id,
+            "feature flag created",
+            {
+                "groups_count": 1,
+                "has_variants": False,
+                "variants_count": 0,
+                "has_rollout_percentage": True,
+                "has_filters": False,
+                "filter_count": 0,
+                "created_at": instance.created_at,
+                "aggregating_by_groups": True,
+            },
+        )
 
     @patch("posthoganalytics.capture")
     def test_create_feature_flag(self, mock_capture):
@@ -130,6 +147,7 @@ class TestFeatureFlag(APIBaseTest):
                 "has_filters": False,
                 "filter_count": 0,
                 "created_at": instance.created_at,
+                "aggregating_by_groups": False,
             },
         )
 
@@ -158,6 +176,7 @@ class TestFeatureFlag(APIBaseTest):
                 "has_filters": False,
                 "filter_count": 0,
                 "created_at": instance.created_at,
+                "aggregating_by_groups": False,
             },
         )
 
@@ -198,6 +217,7 @@ class TestFeatureFlag(APIBaseTest):
                 "has_rollout_percentage": False,
                 "filter_count": 0,
                 "created_at": instance.created_at,
+                "aggregating_by_groups": False,
             },
         )
 
@@ -299,6 +319,7 @@ class TestFeatureFlag(APIBaseTest):
                 "has_filters": True,
                 "filter_count": 1,
                 "created_at": instance.created_at,
+                "aggregating_by_groups": False,
             },
         )
 
@@ -326,6 +347,7 @@ class TestFeatureFlag(APIBaseTest):
                 "has_filters": False,
                 "filter_count": 0,
                 "created_at": instance.created_at,
+                "aggregating_by_groups": False,
             },
         )
 
