@@ -62,6 +62,7 @@ class FeatureFlag(models.Model):
             "has_rollout_percentage": any(condition.get("rollout_percentage") for condition in self.conditions),
             "filter_count": filter_count,
             "created_at": self.created_at,
+            "aggregating_by_groups": self.aggregation_group_type_index is not None,
         }
 
     @property

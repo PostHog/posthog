@@ -13,6 +13,7 @@ from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthenticat
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import FeatureFlag
 from posthog.models.feature_flag import FeatureFlagOverride
+from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
 
@@ -67,6 +68,29 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             raise serializers.ValidationError("There is already a feature flag with this key.", code="unique")
 
         return value
+
+    def validate_filters(self, filters):
+        aggregation_group_type_index = filters.get("aggregation_group_type_index", None)
+
+        def properties_all_match(predicate):
+            return all(
+                predicate(Property(**property))
+                for condition in filters["groups"]
+                for property in condition.get("properties", [])
+            )
+
+        if aggregation_group_type_index is None:
+            is_valid = properties_all_match(lambda prop: prop.type in ["person", "cohort"])
+            if not is_valid:
+                raise serializers.ValidationError("Filters are not valid (can only use person and cohort properties)")
+        else:
+            is_valid = properties_all_match(
+                lambda prop: prop.type == "group" and prop.group_type_index == aggregation_group_type_index
+            )
+            if not is_valid:
+                raise serializers.ValidationError("Filters are not valid (can only use group properties)")
+
+        return filters
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
