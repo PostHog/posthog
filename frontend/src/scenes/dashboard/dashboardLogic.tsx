@@ -500,7 +500,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                             const { i, ...rest } = layout // eslint-disable-line
                             layouts[layoutKey] = rest
                         })
-                        return { short_id: item.short_id, layouts }
+                        return { id: item.id, layouts }
                     }) || [],
             })
         },
