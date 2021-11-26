@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { errorToast, toParams } from 'lib/utils'
+import { errorToast, successToast, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { eventsTableLogicType } from './eventsTableLogicType'
@@ -99,6 +99,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         setEventFilter: (event: string) => ({ event }),
         toggleAutomaticLoad: (automaticLoadEnabled: boolean) => ({ automaticLoadEnabled }),
         noop: (s) => s,
+        startDownload: true,
     },
 
     reducers: ({ props }) => ({
@@ -260,6 +261,10 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
     }),
 
     listeners: ({ actions, values, props }) => ({
+        startDownload: () => {
+            successToast('The export is starting', 'It should finish soon.')
+            window.location.href = values.exportUrl
+        },
         setProperties: () => actions.fetchEvents(),
         flipSort: () => actions.fetchEvents(),
         setEventFilter: () => actions.fetchEvents(),
