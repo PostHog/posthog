@@ -5,7 +5,6 @@ import { SitePopover } from './SitePopover'
 import { Announcement } from './Announcement'
 import { SearchBox } from './SearchBox'
 import { navigationLogic } from '../navigationLogic'
-import './index.scss'
 import { HelpButton } from '../../../lib/components/HelpButton/HelpButton'
 import { CommandPalette } from '../../../lib/components/CommandPalette'
 import { CreateOrganizationModal } from '../../../scenes/organization/CreateOrganizationModal'
@@ -13,6 +12,7 @@ import { BulkInviteModal } from '../../../scenes/organization/Settings/BulkInvit
 import { Link } from '../../../lib/components/Link'
 import { IconMenu, IconMenuOpen } from '../../../lib/components/icons'
 import { CreateProjectModal } from '../../../scenes/project/CreateProjectModal'
+import './TopBar.scss'
 
 export function TopBar(): JSX.Element {
     const {

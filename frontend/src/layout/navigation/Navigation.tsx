@@ -6,7 +6,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Breadcrumbs } from './Breadcrumbs/Breadcrumbs'
 import { DemoWarnings } from './DemoWarnings/DemoWarnings'
 import { SideBar } from './SideBar/SideBar'
-import { TopBar } from './TopBar'
+import { TopBar } from './TopBar/TopBar'
 
 export function Navigation({ children }: { children: any }): JSX.Element {
     const { sceneConfig } = useValues(sceneLogic)
