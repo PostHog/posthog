@@ -3,6 +3,7 @@
 .tz-label {
     border-bottom: 1px dotted $border_dark;
     cursor: default;
+    white-space: nowrap;
 }
 
 .tz-label-popover {
