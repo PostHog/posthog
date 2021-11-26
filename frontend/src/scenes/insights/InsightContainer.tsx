@@ -2,7 +2,7 @@ import { Card, Col, Row } from 'antd'
 import { InsightDisplayConfig } from 'scenes/insights/InsightTabs/InsightDisplayConfig'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { ComputationTimeWithRefresh } from 'scenes/insights/ComputationTimeWithRefresh'
-import { FunnelVizType, ItemMode, ViewType } from '~/types'
+import { FunnelVizType, InsightType, ItemMode } from '~/types'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { FunnelInsight } from 'scenes/insights/FunnelInsight'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
@@ -16,13 +16,12 @@ import { InsightsTable } from 'scenes/insights/InsightsTable'
 import React from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { annotationsLogic } from 'lib/components/Annotations'
-import { router } from 'kea-router'
 import {
-    ErrorMessage,
-    FunnelEmptyState,
-    FunnelInvalidExclusionFiltersEmptyState,
-    FunnelInvalidFiltersEmptyState,
-    TimeOut,
+    FunnelInvalidExclusionState,
+    FunnelSingleStepState,
+    InsightEmptyState,
+    InsightErrorState,
+    InsightTimeoutState,
 } from 'scenes/insights/EmptyStates'
 import { Loading } from 'lib/utils'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
@@ -33,24 +32,20 @@ import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { FunnelCorrelation } from './FunnelCorrelation'
 
 const VIEW_MAP = {
-    [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
-    [`${ViewType.STICKINESS}`]: <TrendInsight view={ViewType.STICKINESS} />,
-    [`${ViewType.LIFECYCLE}`]: <TrendInsight view={ViewType.LIFECYCLE} />,
-    [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
-    [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-    [`${ViewType.RETENTION}`]: <RetentionContainer />,
-    [`${ViewType.PATHS}`]: <Paths />,
+    [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
+    [`${InsightType.STICKINESS}`]: <TrendInsight view={InsightType.STICKINESS} />,
+    [`${InsightType.LIFECYCLE}`]: <TrendInsight view={InsightType.LIFECYCLE} />,
+    [`${InsightType.SESSIONS}`]: <TrendInsight view={InsightType.SESSIONS} />,
+    [`${InsightType.FUNNELS}`]: <FunnelInsight />,
+    [`${InsightType.RETENTION}`]: <RetentionContainer />,
+    [`${InsightType.PATHS}`]: <Paths />,
 }
 
 export function InsightContainer(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const {
-        hashParams: { fromItem },
-    } = useValues(router)
-    const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
-    const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
-    const {
+        insight,
         insightProps,
         lastRefresh,
         isLoading,
@@ -62,7 +57,11 @@ export function InsightContainer(): JSX.Element {
         showErrorMessage,
         insightLoading,
     } = useValues(insightLogic)
-    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
+    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
+        funnelLogic(insightProps)
+    )
+    const { clearAnnotationsToCreate } = useActions(annotationsLogic({ insightId: insight.id }))
+    const { annotationsToCreate } = useValues(annotationsLogic({ insightId: insight.id }))
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -70,24 +69,24 @@ export function InsightContainer(): JSX.Element {
             return <Loading />
         }
         // Insight specific empty states - note order is important here
-        if (loadedView === ViewType.FUNNELS) {
+        if (loadedView === InsightType.FUNNELS) {
             if (!areFiltersValid) {
-                return <FunnelInvalidFiltersEmptyState />
+                return <FunnelSingleStepState />
             }
             if (!areExclusionFiltersValid) {
-                return <FunnelInvalidExclusionFiltersEmptyState />
+                return <FunnelInvalidExclusionState />
             }
             if (!isValidFunnel && !(insightLoading || isLoading)) {
-                return <FunnelEmptyState />
+                return <InsightEmptyState />
             }
         }
 
         // Insight agnostic empty states
         if (showErrorMessage) {
-            return <ErrorMessage />
+            return <InsightErrorState />
         }
         if (showTimeoutMessage) {
-            return <TimeOut isLoading={isLoading} />
+            return <InsightTimeoutState isLoading={isLoading} />
         }
 
         return null
@@ -107,7 +106,7 @@ export function InsightContainer(): JSX.Element {
             !showErrorMessage &&
             !showTimeoutMessage &&
             areFiltersValid &&
-            activeView === ViewType.FUNNELS &&
+            activeView === InsightType.FUNNELS &&
             filters?.display === FUNNEL_VIZ
         ) {
             return <People />
@@ -115,7 +114,7 @@ export function InsightContainer(): JSX.Element {
 
         if (
             preflight?.is_clickhouse_enabled &&
-            activeView === ViewType.FUNNELS &&
+            activeView === InsightType.FUNNELS &&
             !showErrorMessage &&
             !showTimeoutMessage &&
             areFiltersValid &&
@@ -127,7 +126,7 @@ export function InsightContainer(): JSX.Element {
         if (
             (!filters.display ||
                 (filters?.display !== ACTIONS_TABLE && filters?.display !== ACTIONS_BAR_CHART_VALUE)) &&
-            (activeView === ViewType.TRENDS || activeView === ViewType.SESSIONS)
+            (activeView === InsightType.TRENDS || activeView === InsightType.SESSIONS)
         ) {
             /* InsightsTable is loaded for all trend views (except below), plus the sessions view.
     Exclusions:
@@ -139,9 +138,9 @@ export function InsightContainer(): JSX.Element {
                     <BindLogic logic={trendsLogic} props={insightProps}>
                         <h3 className="l3">Details table</h3>
                         <InsightsTable
-                            showTotalCount={activeView !== ViewType.SESSIONS}
-                            filterKey={activeView === ViewType.TRENDS ? `trends_${activeView}` : ''}
-                            canEditSeriesNameInline={activeView === ViewType.TRENDS && insightMode === ItemMode.Edit}
+                            showTotalCount={activeView !== InsightType.SESSIONS}
+                            filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
+                            canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}
                         />
                     </BindLogic>
                 </Card>
@@ -157,7 +156,7 @@ export function InsightContainer(): JSX.Element {
             <Card
                 title={
                     <InsightDisplayConfig
-                        activeView={activeView as ViewType}
+                        activeView={activeView as InsightType}
                         insightMode={insightMode}
                         filters={filters}
                         annotationsToCreate={annotationsToCreate}
@@ -165,21 +164,15 @@ export function InsightContainer(): JSX.Element {
                     />
                 }
                 data-attr="insights-graph"
-                className={clsx('insights-graph-container', {
-                    funnels: activeView === ViewType.FUNNELS,
-                })}
+                className="insights-graph-container"
             >
                 <div>
                     <Row
                         className={clsx('insights-graph-header', {
-                            funnels: activeView === ViewType.FUNNELS,
+                            funnels: activeView === InsightType.FUNNELS,
                         })}
                         align="middle"
                         justify="space-between"
-                        style={{
-                            marginTop: -8,
-                            marginBottom: 16,
-                        }}
                     >
                         <Col>
                             <FunnelCanvasLabel />
@@ -188,18 +181,12 @@ export function InsightContainer(): JSX.Element {
                         {lastRefresh && <ComputationTimeWithRefresh />}
                     </Row>
                     {!BlockingEmptyState && CoexistingEmptyState}
-                    <div style={{ display: 'block' }}>
-                        {!!BlockingEmptyState ? BlockingEmptyState : VIEW_MAP[activeView]}
-                    </div>
+                    {!!BlockingEmptyState ? BlockingEmptyState : VIEW_MAP[activeView]}
                 </div>
             </Card>
             {renderTable()}
 
-            {preflight?.is_clickhouse_enabled &&
-            activeView === ViewType.FUNNELS &&
-            featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] ? (
-                <FunnelCorrelation />
-            ) : null}
+            {correlationAnalysisAvailable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>
     )
 }

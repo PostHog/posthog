@@ -1,5 +1,4 @@
-import copy
-from typing import Any, Dict, List, Type
+from typing import Any, Dict, Type
 
 from django.core.cache import cache
 from django.db.models import QuerySet
@@ -13,7 +12,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import format_next_url
+from posthog.api.utils import format_paginated_url
 from posthog.celery import update_cache_item_task
 from posthog.constants import (
     FROM_DASHBOARD,
@@ -24,6 +23,7 @@ from posthog.constants import (
     TRENDS_STICKINESS,
 )
 from posthog.decorators import CacheType, cached_function
+from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.models import Event, Filter, Insight, Team
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
@@ -141,8 +141,10 @@ class InsightSerializer(InsightBasicSerializer):
         result = self.get_result(insight)
         if result is not None:
             return insight.last_refresh
-        insight.last_refresh = None
-        insight.save()
+        if insight.last_refresh is not None:
+            # Update last_refresh without updating "updated_at" (insight edit date)
+            Insight.objects.filter(pk=insight.pk).update(last_refresh=None)
+            insight.refresh_from_db()
         return None
 
     def to_representation(self, instance: Insight):
@@ -159,6 +161,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     filterset_fields = ["short_id", "created_by"]
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
+
         if (self.action == "list" or self.action == "retrieve") and str_to_bool(
             self.request.query_params.get("basic", "0"),
         ):
@@ -234,7 +237,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def trend(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         result = self.calculate_trends(request)
         filter = Filter(request=request, team=self.team)
-        next = format_next_url(request, filter.offset, 20) if len(result["result"]) > 20 else None
+        next = format_paginated_url(request, filter.offset, 20) if len(result["result"]) > 20 else None
         return Response({**result, "next": next})
 
     @cached_function
@@ -284,43 +287,9 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         funnel = self.calculate_funnel(request)
 
-        funnel["result"] = self.protect_old_clients_from_multi_property_default(request.data, funnel["result"])
+        funnel["result"] = protect_old_clients_from_multi_property_default(request.data, funnel["result"])
 
         return Response(funnel)
-
-    @staticmethod
-    def protect_old_clients_from_multi_property_default(
-        data: Dict[str, Any], result: List[List[Dict[str, Any]]]
-    ) -> List[List[Dict[str, Any]]]:
-        """
-        Implementing multi property breakdown will default breakdown to a list even if it is received as a string.
-        This is a breaking change for clients.
-        Clients which do not have multi property breakdown enabled will send a single breakdown as a string
-        This method checks if the request has come in that format and "unboxes" the list
-        to avoid breaking that client
-        :param data: the data in the request
-        :param result: the query result which may contain an unwanted array breakdown
-        :return:
-        """
-        is_single_property_breakdown = (
-            "insight" in data
-            and data["insight"] == "FUNNELS"
-            and "breakdown_type" in data
-            and data["breakdown_type"] in ["person", "event"]
-            and "breakdown" in data
-            and isinstance(data["breakdown"], str)
-        )
-        if is_single_property_breakdown:
-            copied_result = copy.deepcopy(result)
-            for series_index, series in enumerate(result):
-                for data_index, data in enumerate(series):
-                    if isinstance(data["breakdown"], List):
-                        copied_result[series_index][data_index]["breakdown"] = data["breakdown"][0]
-                    if isinstance(data["breakdown_value"], List):
-                        copied_result[series_index][data_index]["breakdown_value"] = data["breakdown_value"][0]
-            return copied_result
-        else:
-            return result
 
     @cached_function
     def calculate_funnel(self, request: request.Request) -> Dict[str, Any]:
@@ -328,7 +297,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         refresh = should_refresh(request)
 
         filter = Filter(request=request, data={**request.data, "insight": INSIGHT_FUNNELS})
-        cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), team.pk))
+        cache_key = generate_cache_key(f"{filter.toJSON()}_{team.pk}")
         result = {"loading": True}
 
         if refresh:
@@ -369,7 +338,8 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if not request.GET.get("date_from"):
             data.update({"date_from": "-11d"})
         filter = RetentionFilter(data=data, request=request)
-        result = retention.Retention().run(filter, team)
+        base_uri = request.build_absolute_uri("/")
+        result = retention.Retention(base_uri=base_uri).run(filter, team)
         return {"result": result}
 
     # ******************************************

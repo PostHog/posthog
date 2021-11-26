@@ -2,7 +2,7 @@ import React from 'react'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
-import { eventToName } from 'lib/utils'
+import { autoCaptureEventToDescription } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { ActionStepType, ActionStepUrlMatching, ActionType, ElementType, EventType, TeamType } from '../../types'
 
@@ -55,7 +55,7 @@ export async function createActionFromEvent(
         ],
     }
     if (event.event === '$autocapture') {
-        actionData.name = eventToName(event)
+        actionData.name = autoCaptureEventToDescription(event)
     } else if (event.event === '$pageview') {
         actionData.name = `Pageview on ${new URL(event.properties.$current_url).pathname}`
     } else {

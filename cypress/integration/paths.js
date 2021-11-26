@@ -1,6 +1,8 @@
+import { urls } from 'scenes/urls'
+
 describe('Paths', () => {
     beforeEach(() => {
-        cy.visit('/insights/new')
+        cy.visit(urls.insightNew())
         cy.get('[data-attr=insight-path-tab]').click()
     })
 
@@ -13,5 +15,11 @@ describe('Paths', () => {
         cy.contains('Last 30 days').click()
 
         cy.get('[data-attr=paths-viz]').should('exist')
+    })
+
+    it('can save paths', () => {
+        cy.get('[data-attr="insight-edit-button"]').should('not.exist')
+        cy.get('[data-attr="insight-save-button"]').click()
+        cy.get('[data-attr="insight-edit-button"]').should('exist')
     })
 })

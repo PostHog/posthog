@@ -14,7 +14,6 @@ import {
     GlobalHotKeys,
     EntityType,
     DashboardItemType,
-    ViewType,
     InsightType,
     PropertyFilter,
     HelpType,
@@ -73,7 +72,6 @@ interface RecordingViewedProps {
     end_time?: number // End timestamp of the session
     page_change_events_length: number
     recording_width?: number
-    user_is_identified?: boolean
     source: RecordingWatchedSource
 }
 
@@ -261,7 +259,6 @@ export const eventUsageLogic = kea<
         reportCreatedDashboardFromModal: true,
         reportSavedInsightToDashboard: true,
         reportInsightsTabReset: true,
-        reportInsightsControlsCollapseToggle: (collapsed: boolean) => ({ collapsed }),
         reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
         reportInsightShortUrlVisited: (valid: boolean, insight: InsightType | null) => ({ valid, insight }),
         reportSavedInsightTabChanged: (tab: string) => ({ tab }),
@@ -279,6 +276,7 @@ export const eventUsageLogic = kea<
             type: SessionRecordingUsageType,
             delay?: number
         ) => ({ recordingData, source, loadTime, type, delay }),
+        reportRecordingScrollTo: (rowIndex: number) => ({ rowIndex }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
         reportCorrelationViewed: (filters: Partial<FilterType>, delay?: number, propertiesTable?: boolean) => ({
@@ -311,10 +309,7 @@ export const eventUsageLogic = kea<
                     content_length: annotation.content.length,
                     scope: annotation.scope,
                     deleted: annotation.deleted,
-                    created_by_me:
-                        annotation.created_by &&
-                        annotation.created_by !== 'local' &&
-                        annotation.created_by?.uuid === userLogic.values.user?.uuid,
+                    created_by_me: annotation.created_by && annotation.created_by?.uuid === userLogic.values.user?.uuid,
                     creation_type: annotation.creation_type,
                     created_at: annotation.created_at,
                     updated_at: annotation.updated_at,
@@ -344,7 +339,6 @@ export const eventUsageLogic = kea<
 
             const properties = {
                 properties_count: Object.keys(person.properties).length,
-                is_identified: person.is_identified,
                 has_email: !!person.properties.email,
                 has_name: !!person.properties.name,
                 custom_properties_count,
@@ -442,7 +436,7 @@ export const eventUsageLogic = kea<
             }
 
             for (const item of dashboard.items) {
-                const key = `${item.filters?.insight?.toLowerCase() || ViewType.TRENDS}_count`
+                const key = `${item.filters?.insight?.toLowerCase() || InsightType.TRENDS}_count`
                 if (!properties[key]) {
                     properties[key] = 1
                 } else {
@@ -625,9 +619,6 @@ export const eventUsageLogic = kea<
         reportInsightsTabReset: async () => {
             posthog.capture('insights tab reset')
         },
-        reportInsightsControlsCollapseToggle: async (payload) => {
-            posthog.capture('insight controls collapse toggled', payload)
-        },
         reportInsightsTableCalcToggled: async (payload) => {
             posthog.capture('insights table calc toggled', payload)
         },
@@ -656,13 +647,15 @@ export const eventUsageLogic = kea<
                 end_time: recordingData?.session_recording?.end_time,
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingMetadata(0)[0]?.width,
-                user_is_identified: recordingData.person?.is_identified,
                 source: source,
             }
             posthog.capture(`recording ${type}`, payload)
         },
         reportRecordingEventsFetched: ({ numEvents, loadTime }) => {
             posthog.capture(`recording events fetched`, { num_events: numEvents, load_time: loadTime })
+        },
+        reportRecordingScrollTo: ({ rowIndex }) => {
+            posthog.capture(`recording event list scrolled to row index ${rowIndex ?? -1}`)
         },
         reportPayGateShown: (props) => {
             posthog.capture('pay gate shown', props)

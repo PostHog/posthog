@@ -22,7 +22,7 @@ export const SortableActionFilterRow = sortableElement(
         const dragHandleVisible = filterCount > 1
         return (
             <div className={`draggable-action-filter ${dragHandleVisible ? 'drag-handle-visible' : ''}`}>
-                {dragHandleVisible && <DragHandle />}
+                {dragHandleVisible ? <DragHandle /> : <span style={{ marginLeft: 4 }} />}
                 <ActionFilterRow {...props} filterCount={filterCount} index={filterIndex} key={filterIndex} />
             </div>
         )

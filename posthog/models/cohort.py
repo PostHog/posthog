@@ -125,7 +125,7 @@ class Cohort(models.Model):
                     {UPDATE_QUERY};
                 """.format(
                     cohort_id=self.pk,
-                    values_query=sql.replace('FROM "posthog_person"', ', {} FROM "posthog_person"'.format(self.pk), 1,),
+                    values_query=sql.replace('FROM "posthog_person"', f', {self.pk} FROM "posthog_person"', 1,),
                 )
 
             cursor = connection.cursor()
@@ -183,7 +183,7 @@ class Cohort(models.Model):
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
                 query = UPDATE_QUERY.format(
                     cohort_id=self.pk,
-                    values_query=sql.replace('FROM "posthog_person"', ', {} FROM "posthog_person"'.format(self.pk), 1,),
+                    values_query=sql.replace('FROM "posthog_person"', f', {self.pk} FROM "posthog_person"', 1,),
                 )
                 cursor.execute(query, params)
             self.is_calculating = False
@@ -210,7 +210,7 @@ class Cohort(models.Model):
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
                 query = UPDATE_QUERY.format(
                     cohort_id=self.pk,
-                    values_query=sql.replace('FROM "posthog_person"', ', {} FROM "posthog_person"'.format(self.pk), 1,),
+                    values_query=sql.replace('FROM "posthog_person"', f', {self.pk} FROM "posthog_person"', 1,),
                 )
                 cursor.execute(query, params)
 
@@ -264,7 +264,7 @@ class Cohort(models.Model):
                 filters |= Q(persondistinctid__distinct_id__in=events)
             elif group.get("properties"):
                 filter = Filter(data=group)
-                filters |= Q(properties_to_Q(filter.properties, team_id=self.team_id, is_person_query=True))
+                filters |= Q(properties_to_Q(filter.properties, team_id=self.team_id, is_direct_query=True))
         return filters
 
     __repr__ = sane_repr("id", "name", "last_calculation")

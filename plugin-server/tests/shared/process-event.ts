@@ -1,18 +1,36 @@
+import { Properties } from '@posthog/plugin-scaffold'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 import { performance } from 'perf_hooks'
 
-import { Database, Event, Hub, LogLevel, Person, PluginsServerConfig, Team } from '../../src/types'
+import {
+    Database,
+    Event,
+    Hub,
+    LogLevel,
+    Person,
+    PluginsServerConfig,
+    PropertyUpdateOperation,
+    Team,
+} from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { hashElements } from '../../src/utils/db/utils'
 import { posthog } from '../../src/utils/posthog'
 import { delay, UUIDT } from '../../src/utils/utils'
 import { ingestEvent } from '../../src/worker/ingestion/ingest-event'
 import { EventProcessingResult, EventsProcessor } from '../../src/worker/ingestion/process-event'
-import { createUserTeamAndOrganization, getFirstTeam, getTeams, onQuery, resetTestDatabase } from '../helpers/sql'
+import { updatePersonProperties } from '../../src/worker/ingestion/properties-updater'
+import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
+jest.mock('../../src/worker/ingestion/properties-updater', () => {
+    const original = jest.requireActual('../../src/worker/ingestion/properties-updater')
+    return {
+        ...original,
+        updatePersonProperties: jest.fn(original.updatePersonProperties),
+    }
+})
 jest.setTimeout(600000) // 600 sec timeout.
 
 export async function delayUntilEventIngested(
@@ -45,7 +63,16 @@ export async function createPerson(
     distinctIds: string[],
     properties: Record<string, any> = {}
 ): Promise<Person> {
-    return server.db.createPerson(DateTime.utc(), properties, team.id, null, false, new UUIDT().toString(), distinctIds)
+    return server.db.createPerson(
+        DateTime.utc(),
+        properties,
+        {},
+        team.id,
+        null,
+        false,
+        new UUIDT().toString(),
+        distinctIds
+    )
 }
 
 export type ReturnWithHub = { hub?: Hub; closeHub?: () => Promise<void> }
@@ -75,10 +102,10 @@ export const getEventsByPerson = async (hub: Hub): Promise<EventsByPerson[]> => 
 
 export const createProcessEventTests = (
     database: 'postgresql' | 'clickhouse',
+    includeNewPropertiesUpdatesTests: boolean,
     extraServerConfig?: Partial<PluginsServerConfig>,
     createTests?: (response: ReturnWithHub) => void
 ): ReturnWithHub => {
-    let queryCounter = 0
     let processEventCounter = 0
     let mockClientEventCounter = 0
     let team: Team
@@ -101,8 +128,6 @@ export const createProcessEventTests = (
 
         await redis.del(hub.PLUGINS_CELERY_QUEUE)
         await redis.del(hub.CELERY_DEFAULT_QUEUE)
-
-        onQuery(hub, () => queryCounter++)
 
         return [hub, closeHub]
     }
@@ -136,7 +161,6 @@ export const createProcessEventTests = (
         returned.hub = hub
         returned.closeHub = closeHub
         eventsProcessor = new EventsProcessor(hub)
-        queryCounter = 0
         processEventCounter = 0
         mockClientEventCounter = 0
         team = await getFirstTeam(hub)
@@ -283,6 +307,14 @@ export const createProcessEventTests = (
     })
 
     test('capture new person', async () => {
+        // Based on gating only one function should be used
+        const personUpdateFnSpy = includeNewPropertiesUpdatesTests
+            ? updatePersonProperties
+            : jest.spyOn(hub.db, 'updatePerson')
+        const personUpdateFnShouldntbeUsedSpy = !includeNewPropertiesUpdatesTests
+            ? updatePersonProperties
+            : jest.spyOn(hub.db, 'updatePerson')
+
         await hub.db.postgresQuery(
             `UPDATE posthog_team
              SET ingested_event = $1
@@ -324,16 +356,11 @@ export const createProcessEventTests = (
             new UUIDT().toString()
         )
 
-        // TODO: Make this test actually useful and not flaky
-        if (database === 'clickhouse') {
-            expect(queryCounter).toBe(11 + 14 /* event & prop definitions */)
-        } else if (database === 'postgresql') {
-            expect(queryCounter).toBe(14 + 14 /* event & prop definitions */)
-        }
-
+        expect(personUpdateFnSpy).not.toHaveBeenCalled()
         let persons = await hub.db.fetchPersons()
         let events = await hub.db.fetchEvents()
-        expect(persons[0].properties).toEqual({
+        expect(persons[0].version).toEqual(0)
+        let expectedProps = {
             $initial_browser: 'Chrome',
             $initial_browser_version: false,
             $initial_utm_medium: 'twitter',
@@ -342,7 +369,14 @@ export const createProcessEventTests = (
             utm_medium: 'twitter',
             $initial_gclid: 'GOOGLE ADS ID',
             gclid: 'GOOGLE ADS ID',
-        })
+        }
+        expect(persons[0].properties).toEqual(expectedProps)
+        if (database === 'clickhouse') {
+            await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 1)
+            const chPeople = await hub.db.fetchPersons(Database.ClickHouse)
+            expect(chPeople.length).toEqual(1)
+            expect(JSON.parse(chPeople[0].properties)).toEqual(expectedProps)
+        }
         expect(events[0].properties).toEqual({
             $ip: '127.0.0.1',
             $os: 'Mac OS X',
@@ -393,11 +427,13 @@ export const createProcessEventTests = (
             new UUIDT().toString()
         )
 
+        expect(personUpdateFnSpy).toHaveBeenCalledTimes(1)
         events = await hub.db.fetchEvents()
         persons = await hub.db.fetchPersons()
         expect(events.length).toEqual(2)
         expect(persons.length).toEqual(1)
-        expect(persons[0].properties).toEqual({
+        expect(persons[0].version).toEqual(1)
+        expectedProps = {
             $initial_browser: 'Chrome',
             $initial_browser_version: false,
             $initial_utm_medium: 'twitter',
@@ -406,7 +442,14 @@ export const createProcessEventTests = (
             utm_medium: 'instagram',
             $initial_gclid: 'GOOGLE ADS ID',
             gclid: 'GOOGLE ADS ID',
-        })
+        }
+        expect(persons[0].properties).toEqual(expectedProps)
+        if (database === 'clickhouse') {
+            await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 2)
+            const chPeople = await hub.db.fetchPersons(Database.ClickHouse)
+            expect(chPeople.length).toEqual(1)
+            expect(JSON.parse(chPeople[0].properties)).toEqual(expectedProps)
+        }
         expect(events[1].properties.$set).toEqual({
             utm_medium: 'instagram',
         })
@@ -463,7 +506,18 @@ export const createProcessEventTests = (
             new UUIDT().toString()
         )
 
+        expect(personUpdateFnShouldntbeUsedSpy).not.toHaveBeenCalled()
         events = await hub.db.fetchEvents()
+        persons = await hub.db.fetchPersons()
+        expect(events.length).toEqual(3)
+        expect(persons.length).toEqual(1)
+
+        // no new props, person wasn't updated with old fn, was because of timestamps update with new fn
+        if (includeNewPropertiesUpdatesTests) {
+            expect(persons[0].version).toEqual(2)
+        } else {
+            expect(persons[0].version).toEqual(1)
+        }
 
         expect(events[2].properties.$set).toEqual({
             utm_medium: 'instagram',
@@ -473,6 +527,13 @@ export const createProcessEventTests = (
             $initial_utm_medium: 'instagram',
             $initial_current_url: 'https://test.com/pricing',
         })
+        // check that person properties didn't change
+        expect(persons[0].properties).toEqual(expectedProps)
+        if (database === 'clickhouse') {
+            const chPeople = await hub.db.fetchPersons(Database.ClickHouse)
+            expect(chPeople.length).toEqual(1)
+            expect(JSON.parse(chPeople[0].properties)).toEqual(expectedProps)
+        }
 
         team = await getFirstTeam(hub)
 
@@ -1102,6 +1163,11 @@ export const createProcessEventTests = (
         expect(posthog.identify).toHaveBeenCalledWith('plugin_test_user_distinct_id_1001')
         expect(posthog.capture).toHaveBeenCalledWith('first team event ingested', {
             team: team.uuid,
+            $groups: {
+                project: team.uuid,
+                organization: team.organization_id,
+                instance: 'unknown',
+            },
         })
 
         team = await getFirstTeam(hub)
@@ -1165,6 +1231,8 @@ export const createProcessEventTests = (
 
     test('identify set', async () => {
         await createPerson(hub, team, ['distinct_id1'])
+        const ts_before = now
+        const ts_after = now.plus({ hours: 1 })
 
         await processEvent(
             'distinct_id1',
@@ -1179,8 +1247,8 @@ export const createProcessEventTests = (
                 },
             } as any as PluginEvent,
             team.id,
-            now,
-            now,
+            ts_before,
+            ts_before,
             new UUIDT().toString()
         )
 
@@ -1207,8 +1275,8 @@ export const createProcessEventTests = (
                 },
             } as any as PluginEvent,
             team.id,
-            now,
-            now,
+            ts_after,
+            ts_after,
             new UUIDT().toString()
         )
         expect((await hub.db.fetchEvents()).length).toBe(2)
@@ -2137,19 +2205,237 @@ export const createProcessEventTests = (
             )
 
             expect((await hub.db.fetchEvents()).length).toBe(1)
-            await delayUntilEventIngested(() => hub.db.fetchGroups(), 1)
+            await delayUntilEventIngested(() => hub.db.fetchClickhouseGroups(), 1)
 
-            const [group] = await hub.db.fetchGroups()
-
-            expect(group).toEqual({
+            const [clickhouseGroup] = await hub.db.fetchClickhouseGroups()
+            expect(clickhouseGroup).toEqual({
                 group_key: 'org::5',
                 group_properties: JSON.stringify({ foo: 'bar' }),
                 group_type_index: 0,
-                team_id: 2,
+                team_id: team.id,
                 created_at: expect.any(String),
+            })
+
+            const group = await hub.db.fetchGroup(team.id, 0, 'org::5')
+            expect(group).toEqual({
+                id: expect.any(Number),
+                team_id: team.id,
+                group_type_index: 0,
+                group_key: 'org::5',
+                group_properties: { foo: 'bar' },
+                created_at: now,
+                properties_last_updated_at: { foo: now.toISO() },
+                properties_last_operation: { foo: PropertyUpdateOperation.Set },
+                version: 1,
+            })
+        })
+
+        test('$groupidentify updating properties', async () => {
+            const next: DateTime = now.plus({ minutes: 1 })
+
+            await createPerson(hub, team, ['distinct_id1'])
+            await hub.db.insertGroup(
+                team.id,
+                0,
+                'org::5',
+                { a: 1, b: 2 },
+                now,
+                { a: now.toISO(), b: now.toISO() },
+                { a: PropertyUpdateOperation.Set, b: PropertyUpdateOperation.Set },
+                1
+            )
+
+            await processEvent(
+                'distinct_id1',
+                '',
+                '',
+                {
+                    event: '$groupidentify',
+                    properties: {
+                        token: team.api_token,
+                        distinct_id: 'distinct_id1',
+                        $group_type: 'organization',
+                        $group_key: 'org::5',
+                        $group_set: {
+                            foo: 'bar',
+                            a: 3,
+                        },
+                    },
+                } as any as PluginEvent,
+                team.id,
+                next,
+                next,
+                new UUIDT().toString()
+            )
+
+            expect((await hub.db.fetchEvents()).length).toBe(1)
+            await delayUntilEventIngested(() => hub.db.fetchClickhouseGroups(), 1)
+
+            const [clickhouseGroup] = await hub.db.fetchClickhouseGroups()
+            expect(clickhouseGroup).toEqual({
+                group_key: 'org::5',
+                group_properties: JSON.stringify({ a: 3, b: 2, foo: 'bar' }),
+                group_type_index: 0,
+                team_id: team.id,
+                created_at: expect.any(String),
+            })
+
+            const group = await hub.db.fetchGroup(team.id, 0, 'org::5')
+            expect(group).toEqual({
+                id: expect.any(Number),
+                team_id: team.id,
+                group_type_index: 0,
+                group_key: 'org::5',
+                group_properties: { a: 3, b: 2, foo: 'bar' },
+                created_at: now,
+                properties_last_updated_at: { a: next.toISO(), b: now.toISO(), foo: next.toISO() },
+                properties_last_operation: {
+                    a: PropertyUpdateOperation.Set,
+                    b: PropertyUpdateOperation.Set,
+                    foo: PropertyUpdateOperation.Set,
+                },
+                version: 2,
             })
         })
     }
+
+    test('set and set_once on the same key', async () => {
+        await createPerson(hub, team, ['distinct_id1'])
+
+        await processEvent(
+            'distinct_id1',
+            '',
+            '',
+            {
+                event: 'some_event',
+                properties: {
+                    token: team.api_token,
+                    distinct_id: 'distinct_id1',
+                    $set: { a_prop: 'test-set' },
+                    $set_once: { a_prop: 'test-set_once' },
+                },
+            } as any as PluginEvent,
+            team.id,
+            now,
+            now,
+            new UUIDT().toString()
+        )
+        expect((await hub.db.fetchEvents()).length).toBe(1)
+
+        const [event] = await hub.db.fetchEvents()
+        expect(event.properties['$set']).toEqual({ a_prop: 'test-set' })
+        expect(event.properties['$set_once']).toEqual({ a_prop: 'test-set_once' })
+
+        const [person] = await hub.db.fetchPersons()
+        expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
+        expect(person.properties).toEqual({ a_prop: 'test-set' })
+    })
+
+    describe('ingestion in any order', () => {
+        const ts0: DateTime = now
+        const ts1: DateTime = now.plus({ minutes: 1 })
+        const ts2: DateTime = now.plus({ minutes: 2 })
+        const ts3: DateTime = now.plus({ minutes: 3 })
+        // key encodes when the value is updated, e.g. s0 means only set call for the 0th event
+        // s03o23 means via a set in events number 0 and 3 plus via set_once on 2nd and 3rd event
+        // the value corresponds to which call updated it + random letter (same letter for the same key)
+        // the letter is for verifying we update the right key only
+        const set0: Properties = { s0123o0123: 's0a', s02o13: 's0b', s013: 's0e' }
+        const setOnce0: Properties = { s0123o0123: 'o0a', s13o02: 'o0g', o023: 'o0f' }
+        const set1: Properties = { s0123o0123: 's1a', s13o02: 's1g', s1: 's1c', s013: 's1e' }
+        const setOnce1: Properties = { s0123o0123: 'o1a', s02o13: 'o1b', o1: 'o1d' }
+        const set2: Properties = { s0123o0123: 's2a', s02o13: 's2b' }
+        const setOnce2: Properties = { s0123o0123: 'o2a', s13o02: 'o2g', o023: 'o2f' }
+        const set3: Properties = { s0123o0123: 's3a', s13o02: 's3g', s013: 's3e' }
+        const setOnce3: Properties = { s0123o0123: 'o3a', s02o13: 'o3b', o023: 'o3f' }
+
+        beforeEach(async () => {
+            await createPerson(hub, team, ['distinct_id1'])
+        })
+
+        async function verifyPersonPropertiesSetCorrectly() {
+            expect((await hub.db.fetchEvents()).length).toBe(4)
+
+            const [person] = await hub.db.fetchPersons()
+            expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
+            expect(person.properties).toEqual({
+                s0123o0123: 's3a',
+                s02o13: 's2b',
+                s1: 's1c',
+                o1: 'o1d',
+                s013: 's3e',
+                o023: 'o0f',
+                s13o02: 's3g',
+            })
+        }
+
+        async function runProcessEvent(set: Properties, setOnce: Properties, ts: DateTime) {
+            await processEvent(
+                'distinct_id1',
+                '',
+                '',
+                {
+                    event: 'some_event',
+                    $set: set,
+                    $set_once: setOnce,
+                } as any as PluginEvent,
+                team.id,
+                ts,
+                ts,
+                new UUIDT().toString()
+            )
+        }
+
+        async function ingest0() {
+            await runProcessEvent(set0, setOnce0, ts0)
+        }
+        async function ingest1() {
+            await runProcessEvent(set1, setOnce1, ts1)
+        }
+        async function ingest2() {
+            await runProcessEvent(set2, setOnce2, ts2)
+        }
+        async function ingest3() {
+            await runProcessEvent(set3, setOnce3, ts3)
+        }
+
+        test('ingestion in order', async () => {
+            await ingest0()
+            await ingest1()
+            await ingest2()
+            await ingest3()
+            await verifyPersonPropertiesSetCorrectly()
+        })
+
+        if (includeNewPropertiesUpdatesTests) {
+            test('ingestion in reverse', async () => {
+                await ingest3()
+                await ingest2()
+                await ingest1()
+                await ingest0()
+                await verifyPersonPropertiesSetCorrectly()
+            })
+
+            test('ingestion mixed order', async () => {
+                await ingest2()
+                await ingest0()
+                await ingest1()
+                await ingest3()
+                await verifyPersonPropertiesSetCorrectly()
+            })
+        }
+    })
+
+    test('new person properties update gating', () => {
+        expect(eventsProcessor.isNewPersonPropertiesUpdateEnabled(0)).toBeFalsy()
+        if (includeNewPropertiesUpdatesTests) {
+            expect(eventsProcessor.isNewPersonPropertiesUpdateEnabled(2)).toBeTruthy()
+            expect(eventsProcessor.isNewPersonPropertiesUpdateEnabled(7)).toBeTruthy()
+            expect(eventsProcessor.isNewPersonPropertiesUpdateEnabled(25)).toBeTruthy()
+        } else {
+            expect(eventsProcessor.isNewPersonPropertiesUpdateEnabled(2)).toBeFalsy()
+        }
+    })
 
     return returned
 }

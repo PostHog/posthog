@@ -16,9 +16,8 @@ import { DownOutlined, InfoCircleOutlined, EditOutlined } from '@ant-design/icon
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { SeriesToggleWrapper } from './components/SeriesToggleWrapper'
-import { ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_PIE_CHART, ACTIONS_TABLE, FEATURE_FLAGS } from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_PIE_CHART, ACTIONS_TABLE } from 'lib/constants'
 import { IndexedTrendResult } from 'scenes/trends/types'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { entityFilterLogic } from '../ActionFilter/entityFilterLogic'
 import './InsightsTable.scss'
@@ -62,7 +61,6 @@ export function InsightsTable({
     const logic = insightsTableLogic({ hasMathUniqueFilter })
     const { calcColumnState } = useValues(logic)
     const { setCalcColumnState } = useActions(logic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const isSingleEntity = indexedResults.length === 1
     const colorList = getChartColors('white')
@@ -140,9 +138,11 @@ export function InsightsTable({
         render: function RenderLabel({}, item: IndexedTrendResult): JSX.Element {
             return (
                 <div className="series-name-wrapper-col">
-                    <div className="edit-icon" onClick={() => handleEditClick(item)}>
-                        <EditOutlined />
-                    </div>
+                    {canEditSeriesNameInline && (
+                        <div className="edit-icon" onClick={() => handleEditClick(item)}>
+                            <EditOutlined />
+                        </div>
+                    )}
                     <InsightLabel
                         seriesColor={colorList[item.id]}
                         action={item.action}
@@ -152,10 +152,12 @@ export function InsightsTable({
                         breakdownValue={item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()}
                         hideBreakdown
                         hideIcon
-                        useCustomName={!!featureFlags[FEATURE_FLAGS.RENAME_FILTERS]}
-                        className={clsx(canEditSeriesNameInline && 'editable')}
+                        useCustomName
+                        className={clsx({
+                            editable: canEditSeriesNameInline,
+                        })}
                         hideSeriesSubtitle
-                        onLabelClick={() => handleEditClick(item)}
+                        onLabelClick={canEditSeriesNameInline ? () => handleEditClick(item) : undefined}
                     />
                 </div>
             )

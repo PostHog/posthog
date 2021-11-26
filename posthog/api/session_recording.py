@@ -23,6 +23,7 @@ class SessionRecordingSerializer(serializers.Serializer):
     start_time = serializers.DateTimeField()
     end_time = serializers.DateTimeField()
     distinct_id = serializers.CharField()
+    active_segments_by_window_id = serializers.DictField(required=False)
 
     def to_representation(self, instance):
         return {
@@ -32,6 +33,7 @@ class SessionRecordingSerializer(serializers.Serializer):
             "start_time": instance["start_time"],
             "end_time": instance["end_time"],
             "distinct_id": instance["distinct_id"],
+            "active_segments_by_window_id": instance.get("active_segments_by_window_id"),
         }
 
 
@@ -39,17 +41,17 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     def _get_session_recording_list(self, filter):
-        return SessionRecordingList(filter=filter, team=self.team).run()
+        return SessionRecordingList(filter=filter, team_id=self.team.pk).run()
 
     def _get_session_recording_snapshots(self, request, filter, session_recording_id):
         return SessionRecording(
             request=request, filter=filter, team=self.team, session_recording_id=session_recording_id
         ).get_snapshots()
 
-    def _get_session_recording_meta_data(self, request, filter, session_recording_id):
+    def _get_session_recording_meta_data(self, request, filter, session_recording_id, include_active_segments):
         return SessionRecording(
             request=request, filter=filter, team=self.team, session_recording_id=session_recording_id
-        ).get_metadata()
+        ).get_metadata(include_active_segments=include_active_segments)
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionRecordingsFilter(request=request)
@@ -97,7 +99,14 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         session_recording_id = kwargs["pk"]
         filter = SessionRecordingsFilter(request=request)
-        session_recording_meta_data = self._get_session_recording_meta_data(request, filter, session_recording_id)
+
+        include_active_segments = (
+            True if request.query_params.get("include_active_segments", "false").lower() == "true" else False
+        )
+
+        session_recording_meta_data = self._get_session_recording_meta_data(
+            request, filter, session_recording_id, include_active_segments
+        )
         if not session_recording_meta_data.get("session_id"):
             raise exceptions.NotFound("Session not found")
 

@@ -36,12 +36,14 @@ export function Tooltip({
     // See https://github.com/ant-design/ant-design/blob/master/components/tooltip/index.tsx#L226
     const child = React.isValidElement(children) ? children : <span>{children}</span>
 
-    return (
+    return props.title ? (
         <AntdTooltip {...props} visible={isDefaultTooltip ? visible : localVisible && debouncedLocalVisible}>
             {React.cloneElement(child, {
                 onMouseEnter: () => setVisible(true),
                 onMouseLeave: () => setVisible(false),
             })}
         </AntdTooltip>
+    ) : (
+        child
     )
 }

@@ -1,4 +1,5 @@
-from typing import Any, Dict, Optional, Union, cast
+import json
+from typing import Any, Dict, Optional, cast
 
 import posthoganalytics
 from django.db.models import Prefetch, QuerySet
@@ -13,6 +14,7 @@ from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthenticat
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import FeatureFlag
 from posthog.models.feature_flag import FeatureFlagOverride
+from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
 
@@ -41,13 +43,16 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
     # Simple flags are ones that only have rollout_percentage
     #  That means server side libraries are able to gate these flags without calling to the server
     def get_is_simple_flag(self, feature_flag: FeatureFlag) -> bool:
-        return len(feature_flag.groups) == 1 and all(
-            len(group.get("properties", [])) == 0 for group in feature_flag.groups
+        no_properties_used = all(len(condition.get("properties", [])) == 0 for condition in feature_flag.conditions)
+        return (
+            len(feature_flag.conditions) == 1
+            and no_properties_used
+            and feature_flag.aggregation_group_type_index is None
         )
 
     def get_rollout_percentage(self, feature_flag: FeatureFlag) -> Optional[int]:
         if self.get_is_simple_flag(feature_flag):
-            return feature_flag.groups[0].get("rollout_percentage")
+            return feature_flag.conditions[0].get("rollout_percentage")
         else:
             return None
 
@@ -64,6 +69,29 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             raise serializers.ValidationError("There is already a feature flag with this key.", code="unique")
 
         return value
+
+    def validate_filters(self, filters):
+        aggregation_group_type_index = filters.get("aggregation_group_type_index", None)
+
+        def properties_all_match(predicate):
+            return all(
+                predicate(Property(**property))
+                for condition in filters["groups"]
+                for property in condition.get("properties", [])
+            )
+
+        if aggregation_group_type_index is None:
+            is_valid = properties_all_match(lambda prop: prop.type in ["person", "cohort"])
+            if not is_valid:
+                raise serializers.ValidationError("Filters are not valid (can only use person and cohort properties)")
+        else:
+            is_valid = properties_all_match(
+                lambda prop: prop.type == "group" and prop.group_type_index == aggregation_group_type_index
+            )
+            if not is_valid:
+                raise serializers.ValidationError("Filters are not valid (can only use group properties)")
+
+        return filters
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
@@ -129,6 +157,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
     def my_flags(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
+
         feature_flags = (
             FeatureFlag.objects.filter(team=self.team, active=True, deleted=False)
             .prefetch_related(
@@ -140,6 +169,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
             )
             .order_by("-created_at")
         )
+        groups = json.loads(request.GET.get("groups", "{}"))
         flags = []
         for feature_flag in feature_flags:
             my_overrides = feature_flag.my_overrides  # type: ignore
@@ -147,11 +177,8 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
             if len(my_overrides) > 0:
                 override = my_overrides[0]
 
-            value_for_user_without_override: Union[bool, str, None] = feature_flag.distinct_id_matches(
-                request.user.distinct_id
-            )
-            if len(feature_flag.variants) > 0 and value_for_user_without_override:
-                value_for_user_without_override = feature_flag.get_variant_for_distinct_id(request.user.distinct_id)
+            match = feature_flag.matches(request.user.distinct_id, groups)
+            value_for_user_without_override = (match.variant or True) if match else False
 
             flags.append(
                 {

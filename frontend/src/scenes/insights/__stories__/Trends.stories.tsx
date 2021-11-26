@@ -3,7 +3,7 @@ import { Meta } from '@storybook/react'
 import { keaStory } from 'lib/storybook/kea-story'
 import { rest } from 'msw'
 import { worker } from '~/mocks/browser'
-import { Insights } from '../Insights'
+import { Insight } from '../Insight'
 
 import trendsJson from './trends.json'
 
@@ -11,6 +11,7 @@ export default {
     title: 'PostHog/Scenes/Insights/Trends',
 } as Meta
 
+export const Base = keaStory(Insight, trendsJson)
 export const TrendsSmoothing = (): JSX.Element => {
     worker.use(
         rest.post('/api/insight/trends', (_, res, ctx) => {
@@ -60,5 +61,5 @@ export const TrendsSmoothing = (): JSX.Element => {
             )
         })
     )
-    return keaStory(Insights, trendsJson)()
+    return keaStory(Insight, trendsJson)()
 }

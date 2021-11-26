@@ -32,13 +32,13 @@ class TestUrls(APIBaseTest):
 
         # Complex URL
         response = self.client.get(
-            '/insights?interval=day&display=ActionsLineGraph&events=[{"id":"$pageview","name":"$pageview","type":"events","order":0}]&properties=[]',
+            '/insights/new?interval=day&display=ActionsLineGraph&events=[{"id":"$pageview","name":"$pageview","type":"events","order":0}]&properties=[]',
         )
 
         # Test that the URL is properly encoded to redirect the user to the final destination
         self.assertRedirects(
             response,
-            "/login?next=/insights%3Finterval%3Dday%26display%3DActionsLineGraph%26events%3D%5B%257B%2522id%2522%3A%2522%24pageview%2522%2C%2522name%2522%3A%2522%24pageview%2522%2C%2522type%2522%3A%2522events%2522%2C%2522order%2522%3A0%257D%5D%26properties%3D%5B%5D",
+            "/login?next=/insights/new%3Finterval%3Dday%26display%3DActionsLineGraph%26events%3D%5B%257B%2522id%2522%3A%2522%24pageview%2522%2C%2522name%2522%3A%2522%24pageview%2522%2C%2522type%2522%3A%2522events%2522%2C%2522order%2522%3A0%257D%5D%26properties%3D%5B%5D",
             fetch_redirect_response=False,
         )
 
@@ -57,14 +57,3 @@ class TestUrls(APIBaseTest):
 
         response = self.client.get(f"/login")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    @pytest.mark.urls("posthog.test.mock_urls_cloud")
-    def test_robots_txt_allow_crawl_on_cloud(self):
-        response = self.client.get("/robots.txt")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    @pytest.mark.urls("posthog.test.mock_urls_self_hosted")
-    def test_robots_txt_block_crawl_by_default(self):
-        response = self.client.get("/robots.txt")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.content, b"User-agent: *\nDisallow: /")

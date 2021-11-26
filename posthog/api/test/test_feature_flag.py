@@ -1,9 +1,9 @@
+import json
 from unittest.mock import patch
 
-from rest_framework import response, status
+from rest_framework import status
 
-from posthog.api import feature_flag
-from posthog.models import FeatureFlag, User
+from posthog.models import FeatureFlag, GroupTypeMapping, User
 from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.test.base import APIBaseTest
 
@@ -67,6 +67,15 @@ class TestFeatureFlag(APIBaseTest):
     def test_is_simple_flag(self):
         feature_flag = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
+            data={"name": "Beta feature", "key": "beta-feature", "filters": {"groups": [{"rollout_percentage": 65,}]},},
+            format="json",
+        ).json()
+        self.assertTrue(feature_flag["is_simple_flag"])
+        self.assertEqual(feature_flag["rollout_percentage"], 65)
+
+    def test_is_not_simple_flag(self):
+        feature_flag = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
             data={
                 "name": "Beta feature",
                 "key": "beta-feature",
@@ -84,7 +93,35 @@ class TestFeatureFlag(APIBaseTest):
             format="json",
         ).json()
         self.assertFalse(feature_flag["is_simple_flag"])
-        self.assertIsNone(feature_flag["rollout_percentage"])
+
+    @patch("posthoganalytics.capture")
+    def test_is_simple_flag_groups(self, mock_capture):
+        feature_flag = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Beta feature",
+                "key": "beta-feature",
+                "filters": {"aggregation_group_type_index": 0, "groups": [{"rollout_percentage": 65,}]},
+            },
+            format="json",
+        ).json()
+        self.assertFalse(feature_flag["is_simple_flag"])
+        # Assert analytics are sent
+        instance = FeatureFlag.objects.get(id=feature_flag["id"])
+        mock_capture.assert_called_once_with(
+            self.user.distinct_id,
+            "feature flag created",
+            {
+                "groups_count": 1,
+                "has_variants": False,
+                "variants_count": 0,
+                "has_rollout_percentage": True,
+                "has_filters": False,
+                "filter_count": 0,
+                "created_at": instance.created_at,
+                "aggregating_by_groups": True,
+            },
+        )
 
     @patch("posthoganalytics.capture")
     def test_create_feature_flag(self, mock_capture):
@@ -110,6 +147,7 @@ class TestFeatureFlag(APIBaseTest):
                 "has_filters": False,
                 "filter_count": 0,
                 "created_at": instance.created_at,
+                "aggregating_by_groups": False,
             },
         )
 
@@ -138,6 +176,7 @@ class TestFeatureFlag(APIBaseTest):
                 "has_filters": False,
                 "filter_count": 0,
                 "created_at": instance.created_at,
+                "aggregating_by_groups": False,
             },
         )
 
@@ -178,6 +217,7 @@ class TestFeatureFlag(APIBaseTest):
                 "has_rollout_percentage": False,
                 "filter_count": 0,
                 "created_at": instance.created_at,
+                "aggregating_by_groups": False,
             },
         )
 
@@ -265,7 +305,7 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         instance.refresh_from_db()
         self.assertEqual(instance.name, "Updated name")
-        self.assertEqual(instance.groups[0]["rollout_percentage"], 65)
+        self.assertEqual(instance.conditions[0]["rollout_percentage"], 65)
 
         # Assert analytics are sent
         mock_capture.assert_called_once_with(
@@ -279,6 +319,7 @@ class TestFeatureFlag(APIBaseTest):
                 "has_filters": True,
                 "filter_count": 1,
                 "created_at": instance.created_at,
+                "aggregating_by_groups": False,
             },
         )
 
@@ -306,6 +347,7 @@ class TestFeatureFlag(APIBaseTest):
                 "has_filters": False,
                 "filter_count": 0,
                 "created_at": instance.created_at,
+                "aggregating_by_groups": False,
             },
         )
 
@@ -414,6 +456,33 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(first_flag["feature_flag"]["key"], "alpha-feature")
         self.assertEqual(first_flag["value_for_user_without_override"], False)
         self.assertEqual(first_flag["override"], None)
+
+    @patch("posthoganalytics.capture")
+    def test_my_flags_groups(self, mock_capture):
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "groups flag",
+                "key": "groups-flag",
+                "filters": {"aggregation_group_type_index": 0, "groups": [{"rollout_percentage": 100,}]},
+            },
+            format="json",
+        )
+
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        groups_flag = response.json()[0]
+        self.assertEqual(groups_flag["feature_flag"]["key"], "groups-flag")
+        self.assertEqual(groups_flag["value_for_user_without_override"], False)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/my_flags", data={"groups": json.dumps({"organization": "7"})}
+        )
+        groups_flag = response.json()[0]
+        self.assertEqual(groups_flag["feature_flag"]["key"], "groups-flag")
+        self.assertEqual(groups_flag["value_for_user_without_override"], True)
 
     def test_create_override(self):
         # Boolean override value
@@ -577,3 +646,87 @@ class TestFeatureFlag(APIBaseTest):
             {"feature_flag": feature_flag_instance.id, "override_value": True},
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_validation_person_properties(self):
+        person_request = self._create_flag_with_properties(
+            "person-flag", [{"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains",},]
+        )
+        self.assertEqual(person_request.status_code, status.HTTP_201_CREATED)
+
+        cohort_request = self._create_flag_with_properties(
+            "cohort-flag", [{"key": "id", "type": "cohort", "value": 5},]
+        )
+        self.assertEqual(cohort_request.status_code, status.HTTP_201_CREATED)
+
+        event_request = self._create_flag_with_properties("illegal-event-flag", [{"key": "id", "value": 5},])
+        self.assertEqual(event_request.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            event_request.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Filters are not valid (can only use person and cohort properties)",
+                "attr": "filters",
+            },
+        )
+
+        groups_request = self._create_flag_with_properties(
+            "illegal-groups-flag", [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}]
+        )
+        self.assertEqual(groups_request.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            groups_request.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Filters are not valid (can only use person and cohort properties)",
+                "attr": "filters",
+            },
+        )
+
+    def test_validation_group_properties(self):
+        groups_request = self._create_flag_with_properties(
+            "groups-flag",
+            [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
+            aggregation_group_type_index=0,
+        )
+        self.assertEqual(groups_request.status_code, status.HTTP_201_CREATED)
+
+        illegal_groups_request = self._create_flag_with_properties(
+            "illegal-groups-flag",
+            [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
+            aggregation_group_type_index=3,
+        )
+        self.assertEqual(illegal_groups_request.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            illegal_groups_request.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Filters are not valid (can only use group properties)",
+                "attr": "filters",
+            },
+        )
+
+        person_request = self._create_flag_with_properties(
+            "person-flag",
+            [{"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains",},],
+            aggregation_group_type_index=0,
+        )
+        self.assertEqual(person_request.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            person_request.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Filters are not valid (can only use group properties)",
+                "attr": "filters",
+            },
+        )
+
+    def _create_flag_with_properties(self, name, properties, **kwargs):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={"name": name, "key": name, "filters": {**kwargs, "groups": [{"properties": properties,}],},},
+            format="json",
+        )

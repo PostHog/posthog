@@ -25,14 +25,23 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { AggregationSelect } from 'scenes/insights/AggregationSelect'
 import { groupsModel } from '~/models/groupsModel'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FunnelTabWithSimpleMode } from './FunnelTabWithSimpleMode'
 
 export function FunnelTab(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return featureFlags[FEATURE_FLAGS.FUNNEL_SIMPLE_MODE] ? <FunnelTabWithSimpleMode /> : <FunnelTabOld />
+}
+
+function FunnelTabOld(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { loadResults } = useActions(insightLogic)
-    const { isStepsEmpty, filters, clickhouseFeaturesEnabled } = useValues(funnelLogic(insightProps))
+    const { isStepsEmpty, filters, clickhouseFeaturesEnabled, aggregationTargetLabel, filterSteps } = useValues(
+        funnelLogic(insightProps)
+    )
     const { clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
-    const { showGroupsOptions } = useValues(groupsModel)
+    const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
     const [savingModal, setSavingModal] = useState<boolean>(false)
     const screens = useBreakpoint()
     const isHorizontalUIEnabled = featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI]
@@ -50,7 +59,9 @@ export function FunnelTab(): JSX.Element {
             <Row gutter={16} data-attr="funnel-tab" className="funnel-tab">
                 <Col xs={24} md={16} xl={isHorizontalUIEnabled ? undefined : 24}>
                     <div style={{ paddingRight: isSmallScreen ? undefined : 16 }}>
-                        <ToggleButtonChartFilter />
+                        <div className="mb">
+                            <ToggleButtonChartFilter />
+                        </div>
                         <form
                             onSubmit={(e): void => {
                                 e.preventDefault()
@@ -108,12 +119,20 @@ export function FunnelTab(): JSX.Element {
                                 setFilters={setFilters}
                                 typeKey={`EditFunnel-action`}
                                 hideMathSelector={true}
+                                hideDeleteBtn={filterSteps.length === 1}
                                 buttonCopy="Add funnel step"
                                 showSeriesIndicator={!isStepsEmpty}
                                 seriesIndicatorType="numeric"
                                 fullWidth
                                 sortable
                                 showNestedArrow={true}
+                                propertiesTaxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.EventProperties,
+                                    TaxonomicFilterGroupType.PersonProperties,
+                                    ...groupsTaxonomicTypes,
+                                    TaxonomicFilterGroupType.Cohorts,
+                                    TaxonomicFilterGroupType.Elements,
+                                ]}
                             />
 
                             {!clickhouseFeaturesEnabled && (
@@ -141,8 +160,9 @@ export function FunnelTab(): JSX.Element {
                                         <Tooltip
                                             title={
                                                 <>
-                                                    Exclude users who completed the specified event between two specific
-                                                    steps. Note that these users will be{' '}
+                                                    Exclude {aggregationTargetLabel.plural} who completed the specified
+                                                    event between two specific steps. Note that these
+                                                    {aggregationTargetLabel.plural} will be{' '}
                                                     <b>completely excluded from the entire funnel</b>.
                                                 </>
                                             }
@@ -175,6 +195,13 @@ export function FunnelTab(): JSX.Element {
                                 properties: anyProperties.filter(isValidPropertyFilter),
                             })
                         }}
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.EventProperties,
+                            TaxonomicFilterGroupType.PersonProperties,
+                            ...groupsTaxonomicTypes,
+                            TaxonomicFilterGroupType.Cohorts,
+                            TaxonomicFilterGroupType.Elements,
+                        ]}
                     />
                     <TestAccountFilter filters={filters} onChange={setFilters} />
                     {clickhouseFeaturesEnabled && filters.funnel_viz_type === FunnelVizType.Steps && (

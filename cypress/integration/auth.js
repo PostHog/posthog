@@ -2,7 +2,7 @@ import { urls } from 'scenes/urls'
 
 describe('Auth', () => {
     beforeEach(() => {
-        cy.get('[data-attr=top-navigation-whoami]').click()
+        cy.get('[data-attr=top-menu-toggle]').click()
     })
 
     it('Logout', () => {
@@ -27,7 +27,7 @@ describe('Auth', () => {
         cy.get('[data-attr=password]').type('wrong password').should('have.value', 'wrong password')
         cy.get('[type=submit]').click()
 
-        cy.get('.error-message').should('contain', 'Invalid email or password.')
+        cy.get('.inline-message.danger').should('contain', 'Invalid email or password.')
     })
 
     it('Redirect to appropriate place after login', () => {
@@ -49,7 +49,7 @@ describe('Auth', () => {
         cy.location('pathname').should('include', '/login')
 
         cy.visit(
-            '/insights?insight=TRENDS&interval=day&display=ActionsLineGraph&actions=%5B%5D&events=%5B%7B"id"%3A"%24pageview"%2C"name"%3A"%24pageview"%2C"type"%3A"events"%2C"order"%3A0%7D%2C%7B"id"%3A"%24autocapture"%2C"name"%3A"%24autocapture"%2C"type"%3A"events"%2C"order"%3A1%7D%5D&properties=%5B%5D&filter_test_accounts=false&new_entity=%5B%5D'
+            '/insights/new?insight=TRENDS&interval=day&display=ActionsLineGraph&actions=%5B%5D&events=%5B%7B"id"%3A"%24pageview"%2C"name"%3A"%24pageview"%2C"type"%3A"events"%2C"order"%3A0%7D%2C%7B"id"%3A"%24autocapture"%2C"name"%3A"%24autocapture"%2C"type"%3A"events"%2C"order"%3A1%7D%5D&properties=%5B%5D&filter_test_accounts=false&new_entity=%5B%5D'
         )
         cy.location('pathname').should('include', '/login') // Should be redirected to login because we're now logged out
 
@@ -69,7 +69,7 @@ describe('Auth', () => {
 
 describe('Password Reset', () => {
     beforeEach(() => {
-        cy.get('[data-attr=top-navigation-whoami]').click()
+        cy.get('[data-attr=top-menu-toggle]').click()
         cy.get('[data-attr=top-menu-item-logout]').click()
         cy.location('pathname').should('eq', '/login')
     })
@@ -94,7 +94,7 @@ describe('Password Reset', () => {
         cy.get('.ant-progress-bg').should('be.visible')
         cy.get('#passwordConfirm').type('1234567A')
         cy.get('button[type=submit]').click()
-        cy.get('.error-message').should('contain', 'Password confirmation does not match.')
+        cy.get('.inline-message.danger').should('contain', 'Password confirmation does not match.')
         cy.location('pathname').should('eq', '/reset/e2e_test_user/e2e_test_token') // not going anywhere
     })
 

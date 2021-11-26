@@ -7,12 +7,15 @@
         margin-bottom: $default_spacing;
         align-items: flex-end;
     }
-    .action-filter-container {
+    .filter-container {
         max-width: 700px;
         padding: $default_spacing;
         border: $border solid 1px;
         flex: 1;
         border-radius: $radius;
+    }
+    .filter-section {
+        padding-bottom: $default_spacing;
     }
     .session-recording-action-property-filter {
         margin: 0 0 0 68px;
@@ -22,7 +25,6 @@
         padding: 0.25rem $default_spacing;
     }
     .time-filter-row {
-        margin-top: $default_spacing;
         justify-content: flex-end;
         align-items: flex-end;
         .time-filter {

@@ -21,7 +21,7 @@ def split_selector_into_parts(selector: str):
             tag = result[1]  # type: ignore
         if "[" in tag:
             result = re.search(attribute_regex, tag)
-            data["attributes__{}".format(result[2])] = result[3]  # type: ignore
+            data[f"attributes__{result[2]}"] = result[3]  # type: ignore
             tag = result[1]  # type: ignore
         if "nth-child(" in tag:
             parts = tag.split(":nth-child(")
@@ -46,7 +46,7 @@ class EventManager(object):
         filter = {}
         for key in ["tag_name", "text", "href", "name"]:
             if getattr(action_step, key):
-                filter["element__{}".format(key)] = getattr(action_step, key)
+                filter[f"element__{key}"] = getattr(action_step, key)
 
         if action_step.selector:
             parts = split_selector_into_parts(action_step.selector)
@@ -55,15 +55,15 @@ class EventManager(object):
                 if tag.get("attr_class"):
                     attr_class = tag.pop("attr_class")
                     tag["attr_class__contains"] = attr_class
-                subqueries["match_{}".format(index)] = Subquery(
+                subqueries[f"match_{index}"] = Subquery(
                     Element.objects.filter(group_id=OuterRef("pk"), **tag).values("order")[:1]
                 )
             groups = groups.annotate(**subqueries)
             for index, _ in enumerate(parts):
-                filter["match_{}__isnull".format(index)] = False
+                filter[f"match_{index}__isnull"] = False
                 if index > 0:
-                    filter["match_{}__gt".format(index)] = F(
-                        "match_{}".format(index - 1)
+                    filter[f"match_{index}__gt"] = F(
+                        f"match_{index - 1}"
                     )  # make sure the ordering of the elements is correct
 
         if not filter:
@@ -102,7 +102,7 @@ def migrate_to_precalculate_actions(apps, schema_editor):
     actions = Action.objects.all()
     manager = EventManager()
     for action in actions:
-        print("team: {} action: {}".format(action.team, action.name))
+        print(f"team: {action.team} action: {action.name}")
         try:
             event_query, params = (
                 manager.query_db_by_action(Event.objects.all(), action, apps).only("pk").query.sql_with_params()
@@ -117,7 +117,7 @@ def migrate_to_precalculate_actions(apps, schema_editor):
         {}
         ON CONFLICT DO NOTHING
         """.format(
-            action.pk, event_query.replace("SELECT ", "SELECT {}, ".format(action.pk), 1),
+            action.pk, event_query.replace("SELECT ", f"SELECT {action.pk}, ", 1),
         )
 
         cursor = connection.cursor()

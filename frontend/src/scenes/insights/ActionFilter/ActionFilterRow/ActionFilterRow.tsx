@@ -24,7 +24,6 @@ import {
 } from '@ant-design/icons'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -85,7 +84,8 @@ export interface ActionFilterRowProps {
     stripeActionRow?: boolean // Whether or not to alternate the color behind the action rows
     hasBreakdown: boolean // Whether the current graph has a breakdown filter applied
     showNestedArrow?: boolean // Show nested arrows to the left of property filter buttons
-    taxonomicGroupTypes?: TaxonomicFilterGroupType[] // Specify which tabs to show, used in taxonomic filter
+    actionsTaxonomicGroupTypes?: TaxonomicFilterGroupType[] // Which tabs to show for actions selector
+    propertiesTaxonomicGroupTypes?: TaxonomicFilterGroupType[] // Which tabs to show for property filters
     hideDeleteBtn?: boolean // Choose to hide delete btn. You can use the onClose function passed into customRow{Pre|Suf}fix to render the delete btn anywhere
     disabled?: boolean
     renderRow?: ({
@@ -124,7 +124,8 @@ export function ActionFilterRow({
     hasBreakdown,
     showNestedArrow = false,
     hideDeleteBtn = false,
-    taxonomicGroupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+    actionsTaxonomicGroupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+    propertiesTaxonomicGroupTypes,
     disabled = false,
     renderRow,
 }: ActionFilterRowProps): JSX.Element {
@@ -139,7 +140,6 @@ export function ActionFilterRow({
         duplicateFilter,
     } = useActions(logic)
     const { numericalPropertyNames } = useValues(propertyDefinitionsModel)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { mathDefinitions } = useValues(mathsLogic)
 
     const visible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
@@ -215,7 +215,7 @@ export function ActionFilterRow({
                         })
                     }}
                     onClose={() => selectFilter(null)}
-                    taxonomicGroupTypes={taxonomicGroupTypes}
+                    taxonomicGroupTypes={actionsTaxonomicGroupTypes}
                 />
             }
             visible={dropDownCondition}
@@ -236,11 +236,7 @@ export function ActionFilterRow({
                     }}
                 >
                     <span className="text-overflow" style={{ maxWidth: '100%' }}>
-                        {featureFlags[FEATURE_FLAGS.RENAME_FILTERS] ? (
-                            <EntityFilterInfo filter={filter} />
-                        ) : (
-                            <PropertyKeyInfo value={name || 'Select action'} disablePopover />
-                        )}
+                        <EntityFilterInfo filter={filter} />
                     </span>
                     <DownOutlined style={{ fontSize: 10 }} />
                 </Button>
@@ -296,7 +292,6 @@ export function ActionFilterRow({
 
     const deleteButton = (
         <Button
-            style={filterCount === 1 ? { display: 'none' } : {}}
             type="link"
             onClick={onClose}
             className="row-action-btn delete"
@@ -397,9 +392,7 @@ export function ActionFilterRow({
                             </>
                         )}
                         {(horizontalUI || fullWidth) && !hideFilter && <Col>{propertyFiltersButton}</Col>}
-                        {featureFlags[FEATURE_FLAGS.RENAME_FILTERS] && (horizontalUI || fullWidth) && !hideRename && (
-                            <Col>{renameRowButton}</Col>
-                        )}
+                        {(horizontalUI || fullWidth) && !hideRename && <Col>{renameRowButton}</Col>}
                         {(horizontalUI || fullWidth) && !hideFilter && <Col>{duplicateRowButton}</Col>}
                         {!hideDeleteBtn && !horizontalUI && !singleFilter && (
                             <Col className="column-delete-btn">{deleteButton}</Col>
@@ -442,6 +435,7 @@ export function ActionFilterRow({
                         disablePopover={horizontalUI}
                         style={{ marginBottom: 0 }}
                         showNestedArrow={showNestedArrow}
+                        taxonomicGroupTypes={propertiesTaxonomicGroupTypes}
                     />
                 </div>
             )}

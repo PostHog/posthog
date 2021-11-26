@@ -6,7 +6,7 @@ import { Link } from '../Link'
 import { Popup, PopupProps } from '../Popup/Popup'
 import './LemonButton.scss'
 
-export type LemonButtonPopup = Pick<PopupProps, 'overlay' | 'visible' | 'onClickOutside' | 'sameWidth'>
+export type LemonButtonPopup = Omit<PopupProps, 'children'>
 
 export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 'tag' | 'type' | 'ref'> {
     type?: 'default' | 'primary' | 'stealth' | 'highlighted'
@@ -49,22 +49,13 @@ function LemonButtonInternal(
         workingButton = <Link to={to}>{workingButton}</Link>
     }
     if (popup) {
-        workingButton = (
-            <Popup
-                visible={popup.visible}
-                onClickOutside={popup.onClickOutside}
-                overlay={popup.overlay}
-                sameWidth={popup.sameWidth}
-            >
-                {workingButton}
-            </Popup>
-        )
+        workingButton = <Popup {...popup}>{workingButton}</Popup>
     }
     return workingButton
 }
 export const LemonButton = React.forwardRef(LemonButtonInternal)
 
-export type SideAction = Pick<LemonButtonProps, 'onClick' | 'popup' | 'to' | 'icon' | 'type' | 'tooltip'>
+export type SideAction = Pick<LemonButtonProps, 'onClick' | 'popup' | 'to' | 'icon' | 'type' | 'tooltip' | 'data-attr'>
 
 /** A LemonButtonWithSideAction can neither be compact nor have a sideIcon - instead it has a clickable sideAction. */
 export interface LemonButtonWithSideActionProps extends LemonButtonPropsBase {
@@ -78,7 +69,8 @@ export interface LemonButtonWithSideActionProps extends LemonButtonPropsBase {
 export function LemonButtonWithSideAction({ sideAction, ...buttonProps }: LemonButtonWithSideActionProps): JSX.Element {
     return (
         <div className="LemonButtonWithSideAction">
-            <LemonButton {...buttonProps} />
+            {/* Bogus `sideIcon` div prevents overflow under the side button. */}
+            <LemonButton {...buttonProps} sideIcon={<div />} />{' '}
             <LemonButton className="side-button" compact {...sideAction} />
         </div>
     )

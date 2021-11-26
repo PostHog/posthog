@@ -3,6 +3,7 @@ import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { urls } from 'scenes/urls'
+import { InsightShortId } from '~/types'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -28,60 +29,89 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     // Project-based routes
     [Scene.Dashboards]: {
         projectBased: true,
+        name: 'Dashboards',
     },
     [Scene.Dashboard]: {
         projectBased: true,
     },
-    [Scene.Insights]: {
+    [Scene.Insight]: {
         projectBased: true,
+        name: 'Insights',
+    },
+    [Scene.InsightRouter]: {
+        projectBased: true,
+        name: 'Insights',
     },
     [Scene.Cohorts]: {
         projectBased: true,
+        name: 'Cohorts',
     },
     [Scene.Events]: {
         projectBased: true,
+        name: 'Events & actions',
+    },
+    [Scene.Actions]: {
+        projectBased: true,
+        name: 'Events & actions',
+    },
+    [Scene.EventStats]: {
+        projectBased: true,
+        name: 'Events & actions',
+    },
+    [Scene.EventPropertyStats]: {
+        projectBased: true,
+        name: 'Events & actions',
     },
     [Scene.Sessions]: {
         projectBased: true,
+        name: 'Sessions',
     },
     [Scene.SessionRecordings]: {
         projectBased: true,
+        name: 'Recordings',
     },
     [Scene.Person]: {
         projectBased: true,
+        name: 'Person',
     },
     [Scene.Persons]: {
         projectBased: true,
+        name: 'Persons & groups',
     },
     [Scene.Action]: {
         projectBased: true,
     },
+    [Scene.Groups]: {
+        projectBased: true,
+        name: 'Persons & groups',
+    },
     [Scene.FeatureFlags]: {
         projectBased: true,
+        name: 'Feature flags',
     },
     [Scene.FeatureFlag]: {
         projectBased: true,
     },
     [Scene.Annotations]: {
         projectBased: true,
+        name: 'Annotations',
     },
     [Scene.Plugins]: {
         projectBased: true,
+        name: 'Plugins',
     },
     [Scene.SavedInsights]: {
         projectBased: true,
+        name: 'Insights',
     },
     [Scene.ProjectSettings]: {
         projectBased: true,
         hideDemoWarnings: true,
-    },
-    [Scene.InsightRouter]: {
-        projectBased: true,
+        name: 'Project settings',
     },
     [Scene.Personalization]: {
         projectBased: true,
         plain: true,
-        hideTopNav: true,
     },
     [Scene.Ingestion]: {
         projectBased: true,
@@ -93,10 +123,14 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     // Organization-based routes
     [Scene.OrganizationCreateFirst]: {
-        plain: true,
+        name: 'Organization creation',
+    },
+    [Scene.OrganizationSettings]: {
+        organizationBased: true,
     },
     [Scene.ProjectCreateFirst]: {
-        plain: true,
+        name: 'Project creation',
+        organizationBased: true,
     },
     // Onboarding/setup routes
     [Scene.Login]: {
@@ -118,19 +152,31 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         allowUnauthenticated: true,
         plain: true,
     },
+    // Instance management routes
+    [Scene.SystemStatus]: {
+        instanceLevel: true,
+    },
+    [Scene.Licenses]: {
+        instanceLevel: true,
+    },
+    // Personal routes
+    [Scene.MySettings]: {
+        personal: true,
+    },
     // Cloud-only routes
     [Scene.Billing]: {
         hideDemoWarnings: true,
+        organizationBased: true,
     },
     [Scene.BillingSubscribed]: {
         plain: true,
-        hideTopNav: true,
         allowUnauthenticated: true,
     },
 }
 
 export const redirects: Record<string, string | ((params: Params) => string)> = {
     '/': urls.savedInsights(),
+    '/saved_insights': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
     '/plugins': urls.plugins(),
     '/actions': '/events/actions',
@@ -142,9 +188,11 @@ export const routes: Record<string, Scene> = {
     [urls.dashboard(':id')]: Scene.Dashboard,
     [urls.createAction()]: Scene.Action,
     [urls.action(':id')]: Scene.Action,
-    [urls.newInsight()]: Scene.InsightRouter,
-    [urls.insights()]: Scene.Insights,
-    [urls.insightRouter(':id')]: Scene.InsightRouter,
+    [urls.insightNew()]: Scene.Insight,
+    [urls.insightEdit(':shortId' as InsightShortId)]: Scene.Insight,
+    [urls.insightView(':shortId' as InsightShortId)]: Scene.Insight,
+    [urls.savedInsights()]: Scene.SavedInsights,
+    [urls.insightRouter(':shortId')]: Scene.InsightRouter,
     [urls.actions()]: Scene.Actions,
     [urls.eventStats()]: Scene.EventStats,
     [urls.eventPropertyStats()]: Scene.EventPropertyStats,
@@ -153,6 +201,7 @@ export const routes: Record<string, Scene> = {
     [urls.sessionRecordings()]: Scene.SessionRecordings,
     [urls.person('*')]: Scene.Person,
     [urls.persons()]: Scene.Persons,
+    [urls.groups(':groupTypeIndex')]: Scene.Groups,
     [urls.cohort(':id')]: Scene.Cohorts,
     [urls.cohorts()]: Scene.Cohorts,
     [urls.featureFlags()]: Scene.FeatureFlags,
@@ -169,7 +218,6 @@ export const routes: Record<string, Scene> = {
     [urls.systemStatus()]: Scene.SystemStatus,
     [urls.systemStatusPage(':id')]: Scene.SystemStatus,
     [urls.mySettings()]: Scene.MySettings,
-    [urls.savedInsights()]: Scene.SavedInsights,
     // Onboarding / setup routes
     [urls.login()]: Scene.Login,
     [urls.preflight()]: Scene.PreflightCheck,

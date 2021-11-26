@@ -3,22 +3,32 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { InsightShortId, InsightType } from '~/types'
 
 jest.mock('lib/api')
+
+const Insight123 = '123' as InsightShortId
 
 describe('pathsLogic', () => {
     let logic: ReturnType<typeof pathsLogic.build>
 
     mockAPI(async (url) => {
         const { pathname } = url
-        if (`api/projects/${MOCK_TEAM_ID}/insights/paths/` === pathname) {
+        if (
+            [
+                `api/projects/${MOCK_TEAM_ID}/insights/path`,
+                `api/projects/${MOCK_TEAM_ID}/insights/paths/`,
+                `api/projects/${MOCK_TEAM_ID}/insights/123`,
+                `api/projects/${MOCK_TEAM_ID}/insights`,
+            ].includes(pathname)
+        ) {
             return { result: ['result from api'] }
         }
         return defaultAPIMocks(url)
     })
 
     describe('syncs with insightLogic', () => {
-        const props = { dashboardItemId: 123 }
+        const props = { dashboardItemId: Insight123 }
         initKeaTestLogic({
             logic: pathsLogic,
             props,
@@ -28,7 +38,7 @@ describe('pathsLogic', () => {
         it('setFilter calls insightLogic.setFilters', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setFilter({
-                    insight: 'PATHS',
+                    insight: InsightType.PATHS,
                     step_limit: 999,
                 })
             })
@@ -52,7 +62,7 @@ describe('pathsLogic', () => {
         it('insightLogic.setFilters updates filter', async () => {
             await expectLogic(logic, () => {
                 insightLogic(props).actions.setFilters({
-                    insight: 'PATHS',
+                    insight: InsightType.PATHS,
                     step_limit: 999,
                 })
             })
@@ -71,7 +81,7 @@ describe('pathsLogic', () => {
         it('insightLogic.setFilters updates edge limits', async () => {
             await expectLogic(logic, () => {
                 insightLogic(props).actions.setFilters({
-                    insight: 'PATHS',
+                    insight: InsightType.PATHS,
                     edge_limit: 60,
                     min_edge_weight: 5,
                     max_edge_weight: 10,

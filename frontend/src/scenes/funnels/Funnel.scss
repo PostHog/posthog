@@ -1,30 +1,5 @@
 @import '~/vars';
 
-.funnels-empty-state {
-    text-align: center;
-    h2.funnels-empty-state__title {
-        font-weight: bold;
-        font-size: 1.5rem;
-        line-height: 1.6rem;
-    }
-
-    .funnels-empty-state__description {
-        font-weight: medium;
-        font-size: 1rem;
-        line-height: 1.7rem;
-        color: $text_muted;
-    }
-
-    button.add-action-event-button {
-        height: 50px;
-    }
-
-    .funnels-empty-state__help {
-        font-size: 0.9rem;
-        margin-top: 1rem;
-    }
-}
-
 .funnel-bin-filter-dropdown {
     .funnel-bins-custom-picker {
         width: 43px; // enough to hold two characters
@@ -78,17 +53,5 @@
                 min-width: 90px;
             }
         }
-    }
-}
-
-.insights-graph-container.funnels {
-    .ant-card-body {
-        padding: 0;
-    }
-
-    .graph-container {
-        // hacky because container not respecting position: relative;
-        width: calc(100% - 48px);
-        height: calc(100% - 48px);
     }
 }

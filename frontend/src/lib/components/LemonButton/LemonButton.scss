@@ -4,11 +4,15 @@
     color: var(--primary);
     font-weight: 600;
     cursor: pointer;
-    &:hover {
-        background: rgba($primary, 0.1);
+    &:not(:disabled):hover {
+        background: var(--primary-bg-hover);
     }
-    &:active {
-        background: rgba($primary, 0.2);
+    &:not(:disabled):active {
+        background: var(--primary-bg-active);
+    }
+    &:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
     }
     .LemonRow__icon {
         color: var(--primary);
@@ -18,6 +22,12 @@
 .LemonButton--primary {
     background: var(--primary);
     color: #fff;
+    &:not(:disabled):hover {
+        background: var(--primary-hover);
+    }
+    &:not(:disabled):active {
+        background: var(--primary-active);
+    }
     .LemonRow__icon {
         color: #fff;
     }
@@ -32,9 +42,8 @@
 }
 
 .LemonButton--highlighted {
-    background: rgba($primary, 0.1);
+    background: var(--primary-bg-hover);
     color: var(--text-default);
-    font-weight: 600;
     .LemonRow__icon {
         color: var(--primary);
     }

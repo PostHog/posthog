@@ -1,10 +1,14 @@
-import { Row, Tabs } from 'antd'
+import { Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
 import { isMobile } from 'lib/utils'
-import React from 'react'
-import { HotKeys, ViewType } from '~/types'
+import React, { useRef } from 'react'
+import { HotKeys, InsightType } from '~/types'
 import { insightLogic } from './insightLogic'
 import { Tooltip } from 'lib/components/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import clsx from 'clsx'
+import { FunnelsCue } from './InsightTabs/TrendTab/FunnelsCue'
 
 const { TabPane } = Tabs
 
@@ -13,18 +17,24 @@ function InsightHotkey({ hotkey }: { hotkey: HotKeys }): JSX.Element {
 }
 
 export function InsightsNav(): JSX.Element {
-    const { activeView } = useValues(insightLogic)
+    const { activeView, insightProps } = useValues(insightLogic)
     const { setActiveView } = useActions(insightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const funnelTab = useRef<HTMLSpanElement>(null)
 
     return (
-        <Row justify="space-between" align="middle" className="top-bar">
+        <>
+            <FunnelsCue
+                props={insightProps}
+                tooltipPosition={
+                    // 1.5x because it's 2 tabs (trends & funnels) + margin between tabs
+                    funnelTab?.current ? funnelTab.current.getBoundingClientRect().width * 1.5 + 16 : undefined
+                }
+            />
             <Tabs
                 activeKey={activeView}
-                style={{
-                    overflow: 'visible',
-                }}
                 className="top-bar"
-                onChange={(key) => setActiveView(key as ViewType)}
+                onChange={(key) => setActiveView(key as InsightType)}
                 animated={false}
             >
                 <TabPane
@@ -34,16 +44,16 @@ export function InsightsNav(): JSX.Element {
                             <InsightHotkey hotkey="t" />
                         </span>
                     }
-                    key={ViewType.TRENDS}
+                    key={InsightType.TRENDS}
                 />
                 <TabPane
                     tab={
-                        <span data-attr="insight-funnels-tab">
+                        <span data-attr="insight-funnels-tab" ref={funnelTab}>
                             Funnels
                             <InsightHotkey hotkey="f" />
                         </span>
                     }
-                    key={ViewType.FUNNELS}
+                    key={InsightType.FUNNELS}
                 />
                 <TabPane
                     tab={
@@ -52,7 +62,7 @@ export function InsightsNav(): JSX.Element {
                             <InsightHotkey hotkey="r" />
                         </span>
                     }
-                    key={ViewType.RETENTION}
+                    key={InsightType.RETENTION}
                 />
                 <TabPane
                     tab={
@@ -61,20 +71,7 @@ export function InsightsNav(): JSX.Element {
                             <InsightHotkey hotkey="p" />
                         </span>
                     }
-                    key={ViewType.PATHS}
-                />
-                <TabPane
-                    tab={
-                        <Tooltip
-                            placement="top"
-                            title="View average and distribution of session durations."
-                            data-attr="insight-sessions-tab"
-                        >
-                            Sessions
-                            <InsightHotkey hotkey="o" />
-                        </Tooltip>
-                    }
-                    key={ViewType.SESSIONS}
+                    key={InsightType.PATHS}
                 />
                 <TabPane
                     tab={
@@ -98,7 +95,7 @@ export function InsightsNav(): JSX.Element {
                             <InsightHotkey hotkey="i" />
                         </Tooltip>
                     }
-                    key={ViewType.STICKINESS}
+                    key={InsightType.STICKINESS}
                 />
                 <TabPane
                     tab={
@@ -113,9 +110,24 @@ export function InsightsNav(): JSX.Element {
                             <InsightHotkey hotkey="l" />
                         </Tooltip>
                     }
-                    key={ViewType.LIFECYCLE}
+                    key={InsightType.LIFECYCLE}
+                />
+                <TabPane
+                    tab={
+                        <Tooltip
+                            placement="top"
+                            title="View average and distribution of session durations."
+                            data-attr="insight-sessions-tab"
+                        >
+                            <div className={clsx(featureFlags[FEATURE_FLAGS.SESSION_INSIGHT_REMOVAL] && 'deprecated')}>
+                                Sessions
+                                <InsightHotkey hotkey="o" />
+                            </div>
+                        </Tooltip>
+                    }
+                    key={InsightType.SESSIONS}
                 />
             </Tabs>
-        </Row>
+        </>
     )
 }

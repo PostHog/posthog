@@ -14,14 +14,7 @@ import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import './LineGraph.scss'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { InsightTooltip } from '../InsightTooltip/InsightTooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import dayjs from 'dayjs'
-import isSameOrAfter from 'dayjs/plugin/isSameOrAfter'
-import isSameOrBefore from 'dayjs/plugin/isSameOrBefore'
-
-dayjs.extend(isSameOrAfter)
-dayjs.extend(isSameOrBefore)
+import { dayjs } from 'lib/dayjs'
 
 //--Chart Style Options--//
 Chart.defaults.global.legend.display = false
@@ -72,7 +65,6 @@ export function LineGraph({
     const [annotationInRange, setInRange] = useState(false)
     const [tooltipVisible, setTooltipVisible] = useState(false)
     const size = useWindowSize()
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const annotationsCondition =
         type === 'line' && datasets?.length > 0 && !inSharedMode && datasets[0].labels?.[0] !== '1 day' // stickiness graphs
@@ -229,8 +221,6 @@ export function LineGraph({
             precision: 0,
         }
 
-        const inspectPersonsLabel = !dashboardItemId && onClick && showPersonsModal
-
         const tooltipOptions = {
             enabled: false, // disable builtin tooltip (use custom markup)
             mode: 'nearest',
@@ -287,7 +277,7 @@ export function LineGraph({
                                     : entityData.breakdown_value
                             }
                             seriesStatus={entityData.status}
-                            useCustomName={!!featureFlags[FEATURE_FLAGS.RENAME_FILTERS]}
+                            useCustomName
                         />
                     )
                 },
@@ -339,7 +329,7 @@ export function LineGraph({
                                 referenceDate={referenceDate}
                                 interval={interval}
                                 bodyLines={bodyLines}
-                                inspectPersonsLabel={inspectPersonsLabel}
+                                inspectPersonsLabel={onClick && showPersonsModal}
                                 preferAltTitle={tooltipPreferAltTitle}
                                 hideHeader={type === 'horizontalBar'}
                             />
@@ -422,9 +412,7 @@ export function LineGraph({
                                 : undefined,
                         day:
                             typeof point._index !== 'undefined' && dataset.days
-                                ? dataset['compare']
-                                    ? dataset.dates[point._index]
-                                    : dataset.days[point._index]
+                                ? dataset.days[point._index]
                                 : undefined,
                         value:
                             typeof point._index !== 'undefined' && dataset.data

@@ -1,7 +1,7 @@
-import dataclasses
 import json
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 import pytest
 from django.test import Client
@@ -17,6 +17,7 @@ from posthog.api.test.test_event_definition import (
 )
 from posthog.api.test.test_retention import identify
 from posthog.models.team import Team
+from posthog.test.base import stripResponse
 
 
 @pytest.mark.django_db
@@ -65,7 +66,7 @@ def test_includes_only_intervals_within_range(client: Client):
 
         trends = get_trends_ok(
             client,
-            request=TrendsRequest(
+            request=TrendsRequestBreakdown(
                 date_from="-14days",
                 date_to="2021-09-21",
                 interval="week",
@@ -88,64 +89,118 @@ def test_includes_only_intervals_within_range(client: Client):
             ),
             team=team,
         )
-        assert trends == {
-            "is_cached": False,
-            "last_refresh": "2021-09-20T16:00:00Z",
-            "next": None,
-            "result": [
-                {
-                    "action": {
-                        "id": "$pageview",
-                        "type": "events",
-                        "order": 0,
-                        "name": "$pageview",
-                        "custom_name": None,
-                        "math": "dau",
-                        "math_property": None,
-                        "math_group_type_index": None,
-                        "properties": [],
-                    },
-                    "breakdown_value": cohort["id"],
-                    "label": "$pageview - test cohort",
-                    "count": 3.0,
-                    "data": [1.0, 1.0, 1.0],
-                    # Prior to the fix this would also include '29-Aug-2021'
-                    "labels": ["5-Sep-2021", "12-Sep-2021", "19-Sep-2021"],
-                    "days": ["2021-09-05", "2021-09-12", "2021-09-19"],
-                }
-            ],
-        }
+
+        assert stripResponse(trends["result"], remove=("persons_urls", "filter")) == [
+            {
+                "action": {
+                    "id": "$pageview",
+                    "type": "events",
+                    "order": 0,
+                    "name": "$pageview",
+                    "custom_name": None,
+                    "math": "dau",
+                    "math_property": None,
+                    "math_group_type_index": None,
+                    "properties": [],
+                },
+                "breakdown_value": cohort["id"],
+                "label": "$pageview - test cohort",
+                "count": 3.0,
+                "data": [1.0, 1.0, 1.0],
+                # Prior to the fix this would also include '29-Aug-2021'
+                "labels": ["5-Sep-2021", "12-Sep-2021", "19-Sep-2021"],
+                "days": ["2021-09-05", "2021-09-12", "2021-09-19"],
+            }
+        ]
 
 
-@dataclasses.dataclass
+@dataclass
 class TrendsRequest:
-    date_from: str
-    date_to: str
-    interval: str
-    insight: str
-    breakdown: Union[List[int], str]
-    breakdown_type: str
-    display: str
-    events: List[Dict[str, Any]]
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    interval: Optional[str] = None
+    insight: Optional[str] = None
+    display: Optional[str] = None
+    compare: Optional[bool] = None
+    events: List[Dict[str, Any]] = field(default_factory=list)
+    properties: List[Dict[str, Any]] = field(default_factory=list)
 
 
-def get_trends(client, request: TrendsRequest, team: Team):
-    return client.get(
-        f"/api/projects/{team.id}/insights/trend/",
-        data={
-            "date_from": request.date_from,
-            "date_to": request.date_to,
-            "interval": request.interval,
-            "insight": request.insight,
-            "breakdown": request.breakdown,
-            "breakdown_type": request.breakdown_type,
-            "display": request.display,
-            "events": json.dumps(request.events),
-        },
-    )
+@dataclass
+class TrendsRequestBreakdown(TrendsRequest):
+    breakdown: Optional[Union[List[int], str]] = None
+    breakdown_type: Optional[str] = None
+
+
+def get_trends(client, request: Union[TrendsRequestBreakdown, TrendsRequest], team: Team):
+    data: Dict[str, Any] = {
+        "date_from": request.date_from,
+        "date_to": request.date_to,
+        "interval": request.interval,
+        "insight": request.insight,
+        "display": request.display,
+        "compare": request.compare,
+        "events": json.dumps(request.events),
+        "properties": json.dumps(request.properties),
+    }
+
+    if isinstance(request, TrendsRequestBreakdown):
+        data["breakdown"] = request.breakdown
+        data["breakdown_type"] = request.breakdown_type
+
+    filtered_data = {k: v for k, v in data.items() if v is not None}
+
+    return client.get(f"/api/projects/{team.id}/insights/trend/", data=filtered_data,)
 
 
 def get_trends_ok(client: Client, request: TrendsRequest, team: Team):
     response = get_trends(client=client, request=request, team=team)
     assert response.status_code == 200, response.content
     return response.json()
+
+
+@dataclass
+class NormalizedTrendResult:
+    value: float
+    label: str
+    person_url: str
+    breakdown_value: Optional[Union[str, int]]
+
+
+def get_trends_time_series_ok(
+    client: Client, request: TrendsRequest, team: Team
+) -> Dict[str, Dict[str, NormalizedTrendResult]]:
+    data = get_trends_ok(client=client, request=request, team=team)
+    res = {}
+    for item in data["result"]:
+        collect_dates = {}
+        for idx, date in enumerate(item["days"]):
+            collect_dates[date] = NormalizedTrendResult(
+                value=item["data"][idx],
+                label=item["labels"][idx],
+                person_url=item["persons_urls"][idx]["url"],
+                breakdown_value=item.get("breakdown_value", None),
+            )
+        res[item["label"]] = collect_dates
+
+    return res
+
+
+def get_trends_aggregate_ok(client: Client, request: TrendsRequest, team: Team) -> Dict[str, NormalizedTrendResult]:
+    data = get_trends_ok(client=client, request=request, team=team)
+    res = {}
+    for item in data["result"]:
+        res[item["label"]] = NormalizedTrendResult(
+            value=item["aggregated_value"],
+            label=item["action"]["name"],
+            person_url=item["persons"]["url"],
+            breakdown_value=item.get("breakdown_value", None),
+        )
+
+    return res
+
+
+def get_trends_people_ok(client: Client, url: str):
+    response = client.get("/" + url)
+    assert response.status_code == 200, response.content
+    return response.json()["results"][0]["people"]

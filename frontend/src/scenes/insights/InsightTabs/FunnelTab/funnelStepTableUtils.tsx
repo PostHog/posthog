@@ -5,6 +5,7 @@ import {
     FunnelStep,
     FunnelStepReference,
     FunnelStepWithConversionMetrics,
+    InsightShortId,
 } from '~/types'
 import { getReferenceStep, getSeriesColor, humanizeOrder } from 'scenes/funnels/funnelUtils'
 import { RenderedCell } from 'rc-table/lib/interface'
@@ -46,7 +47,7 @@ function BreakdownBarGroupWrapper({
     showLabels,
 }: {
     step: FunnelStepWithConversionMetrics
-    dashboardItemId?: number
+    dashboardItemId?: InsightShortId
     showLabels: boolean
 }): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -56,11 +57,12 @@ function BreakdownBarGroupWrapper({
         visibleStepsWithConversionMetrics: steps,
         clickhouseFeaturesEnabled,
         flattenedBreakdowns,
+        aggregationTargetLabel,
     } = useValues(logic)
-    const { openPersonsModal } = useActions(logic)
+    const { openPersonsModalForStep } = useActions(logic)
     const basisStep = getReferenceStep(steps, stepReference, step.order)
     const previousStep = getReferenceStep(steps, FunnelStepReference.previous, step.order)
-    const isClickable = !!(clickhouseFeaturesEnabled && !dashboardItemId && openPersonsModal)
+    const isClickable = !!(clickhouseFeaturesEnabled && !dashboardItemId && openPersonsModalForStep)
 
     return (
         <div className="funnel-bar-wrapper breakdown vertical">
@@ -69,13 +71,14 @@ function BreakdownBarGroupWrapper({
                 basisStep={basisStep}
                 previousStep={previousStep}
                 showLabels={showLabels}
-                onBarClick={(breakdown_value) => {
+                onBarClick={() => {
                     if (isClickable) {
-                        openPersonsModal(step, step.order + 1, breakdown_value)
+                        openPersonsModalForStep({ step, converted: true })
                     }
                 }}
                 isClickable={isClickable}
                 isSingleSeries={flattenedBreakdowns.length === 1}
+                aggregationTargetLabel={aggregationTargetLabel}
             />
             <div className="funnel-bar-empty-space" />
             <div className="funnel-bar-axis">
@@ -97,8 +100,7 @@ export const renderGraphAndHeader = (
     headerElement: JSX.Element,
     showLabels: boolean,
     step?: FunnelStepWithConversionMetrics,
-    dashboardItemId?: number,
-    useCustomName?: boolean
+    dashboardItemId?: InsightShortId
 ): JSX.Element | RenderedCell<FlattenedFunnelStepByBreakdown> => {
     const stepIndex = step?.order ?? 0
     if (rowIndex === 0 || rowIndex === 1) {
@@ -146,11 +148,7 @@ export const renderGraphAndHeader = (
                     children: (
                         <div className="funnel-step-title">
                             <span className="funnel-step-glyph">{zeroPad(humanizeOrder(stepIndex), 2)}</span>
-                            {useCustomName && step ? (
-                                <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
-                            ) : (
-                                <PropertyKeyInfo value={step?.name ?? ''} disableIcon className="funnel-step-name" />
-                            )}
+                            {step && <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />}
                             <FunnelStepDropdown index={stepIndex} />
                         </div>
                     ),

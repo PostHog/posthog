@@ -3,12 +3,13 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { personsLogicType } from './personsLogicType'
-import { CohortType, PersonsTabType, PersonType } from '~/types'
+import { CohortType, PersonsTabType, PersonType, AnyPropertyFilter } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
+import { toParams } from 'lib/utils'
 
 interface PersonPaginatedResponse {
     next: string | null
@@ -16,10 +17,26 @@ interface PersonPaginatedResponse {
     results: PersonType[]
 }
 
-const FILTER_ALLOWLIST: string[] = ['is_identified', 'search', 'cohort']
+interface Filters {
+    properties?: AnyPropertyFilter[]
+    search?: string
+    cohort?: number
+}
 
-export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
-    path: ['scenes', 'persons', 'personsLogic'],
+export interface PersonLogicProps {
+    cohort?: number | 'new' | 'personsModalNew'
+    syncWithUrl?: boolean
+}
+
+export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, PersonPaginatedResponse>>({
+    props: {} as PersonLogicProps,
+    key: (props) => {
+        if (!props.cohort && !props.syncWithUrl) {
+            throw new Error(`personsLogic must be initialized with props.cohort or props.syncWithUrl`)
+        }
+        return props.cohort ? `cohort_${props.cohort}` : 'scene'
+    },
+    path: (key) => ['scenes', 'persons', 'personsLogic', key],
     connect: {
         actions: [eventUsageLogic, ['reportPersonDetailViewed']],
         values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeam']],
@@ -28,7 +45,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
         setPerson: (person: PersonType) => ({ person }),
         loadPerson: (id: string) => ({ id }),
         loadPersons: (url: string | null = '') => ({ url }),
-        setListFilters: (payload) => ({ payload }),
+        setListFilters: (payload: Filters) => ({ payload }),
         editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
         setHasNewKeys: true,
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
@@ -37,9 +54,15 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
     },
     reducers: {
         listFilters: [
-            {} as Record<string, string>,
+            {} as Filters,
             {
-                setListFilters: (state, { payload }) => ({ ...state, ...payload }),
+                setListFilters: (state, { payload }) => {
+                    const newFilters = { ...state, ...payload }
+                    if (newFilters.properties?.length === 0) {
+                        delete newFilters['properties']
+                    }
+                    return newFilters
+                },
             },
         ],
         hasNewKeys: [
@@ -68,13 +91,6 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
         },
     },
     selectors: {
-        exampleEmail: [
-            (s) => [s.persons],
-            (persons) => {
-                const match = persons && persons.results.find((person) => person.properties?.email)
-                return match?.properties?.email || 'example@gmail.com'
-            },
-        ],
         showSessionRecordings: [
             (s) => [s.featureFlags, s.currentTeam],
             (featureFlags, currentTeam) => {
@@ -167,20 +183,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             {
                 loadPersons: async ({ url }) => {
                     if (!url) {
-                        const qs = Object.keys(values.listFilters)
-                            .filter((key) =>
-                                key !== 'is_identified'
-                                    ? FILTER_ALLOWLIST.includes(key)
-                                    : !url?.includes('is_identified')
-                            )
-                            .reduce(function (result, key) {
-                                const value = values.listFilters[key]
-                                if (value !== undefined && value !== null) {
-                                    result.push(`${key}=${encodeURIComponent(value)}`)
-                                }
-                                return result
-                            }, [] as string[])
-                        url = `api/person/${qs.length ? '?' + qs.join('&') : ''}`
+                        url = `api/person/?${toParams(values.listFilters)}`
                     }
                     return await api.get(url)
                 },
@@ -228,12 +231,12 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
     }),
     actionToUrl: ({ values, props }) => ({
         setListFilters: () => {
-            if (props.updateURL && router.values.location.pathname.indexOf('/persons') > -1) {
+            if (props.syncWithUrl && router.values.location.pathname.indexOf('/persons') > -1) {
                 return ['/persons', values.listFilters, undefined, { replace: true }]
             }
         },
         navigateToTab: () => {
-            if (router.values.location.pathname.indexOf('/person') > -1) {
+            if (props.syncWithUrl && router.values.location.pathname.indexOf('/person') > -1) {
                 return [
                     router.values.location.pathname,
                     router.values.searchParams,
@@ -245,27 +248,39 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             }
         },
     }),
-    urlToAction: ({ actions, values }) => ({
+    urlToAction: ({ actions, values, props }) => ({
         '/persons': ({}, searchParams) => {
-            actions.setListFilters(searchParams)
-            if (!values.persons.results.length && !values.personsLoading) {
-                // Initial load
-                actions.loadPersons()
+            if (props.syncWithUrl) {
+                actions.setListFilters(searchParams)
+                if (!values.persons.results.length && !values.personsLoading) {
+                    // Initial load
+                    actions.loadPersons()
+                }
             }
         },
         '/person/*': ({ _: person }, { sessionRecordingId }, { activeTab }) => {
-            if (sessionRecordingId) {
-                if (values.showSessionRecordings) {
-                    actions.navigateToTab(PersonsTabType.SESSION_RECORDINGS)
-                } else {
-                    actions.navigateToTab(PersonsTabType.SESSIONS)
+            if (props.syncWithUrl) {
+                if (sessionRecordingId) {
+                    if (values.showSessionRecordings) {
+                        actions.navigateToTab(PersonsTabType.SESSION_RECORDINGS)
+                    } else {
+                        actions.navigateToTab(PersonsTabType.SESSIONS)
+                    }
+                } else if (activeTab && values.activeTab !== activeTab) {
+                    actions.navigateToTab(activeTab as PersonsTabType)
                 }
-            } else if (activeTab && values.activeTab !== activeTab) {
-                actions.navigateToTab(activeTab as PersonsTabType)
-            }
 
-            if (person) {
-                actions.loadPerson(person) // underscore contains the wildcard
+                if (person) {
+                    actions.loadPerson(person) // underscore contains the wildcard
+                }
+            }
+        },
+    }),
+    events: ({ props, actions }) => ({
+        afterMount: () => {
+            if (props.cohort && typeof props.cohort === 'number') {
+                actions.setListFilters({ cohort: props.cohort })
+                actions.loadPersons()
             }
         },
     }),

@@ -11,13 +11,15 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useValues } from 'kea'
 import { cohortsModel } from '~/models/cohortsModel'
 import './TaxonomicBreakdownFilter.scss'
+import { ButtonType } from 'antd/lib/button'
 
 export interface TaxonomicBreakdownFilterProps {
     filters: Partial<FilterType>
     setFilters: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
+    buttonType?: ButtonType
 }
 
-export function BreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilterProps): JSX.Element {
+export function BreakdownFilter({ filters, setFilters, buttonType }: TaxonomicBreakdownFilterProps): JSX.Element {
     const { breakdown, breakdown_type } = filters
 
     let breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type)
@@ -61,19 +63,21 @@ export function BreakdownFilter({ filters, setFilters }: TaxonomicBreakdownFilte
                 {tags}
                 {hasSelectedBreakdown ? null : (
                     <TaxonomicBreakdownButton
+                        buttonType={buttonType}
                         breakdownType={breakdownType}
-                        onChange={(changedBreakdown, groupType) => {
+                        onChange={(changedBreakdown, taxonomicGroup) => {
                             const changedBreakdownType = taxonomicFilterTypeToPropertyFilterType(
-                                groupType
+                                taxonomicGroup.type
                             ) as BreakdownType
 
                             if (changedBreakdownType) {
                                 setFilters({
                                     breakdown:
-                                        groupType === TaxonomicFilterGroupType.CohortsWithAllUsers
+                                        taxonomicGroup.type === TaxonomicFilterGroupType.CohortsWithAllUsers
                                             ? [...breakdownParts, changedBreakdown]
                                             : changedBreakdown,
                                     breakdown_type: changedBreakdownType,
+                                    breakdown_group_type_index: taxonomicGroup.groupTypeIndex,
                                 })
                             }
                         }}

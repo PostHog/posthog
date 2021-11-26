@@ -130,17 +130,17 @@ def filter_events(
     return filters
 
 
-def properties_to_Q(properties: List[Property], team_id: int, is_person_query: bool = False) -> Q:
+def properties_to_Q(properties: List[Property], team_id: int, is_direct_query: bool = False) -> Q:
     """
     Converts a filter to Q, for use in Django ORM .filter()
-    If you're filtering a Person QuerySet, use is_person_query to avoid doing an unnecessary nested loop
+    If you're filtering a Person/Group QuerySet, use is_direct_query to avoid doing an unnecessary nested loop
     """
     filters = Q()
 
     if len(properties) == 0:
         return filters
 
-    if is_person_query:
+    if is_direct_query:
         for property in properties:
             filters &= property.property_to_Q()
         return filters
@@ -186,6 +186,9 @@ def properties_to_Q(properties: List[Property], team_id: int, is_person_query: b
                     )
                 )
 
+    if len([prop for prop in properties if prop.type == "group"]):
+        raise ValueError("Group properties are not supported for indirect filtering via postgres")
+
     return filters
 
 
@@ -204,18 +207,9 @@ def filter_persons(team_id: int, request: request.Request, queryset: QuerySet) -
         uuids = request.GET["uuid"].split(",")
         queryset = queryset.filter(uuid__in=uuids)
     if request.GET.get("search"):
-        parts = request.GET["search"].split(" ")
-        contains = []
-        for part in parts:
-            if ":" in part:
-                matcher, key = part.split(":")
-                if matcher == "has":
-                    # Matches for example has:email or has:name
-                    queryset = queryset.filter(properties__has_key=key)
-            else:
-                contains.append(part)
         queryset = queryset.filter(
-            Q(properties__icontains=" ".join(contains)) | Q(persondistinctid__distinct_id__icontains=" ".join(contains))
+            Q(properties__icontains=request.GET["search"])
+            | Q(persondistinctid__distinct_id__icontains=request.GET["search"])
         ).distinct("id")
     if request.GET.get("cohort"):
         queryset = queryset.filter(cohort__id=request.GET["cohort"])
@@ -223,7 +217,7 @@ def filter_persons(team_id: int, request: request.Request, queryset: QuerySet) -
         filter = Filter(data={"properties": json.loads(request.GET["properties"])})
         queryset = queryset.filter(
             properties_to_Q(
-                [prop for prop in filter.properties if prop.type == "person"], team_id=team_id, is_person_query=True
+                [prop for prop in filter.properties if prop.type == "person"], team_id=team_id, is_direct_query=True
             )
         )
 

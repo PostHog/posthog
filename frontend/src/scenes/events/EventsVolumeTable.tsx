@@ -2,13 +2,13 @@ import React from 'react'
 import { useValues } from 'kea'
 import { Alert, Skeleton } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { PageHeader } from 'lib/components/PageHeader'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { UsageDisabledWarning } from './UsageDisabledWarning'
 import { VolumeTable } from './VolumeTable'
 import { DefinitionDrawer } from 'scenes/events/definitions/DefinitionDrawer'
 import { SceneExport } from 'scenes/sceneTypes'
-import { EventsTab, EventsTabs } from 'scenes/events/EventsTabs'
+import { EventsTab } from 'scenes/events/EventsTabs'
+import { EventPageHeader } from './EventPageHeader'
 
 export const scene: SceneExport = {
     component: EventsVolumeTable,
@@ -20,13 +20,8 @@ export function EventsVolumeTable(): JSX.Element | null {
     const { eventDefinitions, loaded } = useValues(eventDefinitionsModel)
 
     return (
-        <div data-attr="manage-events-table" style={{ paddingTop: 32 }}>
-            <EventsTabs tab={EventsTab.EventStats} />
-            <PageHeader
-                title="Events Stats"
-                caption="See all event names that have ever been sent to this team, including the volume and how often queries where made using this event."
-                style={{ marginTop: 0 }}
-            />
+        <div data-attr="manage-events-table">
+            <EventPageHeader activeTab={EventsTab.EventStats} />
             {loaded ? (
                 <>
                     {preflight && !preflight?.is_event_property_usage_enabled ? (

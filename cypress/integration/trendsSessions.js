@@ -1,7 +1,9 @@
+import { urls } from 'scenes/urls'
+
 describe('Trends sessions', () => {
     beforeEach(() => {
         // given
-        cy.visit('/insights')
+        cy.visit(urls.insightNew())
         cy.get('[id="rc-tabs-0-tab-SESSIONS"]').click()
     })
 
@@ -26,7 +28,7 @@ describe('Trends sessions', () => {
 
     it('Save to dashboard', () => {
         cy.get('[data-attr=save-to-dashboard-button]').click()
-        cy.contains('Add panel to dashboard').click()
+        cy.contains('Add insight to dashboard').click()
         cy.get('[data-attr=success-toast]').should('exist')
     })
 })

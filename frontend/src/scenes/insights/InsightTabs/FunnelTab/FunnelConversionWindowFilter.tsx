@@ -1,6 +1,6 @@
 import { InputNumber, Row, Select } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
-import { pluralize } from 'lib/utils'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import React, { useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
@@ -9,6 +9,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { RefSelectProps } from 'antd/lib/select'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useDebouncedCallback } from 'use-debounce'
+import clsx from 'clsx'
 
 const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
     [FunnelConversionWindowTimeUnit.Minute]: [1, 1440],
@@ -18,9 +19,9 @@ const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
     [FunnelConversionWindowTimeUnit.Month]: [1, 12],
 }
 
-export function FunnelConversionWindowFilter(): JSX.Element {
+export function FunnelConversionWindowFilter({ horizontal }: { horizontal?: boolean }): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { conversionWindow } = useValues(funnelLogic(insightProps))
+    const { conversionWindow, aggregationTargetLabel } = useValues(funnelLogic(insightProps))
     const { setFilters } = useActions(funnelLogic(insightProps))
     const [localConversionWindow, setLocalConversionWindow] = useState<FunnelConversionWindow>(conversionWindow)
     const timeUnitRef: React.RefObject<RefSelectProps> | null = useRef(null)
@@ -42,21 +43,25 @@ export function FunnelConversionWindowFilter(): JSX.Element {
     }, 200)
 
     return (
-        <div className="funnel-options-container">
+        <div
+            className={clsx('funnel-options-container', horizontal && 'flex-center')}
+            style={horizontal ? { flexDirection: 'row' } : undefined}
+        >
             <span className="funnel-options-label">
                 Conversion window limit{' '}
                 <Tooltip
                     title={
                         <>
-                            <b>Recommended!</b> Limit to users who converted within a specific time frame. Users who do
-                            not convert in this time frame will be considered as drop-offs.
+                            <b>Recommended!</b> Limit to {aggregationTargetLabel.plural} who converted within a specific
+                            time frame. {capitalizeFirstLetter(aggregationTargetLabel.plural)} who do not convert in
+                            this time frame will be considered as drop-offs.
                         </>
                     }
                 >
                     <InfoCircleOutlined className="info-indicator" />
                 </Tooltip>
             </span>
-            <Row className="funnel-options-inputs">
+            <Row className="funnel-options-inputs" style={horizontal ? { paddingLeft: 8 } : undefined}>
                 <InputNumber
                     className="time-value-input"
                     min={intervalBounds[0]}

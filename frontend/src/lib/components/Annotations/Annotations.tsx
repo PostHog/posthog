@@ -1,16 +1,16 @@
 import React from 'react'
-import dayjs from 'dayjs'
 import { annotationsLogic } from './annotationsLogic'
 import { useValues, useActions } from 'kea'
 import { AnnotationMarker } from './AnnotationMarker'
 import { AnnotationType, AnnotationScope } from '~/types'
+import { dayjs } from 'lib/dayjs'
 
 interface AnnotationsProps {
     dates: string[]
     leftExtent: number
     interval: number
     topExtent: number
-    dashboardItemId?: number
+    insightId?: number
     color: string | null
     graphColor: string
     accessoryColor: string | null
@@ -24,7 +24,7 @@ export function Annotations({
     leftExtent,
     interval,
     topExtent,
-    dashboardItemId,
+    insightId,
     onClick,
     color,
     accessoryColor,
@@ -32,18 +32,10 @@ export function Annotations({
     graphColor,
     currentDateMarker,
 }: AnnotationsProps): JSX.Element[] {
-    const { diffType, groupedAnnotations } = useValues(
-        annotationsLogic({
-            pageKey: dashboardItemId ? dashboardItemId : null,
-        })
-    )
+    const { diffType, groupedAnnotations } = useValues(annotationsLogic({ insightId }))
 
     const { createAnnotation, createAnnotationNow, deleteAnnotation, deleteGlobalAnnotation, createGlobalAnnotation } =
-        useActions(
-            annotationsLogic({
-                pageKey: dashboardItemId ? dashboardItemId : null,
-            })
-        )
+        useActions(annotationsLogic({ insightId }))
 
     const markers: JSX.Element[] = []
 
@@ -57,8 +49,8 @@ export function Annotations({
             annotations={annotationsToMark}
             onCreate={(input: string, applyAll: boolean) => {
                 if (applyAll) {
-                    createGlobalAnnotation(input, date, dashboardItemId)
-                } else if (dashboardItemId) {
+                    createGlobalAnnotation(input, date, insightId)
+                } else if (insightId) {
                     createAnnotationNow(input, date)
                 } else {
                     createAnnotation(input, date)

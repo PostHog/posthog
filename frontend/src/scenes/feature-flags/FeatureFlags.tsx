@@ -1,23 +1,25 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
 import { featureFlagsLogic } from './featureFlagsLogic'
-import { Table, Switch, Typography, Input } from 'antd'
+import { Input } from 'antd'
 import { Link } from 'lib/components/Link'
-import { DeleteWithUndo } from 'lib/utils'
-import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined, DisconnectOutlined } from '@ant-design/icons'
+import { copyToClipboard, deleteWithUndo } from 'lib/utils'
+import { PlusOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
-import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
-import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
 import { FeatureFlagGroupType, FeatureFlagType } from '~/types'
-import { router } from 'kea-router'
 import { LinkButton } from 'lib/components/LinkButton'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { normalizeColumnTitle, useIsTableScrolling } from 'lib/components/Table/utils'
+import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
-import { Tooltip } from 'lib/components/Tooltip'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { teamLogic } from '../teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { LemonButton } from '../../lib/components/LemonButton'
+import { LemonSpacer } from '../../lib/components/LemonRow'
+import { LemonSwitch } from '../../lib/components/LemonSwitch/LemonSwitch'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from '../../lib/components/LemonTable/LemonTable'
+import { More } from '../../lib/components/LemonButton/More'
+import { createdAtColumn, createdByColumn } from '../../lib/components/LemonTable/columnUtils'
+import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -26,141 +28,112 @@ export const scene: SceneExport = {
 
 export function FeatureFlags(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
-    const { featureFlags, featureFlagsLoading, searchedFeatureFlags, searchTerm } = useValues(featureFlagsLogic)
+    const { featureFlagsLoading, searchedFeatureFlags, searchTerm } = useValues(featureFlagsLogic)
     const { updateFeatureFlag, loadFeatureFlags, setSearchTerm } = useActions(featureFlagsLogic)
-    const { push } = useActions(router)
-    const { tableScrollX } = useIsTableScrolling('lg')
 
-    const columns = [
+    const columns: LemonTableColumns<FeatureFlagType> = [
         {
             title: normalizeColumnTitle('Key'),
             dataIndex: 'key',
             className: 'ph-no-capture',
-            fixed: 'left',
-            width: '15%',
-            sorter: (a: FeatureFlagType, b: FeatureFlagType) => ('' + a.key).localeCompare(b.key),
-            render: function Render(_: string, featureFlag: FeatureFlagType) {
-                return (
-                    <div
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            maxWidth: 210,
-                            width: 'auto',
-                        }}
-                    >
-                        {!featureFlag.active && (
-                            <Tooltip title="This feature flag is disabled.">
-                                <DisconnectOutlined style={{ marginRight: 4 }} />
-                            </Tooltip>
-                        )}
-                        <div onClick={(e) => e.stopPropagation()}>
-                            <CopyToClipboardInline
-                                iconStyle={{ color: 'var(--primary)' }}
-                                iconPosition="start"
-                                explicitValue={featureFlag.key}
-                            />
-                        </div>
-                        <Typography.Text title={featureFlag.key}>{stringWithWBR(featureFlag.key, 17)}</Typography.Text>
-                    </div>
-                )
-            },
-        },
-        {
-            title: normalizeColumnTitle('Description'),
-            render: function Render(_: string, featureFlag: FeatureFlagType) {
-                return (
-                    <div
-                        style={{
-                            display: 'flex',
-                            wordWrap: 'break-word',
-                            maxWidth: 450,
-                            width: 'auto',
-                            whiteSpace: 'break-spaces',
-                        }}
-                    >
-                        <Typography.Paragraph
-                            ellipsis={{
-                                rows: 5,
-                            }}
-                            title={featureFlag.name}
-                        >
-                            {featureFlag.name}
-                        </Typography.Paragraph>
-                    </div>
-                )
-            },
-            className: 'ph-no-capture',
-            sorter: (a: FeatureFlagType, b: FeatureFlagType) => ('' + a.name).localeCompare(b.name),
-        },
-        createdAtColumn(),
-        createdByColumn(featureFlags),
-        {
-            title: 'Filters',
-            render: function Render(_: string, featureFlag: FeatureFlagType) {
-                if (!featureFlag.filters?.groups) {
-                    return 'N/A'
-                }
-                if (featureFlag.filters.groups.length > 1) {
-                    return 'Multiple groups'
-                }
-                return GroupFilters({ group: featureFlag.filters.groups[0] })
-            },
-        },
-        {
-            title: 'Enabled',
-            width: 90,
-            align: 'right',
-            render: function RenderActive(_: string, featureFlag: FeatureFlagType) {
-                return (
-                    <Switch
-                        onClick={(_checked, e) => e.stopPropagation()}
-                        checked={featureFlag.active}
-                        onChange={(active) =>
-                            featureFlag.id ? updateFeatureFlag({ id: featureFlag.id, payload: { active } }) : null
-                        }
-                    />
-                )
-            },
-        },
-        {
-            title: normalizeColumnTitle('Usage'),
-            width: 100,
-            align: 'right',
-            render: function Render(_: string, featureFlag: FeatureFlagType) {
-                return (
-                    <Link
-                        to={`/insights?events=[{"id":"$pageview","name":"$pageview","type":"events","math":"dau"}]&breakdown_type=event&breakdown=$feature/${featureFlag.key}`}
-                        data-attr="usage"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        Insights <ExportOutlined />
-                    </Link>
-                )
-            },
-        },
-        {
-            title: normalizeColumnTitle('Actions'),
-            width: 100,
-            align: 'right',
-            render: function Render(_: string, featureFlag: FeatureFlagType) {
+            sticky: true,
+            width: '40%',
+            sorter: (a: FeatureFlagType, b: FeatureFlagType) => (a.key || '').localeCompare(b.key || ''),
+            render: function Render(_, featureFlag: FeatureFlagType) {
                 return (
                     <>
-                        <Link to={`/feature_flags/${featureFlag.id}`}>
-                            <EditOutlined />
+                        <Link to={featureFlag.id ? urls.featureFlag(featureFlag.id) : undefined}>
+                            <h4 className="row-name">{stringWithWBR(featureFlag.key, 17)}</h4>
                         </Link>
-                        {featureFlag.id && (
-                            <DeleteWithUndo
-                                endpoint={`projects/${currentTeamId}/feature_flags`}
-                                object={{ name: featureFlag.name, id: featureFlag.id }}
-                                className="text-danger"
-                                style={{ marginLeft: 8 }}
-                                callback={loadFeatureFlags}
-                            >
-                                <DeleteOutlined />
-                            </DeleteWithUndo>
-                        )}
+                        {featureFlag.name && <span className="row-description">{featureFlag.name}</span>}
                     </>
+                )
+            },
+        },
+        createdByColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
+        createdAtColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
+        {
+            title: 'Rollout',
+            width: 200,
+            render: function Render(_, featureFlag: FeatureFlagType) {
+                return groupFilters(featureFlag.filters.groups)
+            },
+        },
+        {
+            title: 'Status',
+            dataIndex: 'active',
+            sorter: (a: FeatureFlagType, b: FeatureFlagType) => Number(a.active) - Number(b.active),
+            width: 100,
+            render: function RenderActive(_, featureFlag: FeatureFlagType) {
+                const switchId = `feature-flag-${featureFlag.id}-switch`
+                return (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <label htmlFor={switchId}>{featureFlag.active ? 'Enabled' : 'Disabled'}</label>
+                        <LemonSwitch
+                            id={switchId}
+                            checked={featureFlag.active}
+                            onChange={(active) =>
+                                featureFlag.id ? updateFeatureFlag({ id: featureFlag.id, payload: { active } }) : null
+                            }
+                            style={{ marginLeft: '0.5rem' }}
+                        />
+                    </div>
+                )
+            },
+        },
+        {
+            width: 0,
+            render: function Render(_, featureFlag: FeatureFlagType) {
+                return (
+                    <More
+                        overlay={
+                            <>
+                                <LemonButton
+                                    type="stealth"
+                                    onClick={() => {
+                                        copyToClipboard(featureFlag.key, 'feature flag key')
+                                    }}
+                                    fullWidth
+                                >
+                                    Copy key
+                                </LemonButton>
+                                {featureFlag.id && (
+                                    <LemonButton type="stealth" to={urls.featureFlag(featureFlag.id)} fullWidth>
+                                        Edit
+                                    </LemonButton>
+                                )}
+                                <LemonButton
+                                    type="stealth"
+                                    to={urls.insightNew({
+                                        events: [{ id: '$pageview', name: '$pageview', type: 'events', math: 'dau' }],
+                                        breakdown_type: 'event',
+                                        breakdown: `$feature/${featureFlag.key}`,
+                                    })}
+                                    data-attr="usage"
+                                    fullWidth
+                                >
+                                    Use in Insights
+                                </LemonButton>
+                                <LemonSpacer />
+                                {featureFlag.id && (
+                                    <LemonButton
+                                        type="stealth"
+                                        style={{ color: 'var(--danger)' }}
+                                        onClick={() => {
+                                            deleteWithUndo({
+                                                endpoint: `projects/${currentTeamId}/feature_flags`,
+                                                object: { name: featureFlag.name, id: featureFlag.id },
+                                                callback: loadFeatureFlags,
+                                            })
+                                        }}
+                                        fullWidth
+                                    >
+                                        Delete feature flag
+                                    </LemonButton>
+                                )}
+                            </>
+                        }
+                    />
                 )
             },
         },
@@ -174,6 +147,7 @@ export function FeatureFlags(): JSX.Element {
             />
             <div>
                 <Input.Search
+                    placeholder="Search for feature flags"
                     allowClear
                     enterButton
                     style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
@@ -193,37 +167,48 @@ export function FeatureFlags(): JSX.Element {
                     </LinkButton>
                 </div>
             </div>
-            <Table
+            <LemonTable
                 dataSource={searchedFeatureFlags}
                 columns={columns}
-                loading={featureFlagsLoading && featureFlags.length === 0}
-                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                onRow={(featureFlag) => ({
-                    onClick: () => featureFlag.id && push(urls.featureFlag(featureFlag.id)),
-                    style: !featureFlag.active ? { color: 'var(--muted)' } : {},
-                })}
-                size="small"
-                rowClassName="cursor-pointer"
+                rowKey="key"
+                loading={featureFlagsLoading}
+                defaultSorting={{ columnKey: 'key', order: 1 }}
+                pagination={{ pageSize: 20 }}
+                nouns={['feature flag', 'feature flags']}
                 data-attr="feature-flag-table"
-                scroll={{ x: tableScrollX }}
             />
         </div>
     )
 }
 
-function GroupFilters({ group }: { group: FeatureFlagGroupType }): JSX.Element | string {
-    if (group.properties && group.properties.length > 0 && group.rollout_percentage != null) {
-        return (
-            <div style={{ display: 'flex', alignItems: 'center' }}>
-                <span style={{ flexShrink: 0, marginRight: 5 }}>{group.rollout_percentage}% of</span>
-                <PropertyFiltersDisplay filters={group.properties} style={{ margin: 0, width: '100%' }} />
-            </div>
-        )
-    } else if (group.properties && group.properties.length > 0) {
-        return <PropertyFiltersDisplay filters={group.properties} style={{ margin: 0 }} />
-    } else if (group.rollout_percentage !== null && group.rollout_percentage !== undefined) {
-        return `${group.rollout_percentage}% of all users`
-    } else {
-        return '100% of all users'
+function groupFilters(groups: FeatureFlagGroupType[]): JSX.Element | string {
+    if (groups.length === 0 || !groups.some((group) => group.rollout_percentage !== 0)) {
+        // There are no rollout groups or all are at 0%
+        return 'No users'
     }
+    if (
+        groups.some((group) => !group.properties?.length && [null, undefined, 100].includes(group.rollout_percentage))
+    ) {
+        // There's some group without filters that has 100% rollout
+        return 'All users'
+    }
+    if (groups.length === 1) {
+        const { properties, rollout_percentage = null } = groups[0]
+        if (properties?.length > 0 && rollout_percentage != null) {
+            return (
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <span style={{ flexShrink: 0, marginRight: 5 }}>{rollout_percentage}% of</span>
+                    <PropertyFiltersDisplay filters={properties} style={{ margin: 0, width: '100%' }} greyBadges />
+                </div>
+            )
+        } else if (properties?.length > 0) {
+            return <PropertyFiltersDisplay filters={properties} style={{ margin: 0 }} greyBadges />
+        } else if (rollout_percentage !== null) {
+            return `${rollout_percentage}% of all users`
+        } else {
+            console.error('A group with full rollout was not detected early')
+            return 'All users'
+        }
+    }
+    return `${groups.length} groups`
 }

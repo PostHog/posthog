@@ -1,15 +1,21 @@
-import { GroupTypeToColumnIndex, TeamId } from '../../types'
+import { GroupTypeIndex, GroupTypeToColumnIndex, Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
+import { posthog } from '../../utils/posthog'
 import { getByAge } from '../../utils/utils'
+import { TeamManager } from './team-manager'
 
 export class GroupTypeManager {
     db: DB
+    teamManager: TeamManager
     groupTypesCache: Map<number, [GroupTypeToColumnIndex, number]>
+    instanceSiteUrl: string
 
-    constructor(db: DB) {
+    constructor(db: DB, teamManager: TeamManager, instanceSiteUrl?: string | null) {
         this.db = db
+        this.teamManager = teamManager
         this.groupTypesCache = new Map()
+        this.instanceSiteUrl = instanceSiteUrl || 'unknown'
     }
 
     public async fetchGroupTypes(teamId: TeamId): Promise<GroupTypeToColumnIndex> {
@@ -28,17 +34,45 @@ export class GroupTypeManager {
         }
     }
 
-    public async fetchGroupTypeIndex(teamId: TeamId, groupType: string): Promise<number | null> {
+    public async fetchGroupTypeIndex(teamId: TeamId, groupType: string): Promise<GroupTypeIndex | null> {
         const groupTypes = await this.fetchGroupTypes(teamId)
 
         if (groupType in groupTypes) {
             return groupTypes[groupType]
         } else {
-            const response = await this.db.insertGroupType(teamId, groupType, Object.keys(groupTypes).length)
-            if (response !== null) {
+            const [groupTypeIndex, isInsert] = await this.db.insertGroupType(
+                teamId,
+                groupType,
+                Object.keys(groupTypes).length
+            )
+            if (groupTypeIndex !== null) {
                 this.groupTypesCache.delete(teamId)
             }
-            return response
+
+            if (isInsert && groupTypeIndex !== null) {
+                await this.captureGroupTypeInsert(teamId, groupType, groupTypeIndex)
+            }
+            return groupTypeIndex
         }
+    }
+
+    private async captureGroupTypeInsert(teamId: TeamId, groupType: string, groupTypeIndex: GroupTypeIndex) {
+        const team: Team | null = await this.teamManager.fetchTeam(teamId)
+
+        if (!team) {
+            return
+        }
+
+        posthog.identify('plugin-server')
+        posthog.capture('group type ingested', {
+            team: team.uuid,
+            groupType,
+            groupTypeIndex,
+            $groups: {
+                project: team.uuid,
+                organization: team.organization_id,
+                instance: this.instanceSiteUrl,
+            },
+        })
     }
 }

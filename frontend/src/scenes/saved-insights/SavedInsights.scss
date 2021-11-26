@@ -34,11 +34,6 @@
         color: $border_dark;
     }
 
-    .paginate-disabled {
-        cursor: auto;
-        color: $border_dark;
-    }
-
     .list-or-card-layout {
         color: $text_muted_alt;
         padding: 28px 0;
@@ -47,44 +42,7 @@
         align-items: center;
     }
 
-    .ant-table {
-        border: 1px solid $border;
-        border-radius: 4px;
-        padding: 8px;
-
-        .icon-column {
-            width: 32px;
-            padding-right: 0;
-            svg {
-                display: block;
-            }
-        }
-        .options-column {
-            width: 24px;
-            padding-left: 0;
-            padding-right: 10px;
-        }
-    }
-
-    .ant-tabs-nav-wrap {
-        border-bottom: 1px solid $border;
-    }
-
-    .ant-table-footer {
-        background-color: white;
-        padding: 12px 0;
-    }
-
-    .footer-pagination {
-        justify-content: flex-end;
-        align-items: center;
-        span {
-            padding-right: $default_spacing;
-        }
-    }
-
     .dashboard-item {
-        border: 1px solid transparent;
         padding-bottom: 10px;
         cursor: pointer;
 
@@ -124,7 +82,6 @@
         display: flex;
         justify-content: center;
         align-items: center;
-        flex: 1;
         text-align: center;
 
         .insight-empty-state__wrapper {
@@ -161,37 +118,8 @@
     }
 }
 
-.ant-dropdown-menu.saved-insights-menu {
-    max-width: 272px;
-    border: 1px solid var(--primary);
-    padding: 0;
-
-    .ant-dropdown-menu-item {
-        margin: 6px;
-        padding: 6px;
-        border-radius: 2px;
-        &.ant-dropdown-menu-item-active {
-            background: hsla(220, 100%, 96%, 1);
-        }
-        .ant-row.icon-menu {
-            flex-flow: row;
-            .ant-col:first-child {
-                min-width: 38px;
-            }
-        }
-    }
-    strong {
-        font-weight: 600;
-        display: block;
-    }
-    p {
-        white-space: break-spaces;
-        margin: 0;
-        color: var(--text_default);
-        font-size: 13px;
-        font-weight: 400;
-        line-height: 21px;
-    }
+.new-insight-overlay {
+    max-width: 18rem;
 }
 
 .insight-type-icon-dropdown {

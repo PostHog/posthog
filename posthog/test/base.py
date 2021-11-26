@@ -1,8 +1,13 @@
 import inspect
+import re
+from functools import wraps
 from typing import Any, Dict, Optional
 
 import pytest
+import sqlparse
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APITestCase as DRFTestCase
 
 from posthog.models import Organization, Team, User
@@ -137,6 +142,19 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
         if self.CONFIG_AUTO_LOGIN and self.user:
             self.client.force_login(self.user)
 
+    def assertEntityResponseEqual(self, response1, response2, remove=("action", "label", "persons_urls", "filter")):
+        stripped_response1 = stripResponse(response1, remove=remove)
+        stripped_response2 = stripResponse(response2, remove=remove)
+        self.assertDictEqual(stripped_response1[0], stripped_response2[0])
+
+
+def stripResponse(response, remove=("action", "label", "persons_urls", "filter")):
+    if len(response):
+        for attr in remove:
+            if attr in response[0]:
+                response[0].pop(attr)
+    return response
+
 
 def test_with_materialized_columns(event_properties=[], person_properties=[], verify_no_jsonextract=True):
     """
@@ -177,8 +195,7 @@ def test_with_materialized_columns(event_properties=[], person_properties=[], ve
 
             if verify_no_jsonextract:
                 for sql in sqls:
-                    self.assertNotIn("JSONExtract", sql)
-                    self.assertNotIn("properties", sql)
+                    self.assertNotIn("JSONExtract(properties", sql)
 
         # To add the test, we inspect the frame this function was called in and add the test there
         frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore
@@ -187,3 +204,41 @@ def test_with_materialized_columns(event_properties=[], person_properties=[], ve
         return fn
 
     return decorator
+
+
+@pytest.mark.usefixtures("unittest_snapshot")
+class QueryMatchingTest:
+    snapshot: Any
+
+    # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
+    def assertQueryMatchesSnapshot(self, query, params=None):
+        # :TRICKY: team_id changes every test, avoid it messing with snapshots.
+        query = re.sub(r"(team|cohort)_id\"? = \d+", r"\1_id = 2", query)
+
+        assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
+        if params is not None:
+            del params["team_id"]  # Changes every run
+            assert params == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
+
+
+def snapshot_postgres_queries(fn):
+    """
+    Captures and snapshots select queries from test using `syrupy` library.
+
+    Requires queries to be stable to avoid flakiness.
+
+    Snapshots are automatically saved in a __snapshot__/*.ambr file.
+    Update snapshots via --snapshot-update.
+    """
+    from django.db import connections
+
+    @wraps(fn)
+    def wrapped(self, *args, **kwargs):
+        with CaptureQueriesContext(connections["default"]) as context:
+            fn(self, *args, **kwargs)
+
+        for query_with_time in context.captured_queries:
+            query = query_with_time["sql"]
+            self.assertQueryMatchesSnapshot(query)
+
+    return wrapped

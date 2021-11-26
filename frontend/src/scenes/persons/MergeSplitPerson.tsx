@@ -5,7 +5,7 @@ import { useActions, useValues, BindLogic } from 'kea'
 import './MergeSplitPerson.scss'
 import { ActivityType, mergeSplitPersonLogic } from './mergeSplitPersonLogic'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
-import { ErrorMessage } from 'lib/components/ErrorMessage/ErrorMessage'
+import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
 import { Tooltip } from 'lib/components/Tooltip'
 
 export function MergeSplitPerson({ person }: { person: PersonType }): JSX.Element {
@@ -92,9 +92,9 @@ function MergePerson(): JSX.Element {
                             ) : undefined
                         )}
             </Select>
-            <ErrorMessage style={{ marginTop: 16 }}>
+            <InlineMessage style={{ marginTop: 16 }} type="danger">
                 This action is not reversible. Please be sure before continuing.
-            </ErrorMessage>
+            </InlineMessage>
         </>
     )
 }
@@ -129,13 +129,13 @@ function SplitPerson(): JSX.Element | null {
                     </Select.Option>
                 ))}
             </Select>
-            <ErrorMessage style={{ marginTop: 16 }}>
+            <InlineMessage style={{ marginTop: 16 }} type="danger">
                 <div>
                     This will create <strong>{person.distinct_ids.length - 1}</strong> new{' '}
                     {pluralize(person.distinct_ids.length, 'person', undefined, false)}. This might change the numbers
                     in your charts, even historically. Please be certain.
                 </div>
-            </ErrorMessage>
+            </InlineMessage>
         </>
     )
 }

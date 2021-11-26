@@ -394,6 +394,7 @@ export interface RecordingFilters {
     date_to?: string | null
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
+    properties?: AnyPropertyFilter[]
     offset?: number
     session_recording_duration?: RecordingDurationFilter
 }
@@ -464,7 +465,6 @@ export interface PersonType {
     name?: string
     distinct_ids: string[]
     properties: Record<string, any>
-    is_identified: boolean
     created_at?: string
 }
 
@@ -504,7 +504,7 @@ export interface InsightHistory {
     name?: string
     createdAt: string
     saved: boolean
-    type: ViewType
+    type: InsightType
 }
 
 export interface SavedFunnel extends InsightHistory {
@@ -538,17 +538,22 @@ export interface EventsTableAction {
 
 export interface EventType {
     elements: ElementType[]
-    elements_hash: string | null
+    elements_hash: string | null // Deprecated for elements_chain
+    elements_chain?: string | null
     id: number | string
     properties: Record<string, any>
     timestamp: string
+    zeroOffsetTime?: number // Used in session recording events that have a start time offset
+    colonTimestamp?: string // Used in session recording events list
     person?: Partial<PersonType> | null
     event: string
 }
 
-export interface SeekbarEventType extends Omit<EventType, 'timestamp'> {
+export interface RecordingEventType extends Omit<EventType, 'timestamp'> {
     percentage: number
     timestamp: number
+    queryValue?: string
+    colonTimestamp?: string
 }
 
 export interface EventsTableRowItem {
@@ -613,10 +618,15 @@ export interface PlanInterface {
     price_string: string
 }
 
+// Creating a nominal type: https://github.com/microsoft/TypeScript/issues/202#issuecomment-961853101
+export type InsightShortId = string & { readonly '': unique symbol }
+
 export interface DashboardItemType {
+    /** The unique key we use when communicating with the user, e.g. in URLs */
+    short_id: InsightShortId
+    /** The primary key in the database, used as well in API endpoints */
     id: number
     name: string
-    short_id: string
     description?: string
     favorited?: boolean
     filters: Partial<FilterType>
@@ -636,7 +646,8 @@ export interface DashboardItemType {
     result: any | null
     updated_at: string
     tags: string[]
-    next?: string // only used in the frontend to store the next breakdown url
+    /** Only used in the frontend to store the next breakdown url */
+    next?: string
 }
 
 export interface DashboardType {
@@ -652,7 +663,9 @@ export interface DashboardType {
     deleted: boolean
     filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
-    tags: string[] // TODO: To be implemented
+    tags: string[]
+    /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
+    _highlight?: boolean
 }
 
 export type DashboardLayoutSize = 'lg' | 'sm' | 'xs' | 'xxs'
@@ -744,7 +757,7 @@ export interface AnnotationType {
     scope: AnnotationScope
     content: string
     date_marker: string
-    created_by?: UserBasicType | 'local' | null
+    created_by?: UserBasicType | null
     created_at: string
     updated_at: string
     dashboard_item?: number
@@ -764,13 +777,10 @@ export enum ChartDisplayType {
 }
 
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
-export type BreakdownType = 'cohort' | 'person' | 'event'
+export type BreakdownType = 'cohort' | 'person' | 'event' | 'group'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 
-// NB! Keep InsightType and ViewType in sync!
-export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
-
-export enum ViewType {
+export enum InsightType {
     TRENDS = 'TRENDS',
     STICKINESS = 'STICKINESS',
     LIFECYCLE = 'LIFECYCLE',
@@ -814,6 +824,7 @@ export interface FilterType {
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
     breakdown_value?: string | number
+    breakdown_group_type_index?: number | null
     shown_as?: ShownAsType
     session?: string
     period?: string
@@ -867,6 +878,11 @@ export interface FilterType {
     funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
     funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
     aggregation_group_type_index?: number | undefined // Groups aggregation
+    funnel_advanced?: boolean // used to toggle advanced options on or off
+}
+
+export interface RecordingEventsFilters {
+    query: string
 }
 
 export interface SystemStatusSubrows {
@@ -956,6 +972,10 @@ export interface TrendResult {
 
 export interface TrendResultWithAggregate extends TrendResult {
     aggregated_value: number
+    persons: {
+        url: string
+        filter: Partial<FilterType>
+    }
 }
 
 export interface FunnelStep {
@@ -971,6 +991,12 @@ export interface FunnelStep {
     labels?: string[]
     breakdown?: BreakdownKeyType
     breakdown_value?: string | number
+
+    // Url that you can GET to retrieve the people that converted in this step
+    converted_people_url: string
+
+    // Url that you can GET to retrieve the people that dropped in this step
+    dropped_people_url: string
 }
 
 export interface FunnelStepWithNestedBreakdown extends FunnelStep {
@@ -1064,7 +1090,7 @@ export interface FlattenedFunnelStepByBreakdown {
 }
 
 export interface ChartParams {
-    dashboardItemId?: number
+    dashboardItemId?: InsightShortId
     color?: string
     filters: Partial<FilterType>
     inSharedMode?: boolean
@@ -1075,7 +1101,7 @@ export interface ChartParams {
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
 export interface InsightLogicProps {
     /** currently persisted insight */
-    dashboardItemId?: number | null
+    dashboardItemId?: InsightShortId | null
     /** enable url handling for this insight */
     syncWithUrl?: boolean
     /** cached results, avoid making a request */
@@ -1114,6 +1140,7 @@ export interface MultivariateFlagOptions {
 interface FeatureFlagFilters {
     groups: FeatureFlagGroupType[]
     multivariate: MultivariateFlagOptions | null
+    aggregation_group_type_index?: number | null
 }
 
 export interface FeatureFlagType {
@@ -1287,6 +1314,13 @@ export interface GroupType {
 
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>
 
+export interface Group {
+    group_type_index: number
+    group_key: string
+    created_at: string
+    group_properties: Record<string, any>
+}
+
 export interface SelectOption {
     value: string
     label?: string
@@ -1343,7 +1377,9 @@ export interface FunnelCorrelation {
     event: Pick<EventType, 'elements' | 'event' | 'properties'>
     odds_ratio: number
     success_count: number
+    success_people_url: string
     failure_count: number
+    failure_people_url: string
     correlation_type: FunnelCorrelationType.Failure | FunnelCorrelationType.Success
     result_type:
         | FunnelCorrelationResultsType.Events
@@ -1367,4 +1403,14 @@ export enum HelpType {
     GitHub = 'github',
     Email = 'email',
     Docs = 'docs',
+}
+
+export interface VersionType {
+    version: string
+    release_date?: string
+}
+
+export interface dateMappingOption {
+    inactive?: boolean // Options removed due to low usage (see relevant PR); will not show up for new insights but will be kept for existing
+    values: string[]
 }

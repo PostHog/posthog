@@ -15,8 +15,17 @@ import clsx from 'clsx'
 const ReactGridLayout = WidthProvider(Responsive)
 
 export function DashboardItems(): JSX.Element {
-    const { dashboard, items, layouts, layoutForItem, breakpoints, cols, dashboardMode, isRefreshing } =
-        useValues(dashboardLogic)
+    const {
+        dashboard,
+        items,
+        layouts,
+        layoutForItem,
+        breakpoints,
+        cols,
+        dashboardMode,
+        isRefreshing,
+        highlightedInsightId,
+    } = useValues(dashboardLogic)
     const {
         loadDashboardItems,
         updateLayouts,
@@ -95,16 +104,14 @@ export function DashboardItems(): JSX.Element {
             draggableCancel=".anticon,.ant-dropdown,table,.ant-popover-content"
         >
             {items?.map((item: DashboardItemType, index: number) => (
-                <div key={item.id} className="dashboard-item-wrapper">
+                <div key={item.short_id} className="dashboard-item-wrapper">
                     <DashboardItem
-                        key={item.id}
+                        key={item.short_id}
                         doNotLoad
                         dashboardId={dashboard?.id}
                         item={item}
-                        layout={
-                            resizingItem?.i?.toString() === item.id.toString() ? resizingItem : layoutForItem[item.id]
-                        }
-                        isReloading={isRefreshing(item.id)}
+                        layout={resizingItem?.i === item.short_id ? resizingItem : layoutForItem[item.short_id]}
+                        isReloading={isRefreshing(item.short_id)}
                         reload={() => refreshAllDashboardItems([item])}
                         loadDashboardItems={loadDashboardItems}
                         setDiveDashboard={setDiveDashboard}
@@ -115,13 +122,7 @@ export function DashboardItems(): JSX.Element {
                         updateItemColor={updateItemColor}
                         isDraggingRef={isDragging}
                         dashboardMode={dashboardMode}
-                        isHighlighted={
-                            item.id ===
-                            parseInt(
-                                new URLSearchParams(window.location.search).get('dive_source_id') ||
-                                    '0' /* TODO this is so bad */
-                            )
-                        }
+                        isHighlighted={highlightedInsightId && item.short_id === highlightedInsightId}
                         isOnEditMode={dashboardMode === DashboardMode.Edit}
                         setEditMode={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.LongPress)}
                         index={index}

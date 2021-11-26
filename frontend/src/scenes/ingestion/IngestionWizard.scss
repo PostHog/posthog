@@ -1,10 +1,7 @@
-.background {
-    background-color: hsla(210, 6%, 95%, 1);
-}
+@import '~/vars';
 
-.prompt-text {
-    font-size: 16px;
-    font-weight: bold;
+.background {
+    background-color: $bg_bridge;
 }
 
 .platform-item {

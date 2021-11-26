@@ -8,7 +8,7 @@ import {
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { clamp } from 'lib/utils'
 import { playerMetaData } from 'rrweb/typings/types'
-import { EventType, SessionPlayerTime } from '~/types'
+import { EventType, RecordingEventType, SessionPlayerTime } from '~/types'
 import {
     convertValueToX,
     convertXToValue,
@@ -18,7 +18,6 @@ import {
     THUMB_OFFSET,
     THUMB_SIZE,
 } from 'scenes/session-recordings/player/seekbarUtils'
-import dayjs from 'dayjs'
 
 export const seekbarLogic = kea<seekbarLogicType>({
     path: ['scenes', 'session-recordings', 'player', 'seekbarLogic'],
@@ -27,7 +26,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
             sessionRecordingPlayerLogic,
             ['meta', 'zeroOffsetTime', 'time'],
             sessionRecordingLogic,
-            ['sessionEvents'],
+            ['eventsToShow'],
         ],
         actions: [
             sessionRecordingPlayerLogic,
@@ -88,15 +87,13 @@ export const seekbarLogic = kea<seekbarLogicType>({
                 (Math.max(time.lastBuffered, time.current) * 100) / meta.totalTime,
         ],
         markersWithPositions: [
-            (selectors) => [selectors.sessionEvents, selectors.meta],
-            (events: EventType[], meta) => {
+            (selectors) => [selectors.eventsToShow, selectors.meta],
+            (events: EventType[], meta): RecordingEventType[] => {
                 return events
                     .map((e) => ({
                         ...e,
-                        timestamp: +dayjs(e.timestamp),
-                        percentage:
-                            ((clamp(+dayjs(e.timestamp), meta.startTime, meta.endTime) - meta.startTime) * 100) /
-                            meta.totalTime,
+                        timestamp: e.timestamp as unknown as number, // TODO: stronger typing
+                        percentage: ((e.zeroOffsetTime ?? 0) * 100) / meta.totalTime,
                     }))
                     .filter((e) => e.percentage >= 0 && e.percentage <= 100) // only show events within session time range
             },
@@ -205,7 +202,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
         afterMount: () => {
             window.addEventListener('resize', () => actions.setCurrentTime(values.time.current))
         },
-        afterUnmount: () => {
+        beforeUnmount: () => {
             window.removeEventListener('resize', () => actions.setCurrentTime(values.time.current))
         },
     }),

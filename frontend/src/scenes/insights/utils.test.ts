@@ -1,4 +1,4 @@
-import { Entity, EntityFilter, FilterType } from '~/types'
+import { Entity, EntityFilter, FilterType, InsightType } from '~/types'
 import { extractObjectDiffKeys, getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 
 const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): EntityFilter => {
@@ -33,32 +33,38 @@ describe('getDisplayNameFromEntityFilter()', () => {
 
 describe('extractObjectDiffKeys()', () => {
     const testCases: [string, FilterType, FilterType, string, Record<string, any>][] = [
-        ['one value', { insight: 'TRENDS' }, { insight: 'FUNNELS' }, '', { changed_insight: 'TRENDS' }],
+        [
+            'one value',
+            { insight: InsightType.TRENDS },
+            { insight: InsightType.FUNNELS },
+            '',
+            { changed_insight: InsightType.TRENDS },
+        ],
         [
             'multiple values',
-            { insight: 'TRENDS', date_from: '-7d' },
-            { insight: 'FUNNELS', date_from: '-7d' },
+            { insight: InsightType.TRENDS, date_from: '-7d' },
+            { insight: InsightType.FUNNELS, date_from: '-7d' },
             '',
-            { changed_insight: 'TRENDS' },
+            { changed_insight: InsightType.TRENDS },
         ],
         [
             'nested event',
-            { insight: 'TRENDS', events: [{ name: 'pageview', math: 'total' }] },
-            { insight: 'TRENDS', events: [{ name: 'pageview', math: 'dau' }] },
+            { insight: InsightType.TRENDS, events: [{ name: 'pageview', math: 'total' }] },
+            { insight: InsightType.TRENDS, events: [{ name: 'pageview', math: 'dau' }] },
             '',
             { changed_event_0_math: 'total' },
         ],
         [
             'nested event multiple',
             {
-                insight: 'TRENDS',
+                insight: InsightType.TRENDS,
                 events: [
                     { name: 'pageview', math: 'dau' },
                     { name: 'pageview', math: 'total' },
                 ],
             },
             {
-                insight: 'TRENDS',
+                insight: InsightType.TRENDS,
                 events: [
                     { name: 'pageview', math: 'dau' },
                     { name: 'pageview', math: 'dau' },
@@ -69,22 +75,22 @@ describe('extractObjectDiffKeys()', () => {
         ],
         [
             'nested action',
-            { insight: 'TRENDS', actions: [{ name: 'pageview', math: 'total' }] },
-            { insight: 'TRENDS', actions: [{ name: 'pageview', math: 'dau' }] },
+            { insight: InsightType.TRENDS, actions: [{ name: 'pageview', math: 'total' }] },
+            { insight: InsightType.TRENDS, actions: [{ name: 'pageview', math: 'dau' }] },
             '',
             { changed_action_0_math: 'total' },
         ],
         [
             'nested action',
-            { insight: 'TRENDS', actions: undefined, events: [] },
-            { insight: 'TRENDS', actions: [], events: undefined },
+            { insight: InsightType.TRENDS, actions: undefined, events: [] },
+            { insight: InsightType.TRENDS, actions: [], events: undefined },
             '',
             {},
         ],
         [
             'nested action',
-            { insight: 'TRENDS', actions: undefined, events: [] },
-            { insight: 'TRENDS', actions: [{ name: 'pageview', math: 'dau ' }], events: undefined },
+            { insight: InsightType.TRENDS, actions: undefined, events: [] },
+            { insight: InsightType.TRENDS, actions: [{ name: 'pageview', math: 'dau ' }], events: undefined },
             '',
             { changed_actions_length: 0 },
         ],

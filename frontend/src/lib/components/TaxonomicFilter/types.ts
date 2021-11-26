@@ -24,12 +24,14 @@ export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
 
 export interface TaxonomicFilterGroup {
     name: string
+    searchPlaceholder: string
     type: TaxonomicFilterGroupType
     endpoint?: string
     options?: Record<string, any>[]
     logic?: LogicWrapper
     value?: string
     searchAlias?: string
+    valuesEndpoint?: (key: string) => string
     getName: (instance: any) => string
     getValue: (instance: any) => TaxonomicFilterValue
     groupTypeIndex?: number
