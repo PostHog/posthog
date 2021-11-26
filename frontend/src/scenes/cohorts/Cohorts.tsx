@@ -26,6 +26,7 @@ import { userLogic } from 'scenes/userLogic'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonSpacer } from 'lib/components/LemonRow'
+import { combineUrl } from 'kea-router'
 
 const NEW_COHORT: CohortType = {
     id: 'new',
@@ -157,6 +158,26 @@ export function Cohorts(): JSX.Element {
                             <>
                                 <LemonButton type="stealth" to={urls.cohort(id)} fullWidth>
                                     Edit
+                                </LemonButton>
+                                <LemonButton
+                                    type="stealth"
+                                    to={
+                                        combineUrl(urls.sessionRecordings(), {
+                                            filters: {
+                                                properties: [
+                                                    {
+                                                        key: 'id',
+                                                        label: name,
+                                                        type: 'cohort',
+                                                        value: id,
+                                                    },
+                                                ],
+                                            },
+                                        }).url
+                                    }
+                                    fullWidth
+                                >
+                                    View session recordings
                                 </LemonButton>
                                 <LemonButton
                                     type="stealth"
