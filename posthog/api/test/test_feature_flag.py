@@ -94,7 +94,7 @@ class TestFeatureFlag(APIBaseTest):
         ).json()
         self.assertFalse(feature_flag["is_simple_flag"])
 
-    @patch("posthoganalytics.capture")
+    @patch("posthog.api.feature_flag.report_user_action")
     def test_is_simple_flag_groups(self, mock_capture):
         feature_flag = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -109,7 +109,7 @@ class TestFeatureFlag(APIBaseTest):
         # Assert analytics are sent
         instance = FeatureFlag.objects.get(id=feature_flag["id"])
         mock_capture.assert_called_once_with(
-            self.user.distinct_id,
+            self.user,
             "feature flag created",
             {
                 "groups_count": 1,
@@ -123,7 +123,7 @@ class TestFeatureFlag(APIBaseTest):
             },
         )
 
-    @patch("posthoganalytics.capture")
+    @patch("posthog.api.feature_flag.report_user_action")
     def test_create_feature_flag(self, mock_capture):
 
         response = self.client.post(
@@ -137,7 +137,7 @@ class TestFeatureFlag(APIBaseTest):
 
         # Assert analytics are sent
         mock_capture.assert_called_once_with(
-            self.user.distinct_id,
+            self.user,
             "feature flag created",
             {
                 "groups_count": 1,
@@ -151,7 +151,7 @@ class TestFeatureFlag(APIBaseTest):
             },
         )
 
-    @patch("posthoganalytics.capture")
+    @patch("posthog.api.feature_flag.report_user_action")
     def test_create_minimal_feature_flag(self, mock_capture):
 
         response = self.client.post(
@@ -166,7 +166,7 @@ class TestFeatureFlag(APIBaseTest):
 
         # Assert analytics are sent
         mock_capture.assert_called_once_with(
-            self.user.distinct_id,
+            self.user,
             "feature flag created",
             {
                 "groups_count": 1,  # 1 is always created by default
@@ -180,7 +180,7 @@ class TestFeatureFlag(APIBaseTest):
             },
         )
 
-    @patch("posthoganalytics.capture")
+    @patch("posthog.api.feature_flag.report_user_action")
     def test_create_multivariate_feature_flag(self, mock_capture):
 
         response = self.client.post(
@@ -207,7 +207,7 @@ class TestFeatureFlag(APIBaseTest):
 
         # Assert analytics are sent
         mock_capture.assert_called_once_with(
-            self.user.distinct_id,
+            self.user,
             "feature flag created",
             {
                 "groups_count": 1,
@@ -281,7 +281,7 @@ class TestFeatureFlag(APIBaseTest):
         )
         self.assertEqual(FeatureFlag.objects.count(), count)
 
-    @patch("posthoganalytics.capture")
+    @patch("posthog.api.feature_flag.report_user_action")
     def test_updating_feature_flag(self, mock_capture):
         instance = self.feature_flag
 
@@ -309,7 +309,7 @@ class TestFeatureFlag(APIBaseTest):
 
         # Assert analytics are sent
         mock_capture.assert_called_once_with(
-            self.user.distinct_id,
+            self.user,
             "feature flag updated",
             {
                 "groups_count": 1,
@@ -329,7 +329,7 @@ class TestFeatureFlag(APIBaseTest):
         instance = FeatureFlag.objects.create(team=self.team, created_by=self.user)
         self.client.force_login(new_user)
 
-        with patch("posthoganalytics.capture") as mock_capture:
+        with patch("posthog.mixins.report_user_action") as mock_capture:
             response = self.client.delete(f"/api/projects/{self.team.id}/feature_flags/{instance.pk}/")
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
@@ -337,7 +337,7 @@ class TestFeatureFlag(APIBaseTest):
 
         # Assert analytics are sent (notice the event is sent on the user that executed the deletion, not the creator)
         mock_capture.assert_called_once_with(
-            new_user.distinct_id,
+            new_user,
             "feature flag deleted",
             {
                 "groups_count": 1,
@@ -351,7 +351,7 @@ class TestFeatureFlag(APIBaseTest):
             },
         )
 
-    @patch("posthoganalytics.capture")
+    @patch("posthog.api.feature_flag.report_user_action")
     def test_cannot_delete_feature_flag_on_another_team(self, mock_capture):
         _, other_team, other_user = User.objects.bootstrap("Test", "team2@posthog.com", None)
         self.client.force_login(other_user)
@@ -401,7 +401,7 @@ class TestFeatureFlag(APIBaseTest):
         instance.refresh_from_db()
         self.assertEqual(instance.key, "alpha-feature")
 
-    @patch("posthoganalytics.capture")
+    @patch("posthog.api.feature_flag.report_user_action")
     def test_my_flags(self, mock_capture):
         self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
