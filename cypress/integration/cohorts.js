@@ -34,15 +34,15 @@ describe('Cohorts', () => {
         cy.get('.ant-table-tbody').contains('Test Cohort')
 
         it('Cohorts new and list', () => {
-            cy.get('[data-test-cohort-row]').first().click()
+            cy.get('[data-row-key]').first().click()
             cy.get('[data-test-goto-person]').first().click()
             cy.url().should('include', '/person/')
 
             cy.get('[data-attr="persons-cohorts-tab"]').click()
-            cy.get('[data-test-cohort-row]').first().click()
+            cy.get('[data-row-key]').first().click()
 
             cy.get('div:not(disabled) > [data-attr="persons-cohorts-tab"]').click()
-            cy.get('[data-test-cohort-row]').first().click()
+            cy.get('[data-row-key]').first().click()
 
             cy.url().should('include', '/cohorts/')
             cy.get('[data-attr="cohort-name"]').should('have.value', 'Test Cohort')
