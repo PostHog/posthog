@@ -27,7 +27,7 @@ const { TabPane } = Tabs
 export const scene: SceneExport = {
     component: Person,
     logic: personsLogic,
-    paramsToProps: ({ params }) => ({ syncWithUrl: true, id: params._ }), // wildcard is stored in _
+    paramsToProps: ({ params }) => ({ syncWithUrl: true, urlId: params._ }), // wildcard is stored in _
 }
 
 export function Person({ _: urlId }: { _?: string } = {}): JSX.Element {
