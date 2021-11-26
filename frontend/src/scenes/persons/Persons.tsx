@@ -31,7 +31,7 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
         <BindLogic logic={personsLogic} props={personsLogicProps}>
             <div className="persons-list">
                 <PersonPageHeader hideGroupTabs={!!cohort} />
-                <Row gutter={12} align="middle" justify="space-between" className="mb">
+                <Row align="middle" justify="space-between" className="mb" style={{ gap: '0.75rem' }}>
                     <PersonsSearch autoFocus={!cohort} />
                     <div>
                         {cohort ? (
