@@ -199,7 +199,7 @@ export const routes: Record<string, Scene> = {
     [urls.events()]: Scene.Events,
     [urls.sessions()]: Scene.Sessions,
     [urls.sessionRecordings()]: Scene.SessionRecordings,
-    [urls.person('*')]: Scene.Person,
+    [urls.person('*', false)]: Scene.Person,
     [urls.persons()]: Scene.Persons,
     [urls.groups(':groupTypeIndex')]: Scene.Groups,
     [urls.cohort(':id')]: Scene.Cohorts,

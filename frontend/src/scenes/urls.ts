@@ -22,7 +22,7 @@ export const urls = {
     savedInsights: () => '/insights',
     sessions: () => '/sessions',
     sessionRecordings: () => '/recordings',
-    person: (id: string) => `/person/${id}`,
+    person: (id: string, encode: boolean = true) => (encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`),
     persons: () => '/persons',
     groups: (groupTypeIndex: string) => `/groups/${groupTypeIndex}`,
     cohort: (id: string | number) => `/cohorts/${id}`,

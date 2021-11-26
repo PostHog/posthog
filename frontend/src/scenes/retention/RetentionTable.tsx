@@ -158,9 +158,7 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
                                                         <td className="text-overflow" style={{ minWidth: 200 }}>
                                                             <Link
                                                                 to={urls.person(
-                                                                    encodeURIComponent(
-                                                                        personAppearances.person.distinct_ids[0]
-                                                                    )
+                                                                    personAppearances.person.distinct_ids[0]
                                                                 )}
                                                                 data-attr="retention-person-link"
                                                             >
