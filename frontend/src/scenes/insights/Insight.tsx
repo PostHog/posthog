@@ -188,14 +188,14 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
             </div>
 
             {insightMode === ItemMode.View ? (
-                <Row>
-                    <Col span={24} style={{ marginTop: 16 }}>
+                <Row style={{ marginTop: 16 }}>
+                    <Col span={24}>
                         <InsightContainer />
                     </Col>
                 </Row>
             ) : (
                 <>
-                    <Row style={{ marginTop: 16 }}>
+                    <Row style={{ marginTop: 8 }}>
                         <InsightsNav />
                     </Row>
 
