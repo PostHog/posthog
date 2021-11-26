@@ -33,6 +33,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 import { generateRandomAnimal } from 'lib/utils/randomAnimal'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -53,7 +54,7 @@ export const insightLogic = kea<insightLogicType>({
     path: (key) => ['scenes', 'insights', 'insightLogic', key],
 
     connect: {
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
         logic: [eventUsageLogic, dashboardsModel],
     },
 
@@ -710,7 +711,7 @@ export const insightLogic = kea<insightLogicType>({
                     actions.loadInsight(insightId, { doNotLoadResults: true })
                 }
 
-                const cleanSearchParams = cleanFilters(searchParams, values.filters)
+                const cleanSearchParams = cleanFilters(searchParams, values.filters, values.featureFlags)
                 const insightModeFromUrl = params['mode'] === 'edit' ? ItemMode.Edit : ItemMode.View
 
                 if (
