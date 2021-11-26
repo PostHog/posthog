@@ -31,7 +31,7 @@ describe('Cohorts', () => {
 
         // back to cohorts
         cy.get('.ant-drawer-close').click({ force: true })
-        cy.get('.ant-table-tbody').contains('Test Cohort')
+        cy.get('tbody').contains('Test Cohort')
 
         it('Cohorts new and list', () => {
             cy.get('[data-row-key]').first().click()
