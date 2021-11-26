@@ -5,7 +5,7 @@ from django.db.models.query import Prefetch
 from ee.clickhouse.client import substitute_params, sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.person import get_persons_by_uuids
-from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
 from ee.clickhouse.queries.retention.retention_event_query import RetentionEventsQuery
 from ee.clickhouse.queries.util import get_trunc_func_ch
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
@@ -17,9 +17,11 @@ from ee.clickhouse.sql.retention.people_in_period import (
     RETENTION_PEOPLE_PER_PERIOD_SQL,
 )
 from ee.clickhouse.sql.retention.retention import (
+    INITIAL_BREAKDOWN_INTERVAL_SQL,
     INITIAL_INTERVAL_SQL,
     REFERENCE_EVENT_SQL,
     REFERENCE_EVENT_UNIQUE_SQL,
+    RETENTION_BREAKDOWN_SQL,
     RETENTION_PEOPLE_SQL,
     RETENTION_SQL,
 )
@@ -46,7 +48,7 @@ class ClickhouseRetention(Retention):
         trunc_func = get_trunc_func_ch(period)
 
         returning_event_query_templated, returning_event_params = RetentionEventsQuery(
-            filter=filter, team_id=team.pk, event_query_type=RetentionQueryType.RETURNING
+            filter=filter, team_id=team.pk, event_query_type=RetentionQueryType.RETURNING,
         ).get_query()
 
         returning_event_query = substitute_params(returning_event_query_templated, returning_event_params)
@@ -54,9 +56,9 @@ class ClickhouseRetention(Retention):
         target_event_query_templated, target_event_params = RetentionEventsQuery(
             filter=filter,
             team_id=team.pk,
-            event_query_type=RetentionQueryType.TARGET_FIRST_TIME
-            if is_first_time_retention
-            else RetentionQueryType.TARGET,
+            event_query_type=(
+                RetentionQueryType.TARGET_FIRST_TIME if is_first_time_retention else RetentionQueryType.TARGET
+            ),
         ).get_query()
 
         target_event_query = substitute_params(target_event_query_templated, target_event_params)
@@ -66,22 +68,40 @@ class ClickhouseRetention(Retention):
             "start_date": date_from.strftime(
                 "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
             ),
-            "period": period,
+            "total_intervals": filter.total_intervals,
+            "period": period.lower(),
+            "breakdown_by": filter.breakdown,
         }
 
-        result = sync_execute(
-            substitute_params(RETENTION_SQL, all_params).format(
-                returning_event_query=returning_event_query,
-                trunc_func=trunc_func,
-                target_event_query=target_event_query,
+        if filter.breakdown and filter.breakdown_type == "person":
+            result = sync_execute(
+                substitute_params(RETENTION_BREAKDOWN_SQL, all_params).format(
+                    returning_event_query=returning_event_query,
+                    trunc_func=trunc_func,
+                    target_event_query=target_event_query,
+                    GET_TEAM_PERSON_DISTINCT_IDS=substitute_params(GET_TEAM_PERSON_DISTINCT_IDS, {"team_id": team.pk}),
+                )
             )
-        )
 
-        initial_interval_result = sync_execute(
-            substitute_params(INITIAL_INTERVAL_SQL, all_params).format(
-                reference_event_sql=target_event_query, trunc_func=trunc_func,
-            ),
-        )
+            initial_interval_result = sync_execute(
+                substitute_params(INITIAL_BREAKDOWN_INTERVAL_SQL, all_params).format(
+                    reference_event_sql=target_event_query, trunc_func=trunc_func,
+                ),
+            )
+        else:
+            result = sync_execute(
+                substitute_params(RETENTION_SQL, all_params).format(
+                    returning_event_query=returning_event_query,
+                    trunc_func=trunc_func,
+                    target_event_query=target_event_query,
+                )
+            )
+
+            initial_interval_result = sync_execute(
+                substitute_params(INITIAL_INTERVAL_SQL, all_params).format(
+                    reference_event_sql=target_event_query, trunc_func=trunc_func,
+                ),
+            )
 
         result_dict = {}
         for initial_res in initial_interval_result:
@@ -91,6 +111,28 @@ class ClickhouseRetention(Retention):
             result_dict.update({(res[0], res[1]): {"count": res[2], "people": []}})
 
         return result_dict
+
+    def process_table_result(
+        self, resultset: Dict[Tuple[int, int], Dict[str, Any]], filter: RetentionFilter,
+    ):
+        if not filter.breakdown:
+            # If we're not using breakdowns, just use the non-clickhouse
+            # `process_table_result`
+            return super().process_table_result(resultset, filter)
+
+        result = [
+            {
+                "values": [
+                    resultset.get((cohort, interval), {"count": 0, "people": []})
+                    for interval in range(filter.total_intervals)
+                ],
+                "label": cohort,
+                "date": cohort,
+            }
+            for cohort in set(key[0] for key in resultset.keys())
+        ]
+
+        return result
 
     def _get_condition(self, target_entity: Entity, table: str, prepend: str = "") -> Tuple[str, Dict]:
         if target_entity.type == TREND_FILTER_TYPE_ACTIONS:

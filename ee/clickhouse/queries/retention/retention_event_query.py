@@ -1,5 +1,6 @@
 from typing import Any, Dict, Tuple
 
+from ee.clickhouse.client import substitute_params
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.group import get_aggregation_target_field
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
@@ -23,7 +24,11 @@ class RetentionEventsQuery(ClickhouseEventQuery):
 
     def __init__(self, event_query_type: RetentionQueryType, *args, **kwargs):
         self._event_query_type = event_query_type
-        super().__init__(*args, **kwargs)
+        super().__init__(
+            *args,
+            extra_person_fields=["person_props"] if event_query_type != RetentionQueryType.RETURNING else [],
+            **kwargs,
+        )
 
         self._trunc_func = get_trunc_func_ch(self._filter.period)
 
@@ -42,6 +47,16 @@ class RetentionEventsQuery(ClickhouseEventQuery):
                 else f"{self.EVENT_TABLE_ALIAS}.event AS event"
             ),
         ]
+
+        if self._event_query_type != RetentionQueryType.RETURNING:
+            _fields += [
+                substitute_params(
+                    "argMin(JSONExtract(person.person_props, %(breakdown)s, 'String'), e.timestamp) AS breakdown_value",
+                    {"breakdown": self._filter.breakdown},
+                ),
+            ]
+
+        _fields
         _fields = list(filter(None, _fields))
 
         date_query, date_params = self._get_date_filter()
