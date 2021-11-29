@@ -1,5 +1,7 @@
 from uuid import uuid4
 
+from freezegun.api import freeze_time
+
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.clickhouse.queries.sessions.clickhouse_sessions import ClickhouseSessions
@@ -23,6 +25,7 @@ def _create_session_recording_event(**kwargs):
 
 class TestClickhouseSessions(ClickhouseTestMixin, sessions_test_factory(ClickhouseSessions, _create_event, Person.objects.create)):  # type: ignore
     @snapshot_clickhouse_queries
+    @freeze_time("2021-08-25T22:09:14.252Z")
     def test_group_filter(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         # Only checks whether the query crashes or not

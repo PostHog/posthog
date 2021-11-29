@@ -5,10 +5,10 @@
          day_start
   FROM
     (SELECT toUInt16(0) AS total,
-            toStartOfDay(toDateTime('2021-11-26 00:00:00') - toIntervalDay(number)) AS day_start
-     FROM numbers(dateDiff('day', toDateTime('2021-11-19 00:00:00'), toDateTime('2021-11-26 00:00:00')))
+            toStartOfDay(toDateTime('2021-08-25 00:00:00') - toIntervalDay(number)) AS day_start
+     FROM numbers(dateDiff('day', toDateTime('2021-08-18 00:00:00'), toDateTime('2021-08-25 00:00:00')))
      UNION ALL SELECT toUInt16(0) AS total,
-                      toStartOfDay(toDateTime('2021-11-19 00:00:00'))
+                      toStartOfDay(toDateTime('2021-08-18 00:00:00'))
      UNION ALL SELECT AVG(session_duration_seconds) as total,
                       toStartOfDay(timestamp) as day_start
      FROM
@@ -37,8 +37,8 @@
                  FROM events
                  WHERE team_id = 2
                    AND ((event = '1st action'))
-                   AND timestamp >= '2021-11-19 00:00:00'
-                   AND timestamp <= '2021-11-26 00:00:00'
+                   AND timestamp >= '2021-08-18 00:00:00'
+                   AND timestamp <= '2021-08-25 00:00:00'
                    AND $group_0 IN
                      (SELECT DISTINCT group_key
                       FROM groups
