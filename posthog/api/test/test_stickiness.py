@@ -389,7 +389,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             people = stickiness_response["results"][0]["people"]
 
             self.assertEqual(len(people), 1)
-            self.assertEqual(people[0]["id"], str(person1.id))
+            self.assertEqual(str(people[0]["id"]), str(person1.id))
 
         def test_stickiness_people_paginated(self):
             for i in range(150):
