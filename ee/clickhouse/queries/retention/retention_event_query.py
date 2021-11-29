@@ -3,6 +3,7 @@ from typing import Any, Dict, Tuple
 from ee.clickhouse.client import substitute_params
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.group import get_aggregation_target_field
+from ee.clickhouse.models.property import get_single_or_multi_property_string_expr
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from ee.clickhouse.queries.util import get_trunc_func_ch
 from posthog.constants import (
@@ -49,11 +50,16 @@ class RetentionEventsQuery(ClickhouseEventQuery):
         ]
 
         if self._event_query_type != RetentionQueryType.RETURNING:
+            table = "events"
+            if self._filter.breakdown_type == "person":
+                table = "person"
+
             _fields += [
-                substitute_params(
-                    "argMin(JSONExtract(person.person_props, %(breakdown)s, 'String'), e.timestamp) AS breakdown_value",
-                    {"breakdown": self._filter.breakdown},
-                ),
+                get_single_or_multi_property_string_expr(
+                    breakdown=[b.property for b in self._filter.breakdowns],
+                    table=table,
+                    query_alias="breakdown_values",
+                )
             ]
 
         _fields
@@ -89,7 +95,7 @@ class RetentionEventsQuery(ClickhouseEventQuery):
             {f"AND {entity_query}"}
             {f"AND {date_query}" if self._event_query_type != RetentionQueryType.TARGET_FIRST_TIME else ''}
             {prop_query}
-            {f"GROUP BY target HAVING {date_query}" if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME else ''}
+            {f"GROUP BY target, breakdown_values HAVING {date_query}" if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME else ''}
         """
 
         return query, self.params

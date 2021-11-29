@@ -73,7 +73,7 @@ class ClickhouseRetention(Retention):
             "breakdown_by": filter.breakdown,
         }
 
-        if filter.breakdown and filter.breakdown_type == "person":
+        if filter.breakdowns:
             result = sync_execute(
                 substitute_params(RETENTION_BREAKDOWN_SQL, all_params).format(
                     returning_event_query=returning_event_query,
@@ -105,17 +105,17 @@ class ClickhouseRetention(Retention):
 
         result_dict = {}
         for initial_res in initial_interval_result:
-            result_dict.update({(initial_res[0], 0): {"count": initial_res[1], "people": []}})
+            result_dict.update({(tuple(initial_res[0]), 0): {"count": initial_res[1], "people": []}})
 
         for res in result:
-            result_dict.update({(res[0], res[1]): {"count": res[2], "people": []}})
+            result_dict.update({(tuple(res[0]), res[1]): {"count": res[2], "people": []}})
 
         return result_dict
 
     def process_table_result(
         self, resultset: Dict[Tuple[int, int], Dict[str, Any]], filter: RetentionFilter,
     ):
-        if not filter.breakdown:
+        if not filter.breakdowns:
             # If we're not using breakdowns, just use the non-clickhouse
             # `process_table_result`
             return super().process_table_result(resultset, filter)

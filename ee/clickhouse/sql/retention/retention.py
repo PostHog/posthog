@@ -17,7 +17,7 @@ ORDER BY base_interval, intervals_from_base
 
 RETENTION_BREAKDOWN_SQL = """
     SELECT
-        target_event.breakdown_value AS breakdown_value,
+        target_event.breakdown_values AS breakdown_values,
         datediff(
             %(period)s, 
             target_event.event_date, 
@@ -34,9 +34,12 @@ RETENTION_BREAKDOWN_SQL = """
         dateTrunc(%(period)s, returning_event.event_date) >
         dateTrunc(%(period)s, target_event.event_date)
 
-    GROUP BY breakdown_value, intervals_from_base
+    GROUP BY 
+        breakdown_values, 
+        intervals_from_base
+
     ORDER BY 
-        breakdown_value, 
+        breakdown_values, 
         intervals_from_base
 """
 
@@ -84,8 +87,8 @@ SELECT datediff(%(period)s, {trunc_func}(toDateTime(%(start_date)s)), event_date
 
 INITIAL_BREAKDOWN_INTERVAL_SQL = """
     SELECT 
-        target_event.breakdown_value AS breakdown_value,
+        target_event.breakdown_values AS breakdown_values,
         count(DISTINCT target_event.target)
     FROM ({reference_event_sql}) AS target_event
-    GROUP BY breakdown_value ORDER BY breakdown_value
+    GROUP BY breakdown_values ORDER BY breakdown_values
 """

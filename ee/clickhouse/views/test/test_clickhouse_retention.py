@@ -9,7 +9,8 @@ from django.test.client import Client
 
 from ee.clickhouse.test.test_journeys import _create_all_events, update_or_create_person
 from ee.clickhouse.views.test.funnel.util import EventPattern
-from posthog.api.test.test_event import get_events_ok
+
+# from posthog.api.test.test_event import get_events_ok
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
@@ -104,72 +105,15 @@ class RetentionTests(TestCase):
                 date_to="2020-01-02",
                 period="Day",
                 retention_type="retention_first_time",
-                breakdown_type="person",
-                breakdown="os",
+                breakdowns=[{"type": "person", "property": "os"}],
             ),
         )
 
         retention_by_cohort_by_period = get_by_cohort_by_period_from_response(response=retention)
 
         assert retention_by_cohort_by_period == {
-            "Chrome": {"1": 1, "2": 1},
-            "Safari": {"1": 1, "2": 1},  # IMPORTANT: the "2" value is from past the requested `date_to`
-        }
-
-    def test_can_specify_alternative_breakdown_event_property(self):
-        """
-        By default, we group users together by the first time they perform the
-        `target_event`. However, we should also be able to specify, e.g. the
-        users OS to be able to compare retention between the OSs.
-        """
-        organization = create_organization(name="test")
-        team = create_team(organization=organization)
-        user = create_user(email="test@posthog.com", password="1234", organization=organization)
-
-        self.client.force_login(user)
-
-        events = user_activity_by_day(
-            daily_activity={
-                "2020-01-01": ["person 1"],
-                "2020-01-02": ["person 1", "person 2"],
-                # IMPORTANT: we include data past the end of the requested
-                # window, as we want to ensure that we pick up all retention
-                # periods for a user. e.g. for "person 2" we do not want to miss
-                # the count from 2020-01-03 e.g. the second period, otherwise we
-                # will skew results for users that didn't perform their target
-                # event right at the beginning of the requested range.
-                "2020-01-03": ["person 1", "person 2"],
-            },
-            target_event="target event",
-            returning_event="target event",
-            team=team,
-        )
-
-        update_or_create_person(distinct_ids=["person 1"], team_id=team.pk, properties={"os": "Chrome"})
-        update_or_create_person(distinct_ids=["person 2"], team_id=team.pk, properties={"os": "Safari"})
-        _create_all_events(all_events=events)
-
-        retention = get_retention_ok(
-            client=self.client,
-            team_id=team.pk,
-            request=RetentionRequest(
-                target_entity={"id": "target event", "type": "events"},
-                returning_entity={"id": "target event", "type": "events"},
-                date_from="2020-01-01",
-                total_intervals=2,
-                date_to="2020-01-02",
-                period="Day",
-                retention_type="retention_first_time",
-                breakdown_type="person",
-                breakdown="os",
-            ),
-        )
-
-        retention_by_cohort_by_period = get_by_cohort_by_period_from_response(response=retention)
-
-        assert retention_by_cohort_by_period == {
-            "Chrome": {"1": 1, "2": 1},
-            "Safari": {"1": 1, "2": 1},  # IMPORTANT: the "2" value is from past the requested `date_to`
+            ("Chrome",): {"1": 1, "2": 1},
+            ("Safari",): {"1": 1, "2": 1},  # IMPORTANT: the "2" value is from past the requested `date_to`
         }
 
 
@@ -179,6 +123,12 @@ def user_activity_by_day(daily_activity, target_event, returning_event, team):
         for timestamp, people in daily_activity.items()
         for person_id in people
     ]
+
+
+@dataclass
+class Breakdown:
+    type: str
+    property: str
 
 
 @dataclass
@@ -193,6 +143,8 @@ class RetentionRequest:
 
     breakdown: Optional[str] = None
     breakdown_type: Literal["person", "event"] = "person"
+
+    breakdowns: Optional[List[Breakdown]] = None
 
 
 class Value(TypedDict):
@@ -225,6 +177,6 @@ def get_retention(client: Client, team_id: int, request: RetentionRequest):
 
 def get_by_cohort_by_period_from_response(response: RetentionResponse):
     return {
-        cohort["label"]: {f"{period + 1}": value["count"] for period, value in enumerate(cohort["values"])}
+        tuple(cohort["label"]): {f"{period + 1}": value["count"] for period, value in enumerate(cohort["values"])}
         for cohort in response["result"]
     }
