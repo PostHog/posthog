@@ -614,7 +614,10 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                     : ([...stepResults] as FunnelStep[]).sort((a, b) => a.order - b.order)
             },
         ],
-        stepsWithCount: [() => [selectors.steps], (steps) => steps.filter((step) => typeof step.count === 'number')],
+        stepsWithCount: [
+            () => [selectors.steps],
+            (steps) => steps.filter((step) => typeof step.count === 'number' && step.count > 0),
+        ],
         stepsWithConversionMetrics: [
             () => [selectors.steps, selectors.stepReference],
             (steps, stepReference): FunnelStepWithConversionMetrics[] => {
