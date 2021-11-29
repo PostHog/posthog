@@ -1,4 +1,4 @@
-/* DEPRECATED: We now use the PersonModal.tsx to show person information for funnels.
+/* DEPRECATED: We now use the PersonsModal.tsx to show person information for funnels.
     this component is still used for Postgres-based instances. */
 import React from 'react'
 import { useValues } from 'kea'
