@@ -37,19 +37,20 @@ export function PersonCohorts(): JSX.Element {
         },
     ]
 
-    return (
+    return cohorts?.length ? (
         <LemonTable
-            dataSource={cohorts || []}
+            dataSource={cohorts}
             loading={cohortsLoading}
             columns={columns}
             rowClassName="cursor-pointer"
             rowKey="id"
-            pagination={{ pageSize: 20, hideOnSinglePage: true }}
+            pagination={{ pageSize: 30, hideOnSinglePage: true }}
             embedded
             onRow={(cohort) => ({
                 onClick: () => navigateToCohort(cohort),
             })}
-            emptyState="This person doesn't belong to any cohort"
         />
+    ) : (
+        <i>This person doesn't belong to any cohort</i>
     )
 }
