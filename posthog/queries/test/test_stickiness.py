@@ -1,6 +1,9 @@
+import json
 from datetime import datetime, timedelta
+from typing import Any, Dict, List
 
 from dateutil.relativedelta import relativedelta
+from django.test.client import Client
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework.test import APIRequestFactory
@@ -12,6 +15,16 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.queries.abstract_test.test_compare import AbstractCompareTest
 from posthog.queries.stickiness import Stickiness
 from posthog.test.base import APIBaseTest
+
+
+def get_stickiness(client: Client, team_id: int, request: Dict[str, Any]):
+    return client.get(f"/api/projects/{team_id}/insights/trend/", data=request)
+
+
+def get_stickiness_ok(client: Client, team_id: int, request: Dict[str, Any]):
+    response = get_stickiness(client=client, team_id=team_id, request=request)
+    assert response.status_code == 200
+    return response.json()
 
 
 # parameterize tests to reuse in EE
@@ -92,17 +105,19 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self._create_multiple_people()
 
             with freeze_time("2020-01-08T13:01:01Z"):
-                filter = StickinessFilter(
-                    data={
+                stickiness_response = get_stickiness_ok(
+                    client=self.client,
+                    team_id=self.team.pk,
+                    request={
+                        "insight": "STICKINESS",
                         "shown_as": "Stickiness",
                         "date_from": "2020-01-01",
                         "date_to": "2020-01-08",
-                        "events": [{"id": "watched movie"}],
+                        "events": json.dumps([{"id": "watched movie"}]),
                     },
-                    team=self.team,
-                    get_earliest_timestamp=get_earliest_timestamp,
                 )
-                response = stickiness().run(filter, self.team)
+
+                response = stickiness_response["result"]
 
             self.assertEqual(response[0]["count"], 4)
             self.assertEqual(response[0]["labels"][0], "1 day")
