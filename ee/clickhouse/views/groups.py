@@ -2,14 +2,12 @@ from collections import defaultdict
 
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.mixins import ListModelMixin
+from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.group import ClickhouseGroupSerializer
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.utils import PaginationMode, format_paginated_url
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
@@ -43,7 +41,7 @@ class GroupSerializer(serializers.HyperlinkedModelSerializer):
         ]
 
 
-class ClickhouseGroupsView(StructuredViewSetMixin, ListModelMixin, viewsets.GenericViewSet):
+class ClickhouseGroupsView(StructuredViewSetMixin, ListModelMixin, RetrieveModelMixin, viewsets.GenericViewSet):
     serializer_class = GroupSerializer
     queryset = Group.objects.all()
     serializer_class = GroupSerializer
