@@ -14,7 +14,6 @@ from ee.clickhouse.models.event import ClickhouseEventSerializer, determine_even
 from ee.clickhouse.models.person import get_persons_by_distinct_ids
 from ee.clickhouse.models.property import get_property_values_for_key, parse_prop_clauses
 from ee.clickhouse.queries.clickhouse_session_recording import SessionRecording
-from ee.clickhouse.queries.sessions.list import ClickhouseSessionsList
 from ee.clickhouse.sql.events import (
     GET_CUSTOM_EVENTS,
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
@@ -143,21 +142,6 @@ class ClickhouseEventsViewSet(EventViewSet):
                 except json.decoder.JSONDecodeError:
                     flattened.append(value[0])
         return Response([{"name": convert_property_value(value)} for value in flatten(flattened)])
-
-    # TODO: DEPRECATED
-    # @action(methods=["GET"], detail=False)
-    # def sessions(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # type: ignore
-    #     filter = SessionsFilter(request=request, team=self.team)
-
-    #     sessions, pagination = ClickhouseSessionsList.run(team=self.team, filter=filter)
-    #     return Response({"result": sessions, "pagination": pagination})
-
-    # @action(methods=["GET"], detail=False)
-    # def session_events(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # type: ignore
-    #     from ee.clickhouse.queries.sessions.events import SessionsListEvents
-
-    #     filter = SessionEventsFilter(request=request, team=self.team)
-    #     return Response({"result": SessionsListEvents().run(filter=filter, team=self.team)})
 
     # ******************************************
     # /events/session_recording
