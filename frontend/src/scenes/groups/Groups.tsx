@@ -21,7 +21,7 @@ export function Groups(): JSX.Element {
             },
         },
         {
-            title: 'Last updated',
+            title: 'First seen',
             key: 'created_at',
             render: function Render(_, group: Group) {
                 return <TZLabel time={group.created_at} />
