@@ -6,7 +6,7 @@ from datetime import timedelta
 from typing import List, Tuple
 
 from ee.clickhouse.materialized_columns import backfill_materialized_columns, get_materialized_columns, materialize
-from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
+from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.session_recordings.clickhouse_session_recording_list import ClickhouseSessionRecordingList

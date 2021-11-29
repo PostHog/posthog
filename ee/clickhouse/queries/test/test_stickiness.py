@@ -5,7 +5,7 @@ from freezegun.api import freeze_time
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
-from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
+from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.util import get_earliest_timestamp
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models.action import Action
