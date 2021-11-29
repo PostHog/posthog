@@ -6,11 +6,10 @@ from freezegun.api import freeze_time
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
-from ee.clickhouse.queries.util import get_earliest_timestamp
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
-from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.filters.filter import Filter
 from posthog.models.person import Person
 from posthog.queries.test.test_stickiness import stickiness_test_factory
 
@@ -34,7 +33,7 @@ def _create_person(**kwargs):
     return Person(id=person.uuid)
 
 
-class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(ClickhouseStickiness, _create_event, _create_person, _create_action, get_earliest_timestamp)):  # type: ignore
+class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(ClickhouseStickiness, _create_event, _create_person, _create_action)):  # type: ignore
     @snapshot_clickhouse_queries
     def test_filter_by_group_properties(self):
         self._create_multiple_people(
@@ -54,7 +53,7 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
         )
 
         with freeze_time("2020-02-15T13:01:01Z"):
-            filter = StickinessFilter(
+            filter = Filter(
                 data={
                     "shown_as": "Stickiness",
                     "date_from": "2020-01-01",
@@ -64,7 +63,6 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
                     "interval": "week",
                 },
                 team=self.team,
-                get_earliest_timestamp=get_earliest_timestamp,
             )
             response = ClickhouseStickiness().run(filter, self.team)
 
@@ -80,7 +78,7 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
         )
 
         with freeze_time("2020-02-15T13:01:01Z"):
-            filter = StickinessFilter(
+            filter = Filter(
                 data={
                     "shown_as": "Stickiness",
                     "date_from": "2020-01-01",
@@ -89,7 +87,6 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
                     "interval": "week",
                 },
                 team=self.team,
-                get_earliest_timestamp=get_earliest_timestamp,
             )
             response = ClickhouseStickiness().run(filter, self.team)
 

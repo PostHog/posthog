@@ -67,19 +67,15 @@ def insert_cohort_from_query(
 ) -> None:
     if is_clickhouse_enabled():
         from ee.clickhouse.queries.clickhouse_stickiness import insert_stickiness_people_into_cohort
-        from ee.clickhouse.queries.util import get_earliest_timestamp
         from ee.clickhouse.views.actions import insert_entity_people_into_cohort
         from ee.clickhouse.views.cohort import insert_cohort_people_into_pg
         from posthog.models.entity import Entity
         from posthog.models.filters.filter import Filter
-        from posthog.models.filters.stickiness_filter import StickinessFilter
 
         cohort = Cohort.objects.get(pk=cohort_id)
         entity = Entity(data=entity_data)
         if insight_type == INSIGHT_STICKINESS:
-            _stickiness_filter = StickinessFilter(
-                data=filter_data, team=cohort.team, get_earliest_timestamp=get_earliest_timestamp
-            )
+            _stickiness_filter = Filter(data=filter_data, team=cohort.team)
             insert_stickiness_people_into_cohort(cohort, entity, _stickiness_filter)
         else:
             _filter = Filter(data=filter_data)

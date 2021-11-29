@@ -3,18 +3,19 @@ from typing import Any, Dict, List, Union
 
 from django.db import connection
 from django.db.models import Count
+from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMinute, TruncMonth, TruncWeek
 from django.db.models.query import Prefetch, QuerySet
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.utils.serializer_helpers import ReturnDict
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
-from posthog.models import Action, Entity, Team
+from posthog.models import Action, Entity, Filter, Team
 from posthog.models.action_step import ActionStep
 from posthog.models.event import Event, EventManager
-from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person import Person
 from posthog.queries import base
+from posthog.utils import relative_date_parse
 
 from .base import BaseQuery, filter_events, filter_persons, handle_compare, process_entity_for_events
 
@@ -26,7 +27,26 @@ def execute_custom_sql(query, params):
 
 
 class Stickiness(BaseQuery):
-    def _serialize_entity(self, entity: Entity, filter: StickinessFilter, team_id: int) -> List[Dict[str, Any]]:
+
+    _filter: Filter
+    _team: Team
+    _entity: Entity
+
+    def __init__(self, team: Team, filter: Filter, entity: Entity):
+
+        _date_from = filter.date_from
+        if filter.date_from == "all":
+            _date_from = Event.objects.earliest_timestamp(team_id=self.team.pk)
+        elif filter.date_from is None:
+            _date_from = relative_date_parse("-7d")
+
+        filter = filter.with_data({"date_from": _date_from})
+
+        self._filter = filter
+        self._team = team
+        self._entity = entity
+
+    def _serialize_entity(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
         serialized: Dict[str, Any] = {
             "action": entity.to_dict(),
             "label": entity.name,
@@ -41,7 +61,7 @@ class Stickiness(BaseQuery):
         response.append(new_dict)
         return response
 
-    def stickiness(self, entity: Entity, filter: StickinessFilter, team_id: int) -> Dict[str, Any]:
+    def stickiness(self, entity: Entity, filter: Filter, team_id: int) -> Dict[str, Any]:
 
         events = process_entity_for_events(entity=entity, team_id=team_id, order_by=None,)
         events = events.filter(filter_events(team_id, filter, entity))
@@ -49,7 +69,7 @@ class Stickiness(BaseQuery):
         events = (
             events.filter(filter_events(team_id, filter, entity))
             .values("person_id")
-            .annotate(interval_count=Count(filter.trunc_func("timestamp"), distinct=True))
+            .annotate(interval_count=Count(_get_trunc_func(filter.interval, "timestamp"), distinct=True))
             .filter(interval_count__lte=filter.total_intervals)
         )
 
@@ -60,7 +80,7 @@ class Stickiness(BaseQuery):
         counts = execute_custom_sql(aggregated_query, events_sql_params)
         return self.process_result(counts, filter)
 
-    def process_result(self, counts: List, filter: StickinessFilter) -> Dict[str, Any]:
+    def process_result(self, counts: List, filter: Filter) -> Dict[str, Any]:
 
         response: Dict[int, int] = {}
         for result in counts:
@@ -80,7 +100,7 @@ class Stickiness(BaseQuery):
             "count": sum(data),
         }
 
-    def run(self, filter: StickinessFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
 
         response = []
         for entity in filter.entities:
@@ -91,15 +111,11 @@ class Stickiness(BaseQuery):
             response.extend(entity_resp)
         return response
 
-    def people(
-        self, target_entity: Entity, filter: StickinessFilter, team: Team, request, *args, **kwargs
-    ) -> ReturnDict:
+    def people(self, target_entity: Entity, filter: Filter, team: Team, request, *args, **kwargs) -> ReturnDict:
         results = self._retrieve_people(target_entity, filter, team, request)
         return results
 
-    def _retrieve_people(
-        self, target_entity: Entity, filter: StickinessFilter, team: Team, request: Request
-    ) -> ReturnDict:
+    def _retrieve_people(self, target_entity: Entity, filter: Filter, team: Team, request: Request) -> ReturnDict:
         from posthog.api.person import PersonSerializer
 
         events = stickiness_process_entity_type(target_entity, team, filter)
@@ -111,7 +127,22 @@ class Stickiness(BaseQuery):
         return PersonSerializer(people, many=True).data
 
 
-def stickiness_process_entity_type(target_entity: Entity, team: Team, filter: StickinessFilter) -> QuerySet:
+def _get_trunc_func(interval: str, field_name: str) -> Union[TruncMinute, TruncHour, TruncDay, TruncWeek, TruncMonth]:
+    if interval == "minute":
+        return TruncMinute(field_name)
+    elif interval == "hour":
+        return TruncHour(field_name)
+    elif interval == "day":
+        return TruncDay(field_name)
+    elif interval == "week":
+        return TruncWeek(field_name)
+    elif interval == "month":
+        return TruncMonth(field_name)
+    else:
+        raise ValidationError(f"{interval} not supported")
+
+
+def stickiness_process_entity_type(target_entity: Entity, team: Team, filter: Filter) -> QuerySet:
 
     events: Union[EventManager, QuerySet] = Event.objects.none()
     if target_entity.type == TREND_FILTER_TYPE_EVENTS:
@@ -134,15 +165,15 @@ def stickiness_process_entity_type(target_entity: Entity, team: Team, filter: St
     return events
 
 
-def stickiness_format_intervals(events: QuerySet, filter: StickinessFilter) -> QuerySet:
+def stickiness_format_intervals(events: QuerySet, filter: Filter) -> QuerySet:
     return (
         events.values("person_id")
-        .annotate(day_count=Count(filter.trunc_func("timestamp"), distinct=True))
+        .annotate(day_count=Count(_get_trunc_func(filter.interval, "timestamp"), distinct=True))
         .filter(day_count=filter.selected_interval)
     )
 
 
-def stickiness_fetch_people(events: QuerySet, team: Team, filter: StickinessFilter, use_offset=True) -> QuerySet:
+def stickiness_fetch_people(events: QuerySet, team: Team, filter: Filter, use_offset=True) -> QuerySet:
     return Person.objects.filter(
         team=team,
         id__in=[p["person_id"] for p in (events[filter.offset : filter.offset + 100] if use_offset else events)],

@@ -6,12 +6,12 @@ from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from ee.clickhouse.queries.util import get_trunc_func_ch
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Entity
-from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.filters.filter import Filter
 
 
 class StickinessEventsQuery(ClickhouseEventQuery):
     _entity: Entity
-    _filter: StickinessFilter
+    _filter: Filter
     _trunc_func: str
 
     def __init__(self, entity: Entity, *args, **kwargs):

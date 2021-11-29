@@ -11,6 +11,7 @@ from sentry_sdk.api import capture_exception
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.queries.stickiness.stickiness_event_query import StickinessEventsQuery
+from ee.clickhouse.queries.util import get_earliest_timestamp
 from ee.clickhouse.sql.person import (
     GET_LATEST_PERSON_SQL,
     GET_TEAM_PERSON_DISTINCT_IDS,
@@ -20,13 +21,33 @@ from ee.clickhouse.sql.person import (
 )
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
-from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.stickiness import Stickiness
+from posthog.utils import relative_date_parse
 
 
 class ClickhouseStickiness(Stickiness):
-    def stickiness(self, entity: Entity, filter: StickinessFilter, team_id: int) -> Dict[str, Any]:
+
+    _filter: Filter
+    _team: Team
+    _entity: Entity
+
+    def __init__(self, team: Team, filter: Filter, entity: Entity):
+
+        _date_from = filter.date_from
+        if filter.date_from == "all":
+            _date_from = get_earliest_timestamp(team_id=self.team.pk)
+        elif filter.date_from is None:
+            _date_from = relative_date_parse("-7d")
+
+        filter = filter.with_data({"date_from": _date_from})
+
+        self._filter = filter
+        self._team = team
+        self._entity = entity
+
+    def stickiness(self, entity: Entity, filter: Filter, team_id: int) -> Dict[str, Any]:
         events_query, event_params = StickinessEventsQuery(entity, filter, team_id).get_query()
 
         query = f"""
@@ -40,7 +61,7 @@ class ClickhouseStickiness(Stickiness):
         return self.process_result(counts, filter)
 
     def stickiness_people_query(
-        self, target_entity: Entity, filter: StickinessFilter, team_id: int
+        self, target_entity: Entity, filter: Filter, team_id: int
     ) -> Tuple[str, Dict[str, Any]]:
         events_query, event_params = StickinessEventsQuery(target_entity, filter, team_id).get_query()
 
@@ -50,9 +71,7 @@ class ClickhouseStickiness(Stickiness):
 
         return query, {**event_params, "stickiness_day": filter.selected_interval, "offset": filter.offset,}
 
-    def _retrieve_people(
-        self, target_entity: Entity, filter: StickinessFilter, team: Team, request: Request
-    ) -> ReturnDict:
+    def _retrieve_people(self, target_entity: Entity, filter: Filter, team: Team, request: Request) -> ReturnDict:
         person_ids_query, params = self.stickiness_people_query(target_entity, filter, team.pk)
         query = PEOPLE_SQL.format(
             content_sql=person_ids_query,
@@ -64,7 +83,7 @@ class ClickhouseStickiness(Stickiness):
         return ClickhousePersonSerializer(people, many=True).data
 
 
-def insert_stickiness_people_into_cohort(cohort: Cohort, target_entity: Entity, filter: StickinessFilter) -> None:
+def insert_stickiness_people_into_cohort(cohort: Cohort, target_entity: Entity, filter: Filter) -> None:
     content_sql, params = ClickhouseStickiness().stickiness_people_query(target_entity, filter, cohort.team_id)
     try:
         sync_execute(

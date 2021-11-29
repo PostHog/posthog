@@ -16,7 +16,6 @@ from posthog.constants import TRENDS_STICKINESS
 from posthog.models import Cohort, Entity
 from posthog.models.event import Event
 from posthog.models.filters.filter import Filter
-from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.stickiness import (
@@ -31,7 +30,6 @@ from posthog.utils import is_clickhouse_enabled
 class CohortSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     count = serializers.SerializerMethodField()
-    earliest_timestamp_func = lambda team_id: Event.objects.earliest_timestamp(team_id)
 
     class Meta:
         model = Cohort
@@ -92,9 +90,7 @@ class CohortSerializer(serializers.ModelSerializer):
                 team = cast(User, request.user).team
                 target_entity = get_target_entity(request)
                 if filter.shown_as == TRENDS_STICKINESS:
-                    stickiness_filter = StickinessFilter(
-                        request=request, team=team, get_earliest_timestamp=self.earliest_timestamp_func
-                    )
+                    stickiness_filter = Filter(request=request, team=team)
                     self._handle_stickiness_people(target_entity, cohort, stickiness_filter)
                 else:
                     self._handle_trend_people(target_entity, cohort, filter, request)
@@ -111,7 +107,7 @@ class CohortSerializer(serializers.ModelSerializer):
     def _calculate_static_by_people(self, people: List[str], cohort: Cohort) -> None:
         calculate_cohort_from_list.delay(cohort.pk, people)
 
-    def _handle_stickiness_people(self, target_entity: Entity, cohort: Cohort, filter: StickinessFilter) -> None:
+    def _handle_stickiness_people(self, target_entity: Entity, cohort: Cohort, filter: Filter) -> None:
         events = stickiness_process_entity_type(target_entity, cohort.team, filter)
         events = stickiness_format_intervals(events, filter)
         people = stickiness_fetch_people(events, cohort.team, filter)

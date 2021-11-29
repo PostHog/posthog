@@ -28,7 +28,6 @@ from posthog.models import Event, Filter, Insight, Team
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.sessions_filter import SessionsFilter
-from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries import paths, retention, stickiness, trends
 from posthog.queries.sessions.sessions import Sessions
@@ -245,10 +244,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         team = self.team
         filter = Filter(request=request, team=self.team)
         if filter.insight == INSIGHT_STICKINESS or filter.shown_as == TRENDS_STICKINESS:
-            earliest_timestamp_func = lambda team_id: Event.objects.earliest_timestamp(team_id)
-            stickiness_filter = StickinessFilter(
-                request=request, team=team, get_earliest_timestamp=earliest_timestamp_func
-            )
+            stickiness_filter = Filter(request=request, team=team)
             result = stickiness.Stickiness().run(stickiness_filter, team)
         else:
             result = trends.Trends().run(filter, team)

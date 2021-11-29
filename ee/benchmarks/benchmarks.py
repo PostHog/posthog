@@ -12,7 +12,6 @@ from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.session_recordings.clickhouse_session_recording_list import ClickhouseSessionRecordingList
 from posthog.models import Action, ActionStep, Cohort, Team, Organization
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.filter import Filter
 from posthog.models.property import PropertyName, TableWithProperties
 from posthog.constants import FunnelCorrelationType
@@ -273,7 +272,7 @@ class QuerySuite:
 
     @benchmark_clickhouse
     def track_stickiness(self):
-        filter = StickinessFilter(
+        filter = Filter(
             data={
                 "insight": "STICKINESS",
                 "events": [{"id": "$pageview"}],
@@ -288,7 +287,7 @@ class QuerySuite:
 
     @benchmark_clickhouse
     def track_stickiness_filter_by_person_property(self):
-        filter = StickinessFilter(
+        filter = Filter(
             data={
                 "insight": "STICKINESS",
                 "events": [{"id": "$pageview"}],
@@ -305,7 +304,7 @@ class QuerySuite:
 
     @benchmark_clickhouse
     def track_stickiness_filter_by_person_property_materialized(self):
-        filter = StickinessFilter(
+        filter = Filter(
             data={
                 "insight": "STICKINESS",
                 "events": [{"id": "$pageview"}],

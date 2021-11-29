@@ -41,6 +41,7 @@ from posthog.models.filters.mixins.funnel import (
 from posthog.models.filters.mixins.groups import GroupsAggregationMixin
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
+from posthog.models.filters.mixins.stickiness import SelectedIntervalMixin
 
 
 class Filter(
@@ -76,6 +77,7 @@ class Filter(
     FunnelCorrelationPersonsMixin,
     SimplifyFilterMixin,
     BaseFilter,
+    SelectedIntervalMixin,
 ):
     """
     Filters allow us to describe what events to show/use in various places in the system, for example Trends or Funnels.

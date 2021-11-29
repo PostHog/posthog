@@ -26,7 +26,6 @@ from posthog.constants import (
 )
 from posthog.decorators import CacheType
 from posthog.models import Dashboard, Filter, Insight, Team
-from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.types import FilterType
 from posthog.utils import generate_cache_key, is_clickhouse_enabled
@@ -115,9 +114,7 @@ def get_cache_type(filter: FilterType) -> CacheType:
     elif filter.insight == INSIGHT_RETENTION:
         return CacheType.RETENTION
     elif (
-        filter.insight == INSIGHT_TRENDS
-        and isinstance(filter, StickinessFilter)
-        and filter.shown_as == TRENDS_STICKINESS
+        filter.insight == INSIGHT_TRENDS and isinstance(filter, Filter) and filter.shown_as == TRENDS_STICKINESS
     ) or filter.insight == INSIGHT_STICKINESS:
         return CacheType.STICKINESS
     else:

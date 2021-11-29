@@ -16,7 +16,6 @@ from posthog.api.utils import format_paginated_url, get_target_entity
 from posthog.constants import TRENDS_TABLE
 from posthog.models import Cohort, Event, Filter, Person, User
 from posthog.models.filters import RetentionFilter
-from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.base import filter_persons, properties_to_Q
 from posthog.queries.lifecycle import LifecycleTrend
@@ -231,8 +230,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
                 status=400,
             )
-        earliest_timestamp_func = lambda team_id: Event.objects.earliest_timestamp(team_id)
-        filter = StickinessFilter(request=request, team=team, get_earliest_timestamp=earliest_timestamp_func)
+        filter = Filter(request=request, team=team)
 
         target_entity = get_target_entity(request)
 

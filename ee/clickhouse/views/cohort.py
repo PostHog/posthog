@@ -1,22 +1,17 @@
 from rest_framework.request import Request
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.queries.util import get_earliest_timestamp
 from ee.clickhouse.sql.person import PERSON_STATIC_COHORT_TABLE
 from posthog.api.cohort import CohortSerializer, CohortViewSet
 from posthog.constants import INSIGHT_STICKINESS, INSIGHT_TRENDS
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters.filter import Filter
-from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.team import Team
 from posthog.tasks.calculate_cohort import insert_cohort_from_query
 
 
 class ClickhouseCohortSerializer(CohortSerializer):
-    earliest_timestamp_func = get_earliest_timestamp
-
-    def _handle_stickiness_people(self, target_entity: Entity, cohort: Cohort, filter: StickinessFilter) -> None:
+    def _handle_stickiness_people(self, target_entity: Entity, cohort: Cohort, filter: Filter) -> None:
         insert_cohort_from_query.delay(
             cohort.pk, INSIGHT_STICKINESS, filter.to_dict(), entity_data=target_entity.to_dict()
         )

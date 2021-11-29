@@ -8,8 +8,6 @@ from posthog.constants import ENTITY_ID, ENTITY_TYPE, INSIGHT_STICKINESS
 from posthog.decorators import CacheType
 from posthog.models import Dashboard, Event, Filter, Insight
 from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.queries.trends import Trends
 from posthog.tasks.update_cache import update_cache_item, update_cached_items
 from posthog.test.base import APIBaseTest
 from posthog.types import FilterType
@@ -88,7 +86,7 @@ class TestUpdateCache(APIBaseTest):
         )
 
         self._test_refresh_dashboard_cache_types(
-            StickinessFilter(
+            Filter(
                 data={
                     "insight": "TRENDS",
                     "shown_as": "Stickiness",
@@ -98,7 +96,6 @@ class TestUpdateCache(APIBaseTest):
                     ENTITY_ID: "watched movie",
                 },
                 team=self.team,
-                get_earliest_timestamp=Event.objects.earliest_timestamp,
             ),
             CacheType.STICKINESS,
             patch_update_cache_item,
@@ -269,7 +266,7 @@ class TestUpdateCache(APIBaseTest):
     def test_stickiness_regression(self, patch_update_cache_item: MagicMock, patch_apply_async: MagicMock) -> None:
         # We moved Stickiness from being a "shown_as" item to its own insight
         # This move caused issues hence a regression test
-        filter_stickiness = StickinessFilter(
+        filter_stickiness = Filter(
             data={
                 "events": [{"id": "$pageview"}],
                 "properties": [{"key": "$browser", "value": "Mac OS X"}],
@@ -279,7 +276,6 @@ class TestUpdateCache(APIBaseTest):
                 "shown_as": "Stickiness",
             },
             team=self.team,
-            get_earliest_timestamp=Event.objects.earliest_timestamp,
         )
         filter = Filter(
             data={
