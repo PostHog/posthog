@@ -13,7 +13,7 @@ import { SourcePluginTag } from 'scenes/plugins/plugin/SourcePluginTag'
 import { PluginSource } from './PluginSource'
 import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginField } from 'scenes/plugins/edit/PluginField'
-import { endWithPunctation } from 'lib/utils'
+import { endWithPunctation, validateJsonFormItem } from 'lib/utils'
 import { canGloballyManagePlugins, canInstallPlugins } from '../access'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { capabilitiesInfo } from './CapabilitiesInfo'
@@ -350,6 +350,11 @@ export function PluginDrawer(): JSX.Element {
                                                         (!!fieldConfig.key && requiredFields.includes(fieldConfig.key)),
                                                     message: 'Please enter a value!',
                                                 },
+                                                fieldConfig.type === 'json'
+                                                    ? {
+                                                          validator: validateJsonFormItem,
+                                                      }
+                                                    : {},
                                             ]}
                                         >
                                             <PluginField
