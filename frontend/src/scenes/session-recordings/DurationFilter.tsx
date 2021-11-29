@@ -3,7 +3,7 @@ import { PropertyOperator, RecordingDurationFilter } from '~/types'
 import { Button, Input, Row, Select, Space } from 'antd'
 import { OperatorSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { Popup } from 'lib/components/Popup/Popup'
-import { DurationFilterLogic, TimeUnit } from './DurationFilterLogic'
+import { durationFilterLogic, TimeUnit } from './durationFilterLogic'
 import { useActions, useValues } from 'kea'
 interface Props {
     initialFilter: RecordingDurationFilter
@@ -12,9 +12,9 @@ interface Props {
 }
 
 export function DurationFilter({ initialFilter, onChange, pageKey }: Props): JSX.Element {
-    const DurationFilterLogicInstance = DurationFilterLogic({ initialFilter, onChange, pageKey })
-    const { setTimeValue, setIsOpen, setOperator, setUnit } = useActions(DurationFilterLogicInstance)
-    const { durationString, unit, timeValue, operator, isOpen } = useValues(DurationFilterLogicInstance)
+    const durationFilterLogicInstance = durationFilterLogic({ initialFilter, onChange, pageKey })
+    const { setTimeValue, setIsOpen, setOperator, setUnit } = useActions(durationFilterLogicInstance)
+    const { durationString, unit, timeValue, operator, isOpen } = useValues(durationFilterLogicInstance)
     return (
         <Popup
             visible={isOpen}
