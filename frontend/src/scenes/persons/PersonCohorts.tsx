@@ -5,7 +5,7 @@ import Skeleton from 'antd/lib/skeleton'
 import { CohortType } from '~/types'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
 
-export function PersonCohorts(): JSX.Element | string {
+export function PersonCohorts(): JSX.Element {
     const { cohorts, cohortsLoading } = useValues(personsLogic)
     const { loadCohorts, navigateToCohort } = useActions(personsLogic)
 
@@ -51,6 +51,6 @@ export function PersonCohorts(): JSX.Element | string {
             })}
         />
     ) : (
-        "This person doesn't belong to any cohort"
+        <i>This person doesn't belong to any cohort</i>
     )
 }

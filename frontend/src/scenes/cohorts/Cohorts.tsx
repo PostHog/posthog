@@ -61,7 +61,7 @@ const cohortsUrlLogic = kea<cohortsUrlLogicType>({
     actionToUrl: ({ values }) => ({
         setOpenCohort: () =>
             combineUrl(
-                '/cohorts' + (values.openCohort ? `/${values.openCohort.id || 'new'}` : ''),
+                values.openCohort ? urls.cohort(values.openCohort.id || 'new') : urls.cohorts(),
                 router.values.searchParams
             ).url,
     }),
