@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
 import { Modal, Button, Input, Skeleton } from 'antd'
@@ -16,6 +16,7 @@ import api from '../../lib/api'
 import { GroupActorHeader } from 'scenes/persons/GroupActorHeader'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
 import { IconPersonFilled } from 'lib/components/icons'
+import { ExpandIcon, ExpandIconProps } from 'lib/components/ExpandIcon'
 
 export interface PersonsModalProps {
     visible: boolean
@@ -159,7 +160,8 @@ export function PersonModal({
                             <span>
                                 This list contains{' '}
                                 <b>
-                                    {people.count} unique {pluralize(people.count, 'user', undefined, false)}
+                                    {people.count} unique{' '}
+                                    {pluralize(people.count, _isGroupType ? 'group' : 'user', undefined, false)}
                                 </b>
                                 {peopleParams?.pointValue !== undefined &&
                                     peopleParams.action !== 'session' &&
