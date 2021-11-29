@@ -6,7 +6,7 @@ import { FilterType, PersonType, InsightType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { pluralize } from 'lib/utils'
-import './PersonModal.scss'
+import './PersonsModal.scss'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { DateDisplay } from 'lib/components/DateDisplay'
@@ -16,14 +16,14 @@ import api from '../../lib/api'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
 import { IconPersonFilled } from 'lib/components/icons'
 
-export interface PersonModalProps {
+export interface PersonsModalProps {
     visible: boolean
     view: InsightType
     filters: Partial<FilterType>
     onSaveCohort: () => void
 }
 
-export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModalProps): JSX.Element {
+export function PersonsModal({ visible, view, filters, onSaveCohort }: PersonsModalProps): JSX.Element {
     const {
         people,
         loadingMorePeople,
@@ -144,7 +144,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                             />
                         )}
                         <div className="user-count-subheader">
-                            <IconPersonFilled style={{ fontSize: 18, marginRight: 6 }} />
+                            <IconPersonFilled style={{ fontSize: '1.125rem', marginRight: '0.5rem' }} />
                             <span>
                                 This list contains{' '}
                                 <b>
