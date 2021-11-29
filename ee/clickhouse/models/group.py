@@ -7,6 +7,7 @@ from django.utils.timezone import now
 from ee.clickhouse.sql.groups import INSERT_GROUP_SQL
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_GROUPS
+from posthog.models import Group
 
 
 def create_group(
@@ -29,6 +30,10 @@ def create_group(
     }
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_GROUPS, sql=INSERT_GROUP_SQL, data=data)
+
+    Group.objects.create(
+        team_id=team_id, group_type_index=group_type_index, group_key=group_key, group_properties=properties, version=0,
+    )
 
 
 def get_aggregation_target_field(

@@ -1,29 +1,14 @@
 import json
 from datetime import datetime
-from typing import List, cast
 
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.models.group import create_group
-from ee.clickhouse.queries.actor_base_query import SerializedGroup, SerializedPerson
-from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from ee.clickhouse.views.test.funnel.util import EventPattern, FunnelRequest, get_funnel_actors_ok, get_funnel_ok
 from posthog.constants import INSIGHT_FUNNELS
-from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.test.base import APIBaseTest
-
-
-def _create_group(**kwargs) -> Group:
-    group = Group.objects.create(**kwargs, version=0)
-    create_group(
-        team_id=group.team.pk,
-        group_type_index=group.group_type_index,
-        group_key=group.group_key,
-        properties=group.group_properties,
-    )
-    return group
 
 
 class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
@@ -34,15 +19,15 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
 
-        g1 = _create_group(
-            team_id=self.team.pk, group_type_index=0, group_key="org:5", group_properties={"industry": "finance"}
+        g1 = create_group(
+            team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"}
         )
-        g2 = _create_group(
-            team_id=self.team.pk, group_type_index=0, group_key="org:6", group_properties={"industry": "technology"}
+        g2 = create_group(
+            team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"}
         )
 
-        g3 = _create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", group_properties={})
-        g4 = _create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", group_properties={})
+        g3 = create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={})
+        g4 = create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", properties={})
 
         return g1, g2, g3, g4
 
