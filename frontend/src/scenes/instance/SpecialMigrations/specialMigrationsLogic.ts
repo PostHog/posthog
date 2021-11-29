@@ -1,4 +1,4 @@
-import { successToast } from 'lib/utils'
+import { errorToast, successToast } from 'lib/utils'
 import api from 'lib/api'
 import { kea } from 'kea'
 import { userLogic } from 'scenes/userLogic'
@@ -6,12 +6,21 @@ import { userLogic } from 'scenes/userLogic'
 import { specialMigrationsLogicType } from './specialMigrationsLogicType'
 export type TabName = 'overview' | 'internal_metrics'
 
+// keep in sync with MigrationStatus in posthog/models/special_migration.py
 export enum SpecialMigrationStatus {
     NotStarted = 0,
     Running = 1,
     CompletedSuccessfully = 2,
     Errored = 3,
     RolledBack = 4,
+}
+
+export const migrationStatusNumberToMessage = {
+    0: 'Not started',
+    1: 'Running',
+    2: 'Completed successfully',
+    3: 'Errored',
+    4: 'Rolled back',
 }
 export interface SpecialMigration {
     id: number
@@ -34,7 +43,7 @@ export const specialMigrationsLogic = kea<specialMigrationsLogicType<SpecialMigr
     },
     loaders: () => ({
         specialMigrations: [
-            null as SpecialMigration[] | null,
+            [] as SpecialMigration[],
             {
                 loadSpecialMigrations: async () => {
                     if (!userLogic.values.user?.is_staff) {
@@ -53,7 +62,7 @@ export const specialMigrationsLogic = kea<specialMigrationsLogicType<SpecialMigr
                 successToast('Migration triggered successfully')
                 actions.loadSpecialMigrations()
             } else {
-                successToast('Failed to trigger migration', res.error)
+                errorToast('Failed to trigger migration', res.error)
             }
         },
         forceStopMigration: async ({ migrationId }) => {
@@ -62,7 +71,7 @@ export const specialMigrationsLogic = kea<specialMigrationsLogicType<SpecialMigr
                 successToast('Force stop triggered successfully')
                 actions.loadSpecialMigrations()
             } else {
-                successToast('Failed to trigger force stop', res.error)
+                errorToast('Failed to trigger force stop', res.error)
             }
         },
     }),

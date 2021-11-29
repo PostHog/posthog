@@ -3,22 +3,29 @@ import './index.scss'
 import React from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
-import { Progress, Table } from 'antd'
+import { Modal, Progress, Table } from 'antd'
 import { useActions, useValues } from 'kea'
-import { SpecialMigration, specialMigrationsLogic } from './specialMigrationsLogic'
-import { PlayCircleOutlined, StopOutlined } from '@ant-design/icons'
+import { SpecialMigration, migrationStatusNumberToMessage, specialMigrationsLogic } from './specialMigrationsLogic'
+import {
+    PlayCircleOutlined,
+    StopOutlined,
+    RedoOutlined,
+    CheckCircleOutlined,
+    InfoCircleOutlined,
+} from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-
-const migrationStatusNumberToMessage = {
-    0: 'Not started',
-    1: 'Running',
-    2: 'Completed successfully',
-    3: 'Errored',
-    4: 'Rolled back',
-}
+import { Tooltip } from 'lib/components/Tooltip'
 
 export const scene: SceneExport = {
     component: SpecialMigrations,
+}
+
+export const tooltipMessageForStatus = {
+    0: 'Run migration',
+    1: 'Force stop migration',
+    2: 'Migration completed',
+    3: 'Re-run migration',
+    4: 'Re-run migration',
 }
 
 export function SpecialMigrations(): JSX.Element {
@@ -29,20 +36,28 @@ export function SpecialMigrations(): JSX.Element {
         {
             title: '',
             render: function RenderTriggerButton(specialMigration: SpecialMigration): JSX.Element {
+                const status = specialMigration.status
                 return (
-                    <div>
-                        {specialMigration.status === 0 ? (
+                    <Tooltip title={tooltipMessageForStatus[status]}>
+                        {status === 0 ? (
                             <PlayCircleOutlined
-                                className="trigger-migration-button"
+                                className="migration-btn success"
                                 onClick={() => triggerMigration(specialMigration.id)}
                             />
-                        ) : specialMigration.status === 1 ? (
+                        ) : status === 1 ? (
                             <StopOutlined
-                                className="force-stop-migration-button"
+                                className="migration-btn danger"
                                 onClick={() => forceStopMigration(specialMigration.id)}
                             />
-                        ) : null}
-                    </div>
+                        ) : status === 2 ? (
+                            <CheckCircleOutlined className="success" />
+                        ) : (
+                            <RedoOutlined
+                                className="migration-btn warning"
+                                onClick={() => triggerMigration(specialMigration.id)}
+                            />
+                        )}
+                    </Tooltip>
                 )
             },
         },
@@ -70,7 +85,26 @@ export function SpecialMigrations(): JSX.Element {
         },
         {
             title: 'Error',
-            dataIndex: 'error',
+            render: function RenderError(specialMigration: SpecialMigration): JSX.Element {
+                return (
+                    <small>
+                        <span>{specialMigration.error.slice(0, 40)}</span>
+                        <a
+                            onClick={() => {
+                                Modal.info({
+                                    title: `Error on migration '${specialMigration.name}'`,
+                                    content: <pre>{specialMigration.error}</pre>,
+                                    icon: <InfoCircleOutlined />,
+                                    okText: 'Close',
+                                    width: '80%',
+                                })
+                            }}
+                        >
+                            {` [...]`}
+                        </a>
+                    </small>
+                )
+            },
         },
         {
             title: 'Current operation index',
@@ -114,14 +148,14 @@ export function SpecialMigrations(): JSX.Element {
         },
     ]
     return (
-        <div className="system-status-scene">
+        <div className="special-migrations-scene">
             <PageHeader title="Special Migrations" caption="Manage special migrations in your instance" />
 
             <Table
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                 loading={specialMigrationsLoading}
                 columns={columns}
-                dataSource={specialMigrations || []}
+                dataSource={specialMigrations}
             />
         </div>
     )
