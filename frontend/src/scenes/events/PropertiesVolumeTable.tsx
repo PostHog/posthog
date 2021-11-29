@@ -21,7 +21,7 @@ export function PropertiesVolumeTable(): JSX.Element | null {
     const { propertyDefinitions, loaded } = useValues(propertyDefinitionsModel)
 
     return (
-        <div data-attr="manage-events-table" style={{ paddingTop: 16 }}>
+        <div data-attr="manage-events-table">
             <EventPageHeader activeTab={EventsTab.EventPropertyStats} />
             {loaded ? (
                 <>

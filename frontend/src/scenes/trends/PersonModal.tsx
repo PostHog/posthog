@@ -138,7 +138,7 @@ export function PersonModal({
                             <Input.Search
                                 allowClear
                                 enterButton
-                                placeholder="Search person by email, name, or ID"
+                                placeholder="Search for persons by email, name, or ID"
                                 onChange={(e) => {
                                     setSearchTerm(e.target.value)
                                     if (!e.target.value) {

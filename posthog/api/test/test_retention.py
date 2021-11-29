@@ -175,7 +175,6 @@ def test_insight_retention_missing_persons_gh_5443(client: Client):
                 "created_at": "2021-08-03T00:00:00Z",
                 "distinct_ids": ["abc"],
                 "id": ANY,
-                "is_identified": False,
                 "name": "abc",
                 "properties": {},
                 "uuid": ANY,

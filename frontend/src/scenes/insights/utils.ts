@@ -1,8 +1,10 @@
-import { EntityFilter, ActionFilter, FilterType, DashboardItemType } from '~/types'
+import { EntityFilter, ActionFilter, FilterType, DashboardItemType, InsightShortId } from '~/types'
 import { ensureStringIsNotBlank, objectsEqual } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
+import api from 'lib/api'
+import { getCurrentTeamId } from 'lib/utils/logics'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -65,22 +67,29 @@ export function extractObjectDiffKeys(
 }
 
 export function findInsightFromMountedLogic(
-    insightId: number,
+    insightShortId: InsightShortId,
     dashboardId: number | undefined
 ): Partial<DashboardItemType> | null {
     if (dashboardId) {
         const insight = dashboardLogic
             .findMounted({ id: dashboardId })
-            ?.values.allItems?.items?.find((item) => item.id === insightId)
+            ?.values.allItems?.items?.find((item) => item.short_id === insightShortId)
         if (insight) {
             return insight
         }
     }
 
-    const insight2 = savedInsightsLogic.findMounted()?.values.insights?.results?.find((item) => item.id === insightId)
+    const insight2 = savedInsightsLogic
+        .findMounted()
+        ?.values.insights?.results?.find((item) => item.short_id === insightShortId)
     if (insight2) {
         return insight2
     }
 
     return null
+}
+
+export async function getInsightId(shortId: InsightShortId): Promise<number | undefined> {
+    return (await api.get(`api/projects/${getCurrentTeamId()}/insights/?short_id=${encodeURIComponent(shortId)}`))
+        .results[0]?.id
 }

@@ -624,10 +624,15 @@ export interface PlanInterface {
     price_string: string
 }
 
+// Creating a nominal type: https://github.com/microsoft/TypeScript/issues/202#issuecomment-961853101
+export type InsightShortId = string & { readonly '': unique symbol }
+
 export interface DashboardItemType {
+    /** The unique key we use when communicating with the user, e.g. in URLs */
+    short_id: InsightShortId
+    /** The primary key in the database, used as well in API endpoints */
     id: number
     name: string
-    short_id: string
     description?: string
     favorited?: boolean
     filters: Partial<FilterType>
@@ -647,7 +652,8 @@ export interface DashboardItemType {
     result: any | null
     updated_at: string
     tags: string[]
-    next?: string // only used in the frontend to store the next breakdown url
+    /** Only used in the frontend to store the next breakdown url */
+    next?: string
 }
 
 export interface DashboardType {
@@ -757,7 +763,7 @@ export interface AnnotationType {
     scope: AnnotationScope
     content: string
     date_marker: string
-    created_by?: UserBasicType | 'local' | null
+    created_by?: UserBasicType | null
     created_at: string
     updated_at: string
     dashboard_item?: number
@@ -812,6 +818,11 @@ export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_
 
 export type BreakdownKeyType = string | number | (string | number)[] | null
 
+export interface Breakdown {
+    property: string | number
+    type: BreakdownType
+}
+
 export interface FilterType {
     insight?: InsightType
     display?: ChartDisplayType
@@ -823,6 +834,7 @@ export interface FilterType {
     actions?: Record<string, any>[]
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
+    breakdowns?: Breakdown[]
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     shown_as?: ShownAsType
@@ -878,6 +890,7 @@ export interface FilterType {
     funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
     funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
     aggregation_group_type_index?: number | undefined // Groups aggregation
+    funnel_advanced?: boolean // used to toggle advanced options on or off
 }
 
 export interface RecordingEventsFilters {
@@ -989,6 +1002,7 @@ export interface FunnelStep {
     type: EntityType
     labels?: string[]
     breakdown?: BreakdownKeyType
+    breakdowns?: Breakdown[]
     breakdown_value?: string | number
 
     // Url that you can GET to retrieve the people that converted in this step
@@ -1089,7 +1103,7 @@ export interface FlattenedFunnelStepByBreakdown {
 }
 
 export interface ChartParams {
-    dashboardItemId?: number
+    dashboardItemId?: InsightShortId
     color?: string
     filters: Partial<FilterType>
     inSharedMode?: boolean
@@ -1100,7 +1114,7 @@ export interface ChartParams {
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
 export interface InsightLogicProps {
     /** currently persisted insight */
-    dashboardItemId?: number | null
+    dashboardItemId?: InsightShortId | null
     /** enable url handling for this insight */
     syncWithUrl?: boolean
     /** cached results, avoid making a request */
@@ -1139,6 +1153,7 @@ export interface MultivariateFlagOptions {
 interface FeatureFlagFilters {
     groups: FeatureFlagGroupType[]
     multivariate: MultivariateFlagOptions | null
+    aggregation_group_type_index?: number | null
 }
 
 export interface FeatureFlagType {

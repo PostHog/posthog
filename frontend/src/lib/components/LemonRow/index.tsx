@@ -20,7 +20,7 @@ export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
     /** Extended content, e.g. a description, to show in the lower button area. */
     extendedContent?: string
     /** Tooltip to display on hover. */
-    tooltip?: string
+    tooltip?: any
     /** Whether the row should take up the parent's full width. */
     fullWidth?: boolean
     'data-attr'?: string

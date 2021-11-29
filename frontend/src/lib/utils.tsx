@@ -517,7 +517,7 @@ export function humanFriendlyDuration(d: string | number | null | undefined, max
 
     const dayDisplay = days > 0 ? days + 'd' : ''
     const hDisplay = h > 0 ? h + 'h' : ''
-    const mDisplay = m > 0 ? m + 'min' : ''
+    const mDisplay = m > 0 ? m + 'm' : ''
     const sDisplay = s > 0 ? s + 's' : hDisplay || mDisplay ? '' : '0s'
 
     let units: string[] = []
@@ -534,12 +534,15 @@ export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | 
     return humanFriendlyDuration(diff)
 }
 
-export function humanFriendlyDetailedTime(date: dayjs.Dayjs | string | null, withSeconds: boolean = false): string {
+export function humanFriendlyDetailedTime(
+    date: dayjs.Dayjs | string | null,
+    withSeconds: boolean = false,
+    formatString: string = 'MMMM DD, YYYY h:mm'
+): string {
     if (!date) {
         return 'Never'
     }
     const parsedDate = dayjs(date)
-    let formatString = 'MMMM Do YYYY h:mm'
     const today = dayjs().startOf('day')
     const yesterday = today.clone().subtract(1, 'days').startOf('day')
     if (parsedDate.isSame(dayjs(), 'm')) {
@@ -990,12 +993,18 @@ export function autocorrectInterval(filters: Partial<FilterType>): IntervalType 
     }
 }
 
-export function pluralize(count: number, singular: string, plural?: string, includeNumber: boolean = true): string {
+export function pluralize(
+    count: number,
+    singular: string,
+    plural?: string,
+    includeNumber: boolean = true,
+    formatNumber: boolean = false
+): string {
     if (!plural) {
         plural = singular + 's'
     }
     const form = count === 1 ? singular : plural
-    return includeNumber ? `${count} ${form}` : form
+    return includeNumber ? `${formatNumber ? count.toLocaleString() : count} ${form}` : form
 }
 
 /** Return a number in a compact format, with a SI suffix if applicable.

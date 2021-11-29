@@ -85,7 +85,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
                             </div>
                             <div>
                                 <Button
-                                    style={{ textAlign: 'center' }}
+                                    style={{ textAlign: 'center', marginBottom: 16 }}
                                     onClick={loadMoreBreakdownValues}
                                     loading={breakdownValuesLoading}
                                 >

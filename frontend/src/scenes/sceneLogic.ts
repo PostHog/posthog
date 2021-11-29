@@ -16,7 +16,7 @@ import { organizationLogic } from './organizationLogic'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
-    [Scene.InsightRouter]: Scene.Insights,
+    [Scene.InsightRouter]: Scene.Insight,
     [Scene.Action]: Scene.Events,
     [Scene.Actions]: Scene.Events,
     [Scene.EventStats]: Scene.Events,
@@ -28,7 +28,9 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
 }
 
 export const sceneLogic = kea<sceneLogicType>({
-    props: {} as { scenes?: Record<Scene, () => any> },
+    props: {} as {
+        scenes?: Record<Scene, () => any>
+    },
     path: ['scenes', 'sceneLogic'],
     actions: {
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -140,7 +142,14 @@ export const sceneLogic = kea<sceneLogicType>({
     urlToAction: ({ actions }) => {
         const mapping: Record<
             string,
-            (params: Params, searchParams: Params, hashParams: Params, payload: { method: string }) => any
+            (
+                params: Params,
+                searchParams: Params,
+                hashParams: Params,
+                payload: {
+                    method: string
+                }
+            ) => any
         > = {}
 
         for (const path of Object.keys(redirects)) {
@@ -190,7 +199,7 @@ export const sceneLogic = kea<sceneLogicType>({
         },
         setScene: ({ scene, scrollToTop }, _, __, previousState) => {
             posthog.capture('$pageview')
-            setPageTitle(identifierToHuman(scene || ''))
+            setPageTitle(sceneConfigurations[scene]?.name || identifierToHuman(scene || ''))
 
             // if we clicked on a link, scroll to top
             const previousScene = selectors.scene(previousState)

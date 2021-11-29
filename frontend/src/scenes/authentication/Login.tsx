@@ -10,7 +10,7 @@ import { PasswordInput } from './PasswordInput'
 import { ERROR_MESSAGES } from 'lib/constants'
 import { ExclamationCircleFilled } from '@ant-design/icons'
 import clsx from 'clsx'
-import { ErrorMessage } from 'lib/components/ErrorMessage/ErrorMessage'
+import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
 import { WelcomeLogo } from './WelcomeLogo'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -35,11 +35,11 @@ export function Login(): JSX.Element {
                             Get started
                         </h2>
                         {!authenticateResponseLoading && authenticateResponse?.errorCode && (
-                            <ErrorMessage style={{ marginBottom: 16 }}>
+                            <InlineMessage style={{ marginBottom: 16 }} type="danger">
                                 {authenticateResponse?.errorDetail ||
                                     ERROR_MESSAGES[authenticateResponse.errorCode] ||
                                     'Could not complete your login. Please try again.'}
-                            </ErrorMessage>
+                            </InlineMessage>
                         )}
                         <Form
                             layout="vertical"
