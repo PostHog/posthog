@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Modal, Button, Card, Row, Col } from 'antd'
 import { EditAppUrls } from 'lib/components/AppEditorLink/EditAppUrls'
-import { SearchOutlined, EditOutlined } from '@ant-design/icons'
+import { SearchOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 
@@ -11,8 +11,8 @@ export function NewActionButton(): JSX.Element {
 
     return (
         <>
-            <Button type="primary" onClick={() => setVisible(true)} data-attr="create-action">
-                + New Action
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setVisible(true)} data-attr="create-action">
+                New Action
             </Button>
             <Modal
                 visible={visible}
