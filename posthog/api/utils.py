@@ -46,7 +46,7 @@ def retrieve_entity_from(entity_id: Union[str, int], events: List[Dict], actions
         if event.get("id") == entity_id:
             return event
     for action in actions:
-        if action.get("id") == entity_id:
+        if str(action.get("id")) == entity_id:
             return action
     return None
 

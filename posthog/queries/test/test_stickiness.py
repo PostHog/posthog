@@ -28,6 +28,16 @@ def get_stickiness_ok(client: Client, team_id: int, request: Dict[str, Any]):
     return response.json()
 
 
+def get_stickiness_people(client: Client, team_id: int, request: Dict[str, Any]):
+    return client.get("/api/person/stickiness/", data=request)
+
+
+def get_stickiness_people_ok(client: Client, team_id: int, request: Dict[str, Any]):
+    response = get_stickiness_people(client=client, team_id=team_id, request=json_encode_request_params(data=request))
+    assert response.status_code == 200
+    return response.json()
+
+
 # parameterize tests to reuse in EE
 def stickiness_test_factory(stickiness, event_factory, person_factory, action_factory, get_earliest_timestamp):
     class TestStickiness(APIBaseTest, AbstractCompareTest):
@@ -337,20 +347,20 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             person1, _, _, person4 = self._create_multiple_people()
 
             watched_movie = action_factory(team=self.team, name="watch movie action", event_name="watched movie")
-            filter = StickinessFilter(
-                data={
+
+            stickiness_response = get_stickiness_people_ok(
+                client=self.client,
+                team_id=self.team.pk,
+                request={
                     "shown_as": "Stickiness",
                     "stickiness_days": 1,
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-08",
+                    "entity_id": watched_movie.id,
+                    "actions": [{"id": watched_movie.id, "type": "actions"}],
                 },
-                team=self.team,
-                get_earliest_timestamp=get_earliest_timestamp,
             )
-            target_entity = Entity({"id": watched_movie.id, "type": "actions"})
-            factory = APIRequestFactory()
-            request = factory.get("/person/stickiness")
-            people = stickiness().people(target_entity, filter, self.team, request)
+            people = stickiness_response["results"][0]["people"]
 
             all_people_ids = [str(person["id"]) for person in people]
             self.assertListEqual(sorted(all_people_ids), sorted([str(person1.pk), str(person4.pk)]))
@@ -358,25 +368,28 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
         def test_stickiness_people_with_entity_filter(self):
             person1, _, _, _ = self._create_multiple_people()
 
-            filter = StickinessFilter(
-                data={
+            stickiness_response = get_stickiness_people_ok(
+                client=self.client,
+                team_id=self.team.pk,
+                request={
                     "shown_as": "Stickiness",
                     "stickiness_days": 1,
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-08",
+                    "events": [
+                        {
+                            "id": "watched movie",
+                            "type": "events",
+                            "properties": [{"key": "$browser", "value": "Chrome"}],
+                        }
+                    ],
+                    "entity_id": "watched movie",
                 },
-                team=self.team,
-                get_earliest_timestamp=get_earliest_timestamp,
             )
-            target_entity = Entity(
-                {"id": "watched movie", "type": "events", "properties": [{"key": "$browser", "value": "Chrome"}]}
-            )
-            factory = APIRequestFactory()
-            request = factory.get("/person/stickiness")
-            people = stickiness().people(target_entity, filter, self.team, request)
+            people = stickiness_response["results"][0]["people"]
 
             self.assertEqual(len(people), 1)
-            self.assertEqual(people[0]["id"], person1.id)
+            self.assertEqual(people[0]["id"], str(person1.id))
 
         def test_stickiness_people_paginated(self):
             for i in range(150):
@@ -393,9 +406,10 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 )
             watched_movie = action_factory(team=self.team, name="watch movie action", event_name="watched movie")
 
-            result = self.client.get(
-                "/api/person/stickiness",
-                data={
+            result = get_stickiness_people_ok(
+                client=self.client,
+                team_id=self.team.pk,
+                request={
                     "shown_as": "Stickiness",
                     "stickiness_days": 1,
                     "date_from": "2020-01-01",
@@ -403,7 +417,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                     ENTITY_TYPE: "actions",
                     ENTITY_ID: watched_movie.id,
                 },
-            ).json()
+            )
 
             self.assertEqual(len(result["results"][0]["people"]), 100)
 
