@@ -37,7 +37,6 @@ function getSignificanceFromBreakdownStep(
 
 export function FunnelStepTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const dashboardItemId = insightProps.dashboardItemId || undefined
     const logic = funnelLogic(insightProps)
     const {
         stepsWithCount,
@@ -48,8 +47,8 @@ export function FunnelStepTable(): JSX.Element | null {
         barGraphLayout,
         flattenedStepsByBreakdown,
         flattenedBreakdowns,
-        clickhouseFeaturesEnabled,
         aggregationTargetLabel,
+        isModalActive,
     } = useValues(logic)
     const { openPersonsModalForStep, toggleVisibilityByBreakdown, setHiddenById } = useActions(logic)
     const { cohorts } = useValues(cohortsModel)
@@ -112,8 +111,7 @@ export function FunnelStepTable(): JSX.Element | null {
                             }}
                         />,
                         showLabels,
-                        undefined,
-                        dashboardItemId
+                        undefined
                     )
                 },
                 fixed: 'left',
@@ -143,8 +141,7 @@ export function FunnelStepTable(): JSX.Element | null {
                         />,
                         renderColumnTitle('Breakdown'),
                         showLabels,
-                        undefined,
-                        dashboardItemId
+                        undefined
                     )
                 },
                 fixed: 'left',
@@ -160,8 +157,7 @@ export function FunnelStepTable(): JSX.Element | null {
                         <span>{formatDisplayPercentage(breakdown?.conversionRates?.total ?? 0)}%</span>,
                         renderSubColumnTitle('Rate'),
                         showLabels,
-                        undefined,
-                        dashboardItemId
+                        undefined
                     )
                 },
                 fixed: 'left',
@@ -182,7 +178,7 @@ export function FunnelStepTable(): JSX.Element | null {
                             breakdownStep?.count != undefined ? (
                                 <ValueInspectorButton
                                     onClick={() => openPersonsModalForStep({ step: breakdownStep, converted: true })}
-                                    disabled={!clickhouseFeaturesEnabled}
+                                    disabled={!isModalActive}
                                 >
                                     {breakdown.steps?.[step.order].count}
                                 </ValueInspectorButton>
@@ -198,8 +194,7 @@ export function FunnelStepTable(): JSX.Element | null {
                                 </>
                             ),
                             showLabels,
-                            step,
-                            dashboardItemId
+                            step
                         )
                     },
                     width: 80,
@@ -238,8 +233,7 @@ export function FunnelStepTable(): JSX.Element | null {
                             ),
                             renderSubColumnTitle('Rate'),
                             showLabels,
-                            step,
-                            dashboardItemId
+                            step
                         )
                     },
                     width: 80,
@@ -262,7 +256,7 @@ export function FunnelStepTable(): JSX.Element | null {
                                                 converted: false,
                                             })
                                         }
-                                        disabled={!clickhouseFeaturesEnabled}
+                                        disabled={!isModalActive}
                                     >
                                         {breakdown.steps?.[step.order]?.droppedOffFromPrevious}
                                     </ValueInspectorButton>
@@ -278,8 +272,7 @@ export function FunnelStepTable(): JSX.Element | null {
                                     </>
                                 ),
                                 showLabels,
-                                step,
-                                dashboardItemId
+                                step
                             )
                         },
                         width: 80,
@@ -319,8 +312,7 @@ export function FunnelStepTable(): JSX.Element | null {
                                 ),
                                 renderSubColumnTitle('Rate'),
                                 showLabels,
-                                step,
-                                dashboardItemId
+                                step
                             )
                         },
                         width: 80,
@@ -344,8 +336,7 @@ export function FunnelStepTable(): JSX.Element | null {
                                 ),
                                 renderSubColumnTitle('Avg. time'),
                                 showLabels,
-                                step,
-                                dashboardItemId
+                                step
                             )
                         },
                         width: 80,
@@ -461,7 +452,7 @@ export function FunnelStepTable(): JSX.Element | null {
                 return (
                     <ValueInspectorButton
                         onClick={() => openPersonsModalForStep({ step, converted: true })}
-                        disabled={!clickhouseFeaturesEnabled}
+                        disabled={!isModalActive}
                     >
                         {step.count}
                     </ValueInspectorButton>
@@ -492,7 +483,7 @@ export function FunnelStepTable(): JSX.Element | null {
                 ) : (
                     <ValueInspectorButton
                         onClick={() => openPersonsModalForStep({ step, converted: false })}
-                        disabled={!clickhouseFeaturesEnabled}
+                        disabled={!isModalActive}
                     >
                         {step.droppedOffFromPrevious}
                     </ValueInspectorButton>

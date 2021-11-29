@@ -27,6 +27,7 @@ import {
     FunnelVizType,
     InsightLogicProps,
     InsightType,
+    ItemMode,
     PersonType,
     PropertyFilter,
     PropertyOperator,
@@ -103,7 +104,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
     connect: (props: InsightLogicProps) => ({
         values: [
             insightLogic(props),
-            ['filters', 'insight', 'insightLoading'],
+            ['filters', 'insight', 'insightLoading', 'insightMode'],
             teamLogic,
             ['currentTeamId', 'currentTeam'],
             personPropertiesModel,
@@ -1127,6 +1128,10 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 return count
             },
         ],
+        isModalActive: [
+            (s) => [s.insightMode, s.clickhouseFeaturesEnabled],
+            (insightMode, clickhouseFeaturesEnabled) => clickhouseFeaturesEnabled && insightMode === ItemMode.Edit,
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -1224,7 +1229,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         },
         openPersonsModalForStep: ({ step, converted }) => {
             // :TODO: Support 'person' modal for groups
-            if (values.filters.aggregation_group_type_index != undefined) {
+            if (values.filters.aggregation_group_type_index != undefined || !values.isModalActive) {
                 return
             }
 
