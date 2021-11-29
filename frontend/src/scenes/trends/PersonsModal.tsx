@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
 import { Modal, Button, Input, Skeleton } from 'antd'
@@ -6,7 +6,7 @@ import { FilterType, PersonType, InsightType, GroupActorType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { isGroupType, midEllipsis, pluralize } from 'lib/utils'
-import './PersonModal.scss'
+import './PersonsModal.scss'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { DateDisplay } from 'lib/components/DateDisplay'
@@ -16,7 +16,6 @@ import api from '../../lib/api'
 import { GroupActorHeader } from 'scenes/persons/GroupActorHeader'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
 import { IconPersonFilled } from 'lib/components/icons'
-import { ExpandIcon, ExpandIconProps } from 'lib/components/ExpandIcon'
 
 export interface PersonsModalProps {
     visible: boolean
@@ -26,7 +25,7 @@ export interface PersonsModalProps {
     showModalActions?: boolean
 }
 
-export function PersonModal({
+export function PersonsModal({
     visible,
     view,
     filters,
@@ -178,19 +177,6 @@ export function PersonModal({
                                 .
                             </span>
                         </div>
-                        <div style={{ background: '#FAFAFA' }}>
-                            {people.count > 0 ? (
-                                people?.people.map((actor) => (
-                                    <div key={actor.id}>
-                                        <ActorRow actor={actor} />
-                                    </div>
-                                ))
-                            ) : (
-                                <div className="person-row-container person-row">
-                                    We couldn't find any matching persons for this data point.
-                                </div>
-                            )}
-                        </div>
                         {people.count > 0 ? (
                             <LemonTable
                                 columns={
@@ -198,21 +184,8 @@ export function PersonModal({
                                         {
                                             title: 'Person',
                                             key: 'person',
-                                            render: function Render(_, person: PersonType) {
-                                                return (
-                                                    <div className="person-ids">
-                                                        <strong>
-                                                            <PersonHeader person={person} />
-                                                        </strong>
-                                                        <CopyToClipboardInline
-                                                            explicitValue={person.distinct_ids[0]}
-                                                            description="Person distinct ID"
-                                                            className="text-small text-muted-alt"
-                                                        >
-                                                            {person.distinct_ids[0]}
-                                                        </CopyToClipboardInline>
-                                                    </div>
-                                                )
+                                            render: function Render(_, actor: PersonType | GroupActorType) {
+                                                return <ActorRow actor={actor} />
                                             },
                                         },
                                     ] as LemonTableColumns<PersonType>
@@ -267,53 +240,30 @@ interface ActorRowProps {
 }
 
 export function ActorRow({ actor }: ActorRowProps): JSX.Element {
-    const [showProperties, setShowProperties] = useState(false)
-    const expandProps = {
-        record: '',
-        onExpand: () => setShowProperties(!showProperties),
-        expanded: showProperties,
-        expandable: Object.keys(actor.properties).length > 0,
-        prefixCls: 'ant-table',
-    } as ExpandIconProps
-
     if (isGroupType(actor)) {
         return (
-            <div key={actor.id} className="person-row-container">
-                <div className="person-row">
-                    <ExpandIcon {...expandProps} />
-                    <div className="person-ids">
-                        <strong>
-                            <GroupActorHeader actor={actor} withIcon={false} />
-                        </strong>
-                    </div>
+            <div key={actor.id} className="person-row">
+                <div className="person-ids">
+                    <strong>
+                        <GroupActorHeader actor={actor} withIcon={false} />
+                    </strong>
                 </div>
-                {showProperties && (
-                    <PropertiesTable properties={actor.properties} className="person-modal-properties" />
-                )}
             </div>
         )
     } else {
         return (
-            <div key={actor.id} className="person-row-container">
-                <div className="person-row">
-                    <ExpandIcon {...expandProps} />
-                    <div className="person-ids">
-                        <strong>
-                            <PersonHeader person={actor} withIcon={false} />
-                        </strong>
-                        <CopyToClipboardInline
-                            explicitValue={actor.distinct_ids[0]}
-                            iconStyle={{ color: 'var(--primary)' }}
-                            iconPosition="end"
-                            className="text-small text-muted-alt"
-                        >
-                            {midEllipsis(actor.distinct_ids[0], 32)}
-                        </CopyToClipboardInline>
-                    </div>
-                </div>
-                {showProperties && (
-                    <PropertiesTable properties={actor.properties} className="person-modal-properties" />
-                )}
+            <div key={actor.id} className="person-ids">
+                <strong>
+                    <PersonHeader person={actor} withIcon={false} />
+                </strong>
+                <CopyToClipboardInline
+                    explicitValue={actor.distinct_ids[0]}
+                    iconStyle={{ color: 'var(--primary)' }}
+                    iconPosition="end"
+                    className="text-small text-muted-alt"
+                >
+                    {midEllipsis(actor.distinct_ids[0], 32)}
+                </CopyToClipboardInline>
             </div>
         )
     }
