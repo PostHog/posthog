@@ -49,6 +49,18 @@ const SecretFieldIcon = (): JSX.Element => (
     </>
 )
 
+const FieldLabel = ({ fieldConfig }: { fieldConfig: PluginConfigSchema }): JSX.Element => (
+    <>
+        {fieldConfig.secret && <SecretFieldIcon />}
+        {fieldConfig.name || fieldConfig.key}
+        {fieldConfig.type === 'json' && (
+            <>
+                &nbsp;<Tag>JSON</Tag>
+            </>
+        )}
+    </>
+)
+
 export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
@@ -317,12 +329,7 @@ export function PluginDrawer(): JSX.Element {
                                     {fieldConfig.type && isValidField(fieldConfig) ? (
                                         <Form.Item
                                             hidden={!!fieldConfig.key && invisibleFields.includes(fieldConfig.key)}
-                                            label={
-                                                <>
-                                                    {fieldConfig.secret && <SecretFieldIcon />}
-                                                    {fieldConfig.name || fieldConfig.key}
-                                                </>
-                                            }
+                                            label={<FieldLabel fieldConfig={fieldConfig} />}
                                             extra={
                                                 fieldConfig.hint && (
                                                     <small>

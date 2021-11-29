@@ -4,6 +4,7 @@ import React, { useState } from 'react'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold/src/types'
 import { EditOutlined } from '@ant-design/icons'
 import { SECRET_FIELD_VALUE } from 'scenes/plugins/utils'
+import MonacoEditor from '@monaco-editor/react'
 
 export function PluginField({
     value,
@@ -46,6 +47,8 @@ export function PluginField({
                 </Select.Option>
             ))}
         </Select>
+    ) : fieldConfig.type === 'json' ? (
+        <MonacoEditor value={value} onChange={onChange} language="json" theme="vs-dark" height={200} />
     ) : (
         <strong style={{ color: 'var(--danger)' }}>
             Unknown field type "<code>{fieldConfig.type}</code>".
