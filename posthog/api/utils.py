@@ -25,26 +25,20 @@ def get_target_entity(request: request.Request) -> Entity:
     events = request.GET.get("events", "[]")
     actions = request.GET.get("actions", "[]")
     entity_type = request.GET.get(ENTITY_TYPE)
-    entity_math = request.GET.get(ENTITY_MATH, None)
+    entity_math = request.GET.get(ENTITY_MATH, "total")
 
-    if not entity_id:
-        raise ValueError("An entity id must be provided to determine an entity")
+    if not entity_id or not entity_type:
+        raise ValueError("An entity id and the entity type must be provided to determine an entity")
 
     possible_entity = retrieve_entity_from(entity_id, entity_type, entity_math, json.loads(events), json.loads(actions))
     if possible_entity:
         return Entity(data=possible_entity)
-    elif entity_type:
-        return Entity({"id": entity_id, "type": entity_type, "math": entity_math})
     else:
-        raise ValueError("An entity must be provided for target entity to be determined")
+        raise ValueError("The target entity is missing in the provided events or actions")
 
 
 def retrieve_entity_from(
-    entity_id: Union[str, int],
-    entity_type: Optional[str],
-    entity_math: Optional[str],
-    events: List[Dict],
-    actions: List[Dict],
+    entity_id: Union[str, int], entity_type: str, entity_math: str, events: List[Dict], actions: List[Dict],
 ) -> Optional[Dict]:
     """
     Retrieves the entity from the events and actions.
@@ -52,11 +46,11 @@ def retrieve_entity_from(
 
     if entity_type == "actions":
         for action in actions:
-            if action.get("id") == entity_id and action.get("math", None) == entity_math:
+            if action.get("id") == entity_id and action.get("math", "total") == entity_math:
                 return action
     else:
         for event in events:
-            if event.get("id") == entity_id and event.get("math", None) == entity_math:
+            if event.get("id") == entity_id and event.get("math", "total") == entity_math:
                 return event
     return None
 
