@@ -36,6 +36,12 @@ export const groupLogic = kea<groupLogicType>({
             },
         ],
     },
+    selectors: {
+        groupTypeName: [
+            (s) => [s.groupTypes, s.groupTypeIndex],
+            (groupTypes, index): string => groupTypes[index]?.group_type || '',
+        ],
+    },
     urlToAction: ({ actions }) => ({
         '/groups/:groupTypeIndex/:groupKey': ({ groupTypeIndex, groupKey }) => {
             if (groupTypeIndex && groupKey) {
