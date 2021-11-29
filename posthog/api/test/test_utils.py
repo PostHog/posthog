@@ -106,7 +106,7 @@ class TestUtils(BaseTest):
         assert entity.math == None
 
         request = RequestFactory().get(
-            f"/api/?entity_id=$pageview&entity_type=events&entity_math=unique_group&events={json.dumps([{'id': '$pageview', 'type': 'events', 'math': 'unique_group'}])}"
+            f"/api/?entity_id=$pageview&entity_type=events&entity_math=unique_group&events={json.dumps([{'id': '$pageview', 'type': 'events', 'math': 'unique_group'}, {'id': '$pageview', 'type': 'events'}])}"
         )
         entity = get_target_entity(request)
 

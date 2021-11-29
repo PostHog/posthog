@@ -33,8 +33,10 @@ def get_target_entity(request: request.Request) -> Entity:
     possible_entity = retrieve_entity_from(entity_id, entity_type, entity_math, json.loads(events), json.loads(actions))
     if possible_entity:
         return Entity(data=possible_entity)
+    elif entity_type:
+        return Entity({"id": entity_id, "type": entity_type, "math": entity_math})
     else:
-        raise ValueError("The target entity is missing in the provided events or actions")
+        raise ValueError("An entity must be provided for target entity to be determined")
 
 
 def retrieve_entity_from(
