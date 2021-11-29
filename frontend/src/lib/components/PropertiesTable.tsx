@@ -132,7 +132,7 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
                     )}
                 </>
             ) : (
-                { value }
+                value
             )}
         </div>
     )
