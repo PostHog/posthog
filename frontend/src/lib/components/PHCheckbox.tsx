@@ -1,5 +1,4 @@
 import React from 'react'
-import { colors } from '~/vars'
 
 interface Props {
     checked: boolean
@@ -12,7 +11,7 @@ interface Props {
 export const PHCheckbox = ({
     checked,
     indeterminate,
-    color = colors.$primary,
+    color = 'var(--primary)',
     disabled = false,
     ...props
 }: Props): JSX.Element => (
