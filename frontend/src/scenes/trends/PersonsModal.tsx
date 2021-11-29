@@ -188,7 +188,7 @@ export function PersonsModal({
                                                 return <ActorRow actor={actor} />
                                             },
                                         },
-                                    ] as LemonTableColumns<PersonType>
+                                    ] as LemonTableColumns<PersonType | GroupActorType>
                                 }
                                 className="persons-table"
                                 rowKey="id"
