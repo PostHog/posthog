@@ -116,7 +116,7 @@ def parse_prop_clauses(
                 final.append(filter_query)
                 params.update(filter_params)
             else:
-                # :TRICKY: offer groups support for queries which don't support it yet (e.g. lifecycle)
+                # :TRICKY: offer groups support for queries which don't support automatically joining with groups table yet (e.g. lifecycle)
                 filter_query, filter_params = prop_filter_json_extract(
                     prop, idx, prepend, prop_var=f"group_properties", allow_denormalized_props=False
                 )
