@@ -1,5 +1,9 @@
-/* This file contains the main styling configuration for PostHog. We also use AntD which uses LESS,
-when changing any base config here, please remember to update antd.less too  */
+/*
+This file contains the main styling configuration for PostHog. We also use AntD which uses LESS,
+when changing any base config here, please remember to update antd.less too
+
+Some values from this file are duplicated in ./vars.ts. If you edit this file, check there too
+*/
 
 // Main colors
 $primary: #5375ff;
