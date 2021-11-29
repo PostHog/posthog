@@ -13,7 +13,6 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.event import ClickhouseEventSerializer, determine_event_conditions
 from ee.clickhouse.models.person import get_persons_by_distinct_ids
 from ee.clickhouse.models.property import get_property_values_for_key, parse_prop_clauses
-from ee.clickhouse.queries.clickhouse_session_recording import SessionRecording
 from ee.clickhouse.sql.events import (
     GET_CUSTOM_EVENTS,
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
@@ -23,8 +22,6 @@ from ee.clickhouse.sql.events import (
 from posthog.api.event import EventViewSet
 from posthog.models import Filter, Person, Team
 from posthog.models.action import Action
-from posthog.models.filters.sessions_filter import SessionEventsFilter, SessionsFilter
-from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.utils import UUIDT
 from posthog.utils import convert_property_value, flatten
 
@@ -142,38 +139,6 @@ class ClickhouseEventsViewSet(EventViewSet):
                 except json.decoder.JSONDecodeError:
                     flattened.append(value[0])
         return Response([{"name": convert_property_value(value)} for value in flatten(flattened)])
-
-    # ******************************************
-    # /events/session_recording
-    # params:
-    # - session_recording_id: (string) id of the session recording
-    # - save_view: (boolean) save view of the recording
-    # ******************************************
-    @action(methods=["GET"], detail=False)
-    def session_recording(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # type: ignore
-        if not request.GET.get("session_recording_id"):
-            return Response(
-                {
-                    "detail": "The query parameter session_recording_id is required for this endpoint.",
-                    "type": "validation_error",
-                    "code": "invalid",
-                },
-                status=400,
-            )
-
-        session_recording = SessionRecording(
-            request=request,
-            team=self.team,
-            filter=Filter(request=request, team=self.team),
-            session_recording_id=request.GET["session_recording_id"],
-        ).run()
-
-        if request.GET.get("save_view"):
-            SessionRecordingViewed.objects.get_or_create(
-                team=self.team, user=request.user, session_id=request.GET["session_recording_id"]
-            )
-
-        return Response({"result": session_recording})
 
 
 class LegacyClickhouseEventsViewSet(ClickhouseEventsViewSet):

@@ -12,7 +12,6 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
@@ -20,11 +19,8 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import Element, ElementGroup, Event, Filter, Person, PersonDistinctId
 from posthog.models.action import Action
 from posthog.models.event import EventManager
-from posthog.models.filters.sessions_filter import SessionEventsFilter, SessionsFilter
-from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.base import properties_to_Q
-from posthog.queries.sessions.session_recording import SessionRecording
 from posthog.utils import convert_property_value, flatten, relative_date_parse
 
 
@@ -285,37 +281,6 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
         )
         flattened = flatten([json.loads(value.value) for value in values])
         return [{"name": convert_property_value(value)} for value in flattened]
-
-    # ******************************************
-    # /events/session_recording
-    # params:
-    # - session_recording_id: (string) id of the session recording
-    # - save_view: (boolean) save view of the recording
-    # ******************************************
-    @action(methods=["GET"], detail=False)
-    def session_recording(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        if not request.GET.get("session_recording_id"):
-            return Response(
-                {
-                    "detail": "The query parameter session_recording_id is required for this endpoint.",
-                    "type": "validation_error",
-                    "code": "invalid",
-                },
-                status=400,
-            )
-        session_recording = SessionRecording(
-            request=request,
-            filter=Filter(request=request, team=self.team),
-            session_recording_id=request.GET["session_recording_id"],
-            team=self.team,
-        ).run()
-
-        if request.GET.get("save_view"):
-            SessionRecordingViewed.objects.get_or_create(
-                team=self.team, user=request.user, session_id=request.GET["session_recording_id"]
-            )
-
-        return response.Response({"result": session_recording})
 
 
 class LegacyEventViewSet(EventViewSet):
