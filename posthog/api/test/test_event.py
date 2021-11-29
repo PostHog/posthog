@@ -24,9 +24,7 @@ from posthog.models import (
     User,
 )
 from posthog.models.cohort import Cohort
-from posthog.queries.sessions.sessions_list import SESSIONS_LIST_DEFAULT_LIMIT
 from posthog.test.base import APIBaseTest
-from posthog.utils import relative_date_parse
 
 
 def factory_test_event_api(event_factory, person_factory, _):
