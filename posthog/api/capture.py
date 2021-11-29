@@ -206,8 +206,11 @@ def get_event(request):
             continue
 
         payload_uuid = event.get("uuid", None)
-        if payload_uuid and UUIDT.is_valid_uuid(payload_uuid):
-            event_uuid = UUIDT(uuid_str=payload_uuid)
+        if payload_uuid:
+            if UUIDT.is_valid_uuid(payload_uuid):
+                event_uuid = UUIDT(uuid_str=payload_uuid)
+            else:
+                statsd.incr("invalid_event_uuid")
 
         event = parse_event(event, distinct_id, team)
         if not event:
