@@ -471,10 +471,6 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
     const { featureFlags } = useValues(featureFlagLogic)
 
     // If the layout is vertical, we render bars using the table as a legend. See FunnelStepTable
-
-    console.log('CLICK', clickhouseFeaturesEnabled, dashboardItemId, insightProps)
-    console.log('INSIGHT', isModalActive)
-
     if (featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] && layout === FunnelLayout.vertical) {
         return <FunnelStepTable />
     }
