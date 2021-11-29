@@ -25,7 +25,6 @@ from . import (
     plugin_log_entry,
     property_definition,
     session_recording,
-    sessions_filter,
     team,
     user,
 )
