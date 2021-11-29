@@ -96,19 +96,20 @@ class TestUtils(BaseTest):
         )
 
     def test_get_target_entity(self):
-        request = RequestFactory().get(
+        request = lambda url: cast(Any, RequestFactory().get(url))
+        first_request = request(
             f"/api/?entity_id=$pageview&entity_type=events&events={json.dumps([{'id': '$pageview', 'type': 'events'}])}"
         )
-        entity = get_target_entity(request)
+        entity = get_target_entity(first_request)
 
         assert entity.id == "$pageview"
         assert entity.type == "events"
         assert entity.math == None
 
-        request = RequestFactory().get(
+        second_request = request(
             f"/api/?entity_id=$pageview&entity_type=events&entity_math=unique_group&events={json.dumps([{'id': '$pageview', 'type': 'events', 'math': 'unique_group'}, {'id': '$pageview', 'type': 'events'}])}"
         )
-        entity = get_target_entity(request)
+        entity = get_target_entity(second_request)
 
         assert entity.id == "$pageview"
         assert entity.type == "events"
