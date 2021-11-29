@@ -9,8 +9,8 @@ from posthog.special_migrations.manager import ALL_SPECIAL_MIGRATIONS
 
 # select for update?
 def start_special_migration(migration_name):
-    migration_instance = SpecialMigration.objects.get(name=migration_name, status=MigrationStatus.NotStarted)
-    if not migration_instance:
+    migration_instance = SpecialMigration.objects.get(name=migration_name)
+    if not migration_instance or migration_instance.status == MigrationStatus.Running:
         return False
 
     migration_definition = ALL_SPECIAL_MIGRATIONS[migration_name].Migration
