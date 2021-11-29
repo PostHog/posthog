@@ -7,6 +7,8 @@ import { PersonPageHeader } from 'scenes/persons/PersonPageHeader'
 import { LemonTableColumns } from 'lib/components/LemonTable/types'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { LemonTable } from 'lib/components/LemonTable/LemonTable'
+import { Link } from 'lib/components/Link'
+import { urls } from 'scenes/urls'
 
 export function Groups(): JSX.Element {
     const { groups, groupsLoading } = useValues(groupsListLogic)
@@ -17,7 +19,9 @@ export function Groups(): JSX.Element {
             title: 'Key',
             key: 'group_key',
             render: function Render(_, group: Group) {
-                return <>{group.group_key}</>
+                return (
+                    <Link to={urls.group(group.group_type_index.toString(), group.group_key)}>{group.group_key}</Link>
+                )
             },
         },
         {
