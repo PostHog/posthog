@@ -50,15 +50,15 @@ export function Groups(): JSX.Element {
                 }}
                 pagination={{
                     controlled: true,
-                    onBackward: groups.previous_url
+                    onBackward: groups.previous
                         ? () => {
-                              loadGroups(groups.previous_url)
+                              loadGroups(groups.previous)
                               window.scrollTo(0, 0)
                           }
                         : undefined,
-                    onForward: groups.next_url
+                    onForward: groups.next
                         ? () => {
-                              loadGroups(groups.next_url)
+                              loadGroups(groups.next)
                               window.scrollTo(0, 0)
                           }
                         : undefined,
