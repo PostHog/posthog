@@ -286,6 +286,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
         flattened = flatten([json.loads(value.value) for value in values])
         return [{"name": convert_property_value(value)} for value in flattened]
 
+    # TODO: DREPCATED
     # ******************************************
     # /events/sessions
     #
@@ -296,21 +297,21 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
     # - duration_operator: (string: lt, gt)
     # - **shared filter types
     # ******************************************
-    @action(methods=["GET"], detail=False)
-    def sessions(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        from posthog.queries.sessions.sessions_list import SessionsList
+    # @action(methods=["GET"], detail=False)
+    # def sessions(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+    #     from posthog.queries.sessions.sessions_list import SessionsList
 
-        filter = SessionsFilter(request=request, team=self.team)
+    #     filter = SessionsFilter(request=request, team=self.team)
 
-        sessions, pagination = SessionsList.run(filter=filter, team=self.team)
-        return Response({"result": sessions, "pagination": pagination})
+    #     sessions, pagination = SessionsList.run(filter=filter, team=self.team)
+    #     return Response({"result": sessions, "pagination": pagination})
 
-    @action(methods=["GET"], detail=False)
-    def session_events(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        from posthog.queries.sessions.sessions_list_events import SessionsListEvents
+    # @action(methods=["GET"], detail=False)
+    # def session_events(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+    #     from posthog.queries.sessions.sessions_list_events import SessionsListEvents
 
-        filter = SessionEventsFilter(request=request, team=self.team)
-        return Response({"result": SessionsListEvents().run(filter=filter, team=self.team)})
+    #     filter = SessionEventsFilter(request=request, team=self.team)
+    #     return Response({"result": SessionsListEvents().run(filter=filter, team=self.team)})
 
     # ******************************************
     # /events/session_recording

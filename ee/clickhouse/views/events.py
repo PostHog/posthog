@@ -144,19 +144,20 @@ class ClickhouseEventsViewSet(EventViewSet):
                     flattened.append(value[0])
         return Response([{"name": convert_property_value(value)} for value in flatten(flattened)])
 
-    @action(methods=["GET"], detail=False)
-    def sessions(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # type: ignore
-        filter = SessionsFilter(request=request, team=self.team)
+    # TODO: DEPRECATED
+    # @action(methods=["GET"], detail=False)
+    # def sessions(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # type: ignore
+    #     filter = SessionsFilter(request=request, team=self.team)
 
-        sessions, pagination = ClickhouseSessionsList.run(team=self.team, filter=filter)
-        return Response({"result": sessions, "pagination": pagination})
+    #     sessions, pagination = ClickhouseSessionsList.run(team=self.team, filter=filter)
+    #     return Response({"result": sessions, "pagination": pagination})
 
-    @action(methods=["GET"], detail=False)
-    def session_events(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # type: ignore
-        from ee.clickhouse.queries.sessions.events import SessionsListEvents
+    # @action(methods=["GET"], detail=False)
+    # def session_events(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # type: ignore
+    #     from ee.clickhouse.queries.sessions.events import SessionsListEvents
 
-        filter = SessionEventsFilter(request=request, team=self.team)
-        return Response({"result": SessionsListEvents().run(filter=filter, team=self.team)})
+    #     filter = SessionEventsFilter(request=request, team=self.team)
+    #     return Response({"result": SessionsListEvents().run(filter=filter, team=self.team)})
 
     # ******************************************
     # /events/session_recording
