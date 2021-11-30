@@ -44,7 +44,9 @@ class PostHogConfig(AppConfig):
                         print(f"Unsupported version for service {service_version_requirement.service}, exiting...")
                         exit(1)
 
-        if not settings.TEST:
+        if settings.TEST:
+            from posthog.models.special_migration import SpecialMigration
+        else:
             from posthog.special_migrations.manager import init_special_migrations
 
             init_special_migrations()
