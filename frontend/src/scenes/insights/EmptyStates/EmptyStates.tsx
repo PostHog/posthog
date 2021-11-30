@@ -104,7 +104,7 @@ export interface InsightErrorStateProps {
 
 export function InsightErrorState({ excludeDetail, title }: InsightErrorStateProps): JSX.Element {
     return (
-        <div className="insight-empty-state error">
+        <div className={clsx(['insight-empty-state', 'error', { 'match-container': excludeDetail }])}>
             <div className="empty-state-inner">
                 <div className="illustration-main">
                     <IllustrationDanger />
