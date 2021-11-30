@@ -786,10 +786,9 @@ body {
     position: absolute;
     top: 0;
     left: 0;
-    background: $bg_charcoal;
+    background: transparentize($bg_charcoal, 0.5);
     text-align: center;
     min-height: 6rem;
-    opacity: 0.5;
     z-index: $z_content_overlay;
     display: flex;
     align-items: center;
