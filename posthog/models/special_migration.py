@@ -34,6 +34,9 @@ class SpecialMigration(models.Model):
     finished_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
 
     last_error: models.TextField = models.TextField(null=True, blank=True)
+    posthog_min_version: models.CharField = models.CharField(max_length=20, null=True, blank=True)
+    posthog_max_version: models.CharField = models.CharField(max_length=20, null=True, blank=True)
+
 
 
 def get_all_completed_special_migrations():

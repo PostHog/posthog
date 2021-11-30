@@ -24,6 +24,8 @@ class Migration(migrations.Migration):
                 ("started_at", models.DateTimeField(blank=True, null=True)),
                 ("finished_at", models.DateTimeField(blank=True, null=True)),
                 ("last_error", models.TextField(blank=True, null=True)),
+                ("posthog_min_version", models.CharField(blank=True, max_length=20, null=True)),
+                ("posthog_max_version", models.CharField(blank=True, max_length=20, null=True)),
             ],
         ),
         migrations.AddConstraint(
