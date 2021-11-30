@@ -43,7 +43,6 @@ class GroupSerializer(serializers.HyperlinkedModelSerializer):
 class ClickhouseGroupsView(StructuredViewSetMixin, viewsets.ReadOnlyModelViewSet):
     serializer_class = GroupSerializer
     queryset = Group.objects.all()
-    serializer_class = GroupSerializer
     pagination_class = GroupCursorPagination
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     lookup_field = "group_key"
