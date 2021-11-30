@@ -22,6 +22,7 @@ import { OrganizationSwitcherOverlay } from '~/layout/navigation/OrganizationSwi
 import { sceneConfigurations } from 'scenes/scenes'
 import { groupLogic } from 'scenes/groups/groupLogic'
 import { groupsListLogic } from 'scenes/groups/groupsListLogic'
+import { groupsModel } from '~/models/groupsModel'
 
 export interface Breadcrumb {
     /** Name to display. */
@@ -64,6 +65,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
     selectors: () => ({
         breadcrumbs: [
             (s) => [
+                s.refreshCounter,
                 s.preflight,
                 s.sceneConfig,
                 s.activeScene,
@@ -75,12 +77,9 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                 s.featureFlag,
                 s.person,
                 s.otherOrganizations,
-                groupsListLogic.selectors.currentTabName,
-                groupLogic.selectors.groupTypeName,
-                groupLogic.selectors.groupTypeIndex,
-                groupLogic.selectors.groupKey,
             ],
             (
+                _refreshCounter,
                 preflight,
                 sceneConfig,
                 activeScene,
@@ -91,11 +90,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                 lastDashboardId,
                 featureFlag,
                 person,
-                otherOrganizations,
-                groupListTabName,
-                groupTypeName,
-                groupTypeIndex,
-                groupKey
+                otherOrganizations
             ) => {
                 const breadcrumbs: Breadcrumb[] = []
                 if (!activeScene || !sceneConfig) {
@@ -212,20 +207,26 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                         })
                         break
                     case Scene.Groups:
-                        breadcrumbs.push({
-                            name: `${groupListTabName}(s)`,
-                            here: true,
-                        })
+                        if (groupsListLogic.isMounted()) {
+                            breadcrumbs.push({
+                                name: groupsListLogic.values.currentTabName,
+                                here: true,
+                            })
+                        }
                         break
                     case Scene.Group:
-                        breadcrumbs.push({
-                            name: groupTypeName ? capitalizeFirstLetter(`${groupTypeName}(s)`) : '',
-                            path: urls.groups(groupTypeIndex.toString()),
-                        })
-                        breadcrumbs.push({
-                            name: groupKey,
-                            here: true,
-                        })
+                        if (groupLogic.isMounted()) {
+                            breadcrumbs.push({
+                                name: groupLogic.values.groupTypeName
+                                    ? capitalizeFirstLetter(groupLogic.values.groupTypeName)
+                                    : '',
+                                path: urls.groups(groupLogic.values.groupTypeIndex.toString()),
+                            })
+                            breadcrumbs.push({
+                                name: groupLogic.values.groupKey,
+                                here: true,
+                            })
+                        }
                         break
                     default:
                         // Current place
@@ -235,6 +236,17 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                         })
                 }
                 return breadcrumbs
+            },
+        ],
+    }),
+    reducers: () => ({
+        // Increments every time something that asynchronously affects breadcrumbs happens and we should 'reload' the breadcrumbs
+        refreshCounter: [
+            0,
+            {
+                [groupsModel.actionTypes.loadAllGroupTypesSuccess]: (state) => state + 1,
+                [groupsListLogic.actionTypes.setTab]: (state) => state + 1,
+                [groupLogic.actionTypes.setGroup]: (state) => state + 1,
             },
         ],
     }),
