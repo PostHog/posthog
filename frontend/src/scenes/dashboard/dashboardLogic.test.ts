@@ -31,6 +31,8 @@ describe('dashboardLogic', () => {
                     { ...dashboardJson.items[1], id: 999, short_id: '999' },
                 ],
             }
+        } else if (pathname === `api/projects/${MOCK_TEAM_ID}/dashboards/7/`) {
+            throw new Error('💣')
         } else if (pathname.startsWith(`api/projects/${MOCK_TEAM_ID}/insights/`)) {
             return dashboardJson.items.find(({ id }: any) => String(id) === pathname.split('/')[4])
         }
@@ -48,6 +50,22 @@ describe('dashboardLogic', () => {
 
         it('does not fetch dashboard items on mount', async () => {
             await expectLogic(logic).toNotHaveDispatchedActions(['loadDashboardItems'])
+        })
+    })
+
+    describe('when the dashboard API errors', () => {
+        initKeaTestLogic({
+            logic: dashboardLogic,
+            props: {
+                id: 7,
+            },
+            onLogic: (l) => (logic = l),
+        })
+
+        it('allows consumers to respond', async () => {
+            await expectLogic(logic).toMatchValues({
+                receivedErrorsFromAPI: true,
+            })
         })
     })
 
@@ -76,6 +94,7 @@ describe('dashboardLogic', () => {
                     .toMatchValues({
                         allItems: dashboardJson,
                         items: truth((items) => items.length === 2),
+                        receivedErrorsFromAPI: false,
                     })
             })
         })

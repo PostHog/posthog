@@ -66,26 +66,37 @@ function SkeletonTwo(): JSX.Element {
     )
 }
 
-export function EmptyDashboardComponent(): JSX.Element {
+export interface EmptyDashboardComponentProps {
+    emptyWithErrors: boolean
+}
+
+export function EmptyDashboardComponent({ emptyWithErrors }: EmptyDashboardComponentProps): JSX.Element {
     const { addGraph } = useActions(dashboardLogic)
 
     return (
         <div className="empty-state">
             <div className="cta">
-                <Card className="card-elevated">
-                    <h3 className="l3">Dashboard empty</h3>
-                    <p>This dashboard sure would look better with some graphs!</p>
-                    <div className="mt text-center">
-                        <HotkeyButton
-                            onClick={() => addGraph()}
-                            data-attr="dashboard-add-graph-header"
-                            icon={<PlusOutlined />}
-                            hotkey="n"
-                        >
-                            Add graph
-                        </HotkeyButton>
-                    </div>
-                </Card>
+                {emptyWithErrors ? (
+                    <Card className="card-elevated" title={'Could not load this dashboard'} extra={'💣'}>
+                        You can try refreshing the page or{' '}
+                        <a href="https://posthog.com/slack">join our community on Slack</a> and ask for support
+                    </Card>
+                ) : (
+                    <Card className="card-elevated">
+                        <h3 className="l3">Dashboard empty</h3>
+                        <p>This dashboard sure would look better with some graphs!</p>
+                        <div className="mt text-center">
+                            <HotkeyButton
+                                onClick={() => addGraph()}
+                                data-attr="dashboard-add-graph-header"
+                                icon={<PlusOutlined />}
+                                hotkey="n"
+                            >
+                                Add graph
+                            </HotkeyButton>
+                        </div>
+                    </Card>
+                )}
             </div>
             <Row gutter={16}>
                 <Col span={24} lg={12}>

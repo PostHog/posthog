@@ -44,6 +44,7 @@ function DashboardView(): JSX.Element {
         items,
         filters: dashboardFilters,
         dashboardMode,
+        receivedErrorsFromAPI,
     } = useValues(dashboardLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { setDashboardMode, addGraph, setDates } = useActions(dashboardLogic)
@@ -136,7 +137,7 @@ function DashboardView(): JSX.Element {
                     <DashboardItems />
                 </div>
             ) : (
-                <EmptyDashboardComponent />
+                <EmptyDashboardComponent emptyWithErrors={receivedErrorsFromAPI} />
             )}
         </div>
     )
