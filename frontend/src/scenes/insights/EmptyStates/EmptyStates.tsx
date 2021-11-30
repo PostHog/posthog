@@ -98,11 +98,11 @@ export function InsightTimeoutState({ isLoading }: { isLoading: boolean }): JSX.
 }
 
 export interface InsightErrorStateProps {
-    smallContainer?: boolean
+    excludeDetail?: boolean
     title?: string
 }
 
-export function InsightErrorState({ smallContainer, title }: InsightErrorStateProps): JSX.Element {
+export function InsightErrorState({ excludeDetail, title }: InsightErrorStateProps): JSX.Element {
     return (
         <div className="insight-empty-state error">
             <div className="empty-state-inner">
@@ -110,7 +110,7 @@ export function InsightErrorState({ smallContainer, title }: InsightErrorStatePr
                     <IllustrationDanger />
                 </div>
                 <h2>{title || 'There was an error completing this query'}</h2>
-                {!smallContainer && (
+                {!excludeDetail && (
                     <div className="mt">
                         We apologize for this unexpected situation. There are a few things you can do:
                         <ol>

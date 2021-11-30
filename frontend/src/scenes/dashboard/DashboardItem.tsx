@@ -249,7 +249,7 @@ export function DashboardItem({
 
         // Insight agnostic empty states
         if (showErrorMessage || receivedErrorFromAPI) {
-            return <InsightErrorState smallContainer={true} />
+            return <InsightErrorState excludeDetail={true} />
         }
         if (showTimeoutMessage) {
             return <InsightTimeoutState isLoading={isLoading} />
