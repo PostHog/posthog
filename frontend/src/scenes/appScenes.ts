@@ -18,6 +18,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Person]: () => import('./persons/Person'),
     [Scene.Persons]: () => import('./persons/Persons'),
     [Scene.Groups]: () => import('./groups/Groups'),
+    [Scene.Group]: () => import('./groups/Group'),
     [Scene.Action]: () => import('./actions/Action'), // TODO
     [Scene.FeatureFlags]: () => import('./feature-flags/FeatureFlags'),
     [Scene.FeatureFlag]: () => import('./feature-flags/FeatureFlag'),

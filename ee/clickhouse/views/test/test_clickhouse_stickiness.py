@@ -8,11 +8,11 @@ from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.util import get_earliest_timestamp
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.api.test.test_stickiness import get_stickiness_ok, stickiness_test_factory
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person import Person
-from posthog.queries.test.test_stickiness import stickiness_test_factory
 
 
 def _create_action(**kwargs):
@@ -54,8 +54,10 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
         )
 
         with freeze_time("2020-02-15T13:01:01Z"):
-            filter = StickinessFilter(
-                data={
+            stickiness_response = get_stickiness_ok(
+                client=self.client,
+                team_id=self.team.pk,
+                request={
                     "shown_as": "Stickiness",
                     "date_from": "2020-01-01",
                     "date_to": "2020-02-15",
@@ -63,10 +65,9 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
                     "properties": [{"key": "industry", "value": "technology", "type": "group", "group_type_index": 0}],
                     "interval": "week",
                 },
-                team=self.team,
-                get_earliest_timestamp=get_earliest_timestamp,
             )
-            response = ClickhouseStickiness().run(filter, self.team)
+
+            response = stickiness_response["result"]
 
         self.assertEqual(response[0]["count"], 2)
         self.assertEqual(response[0]["data"][0], 1)
@@ -80,18 +81,19 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
         )
 
         with freeze_time("2020-02-15T13:01:01Z"):
-            filter = StickinessFilter(
-                data={
+            stickiness_response = get_stickiness_ok(
+                client=self.client,
+                team_id=self.team.pk,
+                request={
                     "shown_as": "Stickiness",
                     "date_from": "2020-01-01",
                     "date_to": "2020-02-15",
                     "events": [{"id": "watched movie"}],
                     "interval": "week",
                 },
-                team=self.team,
-                get_earliest_timestamp=get_earliest_timestamp,
             )
-            response = ClickhouseStickiness().run(filter, self.team)
+
+            response = stickiness_response["result"]
 
         self.assertEqual(response[0]["count"], 4)
         self.assertEqual(response[0]["data"][0], 2)

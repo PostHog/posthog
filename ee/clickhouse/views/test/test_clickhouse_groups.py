@@ -1,5 +1,7 @@
 from datetime import datetime
 
+from freezegun.api import freeze_time
+
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.test.base import APIBaseTest
@@ -8,44 +10,36 @@ from posthog.test.base import APIBaseTest
 class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
+    @freeze_time("2021-05-02")
     def test_groups_list(self):
         create_group(
             team_id=self.team.pk,
             group_type_index=0,
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
-            timestamp=datetime(2021, 5, 2),
         )
         create_group(
-            team_id=self.team.pk,
-            group_type_index=0,
-            group_key="org:6",
-            properties={"industry": "technology"},
-            timestamp=datetime(2021, 5, 3),
+            team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"},
         )
         create_group(
-            team_id=self.team.pk,
-            group_type_index=1,
-            group_key="company:1",
-            properties={"name": "Plankton"},
-            timestamp=datetime(2021, 5, 4),
+            team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={"name": "Plankton"},
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=0").json()
         self.assertEqual(
             response,
             {
-                "next_url": None,
-                "previous_url": None,
+                "next": None,
+                "previous": None,
                 "results": [
                     {
-                        "created_at": "2021-05-02T00:00:00",
+                        "created_at": "2021-05-02T00:00:00Z",
                         "group_key": "org:5",
                         "group_properties": {"industry": "finance", "name": "Mr. Krabs"},
                         "group_type_index": 0,
                     },
                     {
-                        "created_at": "2021-05-03T00:00:00",
+                        "created_at": "2021-05-02T00:00:00Z",
                         "group_key": "org:6",
                         "group_properties": {"industry": "technology"},
                         "group_type_index": 0,
@@ -54,35 +48,29 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-    def test_groups_list_pagination(self):
-        for i in range(5):
-            create_group(
-                team_id=self.team.pk, group_type_index=0, group_key=f"org:{i}", properties={},
-            )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=0&limit=2").json()
-        self.assertEqual(len(response["results"]), 2)
-        self.assertEqual(response["previous_url"], None)
-        self.assertEqual(
-            response["next_url"],
-            f"http://testserver/api/projects/{self.team.id}/groups?group_type_index=0&limit=2&offset=2",
+    @freeze_time("2021-05-02")
+    def test_retrieve_group(self):
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="key",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=0&limit=2&offset=2").json()
-        self.assertEqual(len(response["results"]), 2)
-        self.assertEqual(
-            response["previous_url"], f"api/projects/{self.team.id}/groups?group_type_index=0&limit=2&offset=0"
-        )
-        self.assertEqual(
-            response["next_url"], f"api/projects/{self.team.id}/groups?group_type_index=0&limit=2&offset=4"
-        )
+        fail_response = self.client.get(f"/api/projects/{self.team.id}/groups/key?group_type_index=1")
+        self.assertEqual(fail_response.status_code, 404)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=0&limit=2&offset=4").json()
-        self.assertEqual(len(response["results"]), 1)
+        ok_response = self.client.get(f"/api/projects/{self.team.id}/groups/key?group_type_index=0")
+        self.assertEqual(ok_response.status_code, 200)
         self.assertEqual(
-            response["previous_url"], f"api/projects/{self.team.id}/groups?group_type_index=0&limit=2&offset=2"
+            ok_response.json(),
+            {
+                "created_at": "2021-05-02T00:00:00Z",
+                "group_key": "key",
+                "group_properties": {"industry": "finance", "name": "Mr. Krabs"},
+                "group_type_index": 0,
+            },
         )
-        self.assertEqual(response["next_url"], None)
 
     def test_property_definitions(self):
         create_group(

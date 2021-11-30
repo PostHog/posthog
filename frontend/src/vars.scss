@@ -105,7 +105,8 @@ $space: linear-gradient(180deg, #0a092a 0%, #271955 100%);
 $medium: 500;
 
 // From chris' figma designs
-$grey: #d9d9d9;
+$dark-grey: #d9d9d9;
+$light-grey: #f2f2f2;
 
 // Additional style configurations
 %mixin-base-bordered-card {

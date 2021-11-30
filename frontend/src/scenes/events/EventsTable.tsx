@@ -13,7 +13,15 @@ import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { ResizableColumnType, ResizableTable, TableConfig } from 'lib/components/ResizableTable'
-import { ActionType, ChartDisplayType, EventsTableRowItem, EventType, FilterType, InsightType } from '~/types'
+import {
+    ActionType,
+    AnyPropertyFilter,
+    ChartDisplayType,
+    EventsTableRowItem,
+    EventType,
+    FilterType,
+    InsightType,
+} from '~/types'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { EventName } from 'scenes/actions/EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
@@ -30,6 +38,7 @@ export interface FixedFilters {
     action_id?: ActionType['id']
     person_id?: string | number
     distinct_ids?: string[]
+    properties?: AnyPropertyFilter[]
 }
 
 interface EventsTable {

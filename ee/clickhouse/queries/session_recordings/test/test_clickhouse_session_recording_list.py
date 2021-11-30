@@ -86,9 +86,6 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
         self.create_event("user", self.base_time, properties={"$session_id": "1"})
         self.create_event("user", self.base_time, event_name="$autocapture", properties={"$session_id": "2"})
         self.create_snapshot("user", "1", self.base_time + relativedelta(seconds=30), window_id="1")
-
-        # Filter for recordings that contain a pageview event - will get recording because the $pageview event
-        # and recording share a session id
         filter = SessionRecordingsFilter(
             team=self.team, data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]},
         )
@@ -97,8 +94,6 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
 
-        # Filter for recordings that contain an autocapture event - will not get the recording because the $autocapture event
-        # and recording have different session ids
         filter = SessionRecordingsFilter(
             team=self.team,
             data={"events": [{"id": "$autocapture", "type": "events", "order": 0, "name": "$autocapture"}]},
