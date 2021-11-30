@@ -2,7 +2,7 @@ import { defaultAPIMocks, MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { insightLogic } from './insightLogic'
-import { AvailableFeature, ChartDisplayType, InsightShortId, InsightType, ItemMode, PropertyOperator } from '~/types'
+import { AvailableFeature, InsightShortId, InsightType, ItemMode, PropertyOperator } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { combineUrl, router } from 'kea-router'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -523,34 +523,6 @@ describe('insightLogic', () => {
                     }),
                 })
         })
-    })
-
-    test('changing the chart display clears the results before loading them', async () => {
-        logic = insightLogic({
-            dashboardItemId: Insight42,
-            filters: { insight: InsightType.TRENDS, display: ChartDisplayType.ActionsBarChart },
-        })
-        logic.mount()
-
-        await expectLogic(logic, () => {
-            logic.actions.setFilters({ display: ChartDisplayType.ActionsPieChart })
-        })
-            .toFinishAllListeners()
-            .toDispatchActions(['setInsight', 'loadResults'])
-    })
-
-    test('changing filters other than the chart display does not clear the results before loading them', async () => {
-        logic = insightLogic({
-            dashboardItemId: Insight42,
-            filters: { insight: InsightType.TRENDS, display: ChartDisplayType.ActionsBarChart },
-        })
-        logic.mount()
-
-        await expectLogic(logic, () => {
-            logic.actions.setFilters({ interval: 'hour' })
-        })
-            .toFinishAllListeners()
-            .toDispatchActions(['loadResults'])
     })
 
     test('keeps saved filters', async () => {
