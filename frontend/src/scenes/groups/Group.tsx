@@ -6,6 +6,7 @@ import { TZLabel } from 'lib/components/TimezoneAware'
 import { groupLogic } from 'scenes/groups/groupLogic'
 import { EventsTable } from 'scenes/events/EventsTable'
 import { urls } from 'scenes/urls'
+import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 
 const { TabPane } = Tabs
 
@@ -75,7 +76,9 @@ export function Group(): JSX.Element {
                                             className="persons-page-props-table"
                                         />
                                     </div>
-                                ) : null)}
+                                ) : (
+                                    <RelatedGroups id={groupKey} groupTypeIndex={groupTypeIndex} />
+                                ))}
                             {groupDataLoading && <Skeleton paragraph={{ rows: 6 }} active />}
                         </Card>
                     </Col>

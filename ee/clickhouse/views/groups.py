@@ -7,6 +7,7 @@ from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -58,6 +59,14 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
             return response.Response(data)
         except Group.DoesNotExist:
             raise NotFound()
+
+    @action(methods=["GET"], detail=False)
+    def related(self, request: request.Request, pk=None, **kw) -> response.Response:
+        group_type_index = request.GET.get("group_type_index")
+        id = request.GET["id"]
+
+        results = RelatedActorsQuery(self.team.pk, group_type_index, id).run()
+        return response.Response(results)
 
     @action(methods=["GET"], detail=False)
     def property_definitions(self, request: request.Request, **kw):
