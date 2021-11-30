@@ -81,6 +81,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Persons & groups',
     },
+    [Scene.Group]: {
+        projectBased: true,
+        name: 'Persons & groups',
+    },
     [Scene.FeatureFlags]: {
         projectBased: true,
         name: 'Feature flags',
@@ -197,6 +201,7 @@ export const routes: Record<string, Scene> = {
     [urls.person('*', false)]: Scene.Person,
     [urls.persons()]: Scene.Persons,
     [urls.groups(':groupTypeIndex')]: Scene.Groups,
+    [urls.group(':groupTypeIndex', ':groupKey', false)]: Scene.Group,
     [urls.cohort(':id')]: Scene.Cohorts,
     [urls.cohorts()]: Scene.Cohorts,
     [urls.featureFlags()]: Scene.FeatureFlags,
