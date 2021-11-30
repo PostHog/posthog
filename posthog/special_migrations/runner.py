@@ -1,5 +1,4 @@
-from asyncio.tasks import sleep
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from posthog.celery import app
 from posthog.models.special_migration import MigrationStatus, SpecialMigration
@@ -69,7 +68,7 @@ def run_special_migration_next_op(migration_name, migration_instance=None):
         return False
 
     try:
-        migration_instance.progress = migration_definition.progress()
+        migration_instance.progress = migration_definition.progress(migration_instance)
         migration_instance.save()
     except:
         pass

@@ -53,7 +53,7 @@ class SpecialMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
             return response.Response(
                 {
                     "success": False,
-                    "error": f"No more than {MAX_CONCURRENT_SPECIAL_MIGRATIONS} special migrations can run at once",
+                    "error": f"No more than {MAX_CONCURRENT_SPECIAL_MIGRATIONS} special migrations can run at once.",
                 },
                 status=400,
             )
@@ -69,8 +69,23 @@ class SpecialMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
         sm = self.get_object()
         if sm.status != MigrationStatus.Running:
             return response.Response(
-                {"success": False, "error": f"Can't stop a migration that isn't running",}, status=400,
+                {"success": False, "error": f"Can't stop a migration that isn't running.",}, status=400,
             )
         app.control.revoke(sm.celery_task_id, terminate=True)
         process_error(sm, "Force stopped")
+        return response.Response({"success": True}, status=200)
+
+    @action(methods=["POST"], detail=True)
+    def force_rollback(self, request, **kwargs):
+        sm = self.get_object()
+        if sm.status != MigrationStatus.CompletedSuccessfully:
+            return response.Response(
+                {
+                    "success": False,
+                    "error": f"Can't force rollback a migration that did not complete successfully. Force stop it instead.",
+                },
+                status=400,
+            )
+
+        process_error(sm, "Forcefully rolled back after completing successfully.")
         return response.Response({"success": True}, status=200)

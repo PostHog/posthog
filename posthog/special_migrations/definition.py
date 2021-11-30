@@ -1,13 +1,8 @@
-ONE_HOUR = 60 * 60
-
-
 class SpecialMigrationOperation:
-    def __init__(self, sql="", database="postgres", mode="sync", timeout_seconds=60, rollback=None, resumable=False):
+    def __init__(self, sql="", database="clickhouse", timeout_seconds=60, rollback=None, resumable=False):
         self.sql = sql
         self.database = database
-        self.mode = mode
         self.timeout_seconds = timeout_seconds
-        self.rollback = rollback
         self.resumable = resumable
 
 
@@ -18,11 +13,11 @@ class SpecialMigrationDefinition:
     service_version_requirements = []
     operations = []
 
-    def progress():
-        return 0
-
-    def precheck():
+    def precheck(self):
         return (True, None)
 
-    def rollback(migration_instance):
+    def progress(self, migration_instance):
+        return int(100 * migration_instance.current_operation_index / len(self.operations))
+
+    def rollback(self, _):
         return False
