@@ -51,7 +51,7 @@ import { urls } from 'scenes/urls'
 interface DashboardItemProps {
     item: DashboardItemType
     dashboardId?: number
-    receivedErrorFromAPI: boolean
+    receivedErrorFromAPI?: boolean
     updateItemColor?: (insightId: number, itemClassName: string) => void
     setDiveDashboard?: (insightId: number, diveDashboard: number | null) => void
     loadDashboardItems?: () => void
