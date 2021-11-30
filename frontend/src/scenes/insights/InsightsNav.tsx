@@ -9,6 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import clsx from 'clsx'
 import { FunnelsCue } from './InsightTabs/TrendTab/FunnelsCue'
+import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
 const { TabPane } = Tabs
 
@@ -39,37 +40,54 @@ export function InsightsNav(): JSX.Element {
             >
                 <TabPane
                     tab={
-                        <span data-attr="insight-trends-tab">
+                        <Tooltip
+                            placement="top"
+                            title={INSIGHT_TYPES_METADATA[InsightType.TRENDS].description}
+                            data-attr="insight-trends-tab"
+                        >
                             Trends
                             <InsightHotkey hotkey="t" />
-                        </span>
+                        </Tooltip>
                     }
                     key={InsightType.TRENDS}
                 />
                 <TabPane
                     tab={
-                        <span data-attr="insight-funnels-tab" ref={funnelTab}>
+                        <Tooltip
+                            placement="top"
+                            title={INSIGHT_TYPES_METADATA[InsightType.FUNNELS].description}
+                            data-attr="insight-funnels-tab"
+                            ref={funnelTab}
+                        >
                             Funnels
                             <InsightHotkey hotkey="f" />
-                        </span>
+                        </Tooltip>
                     }
                     key={InsightType.FUNNELS}
                 />
                 <TabPane
                     tab={
-                        <span data-attr="insight-retention-tab">
+                        <Tooltip
+                            placement="top"
+                            title={INSIGHT_TYPES_METADATA[InsightType.RETENTION].description}
+                            data-attr="insight-retention-tab"
+                        >
                             Retention
                             <InsightHotkey hotkey="r" />
-                        </span>
+                        </Tooltip>
                     }
                     key={InsightType.RETENTION}
                 />
                 <TabPane
                     tab={
-                        <span data-attr="insight-path-tab">
+                        <Tooltip
+                            placement="top"
+                            title={INSIGHT_TYPES_METADATA[InsightType.PATHS].description}
+                            data-attr="insight-path-tab"
+                        >
                             User Paths
                             <InsightHotkey hotkey="p" />
-                        </span>
+                        </Tooltip>
                     }
                     key={InsightType.PATHS}
                 />
@@ -77,18 +95,7 @@ export function InsightsNav(): JSX.Element {
                     tab={
                         <Tooltip
                             placement="top"
-                            title={
-                                <>
-                                    Stickiness shows you how many days users performed an action repeatedly within a
-                                    timeframe.
-                                    <br />
-                                    <br />
-                                    <i>
-                                        Example: If a user performed an action on Monday and again on Friday, it would
-                                        be shown as "2 days".
-                                    </i>
-                                </>
-                            }
+                            title={INSIGHT_TYPES_METADATA[InsightType.STICKINESS].description}
                             data-attr="insight-stickiness-tab"
                         >
                             Stickiness
@@ -101,9 +108,7 @@ export function InsightsNav(): JSX.Element {
                     tab={
                         <Tooltip
                             placement="top"
-                            title={
-                                <>Understand growth by breaking down new, resurrected, returning, and dormant users.</>
-                            }
+                            title={INSIGHT_TYPES_METADATA[InsightType.LIFECYCLE].description}
                             data-attr="insight-lifecycle-tab"
                         >
                             Lifecycle
@@ -116,7 +121,7 @@ export function InsightsNav(): JSX.Element {
                     tab={
                         <Tooltip
                             placement="top"
-                            title="View average and distribution of session durations."
+                            title={INSIGHT_TYPES_METADATA[InsightType.SESSIONS].description}
                             data-attr="insight-sessions-tab"
                         >
                             <div className={clsx(featureFlags[FEATURE_FLAGS.SESSION_INSIGHT_REMOVAL] && 'deprecated')}>
