@@ -5,7 +5,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.celery import app
 from posthog.models.special_migration import MigrationStatus, SpecialMigration, get_all_running_special_migrations
 from posthog.permissions import StaffUser
-from posthog.special_migrations.runner import force_stop_migration, process_error, trigger_migration
+from posthog.special_migrations.runner import force_rollback_migration, force_stop_migration, process_error, trigger_migration
 from posthog.tasks.special_migrations import run_special_migration
 
 # allow users to set this?
@@ -84,5 +84,5 @@ class SpecialMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
                 status=400,
             )
 
-        process_error(sm, "Forcefully rolled back after completing successfully.")
+        force_rollback_migration(migration_instance)
         return response.Response({"success": True}, status=200)

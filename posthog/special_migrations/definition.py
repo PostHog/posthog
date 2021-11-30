@@ -23,4 +23,4 @@ class SpecialMigrationDefinition:
         return int(100 * migration_instance.current_operation_index / len(self.operations))
 
     def rollback(self, _):
-        return False
+        return (False, None)

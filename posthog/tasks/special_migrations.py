@@ -5,6 +5,7 @@ from celery.result import AsyncResult
 from posthog.celery import app
 from posthog.models.special_migration import MigrationStatus, SpecialMigration, get_all_running_special_migrations
 from posthog.special_migrations.runner import (
+    force_stop_migration,
     process_error,
     run_migration_healthcheck,
     run_special_migration_next_op,
@@ -66,7 +67,7 @@ def check_special_migration_health() -> None:
     ok, error = run_migration_healthcheck(migration_instance)
 
     if not ok:
-        # force stop, pass error?
+        force_stop_migration(migration_instance, f"Healthcheck failed with error: {error}")
         return
 
     update_migration_progress(migration_instance)
