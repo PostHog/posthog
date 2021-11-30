@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { BuiltLogic, kea, Selector } from 'kea'
 import { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 import {
     SimpleOption,
@@ -17,6 +17,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { capitalizeFirstLetter, toParams } from 'lib/utils'
+import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 
 export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
     path: (key) => ['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic', key],
@@ -83,7 +84,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         ],
     }),
 
-    selectors: {
+    selectors: ({ props: logicProps }) => ({
         taxonomicFilterLogicKey: [
             () => [(_, props) => props.taxonomicFilterLogicKey],
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
@@ -103,7 +104,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     name: 'Actions',
                     searchPlaceholder: 'actions',
                     type: TaxonomicFilterGroupType.Actions,
-                    logic: actionsModel as any,
+                    logic: actionsModel,
                     value: 'actions',
                     getName: (action: ActionType): string => action.name,
                     getValue: (action: ActionType): TaxonomicFilterValue => action.id,
@@ -212,6 +213,35 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     groupTypeIndex: index,
                 })),
         ],
+        infiniteListLogics: [
+            (s) => [s.taxonomicGroupTypes],
+            (taxonomicGroupTypes): Record<string, BuiltLogic<infiniteListLogicType>> => {
+                return Object.fromEntries(
+                    taxonomicGroupTypes.map((groupType) => [
+                        groupType,
+                        infiniteListLogic({
+                            ...logicProps,
+                            listGroupType: groupType,
+                        }),
+                    ])
+                )
+            },
+        ],
+        resultsForGroups: [
+            (s) => [
+                s.taxonomicGroupTypes,
+                ...logicProps.taxonomicGroupTypes.map((groupType): Selector => {
+                    const infiniteListLogicProps = {
+                        ...logicProps,
+                        listGroupType: groupType,
+                    }
+                    return (state) =>
+                        infiniteListLogic(infiniteListLogicProps).selectors.totalCount(state, infiniteListLogicProps)
+                }),
+            ],
+            (groupTypes: TaxonomicFilterGroupType[], ...counts: number[]): Record<string, number> =>
+                Object.fromEntries(groupTypes.map((groupType, index) => [groupType, counts[index]])),
+        ],
         value: [() => [(_, props) => props.value], (value) => value],
         groupType: [() => [(_, props) => props.groupType], (groupType) => groupType],
         currentTabIndex: [
@@ -240,8 +270,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     .join('')
             },
         ],
-    },
-
+    }),
     listeners: ({ actions, values, props }) => ({
         selectItem: ({ group, value, item }) => {
             if (item && value) {
