@@ -13,7 +13,7 @@ import { ActionType, CohortType, EventDefinition, PersonProperty, PropertyDefini
 import { cohortsModel } from '~/models/cohortsModel'
 import { actionsModel } from '~/models/actionsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
-import { teamLogic } from '../../../scenes/teamLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { capitalizeFirstLetter, toParams } from 'lib/utils'
@@ -22,7 +22,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
     path: (key) => ['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic', key],
     props: {} as TaxonomicFilterLogicProps,
     key: (props) => `${props.taxonomicFilterLogicKey}`,
-    connect: {
+    connect: (props: TaxonomicFilterLogicProps) => ({
         values: [
             teamLogic,
             ['currentTeamId'],
@@ -31,7 +31,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             groupPropertiesModel,
             ['allGroupProperties'],
         ],
-    },
+        logics: props.taxonomicGroupTypes?.map((groupType) =>
+            infiniteListLogic({
+                ...props,
+                listGroupType: groupType,
+            })
+        ),
+    }),
     actions: () => ({
         moveUp: true,
         moveDown: true,
