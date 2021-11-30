@@ -71,7 +71,7 @@ class Migration(SpecialMigrationDefinition):
         SpecialMigrationOperation(database="clickhouse", sql=PERSONS_DISTINCT_ID_TABLE_MV_SQL,),
     ]
 
-    def precheck(self):
+    def healthcheck(self):
         result = sync_execute("SELECT total_space, free_space FROM system.disks")
         total_space = result[0][0]
         free_space = result[0][1]

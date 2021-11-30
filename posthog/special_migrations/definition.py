@@ -13,7 +13,10 @@ class SpecialMigrationDefinition:
     service_version_requirements = []
     operations = []
 
-    def precheck(self):
+    def is_required(self):
+        return True
+
+    def healthcheck(self):
         return (True, None)
 
     def progress(self, migration_instance):

@@ -22,7 +22,7 @@ def start_special_migration(migration_name):
                 f"Service {service_version_requirement.service} is in version {version}. Expected range: {str(service_version_requirement.supported_version)}.",
             )
 
-    ok, error = migration_definition.precheck()
+    ok, error = migration_definition.healthcheck()
     if not ok:
         process_error(migration_instance, error)
         return
