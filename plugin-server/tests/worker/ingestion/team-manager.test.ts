@@ -165,7 +165,33 @@ describe('TeamManager()', () => {
 
             await teamManager.updateEventNamesAndProperties(2, '$pageview', {}, DateTime.now())
 
-            expect(hub.db.postgresQuery).not.toHaveBeenCalled()
+            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1) // Update last_seen_at
+
+            const eventDefinitions = await hub.db.fetchEventDefinitions()
+            for (const eventDef of eventDefinitions) {
+                if (eventDef.name === '$pageview') {
+                    const parsedLastSeen = DateTime.fromISO(eventDef.last_seen_at)
+                    expect(parsedLastSeen.diff(DateTime.now()).seconds).toBeCloseTo(0)
+                }
+            }
+        })
+
+        it('does not update last seen if it is older', async () => {
+            jest.spyOn(hub.db, 'postgresQuery')
+            await teamManager.updateEventNamesAndProperties(
+                2,
+                'new-event',
+                {},
+                DateTime.fromISO('2015-01-01T00:01:01Z')
+            )
+
+            const eventDefinitions = await hub.db.fetchEventDefinitions()
+            for (const eventDef of eventDefinitions) {
+                if (eventDef.name === 'new-event') {
+                    const parsedLastSeen = DateTime.fromISO(eventDef.last_seen_at)
+                    expect(parsedLastSeen.diff(DateTime.now()).seconds).toBeCloseTo(0)
+                }
+            }
         })
 
         it('does not capture event', async () => {
@@ -217,7 +243,7 @@ describe('TeamManager()', () => {
                     'new-event',
                     {
                         $lib: 'python',
-                        host: 'localhost:8000',
+                        $host: 'localhost:8000',
                     },
                     DateTime.now()
                 )

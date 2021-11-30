@@ -68,7 +68,7 @@ export class TeamManager {
             this.eventNamesCache.get(team.id)?.add(event)
         } else {
             await this.db.postgresQuery(
-                `UPDATE posthog_eventdefinition SET last_seen_at = MAX(NULLIF(last_seen_at, to_timestamp(0)), $1) WHERE name = $2 AND team_id = $3`,
+                `UPDATE posthog_eventdefinition SET last_seen_at = GREATEST(last_seen_at, $1) WHERE name = $2 AND team_id = $3`,
                 [eventTimestamp, event, team.id],
                 'updateEventLastSeen'
             )
