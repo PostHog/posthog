@@ -147,7 +147,7 @@ export const eventUsageLogic = kea<
     actions: {
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
-        reportInsightCreated: (insight: InsightType) => ({ insight }),
+        reportInsightCreated: (insight: InsightType | null) => ({ insight }),
         reportInsightViewed: (
             filters: Partial<FilterType>,
             isFirstLoad: boolean,

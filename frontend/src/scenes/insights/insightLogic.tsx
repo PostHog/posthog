@@ -651,6 +651,7 @@ export const insightLogic = kea<insightLogicType>({
                 newInsight
             )
             breakpoint()
+            eventUsageLogic.actions.reportInsightCreated(filters.insight || null)
             router.actions.replace(
                 urls.insightEdit(createdInsight.short_id, cleanFilters(createdInsight.filters || filters || {}))
             )
