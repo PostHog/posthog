@@ -1,5 +1,5 @@
 import React from 'react'
-import { Col, Row, Tag } from 'antd'
+import { Col, Row, Space, Tag, Typography } from 'antd'
 import { ActionFilter } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, hexToRGBA } from 'lib/utils'
@@ -23,7 +23,7 @@ interface InsightsLabelProps {
     action?: ActionFilter
     value?: string
     className?: string
-    breakdownValue?: string | number
+    breakdownValue?: string | number | Array<string | number>
     hideBreakdown?: boolean // Whether to hide the breakdown detail in the label
     hideIcon?: boolean // Whether to hide the icon that showcases the color of the series
     iconSize?: IconSize // Size of the series color icon
@@ -93,7 +93,7 @@ export function InsightLabel({
     hideSeriesSubtitle,
     onLabelClick,
 }: InsightsLabelProps): JSX.Element {
-    const showEventName = !breakdownValue || hasMultipleSeries
+    const showEventName = !breakdownValue || (hasMultipleSeries && !Array.isArray(breakdownValue))
     const eventName = seriesStatus ? capitalizeFirstLetter(seriesStatus) : action?.name || fallbackName || ''
     const iconSizePx = iconSize === IconSize.Large ? 14 : iconSize === IconSize.Medium ? 12 : 10
 
@@ -140,7 +140,19 @@ export function InsightLabel({
                         />
                     )}
 
-                    {breakdownValue && !hideBreakdown && (
+                    {breakdownValue && !hideBreakdown && Array.isArray(breakdownValue) && (
+                        <Space direction={'horizontal'} wrap={true}>
+                            {breakdownValue.map((bv) => (
+                                <Tag className="tag-pill" key={bv} closable={false}>
+                                    <Typography.Text ellipsis={{ tooltip: bv }} style={{ maxWidth: 400 }}>
+                                        {bv}
+                                    </Typography.Text>
+                                </Tag>
+                            ))}
+                        </Space>
+                    )}
+
+                    {breakdownValue && !hideBreakdown && !Array.isArray(breakdownValue) && (
                         <>
                             {hasMultipleSeries && <span style={{ padding: '0 2px' }}>-</span>}
                             {breakdownValue === 'total' ? <i>Total</i> : breakdownValue}

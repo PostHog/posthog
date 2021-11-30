@@ -340,15 +340,6 @@ export interface SessionRecordingMeta {
     end_time: number
     distinct_id: string
 }
-
-export interface LEGACY_SessionPlayerData {
-    snapshots: eventWithTime[]
-    person: PersonType | null
-    start_time: number
-    next: string | null
-    duration: number
-}
-
 export interface SessionPlayerData {
     snapshots: eventWithTime[]
     person: PersonType | null
@@ -522,7 +513,6 @@ export enum StepOrderValue {
 
 export enum PersonsTabType {
     EVENTS = 'events',
-    SESSIONS = 'sessions',
     SESSION_RECORDINGS = 'sessionRecordings',
 }
 
@@ -560,19 +550,6 @@ export interface EventsTableRowItem {
     event?: EventType
     date_break?: string
     new_events?: boolean
-}
-
-export interface SessionType {
-    distinct_id: string
-    global_session_id: string
-    length: number
-    start_time: string
-    end_time: string
-    session_recordings: SessionRecordingType[]
-    start_url: string | null
-    end_url: string | null
-    email?: string | null
-    matching_events: Array<number | string>
 }
 
 export interface SessionRecordingType {
@@ -812,6 +789,11 @@ export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_
 
 export type BreakdownKeyType = string | number | (string | number)[] | null
 
+export interface Breakdown {
+    property: string | number
+    type: BreakdownType
+}
+
 export interface FilterType {
     insight?: InsightType
     display?: ChartDisplayType
@@ -823,6 +805,7 @@ export interface FilterType {
     actions?: Record<string, any>[]
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
+    breakdowns?: Breakdown[]
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     shown_as?: ShownAsType
@@ -990,6 +973,7 @@ export interface FunnelStep {
     type: EntityType
     labels?: string[]
     breakdown?: BreakdownKeyType
+    breakdowns?: Breakdown[]
     breakdown_value?: string | number
 
     // Url that you can GET to retrieve the people that converted in this step

@@ -1,28 +1,29 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
-import { DownloadOutlined, UsergroupAddOutlined, UserOutlined } from '@ant-design/icons'
+import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
 import { Modal, Button, Input, Skeleton } from 'antd'
 import { FilterType, PersonType, InsightType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { midEllipsis, pluralize } from 'lib/utils'
-import './PersonModal.scss'
+import { pluralize } from 'lib/utils'
+import './PersonsModal.scss'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { ExpandIcon, ExpandIconProps } from 'lib/components/ExpandIcon'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { PersonHeader } from '../persons/PersonHeader'
 import api from '../../lib/api'
+import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
+import { IconPersonFilled } from 'lib/components/icons'
 
-export interface PersonModalProps {
+export interface PersonsModalProps {
     visible: boolean
     view: InsightType
     filters: Partial<FilterType>
     onSaveCohort: () => void
 }
 
-export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModalProps): JSX.Element {
+export function PersonsModal({ visible, view, filters, onSaveCohort }: PersonsModalProps): JSX.Element {
     const {
         people,
         loadingMorePeople,
@@ -143,37 +144,74 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                             />
                         )}
                         <div className="user-count-subheader">
-                            <UserOutlined /> This list contains{' '}
-                            <b>
-                                {people.count} unique {pluralize(people.count, 'user', undefined, false)}
-                            </b>
-                            {peopleParams?.pointValue !== undefined &&
-                                peopleParams.action !== 'session' &&
-                                (!peopleParams.action.math || peopleParams.action.math === 'total') && (
-                                    <>
-                                        {' '}
-                                        who performed the event{' '}
-                                        <b>
-                                            {peopleParams.pointValue} total{' '}
-                                            {pluralize(peopleParams.pointValue, 'time', undefined, false)}
-                                        </b>
-                                    </>
-                                )}
-                            .
+                            <IconPersonFilled style={{ fontSize: '1.125rem', marginRight: '0.5rem' }} />
+                            <span>
+                                This list contains{' '}
+                                <b>
+                                    {people.count} unique {pluralize(people.count, 'user', undefined, false)}
+                                </b>
+                                {peopleParams?.pointValue !== undefined &&
+                                    peopleParams.action !== 'session' &&
+                                    (!peopleParams.action.math || peopleParams.action.math === 'total') && (
+                                        <>
+                                            {' '}
+                                            who performed the event{' '}
+                                            <b>
+                                                {peopleParams.pointValue} total{' '}
+                                                {pluralize(peopleParams.pointValue, 'time', undefined, false)}
+                                            </b>
+                                        </>
+                                    )}
+                                .
+                            </span>
                         </div>
-                        <div style={{ background: '#FAFAFA' }}>
-                            {people.count > 0 ? (
-                                people?.people.map((person) => (
-                                    <div key={person.id}>
-                                        <PersonRow person={person} />
-                                    </div>
-                                ))
-                            ) : (
-                                <div className="person-row-container person-row">
-                                    We couldn't find any matching persons for this data point.
-                                </div>
-                            )}
-                        </div>
+                        {people.count > 0 ? (
+                            <LemonTable
+                                columns={
+                                    [
+                                        {
+                                            title: 'Person',
+                                            key: 'person',
+                                            render: function Render(_, person: PersonType) {
+                                                return (
+                                                    <div className="person-ids">
+                                                        <strong>
+                                                            <PersonHeader person={person} />
+                                                        </strong>
+                                                        <CopyToClipboardInline
+                                                            explicitValue={person.distinct_ids[0]}
+                                                            description="Person distinct ID"
+                                                            className="text-small text-muted-alt"
+                                                        >
+                                                            {person.distinct_ids[0]}
+                                                        </CopyToClipboardInline>
+                                                    </div>
+                                                )
+                                            },
+                                        },
+                                    ] as LemonTableColumns<PersonType>
+                                }
+                                className="persons-table"
+                                rowKey="id"
+                                expandable={{
+                                    expandedRowRender: function RenderPropertiesTable({ properties }) {
+                                        return Object.keys(properties).length ? (
+                                            <PropertiesTable properties={properties} />
+                                        ) : (
+                                            'This person has no properties.'
+                                        )
+                                    },
+                                }}
+                                embedded
+                                showHeader={false}
+                                dataSource={people.people}
+                                nouns={['person', 'persons']}
+                            />
+                        ) : (
+                            <div className="person-row-container person-row">
+                                We couldn't find any matching persons for this data point.
+                            </div>
+                        )}
                         {people?.next && (
                             <div
                                 style={{
@@ -195,42 +233,5 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                 )
             )}
         </Modal>
-    )
-}
-
-interface PersonRowProps {
-    person: PersonType
-}
-
-export function PersonRow({ person }: PersonRowProps): JSX.Element {
-    const [showProperties, setShowProperties] = useState(false)
-    const expandProps = {
-        record: '',
-        onExpand: () => setShowProperties(!showProperties),
-        expanded: showProperties,
-        expandable: Object.keys(person.properties).length > 0,
-        prefixCls: 'ant-table',
-    } as ExpandIconProps
-
-    return (
-        <div key={person.id} className="person-row-container">
-            <div className="person-row">
-                <ExpandIcon {...expandProps} />
-                <div className="person-ids">
-                    <strong>
-                        <PersonHeader person={person} withIcon={false} />
-                    </strong>
-                    <CopyToClipboardInline
-                        explicitValue={person.distinct_ids[0]}
-                        iconStyle={{ color: 'var(--primary)' }}
-                        iconPosition="end"
-                        className="text-small text-muted-alt"
-                    >
-                        {midEllipsis(person.distinct_ids[0], 32)}
-                    </CopyToClipboardInline>
-                </div>
-            </div>
-            {showProperties && <PropertiesTable properties={person.properties} className="person-modal-properties" />}
-        </div>
     )
 }

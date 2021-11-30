@@ -65,7 +65,7 @@ export function EventsTable({
     const { tableWidth, selectedColumns } = useValues(tableConfigLogic)
 
     const { propertyNames } = useValues(propertyDefinitionsModel)
-    const { fetchNextEvents, prependNewEvents, setEventFilter, toggleAutomaticLoad } = useActions(logic)
+    const { fetchNextEvents, prependNewEvents, setEventFilter, toggleAutomaticLoad, startDownload } = useActions(logic)
 
     const showLinkToPerson = !fixedFilters?.person_id
     const newEventsRender = (item: Record<string, any>, colSpan: number): Record<string, any> => {
@@ -93,7 +93,7 @@ export function EventsTable({
                 return { props: { colSpan: 0 } }
             }
             return showLinkToPerson && event.person?.distinct_ids?.length ? (
-                <Link to={`/person/${encodeURIComponent(event.person.distinct_ids[0])}`}>
+                <Link to={urls.person(event.person.distinct_ids[0])}>
                     <PersonHeader withIcon person={event.person} />
                 </Link>
             ) : (
@@ -314,7 +314,7 @@ export function EventsTable({
                     <Col flex="0">
                         {exportUrl && (
                             <Tooltip title="Export up to 10,000 latest events." placement="left">
-                                <Button icon={<DownloadOutlined />} href={exportUrl}>
+                                <Button icon={<DownloadOutlined />} onClick={startDownload}>
                                     Export events
                                 </Button>
                             </Tooltip>
