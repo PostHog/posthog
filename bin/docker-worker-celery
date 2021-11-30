@@ -65,6 +65,7 @@ fi
 
 FLAGS=()
 FLAGS+=("-Ofair")
+FLAGS+=("-n node@%h")
 [ "$with_gossip" == "false" ]    && FLAGS+=("--without-gossip")
 [ "$with_mingle" == "false" ]    && FLAGS+=("--without-mingle")
 [ "$with_heartbeat" == "false" ] && FLAGS+=("--without-heartbeat")
