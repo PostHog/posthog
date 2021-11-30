@@ -38,7 +38,7 @@ class ClickhouseStickiness(Stickiness):
         """
 
         counts = sync_execute(query, {**event_params, "num_intervals": filter.total_intervals})
-        return self.process_result(counts, filter)
+        return self.process_result(counts, filter, entity)
 
     def _retrieve_people(self, target_entity: Entity, filter: StickinessFilter, team: Team, request: Request):
         _, serialized_actors = ClickhouseStickinessActors(entity=target_entity, filter=filter, team=team).get_actors()
