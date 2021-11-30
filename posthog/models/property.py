@@ -24,7 +24,7 @@ OperatorType = Literal[
 ]
 
 GroupTypeName = str
-GroupTypeIndex = int
+GroupTypeIndex = Literal[0, 1, 2, 3, 4]
 PropertyIdentifier = Tuple[PropertyName, PropertyType, Optional[GroupTypeIndex]]
 
 NEGATED_OPERATORS = ["is_not", "not_icontains", "not_regex", "is_not_set"]
@@ -36,7 +36,7 @@ class Property:
     operator: Optional[OperatorType]
     value: ValueT
     type: PropertyType
-    group_type_index: Optional[int]
+    group_type_index: Optional[GroupTypeIndex]
 
     def __init__(
         self,

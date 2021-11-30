@@ -27,7 +27,7 @@ from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters.filter import Filter
-from posthog.models.property import TableWithProperties
+from posthog.models.property import GroupTypeIndex, TableWithProperties
 
 ALL_USERS_COHORT_ID = 0
 
@@ -104,7 +104,7 @@ def get_breakdown_prop_values(
 def _to_value_expression(
     breakdown_type: Union[Literal["event", "person", "cohort", "group"], None],
     breakdown: Union[str, List[Union[str, int]], None],
-    breakdown_group_type_index: Optional[int],
+    breakdown_group_type_index: Optional[GroupTypeIndex],
 ) -> str:
     if breakdown_type == "person":
         return get_single_or_multi_property_string_expr(breakdown, table="person", query_alias="value")
