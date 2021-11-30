@@ -510,6 +510,11 @@ export function FeatureFlag(): JSX.Element {
                     <Row gutter={16}>
                         {featureFlag.filters.groups.map((group, index) => (
                             <Col span={24} md={24} key={`${index}-${featureFlag.filters.groups.length}`}>
+                                {index > 0 && (
+                                    <div style={{ display: 'flex', marginLeft: 16 }}>
+                                        <div className="stateful-badge or-light-grey mb">OR</div>
+                                    </div>
+                                )}
                                 <Card style={{ marginBottom: 16 }}>
                                     <div className="feature-flag-form-row" style={{ height: 24 }}>
                                         <div>
