@@ -24,12 +24,20 @@
                     team_id
            HAVING max(is_deleted) = 0)
         GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT id
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
      WHERE team_id = 2
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
        AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
        AND NOT has([''], $group_0)
-       AND team_id = 2 ) event
+       AND team_id = 2
+     ORDER BY event_date,
+              target) event
   JOIN
     (SELECT DISTINCT toStartOfWeek(e.timestamp) AS event_date,
                      e.$group_0 as target,
@@ -50,12 +58,21 @@
                     team_id
            HAVING max(is_deleted) = 0)
         GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT id,
+               argMax(properties, _timestamp) as person_props
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
      WHERE team_id = 2
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
        AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
        AND NOT has([''], $group_0)
-       AND team_id = 2 ) reference_event ON (event.target = reference_event.target)
+       AND team_id = 2
+     ORDER BY event_date,
+              target) reference_event ON (event.target = reference_event.target)
   WHERE toStartOfWeek(event.event_date) > toStartOfWeek(reference_event.event_date)
   GROUP BY base_interval,
            intervals_from_base
@@ -88,12 +105,21 @@
                     team_id
            HAVING max(is_deleted) = 0)
         GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT id,
+               argMax(properties, _timestamp) as person_props
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
      WHERE team_id = 2
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
        AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
        AND NOT has([''], $group_0)
-       AND team_id = 2 )
+       AND team_id = 2
+     ORDER BY event_date,
+              target)
   GROUP BY event_date
   ORDER BY event_date
   '
@@ -124,12 +150,20 @@
                     team_id
            HAVING max(is_deleted) = 0)
         GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT id
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
      WHERE team_id = 2
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
        AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
        AND NOT has([''], $group_1)
-       AND team_id = 2 ) event
+       AND team_id = 2
+     ORDER BY event_date,
+              target) event
   JOIN
     (SELECT DISTINCT toStartOfWeek(e.timestamp) AS event_date,
                      e.$group_1 as target,
@@ -150,12 +184,21 @@
                     team_id
            HAVING max(is_deleted) = 0)
         GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT id,
+               argMax(properties, _timestamp) as person_props
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
      WHERE team_id = 2
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
        AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
        AND NOT has([''], $group_1)
-       AND team_id = 2 ) reference_event ON (event.target = reference_event.target)
+       AND team_id = 2
+     ORDER BY event_date,
+              target) reference_event ON (event.target = reference_event.target)
   WHERE toStartOfWeek(event.event_date) > toStartOfWeek(reference_event.event_date)
   GROUP BY base_interval,
            intervals_from_base
@@ -188,12 +231,21 @@
                     team_id
            HAVING max(is_deleted) = 0)
         GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT id,
+               argMax(properties, _timestamp) as person_props
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
      WHERE team_id = 2
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
        AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
        AND NOT has([''], $group_1)
-       AND team_id = 2 )
+       AND team_id = 2
+     ORDER BY event_date,
+              target)
   GROUP BY event_date
   ORDER BY event_date
   '
@@ -225,6 +277,12 @@
            HAVING max(is_deleted) = 0)
         GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
      INNER JOIN
+       (SELECT id
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+     INNER JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -236,7 +294,9 @@
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
        AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
        AND has(['technology'], trim(BOTH '"'
-                                    FROM JSONExtractRaw(group_properties_0, 'industry'))) ) event
+                                    FROM JSONExtractRaw(group_properties_0, 'industry')))
+     ORDER BY event_date,
+              target) event
   JOIN
     (SELECT DISTINCT toStartOfWeek(e.timestamp) AS event_date,
                      pdi.person_id as target,
@@ -258,6 +318,13 @@
            HAVING max(is_deleted) = 0)
         GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
      INNER JOIN
+       (SELECT id,
+               argMax(properties, _timestamp) as person_props
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+     INNER JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -269,7 +336,9 @@
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
        AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
        AND has(['technology'], trim(BOTH '"'
-                                    FROM JSONExtractRaw(group_properties_0, 'industry'))) ) reference_event ON (event.target = reference_event.target)
+                                    FROM JSONExtractRaw(group_properties_0, 'industry')))
+     ORDER BY event_date,
+              target) reference_event ON (event.target = reference_event.target)
   WHERE toStartOfWeek(event.event_date) > toStartOfWeek(reference_event.event_date)
   GROUP BY base_interval,
            intervals_from_base
@@ -303,6 +372,13 @@
            HAVING max(is_deleted) = 0)
         GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
      INNER JOIN
+       (SELECT id,
+               argMax(properties, _timestamp) as person_props
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+     INNER JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -314,7 +390,9 @@
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
        AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
        AND has(['technology'], trim(BOTH '"'
-                                    FROM JSONExtractRaw(group_properties_0, 'industry'))) )
+                                    FROM JSONExtractRaw(group_properties_0, 'industry')))
+     ORDER BY event_date,
+              target)
   GROUP BY event_date
   ORDER BY event_date
   '
@@ -346,6 +424,12 @@
            HAVING max(is_deleted) = 0)
         GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
      INNER JOIN
+       (SELECT id
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+     INNER JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -356,7 +440,9 @@
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
        AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-       AND JSONHas(group_properties_0, 'industry') ) event
+       AND JSONHas(group_properties_0, 'industry')
+     ORDER BY event_date,
+              target) event
   JOIN
     (SELECT DISTINCT toStartOfWeek(e.timestamp) AS event_date,
                      pdi.person_id as target,
@@ -378,6 +464,13 @@
            HAVING max(is_deleted) = 0)
         GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
      INNER JOIN
+       (SELECT id,
+               argMax(properties, _timestamp) as person_props
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+     INNER JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -388,7 +481,9 @@
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
        AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-       AND JSONHas(group_properties_0, 'industry') ) reference_event ON (event.target = reference_event.target)
+       AND JSONHas(group_properties_0, 'industry')
+     ORDER BY event_date,
+              target) reference_event ON (event.target = reference_event.target)
   WHERE toStartOfWeek(event.event_date) > toStartOfWeek(reference_event.event_date)
   GROUP BY base_interval,
            intervals_from_base
@@ -422,6 +517,13 @@
            HAVING max(is_deleted) = 0)
         GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
      INNER JOIN
+       (SELECT id,
+               argMax(properties, _timestamp) as person_props
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+     INNER JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
@@ -432,7 +534,9 @@
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
        AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-       AND JSONHas(group_properties_0, 'industry') )
+       AND JSONHas(group_properties_0, 'industry')
+     ORDER BY event_date,
+              target)
   GROUP BY event_date
   ORDER BY event_date
   '
