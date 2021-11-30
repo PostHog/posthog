@@ -99,7 +99,6 @@ export function PersonsTable({
             dataSource={people}
             emptyState="No persons"
             nouns={['person', 'persons']}
-            className="persons-table"
         />
     )
 }

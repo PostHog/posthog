@@ -5,11 +5,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { groupsModel } from '~/models/groupsModel'
 import { Group } from '~/types'
-
 import { groupsListLogicType } from './groupsListLogicType'
+
 interface GroupsPaginatedResponse {
-    next_url: string | null
-    previous_url: string | null
+    next: string | null
+    previous: string | null
     results: Group[]
 }
 
@@ -22,7 +22,7 @@ export const groupsListLogic = kea<groupsListLogicType<GroupsPaginatedResponse>>
     }),
     loaders: ({ values }) => ({
         groups: [
-            { next_url: null, previous_url: null, results: [] } as GroupsPaginatedResponse,
+            { next: null, previous: null, results: [] } as GroupsPaginatedResponse,
             {
                 loadGroups: async ({ url }) => {
                     if (values.groupsEnabled) {

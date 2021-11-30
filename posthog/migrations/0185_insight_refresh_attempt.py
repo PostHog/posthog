@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0183_groups_pg"),
+        ("posthog", "0184_delete_sessionsfilter"),
     ]
 
     operations = [

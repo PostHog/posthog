@@ -49,6 +49,7 @@ export function CopyToClipboardInline({
                 flexDirection: iconPosition === 'end' ? 'row' : 'row-reverse',
                 flexWrap: 'nowrap',
                 width: 'fit-content',
+                wordBreak: 'break-all',
                 ...style,
             }}
             onClick={!selectable ? copy : undefined}
