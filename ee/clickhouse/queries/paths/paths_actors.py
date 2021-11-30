@@ -1,12 +1,13 @@
-from typing import cast
+from typing import Dict, Tuple, cast
 
+from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from ee.clickhouse.queries.paths.paths import ClickhousePaths
-from ee.clickhouse.sql.funnels.funnel import FUNNEL_PERSONS_BY_STEP_SQL
 from posthog.models import Person
 from posthog.models.filters.filter import Filter
+from posthog.models.filters.mixins.utils import cached_property
 
 
-class ClickhousePathsPersons(ClickhousePaths):
+class ClickhousePathsActors(ClickhousePaths, ActorBaseQuery):
     """    
     `path_start_key`, `path_end_key`, and `path_dropoff_key` are three new params for this class.
     These determine the start and end point of Paths you want. All of these are optional.
@@ -26,8 +27,11 @@ class ClickhousePathsPersons(ClickhousePaths):
         other path item between start and end key.
     """
 
-    def get_query(self):
+    @cached_property
+    def is_aggregating_by_groups(self) -> bool:
+        return False
 
+    def actor_query(self) -> Tuple[str, Dict]:
         paths_per_person_query = self.get_paths_per_person_query()
         person_path_filter = self.get_person_path_filter()
         paths_funnel_cte = ""
@@ -38,7 +42,8 @@ class ClickhousePathsPersons(ClickhousePaths):
         self.params["limit"] = self._filter.limit
         self.params["offset"] = self._filter.offset
 
-        return f"""
+        return (
+            f"""
             {paths_funnel_cte}
             SELECT DISTINCT person_id
             FROM (
@@ -48,7 +53,9 @@ class ClickhousePathsPersons(ClickhousePaths):
             ORDER BY person_id
             LIMIT %(limit)s
             OFFSET %(offset)s
-        """
+        """,
+            self.params,
+        )
 
     def get_person_path_filter(self) -> str:
         conditions = []
@@ -69,14 +76,3 @@ class ClickhousePathsPersons(ClickhousePaths):
             return " AND ".join(conditions)
 
         return "1=1"
-
-    def _format_results(self, results):
-        people = Person.objects.filter(team_id=self._team.pk, uuid__in=[val[0] for val in results])
-
-        from posthog.api.person import PersonSerializer
-
-        return PersonSerializer(people, many=True).data, len(results) > cast(int, self._filter.limit) - 1
-
-    def run(self):
-        results = self._exec_query()
-        return self._format_results(results)

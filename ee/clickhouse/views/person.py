@@ -15,7 +15,7 @@ from ee.clickhouse.queries.funnels import ClickhouseFunnelActors, ClickhouseFunn
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationPersons
 from ee.clickhouse.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
-from ee.clickhouse.queries.paths import ClickhousePathsPersons
+from ee.clickhouse.queries.paths import ClickhousePathsActors
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
 from posthog.api.person import PersonViewSet
@@ -186,7 +186,7 @@ class ClickhousePersonViewSet(PersonViewSet):
                 funnel_filter_data = json.loads(funnel_filter_data)
             funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data}, team=self.team)
 
-        people, _ = ClickhousePathsPersons(filter, self.team, funnel_filter=funnel_filter).run()
+        people, _ = ClickhousePathsActors(filter, self.team, funnel_filter=funnel_filter).get_actors()
         _should_paginate = should_paginate(people, filter.limit)
 
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
