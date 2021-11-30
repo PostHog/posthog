@@ -53,7 +53,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
     @patch("posthoganalytics.capture")
     def test_delete_second_managed_organization(self, mock_capture):
         organization, _, team = Organization.objects.bootstrap(self.user, name="X")
-        organization_props = self.organization.get_analytics_metadata()
+        organization_props = organization.get_analytics_metadata()
         self.assertTrue(Organization.objects.filter(id=organization.id).exists())
         self.assertTrue(Team.objects.filter(id=team.id).exists())
         response = self.client.delete(f"/api/organizations/{organization.id}")
