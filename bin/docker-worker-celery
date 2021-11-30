@@ -63,8 +63,11 @@ if [ "$with_scheduler" == "true" ]; then
   ./bin/docker-worker-beat &
 fi
 
+NODE_ID=$(openssl rand -hex 10)
+
 FLAGS=()
 FLAGS+=("-Ofair")
+FLAGS+=("-n $NODE_ID")
 [ "$with_gossip" == "false" ]    && FLAGS+=("--without-gossip")
 [ "$with_mingle" == "false" ]    && FLAGS+=("--without-mingle")
 [ "$with_heartbeat" == "false" ] && FLAGS+=("--without-heartbeat")
