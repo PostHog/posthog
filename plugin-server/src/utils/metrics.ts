@@ -14,7 +14,6 @@ export async function instrumentQuery<T>(
     try {
         return await runQuery()
     } catch (error) {
-        Sentry.captureException(error, { extra: { query_tag: tag } })
         throw error
     } finally {
         statsd?.timing(metricName, timer, tags)
