@@ -8,7 +8,7 @@ from ee.clickhouse.sql.groups import INSERT_GROUP_SQL
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_GROUPS
 from posthog.models import Group
-from posthog.models.property import GroupTypeIndex
+from posthog.models.filters.utils import GroupTypeIndex
 
 
 def create_group(

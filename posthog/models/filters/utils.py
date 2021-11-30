@@ -2,6 +2,7 @@ from typing import Any, Optional
 
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
+from typing_extensions import Literal
 
 from posthog.constants import (
     GROUP_TYPES_LIMIT,
@@ -12,8 +13,9 @@ from posthog.constants import (
     INSIGHT_STICKINESS,
     INSIGHT_TRENDS,
 )
-from posthog.models.property import GroupTypeIndex
 from posthog.utils import is_clickhouse_enabled
+
+GroupTypeIndex = Literal[0, 1, 2, 3, 4]
 
 
 def earliest_timestamp_func(team_id: int):

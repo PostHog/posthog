@@ -10,7 +10,8 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.property import GroupTypeIndex, PropertyIdentifier, PropertyType, TableWithProperties
+from posthog.models.filters.utils import GroupTypeIndex
+from posthog.models.property import PropertyIdentifier, PropertyType, TableWithProperties
 
 
 class ColumnOptimizer:

@@ -27,7 +27,7 @@ from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters.filter import Filter
-from posthog.models.property import GroupTypeIndex, TableWithProperties
+from posthog.models.filters.utils import GroupTypeIndex
 
 ALL_USERS_COHORT_ID = 0
 
