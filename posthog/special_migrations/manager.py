@@ -10,7 +10,7 @@ from posthog.version import VERSION
 
 ALL_SPECIAL_MIGRATIONS = {}
 
-for name, module in import_submodules("posthog.special_migrations.migrations"):
+for name, module in import_submodules("posthog.special_migrations.migrations").items():
     if name != "example" or DEBUG:
         ALL_SPECIAL_MIGRATIONS[name] = module.Migration()
 
