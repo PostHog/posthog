@@ -15,6 +15,10 @@ describe('the chart filter', () => {
         onLogic: (l) => (logic = l),
     })
 
+    it('defaults to null', () => {
+        expectLogic(logic).toMatchValues({ chartFilter: null })
+    })
+
     it('reads display type from URL when editing', () => {
         expectLogic(logic, () => {
             router.actions.push(insightsURL())
