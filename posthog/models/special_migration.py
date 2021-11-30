@@ -38,7 +38,6 @@ class SpecialMigration(models.Model):
     posthog_max_version: models.CharField = models.CharField(max_length=20, null=True, blank=True)
 
 
-
 def get_all_completed_special_migrations():
     return SpecialMigration.objects.filter(status=MigrationStatus.CompletedSuccessfully)
 
