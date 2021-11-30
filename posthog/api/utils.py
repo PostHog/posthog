@@ -36,7 +36,7 @@ def get_target_entity(request: request.Request) -> Entity:
     entity_type = request.GET.get(ENTITY_TYPE)
     entity_math = cast(MATH_TYPE, request.GET.get(ENTITY_MATH, "total"))
 
-    if not entity_id or not entity_type:
+    if not entity_id:
         raise ValueError("An entity id and the entity type must be provided to determine an entity")
 
     possible_entity = retrieve_entity_from(entity_id, entity_type, entity_math, json.loads(events), json.loads(actions))
@@ -48,7 +48,9 @@ def get_target_entity(request: request.Request) -> Entity:
         raise ValueError("An entity must be provided for target entity to be determined")
 
 
-def retrieve_entity_from(entity_id: str, entity_type: str, entity_math: MATH_TYPE, events: List[Dict], actions: List[Dict]) -> Optional[Dict]:
+def retrieve_entity_from(
+    entity_id: str, entity_type: Optional[str], entity_math: MATH_TYPE, events: List[Dict], actions: List[Dict]
+) -> Optional[Dict]:
     """
     Retrieves the entity from the events and actions.
 
