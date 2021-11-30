@@ -138,6 +138,7 @@ export function FunnelStepTable(): JSX.Element | null {
                             iconSize={IconSize.Small}
                             iconStyle={{ marginRight: 12 }}
                             allowWrap
+                            hideIcon
                         />,
                         renderColumnTitle('Breakdown'),
                         showLabels,

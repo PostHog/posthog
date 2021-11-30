@@ -997,7 +997,7 @@ export interface FunnelStep {
     labels?: string[]
     breakdown?: BreakdownKeyType
     breakdowns?: Breakdown[]
-    breakdown_value?: string | number
+    breakdown_value?: BreakdownKeyType
 
     // Url that you can GET to retrieve the people that converted in this step
     converted_people_url: string
@@ -1086,8 +1086,8 @@ export interface FlattenedFunnelStep extends FunnelStepWithConversionMetrics {
 export interface FlattenedFunnelStepByBreakdown {
     rowKey: number | string
     isBaseline?: boolean
-    breakdown?: string | number
-    breakdown_value?: string | number
+    breakdown?: BreakdownKeyType
+    breakdown_value?: BreakdownKeyType
     breakdownIndex?: number
     conversionRates?: {
         total: number

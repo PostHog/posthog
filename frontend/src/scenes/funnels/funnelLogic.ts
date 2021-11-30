@@ -8,6 +8,7 @@ import { funnelLogicType } from './funnelLogicType'
 import {
     AvailableFeature,
     BinCountValue,
+    BreakdownKeyType,
     EntityTypes,
     FilterType,
     FlattenedFunnelStep,
@@ -48,6 +49,7 @@ import {
     isBreakdownFunnelResults,
     isStepsEmpty,
     isValidBreakdownParameter,
+    getBreakdownStepValues,
 } from './funnelUtils'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -151,7 +153,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
         setBinCount: (binCount: BinCountValue) => ({ binCount }),
         toggleVisibility: (index: string) => ({ index }),
-        toggleVisibilityByBreakdown: (breakdownValue?: number | string) => ({ breakdownValue }),
+        toggleVisibilityByBreakdown: (breakdownValue?: BreakdownKeyType) => ({ breakdownValue }),
         setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
         toggleAdvancedMode: true,
 
@@ -795,10 +797,8 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                     // Baseline - total step to step metrics, only add if more than 1 breakdown or not breakdown
                     if (hasBaseline) {
                         flattenedStepsByBreakdown.push({
-                            rowKey: 'baseline',
+                            ...getBreakdownStepValues(baseStep, 0, true),
                             isBaseline: true,
-                            breakdown: (baseStep.breakdown as string) ?? 'baseline',
-                            breakdown_value: 'Baseline',
                             breakdownIndex: 0,
                             steps: steps.map((s) =>
                                 Object.assign({}, s, { nested_breakdown: undefined, breakdown_value: 'Baseline' })
@@ -816,10 +816,8 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                                 .map((s) => s.nested_breakdown?.[i] as FunnelStepWithConversionMetrics)
                             const offset = hasBaseline ? 1 : 0
                             flattenedStepsByBreakdown.push({
-                                rowKey: breakdownStep.breakdown_value ?? i + offset,
+                                ...getBreakdownStepValues(breakdownStep, i + offset),
                                 isBaseline: false,
-                                breakdown: (breakdownStep.breakdown as string | number) || 'Other',
-                                breakdown_value: breakdownStep.breakdown_value || 'Other',
                                 breakdownIndex: i + offset,
                                 steps: stepsInBreakdown,
                                 conversionRates: {
@@ -1129,8 +1127,11 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             },
         ],
         isModalActive: [
-            (s) => [s.insightMode, s.clickhouseFeaturesEnabled],
-            (insightMode, clickhouseFeaturesEnabled) => clickhouseFeaturesEnabled && insightMode === ItemMode.Edit,
+            (s) => [s.insightMode, s.clickhouseFeaturesEnabled, s.filters],
+            (insightMode, clickhouseFeaturesEnabled, filters) =>
+                clickhouseFeaturesEnabled &&
+                insightMode === ItemMode.Edit &&
+                filters.aggregation_group_type_index === undefined,
         ],
     }),
 
@@ -1166,7 +1167,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             values.visibleStepsWithConversionMetrics?.forEach((step) => {
                 const key = getVisibilityIndex(step, breakdownValue)
                 const currentIsHidden = !!values.hiddenLegendKeys?.[key]
-
                 actions.setHiddenById({ [key]: currentIsHidden ? undefined : true })
             })
         },
@@ -1229,7 +1229,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         },
         openPersonsModalForStep: ({ step, converted }) => {
             // :TODO: Support 'person' modal for groups
-            if (values.filters.aggregation_group_type_index != undefined || !values.isModalActive) {
+            if (!values.isModalActive) {
                 return
             }
 
@@ -1239,7 +1239,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 // to return people, we currently still need to pass something in for the
                 // purpose of the modal displaying the label.
                 funnelStep: converted ? step.order : -step.order,
-                breakdown_value: step.breakdown_value,
+                breakdown_value: step.breakdown_value?.[0] ?? step.breakdown_value,
                 label: step.name,
                 // NOTE: session value copied from previous code, not clear that this should be the case
                 action: 'session',

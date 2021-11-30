@@ -255,7 +255,7 @@ export function InsightsTable({
 }
 
 export function formatBreakdownLabel(
-    breakdown_value: string | number | undefined | Array<string | number>,
+    breakdown_value: string | number | undefined | Array<string | number> | null,
     cohorts: CohortType[]
 ): string {
     if (breakdown_value && typeof breakdown_value == 'number') {
