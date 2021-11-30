@@ -12,7 +12,7 @@ from ee.clickhouse.models.person import delete_person
 from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
-from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationPersons
+from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 from ee.clickhouse.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
 from ee.clickhouse.queries.paths import ClickhousePathsPersons
@@ -126,7 +126,7 @@ class ClickhousePersonViewSet(PersonViewSet):
         if not filter.correlation_person_limit:
             filter = filter.with_data({FUNNEL_CORRELATION_PERSON_LIMIT: 100})
         base_uri = request.build_absolute_uri("/")
-        people, _ = FunnelCorrelationPersons(filter=filter, team=self.team, base_uri=base_uri).run()
+        people, _ = FunnelCorrelationActors(filter=filter, team=self.team, base_uri=base_uri).run()
         _should_paginate = should_paginate(people, filter.correlation_person_limit)
 
         next_url = (

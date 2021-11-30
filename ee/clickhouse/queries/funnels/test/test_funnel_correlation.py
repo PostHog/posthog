@@ -7,7 +7,7 @@ from rest_framework.exceptions import ValidationError
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.funnels.funnel_correlation import EventContingencyTable, EventStats, FunnelCorrelation
-from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationPersons
+from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS
@@ -51,7 +51,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 "funnel_correlation_person_converted": "TrUe" if success else "falSE",
             }
         )
-        results, _ = FunnelCorrelationPersons(person_filter, self.team).run()
+        results, _ = FunnelCorrelationActors(person_filter, self.team).run()
         return [row["uuid"] for row in results]
 
     def _get_people_for_property(self, filter: Filter, property_values: list, success=True):
@@ -63,7 +63,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 "funnel_correlation_person_converted": "TrUe" if success else "falSE",
             }
         )
-        results, _ = FunnelCorrelationPersons(person_filter, self.team).run()
+        results, _ = FunnelCorrelationActors(person_filter, self.team).run()
         return [row["uuid"] for row in results]
 
     def test_basic_funnel_correlation_with_events(self):
