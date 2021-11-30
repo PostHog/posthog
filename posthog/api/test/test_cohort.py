@@ -12,7 +12,7 @@ from posthog.test.base import APIBaseTest
 
 
 class TestCohort(APIBaseTest):
-    @patch("posthoganalytics.capture")
+    @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort.delay")
     def test_creating_update_and_calculating(self, patch_calculate_cohort, patch_capture):
         self.team.app_urls = ["http://somewebsite.com"]
@@ -31,7 +31,7 @@ class TestCohort(APIBaseTest):
 
         # Assert analytics are sent
         patch_capture.assert_called_with(
-            self.user.distinct_id,
+            self.user,
             "cohort created",
             {
                 "name_length": 8,
@@ -61,7 +61,7 @@ class TestCohort(APIBaseTest):
 
         # Assert analytics are sent
         patch_capture.assert_called_with(
-            self.user.distinct_id,
+            self.user,
             "cohort updated",
             {
                 "name_length": 9,

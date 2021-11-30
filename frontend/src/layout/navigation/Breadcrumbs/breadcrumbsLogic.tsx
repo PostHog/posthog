@@ -19,6 +19,7 @@ import { asDisplay } from '../../../scenes/persons/PersonHeader'
 import { PopupProps } from 'lib/components/Popup/Popup'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import { OrganizationSwitcherOverlay } from '~/layout/navigation/OrganizationSwitcher'
+import { sceneConfigurations } from 'scenes/scenes'
 
 export interface Breadcrumb {
     /** Name to display. */
@@ -166,7 +167,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                         break
                     case Scene.Action:
                         breadcrumbs.push({
-                            name: 'Actions',
+                            name: sceneConfigurations[Scene.Events]?.name,
                             path: urls.actions(),
                         })
                         // Current place

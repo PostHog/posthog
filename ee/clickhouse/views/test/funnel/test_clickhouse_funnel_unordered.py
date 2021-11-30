@@ -7,20 +7,8 @@ from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from ee.clickhouse.views.test.funnel.util import EventPattern, FunnelRequest, get_funnel_actors_ok, get_funnel_ok
 from posthog.constants import INSIGHT_FUNNELS
-from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.test.base import APIBaseTest
-
-
-def _create_group(**kwargs) -> Group:
-    group = Group.objects.create(**kwargs, version=0)
-    create_group(
-        team_id=group.team.pk,
-        group_type_index=group.group_type_index,
-        group_key=group.group_key,
-        properties=group.group_properties,
-    )
-    return group
 
 
 class ClickhouseTestUnorderedFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
@@ -32,15 +20,11 @@ class ClickhouseTestUnorderedFunnelGroups(ClickhouseTestMixin, LicensedTestMixin
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
 
-        _create_group(
-            team_id=self.team.pk, group_type_index=0, group_key="org:5", group_properties={"industry": "finance"}
-        )
-        _create_group(
-            team_id=self.team.pk, group_type_index=0, group_key="org:6", group_properties={"industry": "technology"}
-        )
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
 
-        _create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", group_properties={})
-        _create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", group_properties={})
+        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={})
+        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", properties={})
 
         filters = {
             "events": [

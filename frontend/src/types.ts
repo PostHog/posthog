@@ -340,15 +340,6 @@ export interface SessionRecordingMeta {
     end_time: number
     distinct_id: string
 }
-
-export interface LEGACY_SessionPlayerData {
-    snapshots: eventWithTime[]
-    person: PersonType | null
-    start_time: number
-    next: string | null
-    duration: number
-}
-
 export interface SessionPlayerData {
     snapshots: eventWithTime[]
     person: PersonType | null
@@ -528,7 +519,6 @@ export enum StepOrderValue {
 
 export enum PersonsTabType {
     EVENTS = 'events',
-    SESSIONS = 'sessions',
     SESSION_RECORDINGS = 'sessionRecordings',
 }
 
@@ -566,19 +556,6 @@ export interface EventsTableRowItem {
     event?: EventType
     date_break?: string
     new_events?: boolean
-}
-
-export interface SessionType {
-    distinct_id: string
-    global_session_id: string
-    length: number
-    start_time: string
-    end_time: string
-    session_recordings: SessionRecordingType[]
-    start_url: string | null
-    end_url: string | null
-    email?: string | null
-    matching_events: Array<number | string>
 }
 
 export interface SessionRecordingType {

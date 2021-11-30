@@ -265,7 +265,15 @@ export function SceneLoading(): JSX.Element {
     )
 }
 
-export function deleteWithUndo({ undo = false, ...props }: Record<string, any>): void {
+export function deleteWithUndo({
+    undo = false,
+    ...props
+}: {
+    undo?: boolean
+    endpoint: string
+    object: Record<string, any>
+    callback?: () => void
+}): void {
     api.update(`api/${props.endpoint}/${props.object.id}`, {
         ...props.object,
         deleted: !undo,
@@ -273,7 +281,7 @@ export function deleteWithUndo({ undo = false, ...props }: Record<string, any>):
         props.callback?.()
         const response = (
             <span>
-                <b>{props.object.name ?? 'Untitled'}</b>
+                <b>{props.object.name || <i>Unnnamed</i>}</b>
                 {!undo ? ' deleted. Click to undo.' : ' deletion undone.'}
             </span>
         )

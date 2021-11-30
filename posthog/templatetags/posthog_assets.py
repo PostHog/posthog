@@ -65,6 +65,4 @@ def strip_protocol(path: str) -> str:
       {% strip_protocol 'https://app.posthog.com' %}
       =>  "app.posthog.com"
     """
-    print("I'm here!")
-    print(path)
     return re.sub(r"https?:\/\/", "", path)

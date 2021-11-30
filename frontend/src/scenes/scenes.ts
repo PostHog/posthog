@@ -62,10 +62,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Events & actions',
     },
-    [Scene.Sessions]: {
-        projectBased: true,
-        name: 'Sessions',
-    },
     [Scene.SessionRecordings]: {
         projectBased: true,
         name: 'Recordings',
@@ -82,6 +78,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
     },
     [Scene.Groups]: {
+        projectBased: true,
+        name: 'Persons & groups',
+    },
+    [Scene.Group]: {
         projectBased: true,
         name: 'Persons & groups',
     },
@@ -197,11 +197,11 @@ export const routes: Record<string, Scene> = {
     [urls.eventStats()]: Scene.EventStats,
     [urls.eventPropertyStats()]: Scene.EventPropertyStats,
     [urls.events()]: Scene.Events,
-    [urls.sessions()]: Scene.Sessions,
     [urls.sessionRecordings()]: Scene.SessionRecordings,
     [urls.person('*', false)]: Scene.Person,
     [urls.persons()]: Scene.Persons,
     [urls.groups(':groupTypeIndex')]: Scene.Groups,
+    [urls.group(':groupTypeIndex', ':groupKey', false)]: Scene.Group,
     [urls.cohort(':id')]: Scene.Cohorts,
     [urls.cohorts()]: Scene.Cohorts,
     [urls.featureFlags()]: Scene.FeatureFlags,
