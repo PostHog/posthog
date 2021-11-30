@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import { mocked } from 'ts-jest/utils'
 
 import { Hub } from '../../../src/types'
@@ -67,7 +68,7 @@ describe('TeamManager()', () => {
             await hub.db.postgresQuery('DELETE FROM posthog_eventdefinition', undefined, 'testTag')
             await hub.db.postgresQuery('DELETE FROM posthog_propertydefinition', undefined, 'testTag')
             await hub.db.postgresQuery(
-                `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id) VALUES ($1, $2, $3, $4, $5)`,
+                `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, created_at) VALUES ($1, $2, $3, $4, $5, NOW())`,
                 [new UUIDT().toString(), '$pageview', 3, 2, 2],
                 'testTag'
             )
@@ -84,20 +85,29 @@ describe('TeamManager()', () => {
         })
 
         it('updates event properties', async () => {
-            await teamManager.updateEventNamesAndProperties(2, 'new-event', {
-                property_name: 'efg',
-                number: 4,
-                numeric_prop: 5,
-            })
+            await teamManager.updateEventNamesAndProperties(
+                2,
+                'new-event',
+                {
+                    property_name: 'efg',
+                    number: 4,
+                    numeric_prop: 5,
+                },
+                DateTime.now()
+            )
             teamManager.teamCache.clear()
 
-            expect(await hub.db.fetchEventDefinitions()).toEqual([
+            const eventDefinitions = await hub.db.fetchEventDefinitions()
+
+            expect(eventDefinitions).toEqual([
                 {
                     id: expect.any(String),
                     name: '$pageview',
                     query_usage_30_day: 2,
                     team_id: 2,
                     volume_30_day: 3,
+                    last_seen_at: null,
+                    created_at: expect.any(String),
                 },
                 {
                     id: expect.any(String),
@@ -105,8 +115,21 @@ describe('TeamManager()', () => {
                     query_usage_30_day: null,
                     team_id: 2,
                     volume_30_day: null,
+                    last_seen_at: expect.any(String),
+                    created_at: expect.any(String),
                 },
             ])
+
+            for (const eventDef of eventDefinitions) {
+                if (eventDef.name === 'new-event') {
+                    const parsedLastSeen = DateTime.fromISO(eventDef.last_seen_at)
+                    expect(parsedLastSeen.diff(DateTime.now()).seconds).toBeCloseTo(0)
+
+                    const parsedCreatedAt = DateTime.fromISO(eventDef.created_at)
+                    expect(parsedCreatedAt.diff(DateTime.now()).seconds).toBeCloseTo(0)
+                }
+            }
+
             expect(await hub.db.fetchPropertyDefinitions()).toEqual([
                 {
                     id: expect.any(String),
@@ -140,13 +163,18 @@ describe('TeamManager()', () => {
             await teamManager.cacheEventNamesAndProperties(2)
             jest.spyOn(hub.db, 'postgresQuery')
 
-            await teamManager.updateEventNamesAndProperties(2, '$pageview', {})
+            await teamManager.updateEventNamesAndProperties(2, '$pageview', {}, DateTime.now())
 
             expect(hub.db.postgresQuery).not.toHaveBeenCalled()
         })
 
         it('does not capture event', async () => {
-            await teamManager.updateEventNamesAndProperties(2, 'new-event', { property_name: 'efg', number: 4 })
+            await teamManager.updateEventNamesAndProperties(
+                2,
+                'new-event',
+                { property_name: 'efg', number: 4 },
+                DateTime.now()
+            )
 
             expect(posthog.identify).not.toHaveBeenCalled()
             expect(posthog.capture).not.toHaveBeenCalled()
@@ -165,7 +193,7 @@ describe('TeamManager()', () => {
             jest.spyOn(hub.db, 'postgresQuery')
 
             // Scenario: Different request comes in, team gets reloaded in the background with no updates
-            await teamManager.updateEventNamesAndProperties(2, '$foobar', {})
+            await teamManager.updateEventNamesAndProperties(2, '$foobar', {}, DateTime.now())
             expect(teamManager.fetchTeam).toHaveBeenCalledTimes(1)
             expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1)
 
@@ -173,7 +201,7 @@ describe('TeamManager()', () => {
             mocked(teamManager.fetchTeam).mockClear()
             mocked(hub.db.postgresQuery).mockClear()
 
-            await teamManager.updateEventNamesAndProperties(2, '$newevent', {})
+            await teamManager.updateEventNamesAndProperties(2, '$newevent', {}, DateTime.now())
             expect(teamManager.fetchTeam).toHaveBeenCalledTimes(1)
             expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1)
         })
@@ -184,10 +212,15 @@ describe('TeamManager()', () => {
             })
 
             it('calls posthog.identify and posthog.capture', async () => {
-                await teamManager.updateEventNamesAndProperties(2, 'new-event', {
-                    $lib: 'python',
-                    host: 'localhost:8000',
-                })
+                await teamManager.updateEventNamesAndProperties(
+                    2,
+                    'new-event',
+                    {
+                        $lib: 'python',
+                        host: 'localhost:8000',
+                    },
+                    DateTime.now()
+                )
 
                 const team = await teamManager.fetchTeam(2)
                 expect(posthog.identify).toHaveBeenCalledWith('plugin_test_user_distinct_id_1001')

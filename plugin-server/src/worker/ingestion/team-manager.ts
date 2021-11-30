@@ -1,4 +1,5 @@
 import { Properties } from '@posthog/plugin-scaffold'
+import { DateTime } from 'luxon'
 
 import { Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
@@ -39,7 +40,12 @@ export class TeamManager {
         }
     }
 
-    public async updateEventNamesAndProperties(teamId: number, event: string, properties: Properties): Promise<void> {
+    public async updateEventNamesAndProperties(
+        teamId: number,
+        event: string,
+        properties: Properties,
+        eventTimestamp: DateTime
+    ): Promise<void> {
         const team: Team | null = await this.fetchTeam(teamId)
 
         if (!team) {
@@ -55,11 +61,17 @@ export class TeamManager {
 
         if (!this.eventNamesCache.get(team.id)?.has(event)) {
             await this.db.postgresQuery(
-                `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id) VALUES ($1, $2, NULL, NULL, $3) ON CONFLICT DO NOTHING`,
-                [new UUIDT().toString(), event, team.id],
+                `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, last_seen_at, created_at) VALUES ($1, $2, NULL, NULL, $3, $4, NOW()) ON CONFLICT DO NOTHING`,
+                [new UUIDT().toString(), event, team.id, eventTimestamp],
                 'insertEventDefinition'
             )
             this.eventNamesCache.get(team.id)?.add(event)
+        } else {
+            await this.db.postgresQuery(
+                `UPDATE posthog_eventdefinition SET last_seen_at = MAX(NULLIF(last_seen_at, to_timestamp(0)), $1) WHERE name = $2 AND team_id = $3`,
+                [eventTimestamp, event, team.id],
+                'updateEventLastSeen'
+            )
         }
 
         for (const [key, value] of Object.entries(properties)) {

@@ -737,6 +737,8 @@ export interface EventDefinitionType {
     volume_30_day: number | null
     query_usage_30_day: number | null
     team_id: number
+    last_seen_at: string // DateTime
+    created_at: string // DateTime
 }
 
 export interface PropertyDefinitionType {
