@@ -443,6 +443,14 @@ export const insightLogic = kea<insightLogicType>({
 
             const insightChanged = values.loadedFilters?.insight && filters.insight !== values.loadedFilters?.insight
 
+            const changedChartType =
+                !!previousFilters['display'] && !!filters.display && filters.display !== previousFilters.display
+
+            if (changedChartType) {
+                // clear the results before loading the new display type
+                actions.setInsight({ ...values.insight, result: [] }, {})
+            }
+
             const backendFilterChanged = !objectsEqual(
                 Object.assign({}, values.filters, {
                     layout: undefined,
