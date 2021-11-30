@@ -451,5 +451,5 @@ def _create_action(**kwargs):
     return action
 
 
-class DjangoStickinessTest(stickiness_test_factory(Stickiness, Event.objects.create, Person.objects.create, _create_action, Event.objects.earliest_timestamp)):  # type: ignore
+class DjangoStickinessTest(stickiness_test_factory(Stickiness, Event.objects.create, Person.objects.create, _create_action)):  # type: ignore
     pass
