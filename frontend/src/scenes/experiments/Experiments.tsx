@@ -11,9 +11,7 @@ export const scene: SceneExport = {
 export function Experiments(): JSX.Element {
     return (
         <div>
-            <PageHeader
-                title="Experiments"
-                caption="Experiments"
-            /></div>
+            <PageHeader title="Experiments" caption="Experiments" />
+        </div>
     )
 }
