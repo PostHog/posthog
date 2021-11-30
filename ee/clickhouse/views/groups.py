@@ -2,6 +2,7 @@ from collections import defaultdict
 
 from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
 from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
 
@@ -40,15 +41,23 @@ class GroupSerializer(serializers.HyperlinkedModelSerializer):
         ]
 
 
-class ClickhouseGroupsView(StructuredViewSetMixin, viewsets.ReadOnlyModelViewSet):
+class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = GroupSerializer
     queryset = Group.objects.all()
     pagination_class = GroupCursorPagination
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-    lookup_field = "group_key"
 
     def get_queryset(self):
         return super().get_queryset().filter(group_type_index=self.request.GET["group_type_index"])
+
+    @action(methods=["GET"], detail=False)
+    def find(self, request: request.Request, **kw) -> response.Response:
+        try:
+            group = self.get_queryset().get(group_key=request.GET["group_key"])
+            data = self.get_serializer(group).data
+            return response.Response(data)
+        except Group.DoesNotExist:
+            raise NotFound()
 
     @action(methods=["GET"], detail=False)
     def property_definitions(self, request: request.Request, **kw):
