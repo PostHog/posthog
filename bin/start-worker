@@ -4,10 +4,8 @@ set -e
 # this kills all processes when the last one terminates
 trap 'kill $(jobs -p)' EXIT
 
-NODE_ID=$(python3 -c "import random; print(random.randint(0, 10000000000))")
-
 # start celery worker with heartbeat (-B)
-celery -A posthog worker -B --scheduler redbeat.RedBeatScheduler --without-heartbeat --without-gossip --without-mingle -Ofair -n "worker#$NODE_ID" &
+celery -A posthog worker -B --scheduler redbeat.RedBeatScheduler --without-heartbeat --without-gossip --without-mingle -Ofair -n node@%%h &
 
 # start celery plugin worker
 ./bin/plugin-server

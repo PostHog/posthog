@@ -1,7 +1,6 @@
 #!/bin/bash
 set -e
 
-NODE_ID=$(python3 -c "import random; print(random.randint(0, 10000000000))")
 
 rm celerybeat.pid || echo "celerybeat.pid not found, proceeding"
-celery -A posthog beat -S redbeat.RedBeatScheduler -n "worker#$NODE_ID"
+celery -A posthog beat -S redbeat.RedBeatScheduler -n node@%%h

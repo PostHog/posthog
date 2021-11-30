@@ -63,11 +63,9 @@ if [ "$with_scheduler" == "true" ]; then
   ./bin/docker-worker-beat &
 fi
 
-NODE_ID=$(python3 -c "import random; print(random.randint(0, 10000000000))")
-
 FLAGS=()
 FLAGS+=("-Ofair")
-FLAGS+=("-n worker#$NODE_ID")
+FLAGS+=("-n node@%%h")
 [ "$with_gossip" == "false" ]    && FLAGS+=("--without-gossip")
 [ "$with_mingle" == "false" ]    && FLAGS+=("--without-mingle")
 [ "$with_heartbeat" == "false" ] && FLAGS+=("--without-heartbeat")
