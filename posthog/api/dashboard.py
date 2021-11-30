@@ -10,10 +10,8 @@ from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 from rest_framework import mixins, response, serializers, viewsets
 from rest_framework.authentication import BaseAuthentication, BasicAuthentication, SessionAuthentication
-from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated, OperandHolder, SingleOperandHolder
 from rest_framework.request import Request
-from sentry_sdk.api import capture_exception
 
 from posthog.api.insight import InsightSerializer, InsightViewSet
 from posthog.api.routing import StructuredViewSetMixin
@@ -23,8 +21,7 @@ from posthog.constants import INSIGHT_TRENDS
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, Insight, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.tasks.update_cache import update_dashboard_item_cache, update_dashboard_items_cache
-from posthog.utils import get_safe_cache, render_template, str_to_bool
+from posthog.utils import render_template
 
 
 class DashboardSerializer(serializers.ModelSerializer):
@@ -140,10 +137,6 @@ class DashboardSerializer(serializers.ModelSerializer):
     def get_items(self, dashboard: Dashboard):
         if self.context["view"].action == "list":
             return None
-
-        if self.context["request"].GET.get("refresh"):
-            update_dashboard_items_cache(dashboard)
-            dashboard.refresh_from_db()
 
         items = dashboard.items.filter(deleted=False).order_by("order").all()
         self.context.update({"dashboard": dashboard})
