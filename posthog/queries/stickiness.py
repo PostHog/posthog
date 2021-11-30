@@ -13,6 +13,8 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENT
 from posthog.models import Action, Entity, Filter, Team
 from posthog.models.action_step import ActionStep
 from posthog.models.event import Event, EventManager
+from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.filters.utils import earliest_timestamp_func
 from posthog.models.person import Person
 from posthog.queries import base
 from posthog.utils import relative_date_parse
@@ -27,24 +29,28 @@ def execute_custom_sql(query, params):
 
 
 class Stickiness(BaseQuery):
+    def _total_intervals(self, filter: Filter) -> int:
+        assert filter.date_from is not None
+        assert filter.date_to is not None
 
-    _filter: Filter
-    _team: Team
-    _entity: Entity
-
-    def __init__(self, team: Team, filter: Filter, entity: Entity):
-
-        _date_from = filter.date_from
-        if filter.date_from == "all":
-            _date_from = Event.objects.earliest_timestamp(team_id=self.team.pk)
-        elif filter.date_from is None:
-            _date_from = relative_date_parse("-7d")
-
-        filter = filter.with_data({"date_from": _date_from})
-
-        self._filter = filter
-        self._team = team
-        self._entity = entity
+        _num_intervals = 0
+        _total_seconds = (filter.date_to - filter.date_from).total_seconds()
+        if filter.interval == "minute":
+            _num_intervals = int(divmod(_total_seconds, 60)[0])
+        elif filter.interval == "hour":
+            _num_intervals = int(divmod(_total_seconds, 3600)[0])
+        elif filter.interval == "day":
+            _num_intervals = int(divmod(_total_seconds, 86400)[0])
+        elif filter.interval == "week":
+            _num_intervals = (filter.date_to - filter.date_from).days // 7
+        elif filter.interval == "month":
+            _num_intervals = (filter.date_to.year - filter.date_from.year) + (
+                filter.date_to.month - filter.date_from.month
+            )
+        else:
+            raise ValidationError(f"{filter.interval} not supported")
+        _num_intervals += 2
+        return _num_intervals
 
     def _serialize_entity(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
         serialized: Dict[str, Any] = {
@@ -70,7 +76,7 @@ class Stickiness(BaseQuery):
             events.filter(filter_events(team_id, filter, entity))
             .values("person_id")
             .annotate(interval_count=Count(_get_trunc_func(filter.interval, "timestamp"), distinct=True))
-            .filter(interval_count__lte=filter.total_intervals)
+            .filter(interval_count__lte=self._total_intervals(filter))
         )
 
         events_sql, events_sql_params = events.query.sql_with_params()
@@ -88,19 +94,25 @@ class Stickiness(BaseQuery):
 
         labels = []
         data = []
-        for day in range(1, filter.total_intervals):
+        for day in range(1, self._total_intervals(filter)):
             label = "{} {}{}".format(day, filter.interval, "s" if day > 1 else "")
             labels.append(label)
             data.append(response[day] if day in response else 0)
 
         return {
             "labels": labels,
-            "days": [day for day in range(1, filter.total_intervals)],
+            "days": [day for day in range(1, self._total_intervals(filter))],
             "data": data,
             "count": sum(data),
         }
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+
+        _date_from = filter._date_from
+        if filter._date_from == "all":
+            _date_from = earliest_timestamp_func(team.pk)
+
+        filter = filter.with_data({"date_from": _date_from})
 
         response = []
         for entity in filter.entities:

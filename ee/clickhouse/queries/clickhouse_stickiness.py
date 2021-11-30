@@ -28,25 +28,6 @@ from posthog.utils import relative_date_parse
 
 
 class ClickhouseStickiness(Stickiness):
-
-    _filter: Filter
-    _team: Team
-    _entity: Entity
-
-    def __init__(self, team: Team, filter: Filter, entity: Entity):
-
-        _date_from = filter.date_from
-        if filter.date_from == "all":
-            _date_from = get_earliest_timestamp(team_id=self.team.pk)
-        elif filter.date_from is None:
-            _date_from = relative_date_parse("-7d")
-
-        filter = filter.with_data({"date_from": _date_from})
-
-        self._filter = filter
-        self._team = team
-        self._entity = entity
-
     def stickiness(self, entity: Entity, filter: Filter, team_id: int) -> Dict[str, Any]:
         events_query, event_params = StickinessEventsQuery(entity, filter, team_id).get_query()
 
@@ -57,7 +38,7 @@ class ClickhouseStickiness(Stickiness):
         ORDER BY num_intervals
         """
 
-        counts = sync_execute(query, {**event_params, "num_intervals": filter.total_intervals})
+        counts = sync_execute(query, {**event_params, "num_intervals": self._total_intervals(filter)})
         return self.process_result(counts, filter)
 
     def stickiness_people_query(

@@ -21,6 +21,7 @@ from posthog.models.filters.mixins.common import (
     IntervalMixin,
     LimitMixin,
     OffsetMixin,
+    SelectedIntervalMixin,
     SelectorMixin,
     SessionMixin,
     ShownAsMixin,
@@ -41,7 +42,6 @@ from posthog.models.filters.mixins.funnel import (
 from posthog.models.filters.mixins.groups import GroupsAggregationMixin
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
-from posthog.models.filters.mixins.stickiness import SelectedIntervalMixin
 
 
 class Filter(

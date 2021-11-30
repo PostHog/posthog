@@ -25,7 +25,6 @@ from posthog.constants import (
     EXCLUSIONS,
     FILTER_TEST_ACCOUNTS,
     FORMULA,
-    GROUP_TYPES_LIMIT,
     INSIGHT,
     INSIGHT_TO_DISPLAY,
     INSIGHT_TRENDS,
@@ -35,6 +34,7 @@ from posthog.constants import (
     SELECTOR,
     SESSION,
     SHOWN_AS,
+    STICKINESS_DAYS,
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_EVENTS,
 )
@@ -408,3 +408,13 @@ class EntityTypeMixin(BaseParamMixin):
     @include_dict
     def entity_type_to_dict(self):
         return {"entity_type": self.target_entity_type} if self.target_entity_type else {}
+
+
+class SelectedIntervalMixin(BaseParamMixin):
+    @cached_property
+    def selected_interval(self) -> int:
+        return int(self._data.get(STICKINESS_DAYS, "0")) or int(self._data.get("selected_interval", "0"))
+
+    @include_dict
+    def selected_interval_to_dict(self):
+        return {"selected_interval": self.selected_interval} if self.selected_interval else {}
