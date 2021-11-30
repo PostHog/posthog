@@ -15,7 +15,8 @@ class SpecialMigration(models.Model):
         constraints = [models.UniqueConstraint(fields=["name"], name="unique name",)]
 
     id: models.BigAutoField = models.BigAutoField(primary_key=True)
-    name: models.CharField = models.CharField(max_length=400, null=False, blank=False)
+    name: models.CharField = models.CharField(max_length=50, null=False, blank=False)
+    description: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     progress: models.IntegerField = models.IntegerField(null=False, blank=False, default=0)
     status: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
         null=False, blank=False, default=MigrationStatus.NotStarted
@@ -24,15 +25,15 @@ class SpecialMigration(models.Model):
     current_operation_index: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
         null=False, blank=False, default=0
     )
-    current_query_id: models.CharField = models.CharField(max_length=400, null=False, blank=False, default="")
-    celery_task_id: models.CharField = models.CharField(max_length=400, null=False, blank=False, default="")
+    current_query_id: models.CharField = models.CharField(max_length=100, null=False, blank=False, default="")
+    celery_task_id: models.CharField = models.CharField(max_length=100, null=False, blank=False, default="")
 
     started_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
 
     # Can finish with status 'CompletedSuccessfully', 'Errored', or 'RolledBack'
     finished_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
 
-    error: models.TextField = models.TextField(null=True, blank=True)
+    last_error: models.TextField = models.TextField(null=True, blank=True)
 
 
 def get_all_completed_special_migrations():
