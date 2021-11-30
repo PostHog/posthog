@@ -57,10 +57,11 @@ export function InsightsNav(): JSX.Element {
                             placement="top"
                             title={INSIGHT_TYPES_METADATA[InsightType.FUNNELS].description}
                             data-attr="insight-funnels-tab"
-                            ref={funnelTab}
                         >
-                            Funnels
-                            <InsightHotkey hotkey="f" />
+                            <span ref={funnelTab}>
+                                Funnels
+                                <InsightHotkey hotkey="f" />
+                            </span>
                         </Tooltip>
                     }
                     key={InsightType.FUNNELS}

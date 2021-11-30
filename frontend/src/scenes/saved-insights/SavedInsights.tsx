@@ -332,7 +332,7 @@ export function SavedInsights(): JSX.Element {
                                 ['All types']: {
                                     name: 'All types',
                                     inMenu: false,
-                                },
+                                } as InsightTypeMetadata,
                                 ...INSIGHT_TYPES_METADATA,
                             }).map(([listedInsightType, listedInsightTypeMetadata], index) => (
                                 <Select.Option key={index} value={listedInsightType}>
