@@ -8,10 +8,11 @@ from posthog.models.special_migration import SpecialMigration, get_all_completed
 from posthog.settings import DEBUG
 from posthog.version import VERSION
 
-ALL_SPECIAL_MIGRATIONS = import_submodules("posthog.special_migrations.migrations")
+ALL_SPECIAL_MIGRATIONS = {}
 
-if not DEBUG:
-    del ALL_SPECIAL_MIGRATIONS["example"]
+for name, module in import_submodules("posthog.special_migrations.migrations"):
+    if name != "example" or DEBUG:
+        ALL_SPECIAL_MIGRATIONS[name] = module.Migration()
 
 
 POSTHOG_VERSION = Version(VERSION)
@@ -23,7 +24,7 @@ def init_special_migrations():
     unapplied_migrations = set(ALL_SPECIAL_MIGRATIONS.keys()) - applied_migrations
 
     for migration_name in sorted(unapplied_migrations):
-        migration = ALL_SPECIAL_MIGRATIONS[migration_name].Migration
+        migration = ALL_SPECIAL_MIGRATIONS[migration_name]
         if POSTHOG_VERSION > Version(migration.posthog_max_version):
             raise ImproperlyConfigured(f"Migration {migration_name} is required for PostHog versions above {VERSION}.")
 

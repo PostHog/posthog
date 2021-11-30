@@ -12,7 +12,7 @@ def start_special_migration(migration_name):
     if not migration_instance or migration_instance.status == MigrationStatus.Running:
         return False
 
-    migration_definition = ALL_SPECIAL_MIGRATIONS[migration_name].Migration
+    migration_definition = ALL_SPECIAL_MIGRATIONS[migration_name]
 
     for service_version_requirement in migration_definition.service_version_requirements:
         [in_range, version] = service_version_requirement.is_service_in_accepted_version()
@@ -41,7 +41,7 @@ def run_special_migration_next_op(migration_name, migration_instance=None):
     if not migration_instance:
         return False
 
-    migration_definition = ALL_SPECIAL_MIGRATIONS[migration_name].Migration
+    migration_definition = ALL_SPECIAL_MIGRATIONS[migration_name]
     if migration_instance.current_operation_index > len(migration_definition.operations) - 1:
         migration_instance.status = MigrationStatus.CompletedSuccessfully
         migration_instance.finished_at = datetime.now()
@@ -67,11 +67,7 @@ def run_special_migration_next_op(migration_name, migration_instance=None):
     if error:
         return False
 
-    try:
-        migration_instance.progress = migration_definition.progress(migration_instance)
-        migration_instance.save()
-    except:
-        pass
+    update_migration_progress(migration_name)
 
     return run_special_migration_next_op(migration_name, migration_instance)
 
@@ -102,7 +98,7 @@ def process_error(migration_instance, error):
     migration_instance.error = error
     migration_instance.finished_at = datetime.now()
     try:
-        rollback = ALL_SPECIAL_MIGRATIONS[migration_instance.name].Migration.rollback
+        rollback = ALL_SPECIAL_MIGRATIONS[migration_instance.name].rollback
         success = rollback(migration_instance)
         if success:
             migration_instance.status = MigrationStatus.RolledBack
@@ -110,3 +106,15 @@ def process_error(migration_instance, error):
         pass
 
     migration_instance.save()
+
+
+def run_migration_healthcheck(migration_instance):
+    return ALL_SPECIAL_MIGRATIONS[migration_instance.name].healthcheck()
+
+
+def update_migration_progress(migration_instance):
+    try:
+        migration_instance.progress = ALL_SPECIAL_MIGRATIONS[migration_instance.name].progress(migration_instance)
+        migration_instance.save()
+    except:
+        pass
