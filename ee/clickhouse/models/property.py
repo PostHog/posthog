@@ -102,7 +102,7 @@ def parse_prop_clauses(
                 allow_denormalized_props=allow_denormalized_props,
             )
 
-            final.append(f"{filter_query} AND {table_name}team_id = %(team_id)s" if team_id else filter_query)
+            final.append(filter_query)
             params.update(filter_params)
         elif prop.type == "group":
             if group_properties_joined:
