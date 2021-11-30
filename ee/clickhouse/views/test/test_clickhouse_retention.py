@@ -61,48 +61,6 @@ class RetentionTests(TestCase):
             "Day 1": {"1": 1},  # ["person 3"]
         }
 
-    def test_retention_first_time_excludes_historical_users(self):
-        """
-        e.g. if a user performed the target_event before `date_from` then they
-        shouldn't be included in any cohorts within the requested range.
-        """
-        organization = create_organization(name="test")
-        team = create_team(organization=organization)
-        user = create_user(email="test@posthog.com", password="1234", organization=organization)
-
-        self.client.force_login(user)
-
-        events = user_activity_by_day(
-            daily_activity={"2019-12-31": ["person 1"], "2020-01-01": ["person 1"],},
-            target_event="target event",
-            returning_event="target event",
-            team=team,
-        )
-
-        update_or_create_person(distinct_ids=["person 1"], team_id=team.pk)
-        _create_all_events(all_events=events)
-
-        retention = get_retention_ok(
-            client=self.client,
-            team_id=team.pk,
-            request=RetentionRequest(
-                target_entity={"id": "target event", "type": "events"},
-                returning_entity={"id": "target event", "type": "events"},
-                date_from="2020-01-01",
-                total_intervals=2,
-                date_to="2020-01-02",
-                period="Day",
-                retention_type="retention_first_time",
-            ),
-        )
-
-        retention_by_cohort_by_period = get_by_cohort_by_period_from_response(response=retention)
-
-        assert retention_by_cohort_by_period == {
-            "Day 0": {"1": 0, "2": 0},
-            "Day 1": {"1", 0},
-        }
-
     def test_can_specify_alternative_breakdown_person_property(self):
         """
         By default, we group users together by the first time they perform the

@@ -53,12 +53,12 @@ class RetentionEventsQuery(ClickhouseEventQuery):
                 first_breakdown = self._filter.breakdowns[0]
                 table = "events"
 
-                if first_breakdown.type == "person":
+                if first_breakdown["type"] == "person":
                     table = "person"
 
                 _fields += [
                     get_single_or_multi_property_string_expr(
-                        breakdown=[breakdown.property for breakdown in self._filter.breakdowns],
+                        breakdown=[breakdown["property"] for breakdown in self._filter.breakdowns],
                         table=table,
                         query_alias="breakdown_values",
                     )

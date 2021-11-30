@@ -24,6 +24,7 @@ from ee.clickhouse.models.cohort import (
 )
 from ee.clickhouse.models.util import PersonPropertiesMode, is_json
 from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
+from ee.clickhouse.sql.groups import GET_GROUP_IDS_BY_PROPERTY_SQL
 from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
@@ -40,6 +41,8 @@ def parse_prop_clauses(
     allow_denormalized_props: bool = True,
     has_person_id_joined: bool = True,
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_SUBQUERY,
+    person_id_joined_alias: str = "person_id",
+    group_properties_joined: bool = True,
 ) -> Tuple[str, Dict]:
     final = []
     params: Dict[str, Any] = {}
@@ -102,18 +105,33 @@ def parse_prop_clauses(
             final.append(f"{filter_query} AND {table_name}team_id = %(team_id)s" if team_id else filter_query)
             params.update(filter_params)
         elif prop.type == "group":
-            # :TRICKY: This assumes group properties have already been joined, as in trends query
-            filter_query, filter_params = prop_filter_json_extract(
-                prop, idx, prepend, prop_var=f"group_properties_{prop.group_type_index}", allow_denormalized_props=False
-            )
-
-            final.append(filter_query)
-            params.update(filter_params)
+            if group_properties_joined:
+                filter_query, filter_params = prop_filter_json_extract(
+                    prop,
+                    idx,
+                    prepend,
+                    prop_var=f"group_properties_{prop.group_type_index}",
+                    allow_denormalized_props=False,
+                )
+                final.append(filter_query)
+                params.update(filter_params)
+            else:
+                # :TRICKY: offer groups support for queries which don't support automatically joining with groups table yet (e.g. lifecycle)
+                filter_query, filter_params = prop_filter_json_extract(
+                    prop, idx, prepend, prop_var=f"group_properties", allow_denormalized_props=False
+                )
+                group_type_index_var = f"{prepend}_group_type_index_{idx}"
+                groups_subquery = GET_GROUP_IDS_BY_PROPERTY_SQL.format(
+                    filters=filter_query, group_type_index_var=group_type_index_var
+                )
+                final.append(f"AND {table_name}$group_{prop.group_type_index} IN ({groups_subquery})")
+                params.update(filter_params)
+                params[group_type_index_var] = prop.group_type_index
         elif prop.type in ("static-cohort", "precalculated-cohort"):
             cohort_id = cast(int, prop.value)
 
             method = format_static_cohort_query if prop.type == "static-cohort" else format_precalculated_cohort_query
-            filter_query, filter_params = method(cohort_id, idx, prepend=prepend, custom_match_field="person_id")  # type: ignore
+            filter_query, filter_params = method(cohort_id, idx, prepend=prepend, custom_match_field=person_id_joined_alias)  # type: ignore
             if has_person_id_joined:
                 final.append(f" AND {filter_query}")
             else:

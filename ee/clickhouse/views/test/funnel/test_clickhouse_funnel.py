@@ -1,29 +1,14 @@
 import json
 from datetime import datetime
-from typing import List, cast
 
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.models.group import create_group
-from ee.clickhouse.queries.actor_base_query import SerializedGroup, SerializedPerson
-from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from ee.clickhouse.views.test.funnel.util import EventPattern, FunnelRequest, get_funnel_actors_ok, get_funnel_ok
 from posthog.constants import INSIGHT_FUNNELS
-from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.test.base import APIBaseTest
-
-
-def _create_group(**kwargs) -> Group:
-    group = Group.objects.create(**kwargs, version=0)
-    create_group(
-        team_id=group.team.pk,
-        group_type_index=group.group_type_index,
-        group_key=group.group_key,
-        properties=group.group_properties,
-    )
-    return group
 
 
 class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
@@ -34,21 +19,15 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
 
-        g1 = _create_group(
-            team_id=self.team.pk, group_type_index=0, group_key="org:5", group_properties={"industry": "finance"}
-        )
-        g2 = _create_group(
-            team_id=self.team.pk, group_type_index=0, group_key="org:6", group_properties={"industry": "technology"}
-        )
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
 
-        g3 = _create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", group_properties={})
-        g4 = _create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", group_properties={})
-
-        return g1, g2, g3, g4
+        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={})
+        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", properties={})
 
     @snapshot_clickhouse_queries
     def test_funnel_aggregation_with_groups(self):
-        g1, g2, g3, g4 = self._create_groups()
+        self._create_groups()
 
         events_by_person = {
             "user_1": [
@@ -90,11 +69,11 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
 
         actors = get_funnel_actors_ok(self.client, result["user signed up"]["converted_people_url"])
         actor_ids = [str(val["id"]) for val in actors]
-        assert actor_ids == sorted([g1.group_key, g2.group_key])
+        assert actor_ids == ["org:5", "org:6"]
 
     @snapshot_clickhouse_queries
     def test_funnel_group_aggregation_with_groups_entity_filtering(self):
-        g1, g2, g3, g4 = self._create_groups()
+        self._create_groups()
 
         events_by_person = {
             "user_1": [
@@ -138,11 +117,11 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
 
         actors = get_funnel_actors_ok(self.client, result["user signed up"]["converted_people_url"])
         actor_ids = [str(val["id"]) for val in actors]
-        assert actor_ids == sorted([g1.group_key])
+        assert actor_ids == ["org:5"]
 
     @snapshot_clickhouse_queries
     def test_funnel_with_groups_entity_filtering(self):
-        g1, g2, g3, g4 = self._create_groups()
+        self._create_groups()
 
         events_by_person = {
             "user_1": [
@@ -193,7 +172,7 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
 
     @snapshot_clickhouse_queries
     def test_funnel_with_groups_global_filtering(self):
-        g1, g2, g3, g4 = self._create_groups()
+        self._create_groups()
 
         events_by_person = {
             "user_1": [

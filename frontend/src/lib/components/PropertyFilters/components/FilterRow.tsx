@@ -26,6 +26,7 @@ interface FilterRowProps {
     filterComponent: (onComplete: () => void) => JSX.Element
     label: string
     onRemove: (index: number) => void
+    greyBadges?: boolean
 }
 
 export const FilterRow = React.memo(function FilterRow({
@@ -41,6 +42,7 @@ export const FilterRow = React.memo(function FilterRow({
     filterComponent,
     label,
     onRemove,
+    greyBadges,
 }: FilterRowProps) {
     const [open, setOpen] = useState(false)
 
@@ -54,17 +56,7 @@ export const FilterRow = React.memo(function FilterRow({
     }
 
     return (
-        <Row
-            align="middle"
-            className="property-filter-row mt-05 mb-05"
-            data-attr={'property-filter-' + index}
-            style={{
-                width: '100%',
-                margin: '0.25rem 0',
-                padding: '0.25rem 0',
-            }}
-            wrap={false}
-        >
+        <Row align="middle" className="property-filter-row" data-attr={'property-filter-' + index} wrap={false}>
             {disablePopover ? (
                 <>
                     {filterComponent(() => setOpen(false))}
@@ -103,6 +95,7 @@ export const FilterRow = React.memo(function FilterRow({
                                             onClick={() => setOpen(!open)}
                                             item={item}
                                             setRef={setRef}
+                                            greyBadges={greyBadges}
                                         />
                                     ) : isValidPathCleanFilter(item) ? (
                                         <FilterButton onClick={() => setOpen(!open)} setRef={setRef}>
@@ -114,9 +107,10 @@ export const FilterRow = React.memo(function FilterRow({
                                             onClick={() => setOpen(!open)}
                                             className="new-prop-filter"
                                             data-attr={'new-prop-filter-' + pageKey}
-                                            type="link"
-                                            style={{ paddingLeft: 0 }}
+                                            style={{ padding: '0 12px' }}
                                             icon={<PlusCircleOutlined />}
+                                            type="default"
+                                            shape="round"
                                         >
                                             {label}
                                         </Button>
