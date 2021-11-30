@@ -4,7 +4,6 @@ import React from 'react'
 import { PlusOutlined } from '@ant-design/icons'
 import { dashboardLogic } from './dashboardLogic'
 import { useActions } from 'kea'
-import { InsightErrorState } from 'scenes/insights/EmptyStates'
 
 function SkeletonOne(): JSX.Element {
     return (
@@ -67,16 +66,10 @@ function SkeletonTwo(): JSX.Element {
     )
 }
 
-export interface EmptyDashboardComponentProps {
-    emptyWithErrors: boolean
-}
-
-export function EmptyDashboardComponent({ emptyWithErrors }: EmptyDashboardComponentProps): JSX.Element {
+export function EmptyDashboardComponent(): JSX.Element {
     const { addGraph } = useActions(dashboardLogic)
 
-    return emptyWithErrors ? (
-        <InsightErrorState title={'There was an error loading this dashboard'} />
-    ) : (
+    return (
         <div className="empty-state">
             <div className="cta">
                 <Card className="card-elevated">
