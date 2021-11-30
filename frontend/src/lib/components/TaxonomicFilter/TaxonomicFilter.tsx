@@ -4,11 +4,7 @@ import { Input } from 'antd'
 import { useValues, useActions, BindLogic } from 'kea'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
-import {
-    TaxonomicFilterGroupType,
-    TaxonomicFilterLogicProps,
-    TaxonomicFilterProps,
-} from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterLogicProps, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 
 let uniqueMemoizedIndex = 0
 
@@ -18,11 +14,7 @@ export function TaxonomicFilter({
     value,
     onChange,
     onClose,
-    taxonomicGroupTypes = [
-        TaxonomicFilterGroupType.EventProperties,
-        TaxonomicFilterGroupType.PersonProperties,
-        TaxonomicFilterGroupType.Cohorts,
-    ],
+    taxonomicGroupTypes,
     optionsFromProp,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered

@@ -39,6 +39,7 @@ describe('infiniteListLogic', () => {
         props: {
             taxonomicFilterLogicKey: 'testList',
             listGroupType: TaxonomicFilterGroupType.Events,
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
         },
         onLogic: (l) => (logic = l),
     })
@@ -135,6 +136,7 @@ describe('infiniteListLogic with optionsFromProp', () => {
         props: {
             taxonomicFilterLogicKey: 'testList',
             listGroupType: TaxonomicFilterGroupType.Wildcards,
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
             optionsFromProp: {
                 wildcard: [{ name: 'first' }, { name: 'second' }],
             },
