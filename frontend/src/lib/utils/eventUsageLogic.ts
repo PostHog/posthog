@@ -402,6 +402,7 @@ export const eventUsageLogic = kea<
             } else if (insight === 'STICKINESS') {
                 properties.stickiness_days = filters.stickiness_days
             }
+            properties.compare = filters.compare // "Compare previous" option
 
             const eventName = delay ? 'insight analyzed' : 'insight viewed'
             posthog.capture(eventName, { ...properties, ...(changedFilters ? changedFilters : {}) })
