@@ -5,7 +5,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.celery import app
 from posthog.models.special_migration import MigrationStatus, SpecialMigration, get_all_running_special_migrations
 from posthog.permissions import StaffUser
-from posthog.special_migrations.runner import process_error
+from posthog.special_migrations.runner import force_stop_migration, process_error, trigger_migration
 from posthog.tasks.special_migrations import run_special_migration
 
 # allow users to set this?
@@ -57,22 +57,19 @@ class SpecialMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
                 },
                 status=400,
             )
-        sm = self.get_object()
-        task = run_special_migration.delay(sm.name)
-        sm.celery_task_id = str(task.id)
-        sm.save()
+        migration_instance = self.get_object()
+        trigger_migration(migration_instance)
         return response.Response({"success": True}, status=200)
 
     # DANGEROUS! Can cause another task to be lost
     @action(methods=["POST"], detail=True)
     def force_stop(self, request, **kwargs):
-        sm = self.get_object()
-        if sm.status != MigrationStatus.Running:
+        migration_instance = self.get_object()
+        if migration_instance.status != MigrationStatus.Running:
             return response.Response(
                 {"success": False, "error": f"Can't stop a migration that isn't running.",}, status=400,
             )
-        app.control.revoke(sm.celery_task_id, terminate=True)
-        process_error(sm, "Force stopped")
+        force_stop_migration(migration_instance)
         return response.Response({"success": True}, status=200)
 
     @action(methods=["POST"], detail=True)

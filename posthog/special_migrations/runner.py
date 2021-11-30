@@ -4,6 +4,7 @@ from posthog.celery import app
 from posthog.models.special_migration import MigrationStatus, SpecialMigration
 from posthog.models.utils import UUIDT
 from posthog.special_migrations.manager import ALL_SPECIAL_MIGRATIONS
+from posthog.tasks.special_migrations import run_special_migration
 
 
 # select for update?
@@ -97,13 +98,8 @@ def process_error(migration_instance, error):
     migration_instance.status = MigrationStatus.Errored
     migration_instance.error = error
     migration_instance.finished_at = datetime.now()
-    try:
-        rollback = ALL_SPECIAL_MIGRATIONS[migration_instance.name].rollback
-        success = rollback(migration_instance)
-        if success:
-            migration_instance.status = MigrationStatus.RolledBack
-    except:
-        pass
+
+    attempt_migration_rollback(migration_instance)
 
     migration_instance.save()
 
@@ -118,3 +114,39 @@ def update_migration_progress(migration_instance):
         migration_instance.save()
     except:
         pass
+
+
+def attempt_migration_rollback(migration_instance, force=False):
+    error = None
+    try:
+        rollback = ALL_SPECIAL_MIGRATIONS[migration_instance.name].rollback
+        success = rollback(migration_instance)
+        if success:
+            migration_instance.status = MigrationStatus.RolledBack
+            migration_instance.save()
+            return
+
+        error = "Migration rollback returned False"
+    except Exception as e:
+        error = str(e)
+
+    if error and force:
+        migration_instance.status = MigrationStatus.Errored
+        migration_instance.error = f"Force rollback failed with error: {error}"
+        migration_instance.save()
+
+
+def trigger_migration(migration_instance):
+    task = run_special_migration.delay(migration_instance.name)
+    migration_instance.celery_task_id = str(task.id)
+    migration_instance.save()
+
+
+# DANGEROUS! Can cause another task to be lost
+def force_stop_migration(migration_instance):
+    app.control.revoke(migration_instance.celery_task_id, terminate=True)
+    process_error(migration_instance, "Force stopped")
+
+
+def force_rollback_migration(migration_instance):
+    attempt_migration_rollback(migration_instance, force=True)
