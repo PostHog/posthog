@@ -78,7 +78,7 @@ class PropertyDefinitionViewSet(
                     FROM ee_enterprisepropertydefinition
                     FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id
                     WHERE team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {search_query}
-                    ORDER BY volume_30_day DESC NULLS LAST, name ASC
+                    ORDER BY query_usage_30_day DESC NULLS LAST, name ASC
                     """,
                     params={
                         "names": names,
