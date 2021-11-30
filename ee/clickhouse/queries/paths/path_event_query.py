@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Tuple
 
+from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.property import get_property_string_expr
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from posthog.constants import (
@@ -16,6 +17,28 @@ from posthog.models.team import Team
 class PathEventQuery(ClickhouseEventQuery):
     FUNNEL_PERSONS_ALIAS = "funnel_persons"
     _filter: PathFilter
+
+    def __init__(
+        self,
+        filter: PathFilter,
+        team_id: int,
+        round_interval=False,
+        should_join_distinct_ids=False,
+        should_join_persons=False,
+        extra_fields: List[ColumnName] = [],
+        extra_person_fields: List[ColumnName] = [],
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            filter,
+            team_id,
+            round_interval=round_interval,
+            should_join_distinct_ids=should_join_distinct_ids,
+            should_join_persons=should_join_persons,
+            extra_fields=extra_fields,
+            extra_person_fields=extra_person_fields,
+            **kwargs,
+        )
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
 

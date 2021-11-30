@@ -91,15 +91,11 @@ class Stickiness(BaseQuery):
             response.extend(entity_resp)
         return response
 
-    def people(
-        self, target_entity: Entity, filter: StickinessFilter, team: Team, request, *args, **kwargs
-    ) -> ReturnDict:
+    def people(self, target_entity: Entity, filter: StickinessFilter, team: Team, request, *args, **kwargs):
         results = self._retrieve_people(target_entity, filter, team, request)
         return results
 
-    def _retrieve_people(
-        self, target_entity: Entity, filter: StickinessFilter, team: Team, request: Request
-    ) -> ReturnDict:
+    def _retrieve_people(self, target_entity: Entity, filter: StickinessFilter, team: Team, request: Request):
         from posthog.api.person import PersonSerializer
 
         events = stickiness_process_entity_type(target_entity, team, filter)

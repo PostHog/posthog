@@ -1,5 +1,6 @@
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
+from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.group import get_aggregation_target_field
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
@@ -21,10 +22,29 @@ class RetentionEventsQuery(ClickhouseEventQuery):
     _event_query_type: RetentionQueryType
     _trunc_func: str
 
-    def __init__(self, event_query_type: RetentionQueryType, *args, **kwargs):
+    def __init__(
+        self,
+        event_query_type: RetentionQueryType,
+        filter: RetentionFilter,
+        team_id: int,
+        round_interval=False,
+        should_join_distinct_ids=False,
+        should_join_persons=False,
+        extra_fields: List[ColumnName] = [],
+        extra_person_fields: List[ColumnName] = [],
+        **kwargs,
+    ) -> None:
         self._event_query_type = event_query_type
-        super().__init__(*args, **kwargs)
-
+        super().__init__(
+            filter,
+            team_id,
+            round_interval=round_interval,
+            should_join_distinct_ids=should_join_distinct_ids,
+            should_join_persons=should_join_persons,
+            extra_fields=extra_fields,
+            extra_person_fields=extra_person_fields,
+            **kwargs,
+        )
         self._trunc_func = get_trunc_func_ch(self._filter.period)
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:

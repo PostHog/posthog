@@ -37,6 +37,7 @@ def _handle_date_interval(filter: Filter) -> Filter:
 
 class TrendsPersonQuery(ActorBaseQuery):
     entity: Entity
+    filter: Filter
 
     def __init__(self, team: Team, entity: Optional[Entity], filter: Filter):
         if not entity:

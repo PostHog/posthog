@@ -1,12 +1,39 @@
-from typing import Any, Dict, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
+from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.group import get_aggregation_target_field
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.models.filters.filter import Filter
 from posthog.models.property import GroupTypeIndex
 
 
 class FunnelEventQuery(ClickhouseEventQuery):
+    _filter: Filter
+
+    def __init__(
+        self,
+        filter: Filter,
+        team_id: int,
+        round_interval=False,
+        should_join_distinct_ids=False,
+        should_join_persons=False,
+        # Extra events/person table columns to fetch since parent query needs them
+        extra_fields: List[ColumnName] = [],
+        extra_person_fields: List[ColumnName] = [],
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            filter=filter,
+            team_id=team_id,
+            round_interval=round_interval,
+            should_join_distinct_ids=should_join_distinct_ids,
+            should_join_persons=should_join_persons,
+            extra_fields=extra_fields,
+            extra_person_fields=extra_person_fields,
+            **kwargs,
+        )
+
     def get_query(self, entities=None, entity_name="events", skip_entity_filter=False) -> Tuple[str, Dict[str, Any]]:
         _fields = [
             f"{self.EVENT_TABLE_ALIAS}.event as event",

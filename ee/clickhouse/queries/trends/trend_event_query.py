@@ -1,5 +1,6 @@
-from typing import Any, Dict, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
+from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
@@ -14,9 +15,29 @@ class TrendsEventQuery(ClickhouseEventQuery):
     _entity: Entity
     _filter: Filter
 
-    def __init__(self, entity: Entity, *args, **kwargs):
+    def __init__(
+        self,
+        entity: Entity,
+        filter: Filter,
+        team_id: int,
+        round_interval=False,
+        should_join_distinct_ids=False,
+        should_join_persons=False,
+        extra_fields: List[ColumnName] = [],
+        extra_person_fields: List[ColumnName] = [],
+        **kwargs,
+    ) -> None:
         self._entity = entity
-        super().__init__(*args, **kwargs)
+        super().__init__(
+            filter,
+            team_id,
+            round_interval=round_interval,
+            should_join_distinct_ids=should_join_distinct_ids,
+            should_join_persons=should_join_persons,
+            extra_fields=extra_fields,
+            extra_person_fields=extra_person_fields,
+            **kwargs,
+        )
         self._person_query = ClickhousePersonQuery(
             self._filter,
             self._team_id,
