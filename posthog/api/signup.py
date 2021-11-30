@@ -63,7 +63,7 @@ class SignupSerializer(serializers.Serializer):
         )
 
         report_user_signed_up(
-            user.distinct_id,
+            user,
             is_instance_first_user=is_instance_first_user,
             is_organization_first_user=True,
             new_onboarding_enabled=(not self._organization.setup_section_2_completed),
@@ -164,7 +164,7 @@ class InviteSignupSerializer(serializers.Serializer):
             )
 
             report_user_signed_up(
-                user.distinct_id,
+                user,
                 is_instance_first_user=False,
                 is_organization_first_user=False,
                 new_onboarding_enabled=(not invite.organization.setup_section_2_completed),
@@ -414,7 +414,7 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
             user = serializer.save()
 
     report_user_signed_up(
-        distinct_id=user.distinct_id,
+        user,
         is_instance_first_user=User.objects.count() == 1,
         is_organization_first_user=not from_invite,
         new_onboarding_enabled=False,

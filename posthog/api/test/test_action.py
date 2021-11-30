@@ -9,7 +9,7 @@ from posthog.test.base import APIBaseTest
 def factory_test_action_api(event_factory):
     @patch("posthog.tasks.calculate_action.calculate_action.delay")
     class TestActionApi(APIBaseTest):
-        @patch("posthoganalytics.capture")
+        @patch("posthog.api.action.report_user_action")
         def test_create_action(self, patch_capture, *args):
             Event.objects.create(
                 team=self.team,
@@ -37,7 +37,7 @@ def factory_test_action_api(event_factory):
 
             # Assert analytics are sent
             patch_capture.assert_called_once_with(
-                self.user.distinct_id,
+                self.user,
                 "action created",
                 {
                     "post_to_slack": False,
@@ -78,7 +78,7 @@ def factory_test_action_api(event_factory):
             self.assertEqual(Action.objects.count(), count)
             self.assertEqual(ActionStep.objects.count(), steps_count)
 
-        @patch("posthoganalytics.capture")
+        @patch("posthog.api.action.report_user_action")
         def test_update_action(self, patch_capture, *args):
 
             user = self._create_user("test_user_update")
@@ -134,7 +134,7 @@ def factory_test_action_api(event_factory):
 
             # Assert analytics are sent
             patch_capture.assert_called_with(
-                user.distinct_id,
+                user,
                 "action updated",
                 {
                     "post_to_slack": False,

@@ -1,7 +1,6 @@
 import json
 from typing import Any, Dict, Optional, cast
 
-import posthoganalytics
 from django.db.models import Prefetch, QuerySet
 from rest_framework import authentication, exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -11,6 +10,7 @@ from rest_framework.response import Response
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
+from posthog.event_usage import report_user_action
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import FeatureFlag
 from posthog.models.feature_flag import FeatureFlagOverride
@@ -112,8 +112,8 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         FeatureFlag.objects.filter(key=validated_data["key"], team=self.context["team_id"], deleted=True).delete()
         instance = super().create(validated_data)
 
-        posthoganalytics.capture(
-            request.user.distinct_id, "feature flag created", instance.get_analytics_metadata(),
+        report_user_action(
+            request.user, "feature flag created", instance.get_analytics_metadata(),
         )
 
         return instance
@@ -126,8 +126,8 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         self._update_filters(validated_data)
         instance = super().update(instance, validated_data)
 
-        posthoganalytics.capture(
-            request.user.distinct_id, "feature flag updated", instance.get_analytics_metadata(),
+        report_user_action(
+            request.user, "feature flag updated", instance.get_analytics_metadata(),
         )
         return instance
 
@@ -220,16 +220,12 @@ class FeatureFlagOverrideSerializer(serializers.ModelSerializer):
         )
         request = self.context["request"]
         if created:
-            posthoganalytics.capture(
-                request.user.distinct_id,
-                self._analytics_created_event_name,
-                feature_flag_override.get_analytics_metadata(),
+            report_user_action(
+                request.user, self._analytics_created_event_name, feature_flag_override.get_analytics_metadata(),
             )
         else:
-            posthoganalytics.capture(
-                request.user.distinct_id,
-                self._analytics_updated_event_name,
-                feature_flag_override.get_analytics_metadata(),
+            report_user_action(
+                request.user, self._analytics_updated_event_name, feature_flag_override.get_analytics_metadata(),
             )
         return feature_flag_override
 
@@ -237,9 +233,7 @@ class FeatureFlagOverrideSerializer(serializers.ModelSerializer):
         self._ensure_team_and_feature_flag_match(validated_data)
         request = self.context["request"]
         instance = super().update(instance, validated_data)
-        posthoganalytics.capture(
-            request.user.distinct_id, self._analytics_updated_event_name, instance.get_analytics_metadata()
-        )
+        report_user_action(request.user, self._analytics_updated_event_name, instance.get_analytics_metadata())
         return instance
 
     def _ensure_team_and_feature_flag_match(self, validated_data: Dict):

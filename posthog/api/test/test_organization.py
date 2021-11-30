@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from rest_framework import status
 
@@ -159,7 +159,14 @@ class TestOrganizationAPI(APIBaseTest):
 
             # Assert the event was reported
             mock_capture.assert_called_with(
-                user.distinct_id, "onboarding completed", properties={"team_members_count": 2},
+                user.distinct_id,
+                "onboarding completed",
+                properties={"team_members_count": 2},
+                groups={
+                    "instance": ANY,
+                    "organization": str(self.team.organization_id),
+                    "project": str(self.team.uuid),
+                },
             )
 
     def test_cannot_complete_onboarding_for_another_org(self):

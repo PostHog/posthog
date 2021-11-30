@@ -1,5 +1,5 @@
 import random
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from django.core import mail
 from rest_framework import status
@@ -99,6 +99,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "current_member_count": 1,
                 "email_available": True,
             },
+            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid),},
         )
 
         # Assert invite email is sent
@@ -168,6 +169,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "current_member_count": 1,
                 "email_available": True,
             },
+            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid),},
         )
 
     def test_maximum_20_invites_per_request(self):

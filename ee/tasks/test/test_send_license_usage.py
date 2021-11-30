@@ -1,7 +1,6 @@
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 from uuid import uuid4
 
-import posthoganalytics
 from freezegun import freeze_time
 
 from ee.api.test.base import LicensedTestMixin
@@ -46,6 +45,7 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
             self.user.distinct_id,
             "send license usage data",
             {"date": "2021-10-09", "events_count": 3, "license_keys": ["enterprise"], "organization_name": "Test"},
+            groups={"instance": ANY, "organization": str(self.organization.id)},
         )
 
     @freeze_time("2021-10-10T23:01:00Z")
@@ -70,6 +70,7 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
             self.user.distinct_id,
             "send license usage data error",
             {"error": "", "date": "2021-10-09", "organization_name": "Test"},
+            groups={"instance": ANY, "organization": str(self.organization.id)},
         )
 
 
