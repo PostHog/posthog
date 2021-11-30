@@ -1743,6 +1743,33 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "vicampuzano",
+      "name": "Victor Campuzano",
+      "avatar_url": "https://avatars.githubusercontent.com/u/20813866?v=4",
+      "profile": "https://vicampuzano.com",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "k4kuz0",
+      "name": "Louis",
+      "avatar_url": "https://avatars.githubusercontent.com/u/6428417?v=4",
+      "profile": "https://github.com/k4kuz0",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "abtinmo",
+      "name": "Abtin",
+      "avatar_url": "https://avatars.githubusercontent.com/u/21346041?v=4",
+      "profile": "https://github.com/abtinmo",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

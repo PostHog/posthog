@@ -12,7 +12,7 @@ import { ExclamationCircleFilled } from '@ant-design/icons'
 import { userLogic } from '../userLogic'
 import { WelcomeLogo } from './WelcomeLogo'
 import hedgehogMain from 'public/hedgehog-bridge-page.png'
-import { ErrorMessage } from 'lib/components/ErrorMessage/ErrorMessage'
+import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
 import { SceneExport } from 'scenes/sceneTypes'
 
 export const scene: SceneExport = {
@@ -91,10 +91,10 @@ export function Signup(): JSX.Element | null {
                             {!signupResponseLoading &&
                                 signupResponse?.errorCode &&
                                 !['email', 'password'].includes(signupResponse?.errorAttribute || '') && (
-                                    <ErrorMessage style={{ marginBottom: 16 }}>
+                                    <InlineMessage style={{ marginBottom: 16 }} type="danger">
                                         {signupResponse?.errorDetail ||
                                             'Could not complete your signup. Please try again.'}
-                                    </ErrorMessage>
+                                    </InlineMessage>
                                 )}
                             <Form
                                 layout="vertical"

@@ -5,7 +5,10 @@
     background: white;
 
     .ant-tabs-tab {
-        margin-right: 16px;
+        margin: 0 1rem 0 0;
+        .ant-tag {
+            margin: 0 0 0 0.125rem;
+        }
     }
 
     &.one-taxonomic-tab {

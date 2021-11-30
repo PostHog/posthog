@@ -1,6 +1,6 @@
 import React from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
-import { PersonModal } from './PersonModal'
+import { PersonsModal } from './PersonsModal'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
@@ -36,7 +36,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
     const { loadMoreBreakdownValues } = useActions(trendsLogic(insightProps))
     const { showingPeople } = useValues(personsModalLogic)
     const { saveCohortWithFilters } = useActions(personsModalLogic)
-    const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
+    const { reportCohortCreatedFromPersonsModal } = useActions(eventUsageLogic)
 
     const renderViz = (): JSX.Element | undefined => {
         if (
@@ -85,7 +85,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
                             </div>
                             <div>
                                 <Button
-                                    style={{ textAlign: 'center' }}
+                                    style={{ textAlign: 'center', marginBottom: 16 }}
                                     onClick={loadMoreBreakdownValues}
                                     loading={breakdownValuesLoading}
                                 >
@@ -100,7 +100,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
                     )}
                 </div>
             )}
-            <PersonModal
+            <PersonsModal
                 visible={showingPeople && !cohortModalVisible}
                 view={view}
                 filters={_filters}
@@ -113,7 +113,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
                 onOk={(title: string) => {
                     saveCohortWithFilters(title, _filters)
                     setCohortModalVisible(false)
-                    reportCohortCreatedFromPersonModal(_filters)
+                    reportCohortCreatedFromPersonsModal(_filters)
                 }}
                 onCancel={() => setCohortModalVisible(false)}
             />

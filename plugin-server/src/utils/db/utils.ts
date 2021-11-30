@@ -254,3 +254,28 @@ export function generateKafkaPersonUpdateMessage(
         ],
     }
 }
+
+export function transformPostgresElementsToEventPayloadFormat(
+    rawElements: Record<string, any>[]
+): Record<string, any>[] {
+    const elementTransformations: Record<string, string> = {
+        text: '$el_text',
+        attr_class: 'attr__class',
+        attr_id: 'attr__id',
+        href: 'attr__href',
+    }
+
+    const elements = []
+    for (const element of rawElements) {
+        for (const [key, val] of Object.entries(element)) {
+            if (key in elementTransformations) {
+                element[elementTransformations[key]] = val
+                delete element[key]
+            }
+        }
+        delete element['attributes']
+        elements.push(element)
+    }
+
+    return elements
+}

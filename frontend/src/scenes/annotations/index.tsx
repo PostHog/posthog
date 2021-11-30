@@ -1,23 +1,21 @@
 import React, { useState, useEffect, HTMLAttributes } from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Tag, Button, Modal, Input, Row, Menu, Dropdown } from 'antd'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { Tag, Button, Modal, Input, Row, Menu, Dropdown } from 'antd'
 import { annotationsModel } from '~/models/annotationsModel'
 import { annotationsTableLogic } from './logic'
 import { DeleteOutlined, RedoOutlined, ProjectOutlined, DeploymentUnitOutlined, DownOutlined } from '@ant-design/icons'
 import { annotationScopeToName } from 'lib/constants'
-import { userLogic } from 'scenes/userLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PlusOutlined } from '@ant-design/icons'
-import { createdByColumn } from 'lib/components/Table/Table'
 import { AnnotationType, AnnotationScope } from '~/types'
 import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
 import generatePicker from 'antd/lib/date-picker/generatePicker'
-import { normalizeColumnTitle, useIsTableScrolling } from 'lib/components/Table/utils'
-import { teamLogic } from '../teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/components/Spinner/Spinner'
+import { LemonTable, LemonTableColumns, LemonTableColumn } from 'lib/components/LemonTable/LemonTable'
+import { createdByColumn } from 'lib/components/LemonTable/columnUtils'
+import { TZLabel } from 'lib/components/TimezoneAware'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
@@ -35,14 +33,13 @@ export function Annotations(): JSX.Element {
     const { createGlobalAnnotation } = useActions(annotationsModel)
     const [open, setOpen] = useState(false)
     const [selectedAnnotation, setSelected] = useState(null as AnnotationType | null)
-    const { tableScrollX } = useIsTableScrolling('lg')
 
-    const columns = [
+    const columns: LemonTableColumns<AnnotationType> = [
         {
-            title: normalizeColumnTitle('Annotation'),
+            title: 'Annotation',
             key: 'annotation',
-            fixed: true,
-            render: function RenderAnnotation(annotation: AnnotationType): JSX.Element {
+            width: '30%',
+            render: function RenderAnnotation(_, annotation: AnnotationType): JSX.Element {
                 return (
                     <div
                         className="ph-no-capture"
@@ -56,32 +53,40 @@ export function Annotations(): JSX.Element {
                 )
             },
         },
-        createdByColumn(annotations),
         {
-            title: normalizeColumnTitle('Date Marker'),
-            render: function RenderDateMarker(annotation: AnnotationType): JSX.Element {
-                return <span>{dayjs(annotation.date_marker).format('YYYY-MM-DD')}</span>
+            title: 'For date',
+            dataIndex: 'date_marker',
+            render: function RenderDateMarker(_, annotation: AnnotationType): JSX.Element {
+                return <span>{dayjs(annotation.date_marker).format('MMMM DD, YYYY')}</span>
             },
+            sorter: (a, b) => dayjs(a.date_marker).diff(b.date_marker),
+        },
+        createdByColumn() as LemonTableColumn<AnnotationType, keyof AnnotationType | undefined>,
+        {
+            title: 'Last updated',
+            dataIndex: 'updated_at',
+            render: function RenderLastUpdated(_, annotation: AnnotationType): JSX.Element {
+                return <TZLabel time={annotation.updated_at} />
+            },
+            sorter: (a, b) => dayjs(a.date_marker).diff(b.date_marker),
         },
         {
-            title: normalizeColumnTitle('Last Updated'),
-            render: function RenderLastUpdated(annotation: AnnotationType): JSX.Element {
-                return <span>{humanFriendlyDetailedTime(annotation.updated_at)}</span>
-            },
-        },
-        {
-            title: normalizeColumnTitle('Status'),
-            render: function RenderStatus(annotation: AnnotationType): JSX.Element {
+            title: 'Status',
+            render: function RenderStatus(_, annotation: AnnotationType): JSX.Element {
                 return annotation.deleted ? <Tag color="red">Deleted</Tag> : <Tag color="green">Active</Tag>
             },
         },
         {
-            title: normalizeColumnTitle('Type'),
-            render: function RenderType(annotation: AnnotationType): JSX.Element {
-                return annotation.scope !== 'dashboard_item' ? (
-                    <Tag color="blue">Global</Tag>
+            title: 'Scope',
+            render: function RenderType(_, annotation: AnnotationType): JSX.Element {
+                return annotation.scope === AnnotationScope.DashboardItem ? (
+                    <Tag color="blue">Insight</Tag>
+                ) : annotation.scope === AnnotationScope.Project ? (
+                    <Tag color="purple">Project</Tag>
+                ) : annotation.scope === AnnotationScope.Organization ? (
+                    <Tag color="pink">Organization</Tag>
                 ) : (
-                    <Tag color="purple">Dashboard Item</Tag>
+                    <Tag>Unknown ({annotation.scope})</Tag>
                 )
             },
         },
@@ -97,24 +102,21 @@ export function Annotations(): JSX.Element {
             <PageHeader
                 title="Annotations"
                 caption="Here you can add organization- and project-wide annotations. Dashboard-specific ones can be added directly in the dashboard."
-            />
-
-            <div>
-                <div className="mb text-right">
+                buttons={
                     <Button
                         type="primary"
                         data-attr="create-annotation"
                         onClick={(): void => setOpen(true)}
                         icon={<PlusOutlined />}
                     >
-                        Create Annotation
+                        New Annotation
                     </Button>
-                </div>
-                <Table
+                }
+            />
+            <div>
+                <LemonTable
                     data-attr="annotations-table"
-                    size="small"
                     rowKey="id"
-                    pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                     rowClassName="cursor-pointer"
                     dataSource={annotations}
                     columns={columns}
@@ -125,7 +127,7 @@ export function Annotations(): JSX.Element {
                             setOpen(true)
                         },
                     })}
-                    scroll={{ x: tableScrollX }}
+                    emptyState="No annotations yet"
                 />
                 <div
                     style={{
@@ -143,7 +145,7 @@ export function Annotations(): JSX.Element {
                                 loadAnnotationsNext()
                             }}
                         >
-                            {'Load more annotations'}
+                            Load more annotations
                         </Button>
                     )}
                 </div>
@@ -198,8 +200,6 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
     const [textInput, setTextInput] = useState('')
     const [modalMode, setModalMode] = useState<ModalMode>(ModalMode.CREATE)
     const [selectedDate, setDate] = useState<dayjs.Dayjs>(dayjs())
-    const { currentTeam } = useValues(teamLogic)
-    const { user } = useValues(userLogic)
 
     useEffect(() => {
         if (props.annotation) {
@@ -213,6 +213,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
 
     const _onSubmit = (input: string, date: dayjs.Dayjs): void => {
         props.onSubmit(input, date)
+        // Reset input
         setTextInput('')
         setDate(dayjs())
         setScope(AnnotationScope.Project)
@@ -238,35 +239,20 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
             closable={false}
             visible={props.visible}
             onCancel={props.onCancel}
-            title={modalMode === ModalMode.CREATE ? 'Create Global Annotation' : 'Edit Annotation'}
+            title={modalMode === ModalMode.CREATE ? 'Create annotation' : 'Edit ennotation'}
         >
             {modalMode === ModalMode.CREATE ? (
                 <span>
                     This annotation will appear on all
                     <Dropdown
                         overlay={
-                            <Menu>
-                                {scope === AnnotationScope.Project ? (
-                                    <Menu.Item
-                                        onClick={() => {
-                                            setScope(AnnotationScope.Project)
-                                        }}
-                                        key={AnnotationScope.Project}
-                                        icon={<ProjectOutlined />}
-                                    >
-                                        Project {currentTeam?.name}
-                                    </Menu.Item>
-                                ) : (
-                                    <Menu.Item
-                                        onClick={() => {
-                                            setScope(AnnotationScope.Organization)
-                                        }}
-                                        key={AnnotationScope.Organization}
-                                        icon={<DeploymentUnitOutlined />}
-                                    >
-                                        Organization {user?.organization?.name}
-                                    </Menu.Item>
-                                )}
+                            <Menu activeKey={scope} onSelect={(e) => setScope(e.key as AnnotationScope)}>
+                                <Menu.Item key={AnnotationScope.Project} icon={<ProjectOutlined />}>
+                                    Project
+                                </Menu.Item>
+                                <Menu.Item key={AnnotationScope.Organization} icon={<DeploymentUnitOutlined />}>
+                                    Organization
+                                </Menu.Item>
                             </Menu>
                         }
                     >

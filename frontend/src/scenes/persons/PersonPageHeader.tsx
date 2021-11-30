@@ -11,7 +11,7 @@ export function PersonPageHeader({ hideGroupTabs }: { hideGroupTabs?: boolean })
         <>
             <PageHeader
                 title={`Persons${groupsEnabled ? ' & groups' : ''}`}
-                caption={`List of persons (end users) ${groupsEnabled ? ' and groups ' : ''}from your app or website.`}
+                caption={`A catalog of your product's end users${groupsEnabled ? ' and groups' : ''}.`}
             />
             {!hideGroupTabs && groupsEnabled && <GroupsTabs />}
         </>

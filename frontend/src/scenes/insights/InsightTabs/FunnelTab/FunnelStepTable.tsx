@@ -42,7 +42,6 @@ export function FunnelStepTable(): JSX.Element | null {
     const {
         stepsWithCount,
         flattenedSteps,
-        filters,
         steps,
         visibleStepsWithConversionMetrics,
         hiddenLegendKeys,
@@ -62,7 +61,6 @@ export function FunnelStepTable(): JSX.Element | null {
     function getColumns(): ColumnsType<FlattenedFunnelStep> | ColumnsType<FlattenedFunnelStepByBreakdown> {
         if (isNewVertical) {
             const _columns: ColumnsType<FlattenedFunnelStepByBreakdown> = []
-            const useCustomName = !!featureFlags[FEATURE_FLAGS.RENAME_FILTERS]
             const isOnlySeries = flattenedBreakdowns.length === 1
 
             _columns.push({
@@ -115,8 +113,7 @@ export function FunnelStepTable(): JSX.Element | null {
                         />,
                         showLabels,
                         undefined,
-                        dashboardItemId,
-                        useCustomName
+                        dashboardItemId
                     )
                 },
                 fixed: 'left',
@@ -139,7 +136,7 @@ export function FunnelStepTable(): JSX.Element | null {
                             )}
                             hasMultipleSeries={steps.length > 1}
                             breakdownValue={breakdown.breakdown_value}
-                            hideBreakdown
+                            hideBreakdown={false}
                             iconSize={IconSize.Small}
                             iconStyle={{ marginRight: 12 }}
                             allowWrap
@@ -147,8 +144,7 @@ export function FunnelStepTable(): JSX.Element | null {
                         renderColumnTitle('Breakdown'),
                         showLabels,
                         undefined,
-                        dashboardItemId,
-                        useCustomName
+                        dashboardItemId
                     )
                 },
                 fixed: 'left',
@@ -165,8 +161,7 @@ export function FunnelStepTable(): JSX.Element | null {
                         renderSubColumnTitle('Rate'),
                         showLabels,
                         undefined,
-                        dashboardItemId,
-                        useCustomName
+                        dashboardItemId
                     )
                 },
                 fixed: 'left',
@@ -204,8 +199,7 @@ export function FunnelStepTable(): JSX.Element | null {
                             ),
                             showLabels,
                             step,
-                            dashboardItemId,
-                            useCustomName
+                            dashboardItemId
                         )
                     },
                     width: 80,
@@ -245,8 +239,7 @@ export function FunnelStepTable(): JSX.Element | null {
                             renderSubColumnTitle('Rate'),
                             showLabels,
                             step,
-                            dashboardItemId,
-                            useCustomName
+                            dashboardItemId
                         )
                     },
                     width: 80,
@@ -286,8 +279,7 @@ export function FunnelStepTable(): JSX.Element | null {
                                 ),
                                 showLabels,
                                 step,
-                                dashboardItemId,
-                                useCustomName
+                                dashboardItemId
                             )
                         },
                         width: 80,
@@ -328,8 +320,7 @@ export function FunnelStepTable(): JSX.Element | null {
                                 renderSubColumnTitle('Rate'),
                                 showLabels,
                                 step,
-                                dashboardItemId,
-                                useCustomName
+                                dashboardItemId
                             )
                         },
                         width: 80,
@@ -354,8 +345,7 @@ export function FunnelStepTable(): JSX.Element | null {
                                 renderSubColumnTitle('Avg. time'),
                                 showLabels,
                                 step,
-                                dashboardItemId,
-                                useCustomName
+                                dashboardItemId
                             )
                         },
                         width: 80,
@@ -385,7 +375,7 @@ export function FunnelStepTable(): JSX.Element | null {
             align: 'center',
         })
 
-        if (featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] && !!filters.breakdown) {
+        if (featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] && !!steps[0]?.breakdown) {
             _columns.push({
                 title: '',
                 render: function RenderCheckbox({}, step: FlattenedFunnelStep): JSX.Element | null {
@@ -428,8 +418,8 @@ export function FunnelStepTable(): JSX.Element | null {
         _columns.push({
             title: 'Step',
             render: function RenderLabel({}, step: FlattenedFunnelStep): JSX.Element {
-                const isBreakdownChild = !!filters.breakdown && !step.isBreakdownParent
-                const color = getStepColor(step, !!filters.breakdown)
+                const isBreakdownChild = !!step.breakdown && !step.isBreakdownParent
+                const color = getStepColor(step, !!step.breakdown)
 
                 return (
                     <InsightLabel
@@ -444,7 +434,7 @@ export function FunnelStepTable(): JSX.Element | null {
                                 ? undefined
                                 : getActionFilterFromFunnelStep(step)
                         }
-                        hasMultipleSeries={steps.length > 1}
+                        hasMultipleSeries={!isBreakdownChild && steps.length > 1}
                         breakdownValue={
                             step.breakdown === ''
                                 ? 'None'
@@ -452,12 +442,12 @@ export function FunnelStepTable(): JSX.Element | null {
                                 ? step.breakdown
                                 : undefined
                         }
-                        hideBreakdown
+                        hideBreakdown={!isBreakdownChild}
                         iconSize={IconSize.Small}
                         iconStyle={{ marginRight: 12 }}
                         hideIcon={!isBreakdownChild}
                         allowWrap
-                        useCustomName={!!featureFlags[FEATURE_FLAGS.RENAME_FILTERS]}
+                        useCustomName
                     />
                 )
             },

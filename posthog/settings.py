@@ -66,12 +66,12 @@ There are several options:
 
 Arguments to the application will be slightly different in each case
 
-So, in order to set test variables we need to look in slightly different places 
+So, in order to set test variables we need to look in slightly different places
 
 The /bin/tests file also runs mypy to do type checking. This needs DEBUG=1 set too
 
 Running pytest directly does not always load django settings but sometimes needs these environment variables.
-We use pytest-env to let us set environment variables from the closest pytest.ini 
+We use pytest-env to let us set environment variables from the closest pytest.ini
 
 We can't rely only on pytest.ini as some tests evaluate this file before its environment variables have been read
 """
@@ -114,17 +114,16 @@ if E2E_TESTING:
 # The features here are released, but the flags are just not yet removed from the code.
 # To ignore this persisted feature flag behavior, set `PERSISTED_FEATURE_FLAGS = 0`
 env_feature_flags = os.getenv("PERSISTED_FEATURE_FLAGS", "")
-PERSISTED_FEATURE_FLAGS = []
+PERSISTED_FEATURE_FLAGS: List[str] = []
+default_flag_persistence = [
+    # Add hard-coded feature flags for static self-hosted releases here
+    "3638-trailing-wau-mau",  # pending UI/UX improvements; functionality ready
+    "5440-multivariate-support",
+    "new-paths-ui-edge-weights",
+]
+
 if env_feature_flags != "0" and env_feature_flags.lower() != "false" and not DEBUG:
-    PERSISTED_FEATURE_FLAGS = get_list(env_feature_flags) or [
-        # Add hard-coded feature flags for static releases here
-        "3638-trailing-wau-mau",  # pending UI/UX improvements; functionality ready
-        "5440-multivariate-support",
-        "6063-rename-filters",
-        "4141-event-columns",
-        "new-paths-ui",
-        "new-paths-ui-edge-weights",
-    ]
+    PERSISTED_FEATURE_FLAGS = default_flag_persistence + get_list(env_feature_flags)
 
 
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
@@ -691,6 +690,7 @@ EMAIL_REPORTS_ENABLED: bool = get_from_env("EMAIL_REPORTS_ENABLED", False, type_
 
 # Setup logging
 LOGGING_FORMATTER_NAME = os.getenv("LOGGING_FORMATTER_NAME", "default")
+DEFAULT_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "ERROR" if TEST else "INFO")
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -702,15 +702,15 @@ LOGGING = {
         "console": {"class": "logging.StreamHandler", "formatter": LOGGING_FORMATTER_NAME,},
         "null": {"class": "logging.NullHandler",},
     },
-    "root": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "INFO")},
+    "root": {"handlers": ["console"], "level": DEFAULT_LOG_LEVEL},
     "loggers": {
-        "django": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "INFO")},
+        "django": {"handlers": ["console"], "level": DEFAULT_LOG_LEVEL},
         "django.server": {"handlers": ["null"]},  # blackhole Django server logs (this is only needed in DEV)
         "django.utils.autoreload": {
             "handlers": ["null"],
         },  # blackhole Django autoreload logs (this is only needed in DEV)
-        "axes": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "INFO")},
-        "statsd": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "INFO")},
+        "axes": {"handlers": ["console"], "level": DEFAULT_LOG_LEVEL},
+        "statsd": {"handlers": ["console"], "level": DEFAULT_LOG_LEVEL},
     },
 }
 
@@ -739,8 +739,8 @@ SKIP_SERVICE_VERSION_REQUIREMENTS = get_from_env(
     "SKIP_SERVICE_VERSION_REQUIREMENTS", TEST or IS_COLLECT_STATIC, type_cast=str_to_bool
 )
 
-if SKIP_SERVICE_VERSION_REQUIREMENTS:
-    print_warning("Skipping service version requirements. This is dangerous and PostHog might not work as expected!")
+if SKIP_SERVICE_VERSION_REQUIREMENTS and not (TEST or DEBUG):
+    print_warning(["Skipping service version requirements. This is dangerous and PostHog might not work as expected!"])
 
 SERVICE_VERSION_REQUIREMENTS = [
     ServiceVersionRequirement(service="postgresql", supported_version=">=11.0.0,<=14.1.0",),

@@ -4,16 +4,29 @@ import React, { CSSProperties, useEffect, useState } from 'react'
 import { PlusOutlined, SyncOutlined, CloseOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from '../SelectGradientOverflow'
 
-interface ObjectTagsInterface {
+interface ObjectTagsPropsBase {
     tags: string[]
-    onTagSave?: (tag: string, tags?: string[], id?: string) => void
-    onTagDelete?: (tag: string, tags?: string[], id?: string) => void
-    tagsAvailable?: string[] // list of all tags that already exist
     saving?: boolean
     style?: CSSProperties
-    staticOnly?: boolean // whether tags can be added or removed
     id?: string
 }
+
+type ObjectTagsProps =
+    | (ObjectTagsPropsBase & {
+          /** Tags CAN'T be added or removed. */
+          staticOnly: true
+          onTagSave?: never
+          onTagDelete?: never
+          tagsAvailable?: never
+      })
+    | (ObjectTagsPropsBase & {
+          /** Tags CAN be added or removed. */
+          staticOnly?: false
+          onTagSave?: (tag: string, tags?: string[], id?: string) => void
+          onTagDelete?: (tag: string, tags?: string[], id?: string) => void
+          /** List of all tags that already exist. */
+          tagsAvailable?: string[]
+      })
 
 const COLOR_OVERRIDES: Record<string, string> = {
     official: 'green',
@@ -28,10 +41,10 @@ export function ObjectTags({
     onTagDelete, // Required unless `staticOnly`
     saving, // Required unless `staticOnly`
     tagsAvailable,
-    style,
-    staticOnly,
+    style = {},
+    staticOnly = false,
     id, // For pages that allow multiple object tags
-}: ObjectTagsInterface): JSX.Element {
+}: ObjectTagsProps): JSX.Element {
     const [addingNewTag, setAddingNewTag] = useState(false)
     const [newTag, setNewTag] = useState('')
     const [deletedTags, setDeletedTags] = useState<string[]>([]) // we use this state var to remove items immediately from UI while API requests are processed
@@ -48,27 +61,39 @@ export function ObjectTags({
         }
     }, [saving])
 
+    /** Displaying nothing is confusing, so in case of empty static tags we use a dash as a placeholder */
+    const showPlaceholder = staticOnly && !tags.length
+    if (showPlaceholder && !style.color) {
+        style.color = 'var(--muted)'
+    }
+
     return (
         <div style={style}>
-            {tags
-                .filter((t) => !!t)
-                .map((tag, index) => {
-                    return (
-                        <Tag key={index} color={COLOR_OVERRIDES[tag] || colorForString(tag)} style={{ marginTop: 8 }}>
-                            {tag}{' '}
-                            {!staticOnly &&
-                                onTagDelete &&
-                                (deletedTags.includes(tag) ? (
-                                    <SyncOutlined spin />
-                                ) : (
-                                    <CloseOutlined
-                                        style={{ cursor: 'pointer' }}
-                                        onClick={() => handleDelete(tag, tags, id)}
-                                    />
-                                ))}
-                        </Tag>
-                    )
-                })}
+            {showPlaceholder
+                ? '—'
+                : tags
+                      .filter((t) => !!t)
+                      .map((tag, index) => {
+                          return (
+                              <Tag
+                                  key={index}
+                                  color={COLOR_OVERRIDES[tag] || colorForString(tag)}
+                                  style={{ marginTop: 8 }}
+                              >
+                                  {tag}{' '}
+                                  {!staticOnly &&
+                                      onTagDelete &&
+                                      (deletedTags.includes(tag) ? (
+                                          <SyncOutlined spin />
+                                      ) : (
+                                          <CloseOutlined
+                                              style={{ cursor: 'pointer' }}
+                                              onClick={() => handleDelete(tag, tags, id)}
+                                          />
+                                      ))}
+                              </Tag>
+                          )
+                      })}
             {!staticOnly && onTagSave && saving !== undefined && (
                 <span style={{ display: 'inline-flex', fontWeight: 400 }}>
                     <Tag

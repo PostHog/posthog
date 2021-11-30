@@ -11,6 +11,8 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { RenameModal } from 'scenes/insights/ActionFilter/RenameModal'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from '../../teamLogic'
+import { ButtonType } from 'antd/lib/button'
+import clsx from 'clsx'
 
 export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void
@@ -20,6 +22,7 @@ export interface ActionFilterProps {
     hideMathSelector?: boolean
     hidePropertySelector?: boolean
     buttonCopy: string // Text copy for the action button to add more events/actions (graph series)
+    buttonType?: ButtonType
     disabled?: boolean // Whether the full control is enabled or not
     singleFilter?: boolean // Whether it's allowed to add multiple event/action series (e.g. lifecycle only accepts one event)
     sortable?: boolean // Whether actions/events can be sorted (used mainly for funnel step reordering)
@@ -96,6 +99,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             propertiesTaxonomicGroupTypes,
             hideDeleteBtn,
             renderRow,
+            buttonType = 'dashed',
         },
         ref
     ): JSX.Element => {
@@ -195,10 +199,13 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                     )
                 ) : null}
                 {(!singleFilter || customActions) && (
-                    <div className="mt" style={{ display: 'flex', alignItems: 'center' }}>
+                    <div
+                        className={clsx(buttonType !== 'link' ? 'mt' : 'mt-05')}
+                        style={{ display: 'flex', alignItems: 'center' }}
+                    >
                         {!singleFilter && (
                             <Button
-                                type="dashed"
+                                type={buttonType}
                                 onClick={() => addFilter()}
                                 data-attr="add-action-event-button"
                                 icon={<PlusCircleOutlined />}

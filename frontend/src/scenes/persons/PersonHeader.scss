@@ -4,20 +4,9 @@
     display: flex;
     align-items: center;
 
-    .profile-picture {
-        margin-right: 4px;
-    }
-
-    &.anonymous {
-        color: $text_muted;
-        .profile-picture {
-            color: $primary_alt;
-            background-color: $yellow_100;
-        }
-    }
-
-    &.identified {
-        color: $text_default;
+    .icon {
+        font-size: 1.125rem;
+        margin-right: 0.5rem;
     }
 
     &:hover {
