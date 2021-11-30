@@ -39,9 +39,6 @@ describe('<Person /> ', () => {
             cy.intercept('/api/projects/2/dashboards/', { fixture: 'api/dashboard' })
             cy.intercept('/api/personal_api_keys/', { fixture: 'api/personal_api_keys' })
             cy.intercept('/api/projects/@current/', { fixture: 'api/projects/@current' })
-            cy.intercept('/api/projects/2/events/sessions/', {
-                fixture: 'api/event/sessions/session_with_recording',
-            }).as('api_sessions')
             cy.intercept(
                 '/api/projects/2/session_recordings/177902024d94f6-022e8a39d6abb8-3b710f51-1fa400-177902024da550/',
                 { fixture: 'api/session_recordings_meta' }

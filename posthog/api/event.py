@@ -12,7 +12,6 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
@@ -20,11 +19,8 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import Element, ElementGroup, Event, Filter, Person, PersonDistinctId
 from posthog.models.action import Action
 from posthog.models.event import EventManager
-from posthog.models.filters.sessions_filter import SessionEventsFilter, SessionsFilter
-from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.base import properties_to_Q
-from posthog.queries.sessions.session_recording import SessionRecording
 from posthog.utils import convert_property_value, flatten, relative_date_parse
 
 
@@ -285,63 +281,6 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
         )
         flattened = flatten([json.loads(value.value) for value in values])
         return [{"name": convert_property_value(value)} for value in flattened]
-
-    # ******************************************
-    # /events/sessions
-    #
-    # params:
-    # - pagination: (dict) Object containing information about pagination (offset, last page info)
-    # - distinct_id: (string) filter sessions by distinct id
-    # - duration: (float) filter sessions by recording duration
-    # - duration_operator: (string: lt, gt)
-    # - **shared filter types
-    # ******************************************
-    @action(methods=["GET"], detail=False)
-    def sessions(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        from posthog.queries.sessions.sessions_list import SessionsList
-
-        filter = SessionsFilter(request=request, team=self.team)
-
-        sessions, pagination = SessionsList.run(filter=filter, team=self.team)
-        return Response({"result": sessions, "pagination": pagination})
-
-    @action(methods=["GET"], detail=False)
-    def session_events(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        from posthog.queries.sessions.sessions_list_events import SessionsListEvents
-
-        filter = SessionEventsFilter(request=request, team=self.team)
-        return Response({"result": SessionsListEvents().run(filter=filter, team=self.team)})
-
-    # ******************************************
-    # /events/session_recording
-    # params:
-    # - session_recording_id: (string) id of the session recording
-    # - save_view: (boolean) save view of the recording
-    # ******************************************
-    @action(methods=["GET"], detail=False)
-    def session_recording(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        if not request.GET.get("session_recording_id"):
-            return Response(
-                {
-                    "detail": "The query parameter session_recording_id is required for this endpoint.",
-                    "type": "validation_error",
-                    "code": "invalid",
-                },
-                status=400,
-            )
-        session_recording = SessionRecording(
-            request=request,
-            filter=Filter(request=request, team=self.team),
-            session_recording_id=request.GET["session_recording_id"],
-            team=self.team,
-        ).run()
-
-        if request.GET.get("save_view"):
-            SessionRecordingViewed.objects.get_or_create(
-                team=self.team, user=request.user, session_id=request.GET["session_recording_id"]
-            )
-
-        return response.Response({"result": session_recording})
 
 
 class LegacyEventViewSet(EventViewSet):

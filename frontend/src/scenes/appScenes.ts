@@ -14,7 +14,6 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Actions]: () => import('./actions/ActionsTable'),
     [Scene.EventStats]: () => import('./events/EventsVolumeTable'),
     [Scene.EventPropertyStats]: () => import('./events/PropertiesVolumeTable'),
-    [Scene.Sessions]: () => import('./sessions/Sessions'),
     [Scene.SessionRecordings]: () => import('./session-recordings/SessionRecordings'),
     [Scene.Person]: () => import('./persons/Person'),
     [Scene.Persons]: () => import('./persons/Persons'),

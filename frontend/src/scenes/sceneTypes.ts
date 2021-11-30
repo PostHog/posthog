@@ -14,7 +14,6 @@ export enum Scene {
     Events = 'Events',
     EventStats = 'EventsVolumeTable',
     EventPropertyStats = 'PropertiesVolumeTable',
-    Sessions = 'Sessions',
     SessionRecordings = 'SessionsRecordings',
     Person = 'Person',
     Persons = 'Persons',

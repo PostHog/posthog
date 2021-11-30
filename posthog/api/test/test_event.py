@@ -24,9 +24,7 @@ from posthog.models import (
     User,
 )
 from posthog.models.cohort import Cohort
-from posthog.queries.sessions.sessions_list import SESSIONS_LIST_DEFAULT_LIMIT
 from posthog.test.base import APIBaseTest
-from posthog.utils import relative_date_parse
 
 
 def factory_test_event_api(event_factory, person_factory, _):
@@ -491,87 +489,6 @@ def factory_test_event_api(event_factory, person_factory, _):
             self.assertEqual(response.json()["event"], "sign up")
             self.assertEqual(response.json()["properties"], {"key": "test_val"})
 
-        def test_events_sessions_basic(self):
-            with freeze_time("2012-01-14T03:21:34.000Z"):
-                event_factory(team=self.team, event="1st action", distinct_id="1")
-                event_factory(team=self.team, event="1st action", distinct_id="2")
-            with freeze_time("2012-01-14T03:25:34.000Z"):
-                event_factory(team=self.team, event="2nd action", distinct_id="1")
-                event_factory(team=self.team, event="2nd action", distinct_id="2")
-            with freeze_time("2012-01-15T03:59:34.000Z"):
-                event_factory(team=self.team, event="3rd action", distinct_id="2")
-            with freeze_time("2012-01-15T03:59:35.000Z"):
-                event_factory(team=self.team, event="3rd action", distinct_id="1")
-            with freeze_time("2012-01-15T04:01:34.000Z"):
-                event_factory(team=self.team, event="4th action", distinct_id="1", properties={"$os": "Mac OS X"})
-                event_factory(team=self.team, event="4th action", distinct_id="2", properties={"$os": "Windows 95"})
-
-            with freeze_time("2012-01-15T04:01:34.000Z"):
-                response = self.client.get(f"/api/projects/{self.team.id}/events/sessions/",).json()
-
-            self.assertEqual(len(response["result"]), 2)
-
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/events/sessions/?date_from=2012-01-14&date_to=2012-01-15",
-            ).json()
-            self.assertEqual(len(response["result"]), 4)
-
-            # 4 sessions were already created above
-            for i in range(SESSIONS_LIST_DEFAULT_LIMIT - 4):
-                with freeze_time(relative_date_parse("2012-01-15T04:01:34.000Z") + relativedelta(hours=i)):
-                    event_factory(team=self.team, event="action {}".format(i), distinct_id=str(i + 3))
-
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/events/sessions/?date_from=2012-01-14&date_to=2012-01-17",
-            ).json()
-            self.assertEqual(len(response["result"]), SESSIONS_LIST_DEFAULT_LIMIT)
-            self.assertIsNone(response.get("pagination"))
-
-            for i in range(2):
-                with freeze_time(relative_date_parse("2012-01-15T04:01:34.000Z") + relativedelta(hours=i + 46)):
-                    event_factory(team=self.team, event="action {}".format(i), distinct_id=str(i + 49))
-
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/events/sessions/?date_from=2012-01-14&date_to=2012-01-17",
-            ).json()
-            self.assertEqual(len(response["result"]), SESSIONS_LIST_DEFAULT_LIMIT)
-            self.assertIsNotNone(response["pagination"])
-
-        def test_events_nonexistent_cohort_handling(self):
-            response_nonexistent_property = self.client.get(
-                f"/api/projects/{self.team.id}/events/sessions/?filters={json.dumps([{'type':'property','key':'abc','value':'xyz'}])}"
-            ).json()
-            response_nonexistent_cohort = self.client.get(
-                f"/api/projects/{self.team.id}/events/sessions/?filters={json.dumps([{'type':'cohort','key':'id','value':2137}])}"
-            ).json()
-
-            self.assertEqual(response_nonexistent_property, response_nonexistent_cohort)  # Both cases just empty
-
-        def test_event_sessions_by_id(self):
-            another_team = Team.objects.create(organization=self.organization)
-
-            Person.objects.create(team=self.team, distinct_ids=["1"])
-            Person.objects.create(team=another_team, distinct_ids=["1"])
-            with freeze_time("2012-01-14T03:21:34.000Z"):
-                event_factory(team=self.team, event="1st action", distinct_id="1")
-                event_factory(team=self.team, event="1st action", distinct_id="2")
-            with freeze_time("2012-01-14T03:25:34.000Z"):
-                event_factory(team=self.team, event="2nd action", distinct_id="1")
-                event_factory(team=another_team, event="2nd action", distinct_id="1")
-                event_factory(team=self.team, event="2nd action", distinct_id="2")
-            with freeze_time("2012-01-15T03:59:35.000Z"):
-                event_factory(team=self.team, event="3rd action", distinct_id="1")
-            with freeze_time("2012-01-15T04:01:34.000Z"):
-                event_factory(team=self.team, event="4th action", distinct_id="1", properties={"$os": "Mac OS X"})
-                event_factory(team=self.team, event="4th action", distinct_id="2", properties={"$os": "Windows 95"})
-
-            with freeze_time("2012-01-15T04:01:34.000Z"):
-                response_person_1 = self.client.get(
-                    f"/api/projects/{self.team.id}/events/sessions/?distinct_id=1",
-                ).json()
-
-            self.assertEqual(len(response_person_1["result"]), 1)
-
         def test_events_in_future(self):
             with freeze_time("2012-01-15T04:01:34.000Z"):
                 event_factory(team=self.team, event="5th action", distinct_id="2", properties={"$os": "Windows 95"})
@@ -581,33 +498,6 @@ def factory_test_event_api(event_factory, person_factory, _):
             with freeze_time("2012-01-15T04:01:34.000Z"):
                 response = self.client.get(f"/api/projects/{self.team.id}/events/").json()
             self.assertEqual(len(response["results"]), 1)
-
-        def test_session_events(self):
-            another_team = Team.objects.create(organization=self.organization)
-
-            Person.objects.create(team=self.team, distinct_ids=["1"])
-            Person.objects.create(team=another_team, distinct_ids=["1"])
-
-            with freeze_time("2012-01-14T03:21:34.000Z"):
-                event_factory(team=self.team, event="1st action", distinct_id="1")
-
-            with freeze_time("2012-01-14T03:25:34.000Z"):
-                event_factory(team=self.team, event="2nd action", distinct_id="1")
-                event_factory(team=another_team, event="2nd action", distinct_id="1")
-                event_factory(team=self.team, event="2nd action", distinct_id="2")
-
-            with freeze_time("2012-01-15T03:59:35.000Z"):
-                event_factory(team=self.team, event="3rd action", distinct_id="1")
-
-            with freeze_time("2012-01-15T04:01:34.000Z"):
-                event_factory(team=self.team, event="4th action", distinct_id="1", properties={"$os": "Mac OS X"})
-
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/events/session_events?distinct_id=1&date_from=2012-01-14T03:25:34&date_to=2012-01-15T04:00:00"
-            ).json()
-            self.assertEqual(len(response["result"]), 2)
-            self.assertEqual(response["result"][0]["event"], "2nd action")
-            self.assertEqual(response["result"][1]["event"], "3rd action")
 
         @patch("posthog.api.event.EventViewSet.CSV_EXPORT_MAXIMUM_LIMIT", 10)
         def test_events_csv_export_with_param_limit(self):
