@@ -13,6 +13,7 @@ export class TeamManager {
     db: DB
     teamCache: TeamCache<Team | null>
     eventNamesCache: Map<TeamId, Set<string>>
+    eventLastSeenCache: Map<string, DateTime> // key: ${team_id}_${name}
     eventPropertiesCache: Map<TeamId, Set<string>>
     instanceSiteUrl: string
 
@@ -20,6 +21,7 @@ export class TeamManager {
         this.db = db
         this.teamCache = new Map()
         this.eventNamesCache = new Map()
+        this.eventLastSeenCache = new Map()
         this.eventPropertiesCache = new Map()
         this.instanceSiteUrl = instanceSiteUrl || 'unknown'
     }
@@ -67,11 +69,19 @@ export class TeamManager {
             )
             this.eventNamesCache.get(team.id)?.add(event)
         } else {
-            await this.db.postgresQuery(
-                `UPDATE posthog_eventdefinition SET last_seen_at = GREATEST(last_seen_at, $1) WHERE name = $2 AND team_id = $3`,
-                [eventTimestamp, event, team.id],
-                'updateEventLastSeen'
-            )
+            if (
+                !this.eventLastSeenCache.get(`${team.id}_${event}`) ||
+                eventTimestamp.diff(
+                    this.eventLastSeenCache.get(`${team.id}_${event}`) || DateTime.fromISO('1970-01-01')
+                ).minutes > 15
+            ) {
+                await this.db.postgresQuery(
+                    `UPDATE posthog_eventdefinition SET last_seen_at = GREATEST(last_seen_at, $1) WHERE name = $2 AND team_id = $3`,
+                    [eventTimestamp.toISOTime(), event, team.id],
+                    'updateEventLastSeen'
+                )
+                this.eventLastSeenCache.set(`${team.id}_${event}`, eventTimestamp)
+            }
         }
 
         for (const [key, value] of Object.entries(properties)) {

@@ -73,6 +73,11 @@ describe('TeamManager()', () => {
                 'testTag'
             )
             await hub.db.postgresQuery(
+                `INSERT INTO posthog_eventdefinition (id, name, team_id, created_at, last_seen_at) VALUES ($1, $2, $3, NOW(), $4)`,
+                [new UUIDT().toString(), 'another_test_event', 2, '2020-01-30 11:00:36Z'],
+                'testTag'
+            )
+            await hub.db.postgresQuery(
                 `INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id) VALUES ($1, $2, $3, $4, $5, $6)`,
                 [new UUIDT().toString(), 'property_name', false, null, null, 2],
                 'testTag'
@@ -107,6 +112,15 @@ describe('TeamManager()', () => {
                     team_id: 2,
                     volume_30_day: 3,
                     last_seen_at: null,
+                    created_at: expect.any(String),
+                },
+                {
+                    id: expect.any(String),
+                    name: 'another_test_event',
+                    query_usage_30_day: null,
+                    team_id: 2,
+                    volume_30_day: null,
+                    last_seen_at: '2020-01-30T11:00:36.000Z',
                     created_at: expect.any(String),
                 },
                 {
@@ -158,20 +172,53 @@ describe('TeamManager()', () => {
             ])
         })
 
-        it('does not update anything if nothing changes', async () => {
+        it('only updates last_seen_at if nothing else changes', async () => {
             await teamManager.fetchTeam(2)
             await teamManager.cacheEventNamesAndProperties(2)
             jest.spyOn(hub.db, 'postgresQuery')
+
+            let eventDefinitions = await hub.db.fetchEventDefinitions()
+            for (const eventDef of eventDefinitions) {
+                if (eventDef.name === '$pageview') {
+                    expect(eventDef.last_seen_at).toBe(null)
+                }
+            }
 
             await teamManager.updateEventNamesAndProperties(2, '$pageview', {}, DateTime.now())
 
             expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1) // Update last_seen_at
 
-            const eventDefinitions = await hub.db.fetchEventDefinitions()
+            eventDefinitions = await hub.db.fetchEventDefinitions()
             for (const eventDef of eventDefinitions) {
                 if (eventDef.name === '$pageview') {
                     const parsedLastSeen = DateTime.fromISO(eventDef.last_seen_at)
                     expect(parsedLastSeen.diff(DateTime.now()).seconds).toBeCloseTo(0)
+                }
+            }
+        })
+
+        it('does not update last seen if it was recently updated', async () => {
+            await teamManager.fetchTeam(2)
+            await teamManager.cacheEventNamesAndProperties(2)
+
+            // Fill cache first
+            await teamManager.updateEventNamesAndProperties(2, 'another_test_event', {}, DateTime.now())
+
+            jest.spyOn(hub.db, 'postgresQuery')
+            await teamManager.updateEventNamesAndProperties(
+                2,
+                'another_test_event',
+                {},
+                DateTime.fromISO('2020-01-30 11:10:36Z') // 10 minutes later; threshold is 15 minutes
+            )
+
+            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(0)
+
+            const eventDefinitions = await hub.db.fetchEventDefinitions()
+            for (const eventDef of eventDefinitions) {
+                if (eventDef.name === 'another_test_event') {
+                    const parsedLastSeen = DateTime.fromISO(eventDef.last_seen_at)
+                    expect(parsedLastSeen.diff(DateTime.fromISO('2020-01-30 11:00:36Z')).seconds).toBeCloseTo(0)
                 }
             }
         })
