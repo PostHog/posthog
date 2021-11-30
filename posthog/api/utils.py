@@ -1,6 +1,15 @@
 import json
 from enum import Enum, auto
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import (
+    Any,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    Union,
+    cast,
+)
 
 from rest_framework import request, status
 from sentry_sdk import capture_exception
@@ -25,7 +34,7 @@ def get_target_entity(request: request.Request) -> Entity:
     events = request.GET.get("events", "[]")
     actions = request.GET.get("actions", "[]")
     entity_type = request.GET.get(ENTITY_TYPE)
-    entity_math = request.GET.get(ENTITY_MATH, "total")
+    entity_math = cast(MATH_TYPE, request.GET.get(ENTITY_MATH, "total"))
 
     if not entity_id or not entity_type:
         raise ValueError("An entity id and the entity type must be provided to determine an entity")
@@ -40,7 +49,7 @@ def get_target_entity(request: request.Request) -> Entity:
 
 
 def retrieve_entity_from(
-    entity_id: Union[str, int], entity_type: str, entity_math: str, events: List[Dict], actions: List[Dict],
+    entity_id: Union[str, int], entity_type: str, entity_math: MATH_TYPE, events: List[Dict], actions: List[Dict],
 ) -> Optional[Dict]:
     """
     Retrieves the entity from the events and actions.
