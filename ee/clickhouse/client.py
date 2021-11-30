@@ -66,7 +66,7 @@ def make_ch_pool(**overrides) -> ChPool:
 
 
 if PRIMARY_DB != AnalyticsDBMS.CLICKHOUSE:
-    ch_client: Optional[Client] = None
+    ch_client = None  # type: Client
 
     class ClickHouseNotConfigured(NotImplementedError):
         def __init__(self, msg='This function only works if PRIMARY_DB is set to indicate ClickHouse!"', *args):
