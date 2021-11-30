@@ -198,6 +198,7 @@ export function Cohorts(): JSX.Element {
                                     style={{ color: 'var(--danger)' }}
                                     onClick={() =>
                                         deleteWithUndo({
+                                            endpoint: api.cohorts.determineDeleteEndpoint(),
                                             object: { name, id },
                                             callback: loadCohorts,
                                         })
