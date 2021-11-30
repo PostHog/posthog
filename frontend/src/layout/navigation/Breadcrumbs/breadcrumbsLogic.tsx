@@ -153,7 +153,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                             here: true,
                         })
                         break
-                    case Scene.Insights:
+                    case Scene.Insight:
                         breadcrumbs.push({
                             name: 'Insights',
                             path: urls.savedInsights(),
@@ -182,7 +182,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                         })
                         // Current place
                         breadcrumbs.push({
-                            name: featureFlag ? featureFlag.key || 'Unnamed flag' : null,
+                            name: featureFlag ? featureFlag.key || 'New feature flag' : null,
                             here: true,
                         })
                         break

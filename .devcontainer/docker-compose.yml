@@ -1,37 +1,85 @@
+# Defines the services and workspace environment used for codespaces
+#
+# Used
+# https://github.com/microsoft/vscode-dev-containers/blob/main/containers/python-3-postgres/.devcontainer/docker-compose.yml
+# for reference.
+
 version: '3'
 services:
-    # Update this to the name of the service you want to work with in your docker-compose.yml file
-    web:
-        # If you want add a non-root user to your Dockerfile, you can use the "remoteUser"
-        # property in devcontainer.json to cause VS Code its sub-processes (terminals, tasks,
-        # debugging) to execute as the user. Uncomment the next line if you want the entire
-        # container to run as this user instead. Note that, on Linux, you may need to
-        # ensure the UID and GID of the container user you create matches your local user.
-        # See https://aka.ms/vscode-remote/containers/non-root for details.
-        #
-        # user: vscode
-
-        # Uncomment if you want to override the service's Dockerfile to one in the .devcontainer
-        # folder. Note that the path of the Dockerfile and context is relative to the *primary*
-        # docker-compose.yml file (the first in the devcontainer.json "dockerComposeFile"
-        # array). The sample below assumes your primary file is in the root of your project.
-        #
-        # build:
-        #   context: .
-        #   dockerfile: .devcontainer/Dockerfile
-
+    # The workspace environment you'll be dropped into. Note that I do not
+    # create separate services for each process e.g. celery, the plugin server.
+    # I expect these to be run from within this workspace context, such that you
+    # do not need to interact with them via docker, the intent is to make them
+    # readily debuggable.
+    #
+    # Service dependencies are, however, run separately as there isn't so much
+    # of a need to debug them. You can of course however use `docker logs` (as we
+    # have docker-in-docker enabled) to view these, of via the vscode docker
+    # extention.
+    app:
+        image: ghcr.io/posthog/posthog/codespaces:master
+        command: sleep infinity
+        env_file: .env
         volumes:
-            # Update this to wherever you want VS Code to mount the folder of your project
+            # Make sure we can see the code in our workspace! Should match the
+            # `workspaceFolder` setting in `devcontainer.json`.
             - .:/workspace:cached
 
-            # Uncomment the next line to use Docker from inside the container. See https://aka.ms/vscode-remote/samples/docker-from-docker-compose for details.
+            # Make sure we can talk to the docker daemon. See
+            # https://aka.ms/vscode-remote/samples/docker-from-docker-compose
+            # for details.
             - /var/run/docker.sock:/var/run/docker.sock
 
-        # Uncomment the next four lines if you will use a ptrace-based debugger like C++, Go, and Rust.
-        # cap_add:
-        #   - SYS_PTRACE
-        # security_opt:
-        #   - seccomp:unconfined
+    # The applications service dependencies
+    db:
+        image: postgres:12-alpine
+        ports:
+            - '5432:5432'
+        environment:
+            POSTGRES_USER: posthog
+            POSTGRES_DB: posthog
+            POSTGRES_PASSWORD: posthog
+        volumes:
+            - postgres-data:/var/lib/postgresql/data
 
-        # Overrides default command so things don't shut down after the process ends.
-        command: /bin/sh -c "while sleep 1000; do :; done"
+    # Used for/by 1. celery broker 2. django.core.cache
+    redis:
+        image: 'redis:alpine'
+        ports:
+            - '6379:6379'
+
+    clickhouse:
+        # KEEP CLICKHOUSE-SERVER VERSION IN SYNC WITH
+        # https://github.com/PostHog/charts-clickhouse/blob/main/charts/posthog/templates/clickhouse_instance.yaml#L88
+        image: yandex/clickhouse-server:21.6.5
+        ports:
+            - '8123:8123'
+            - '9000:9000'
+            - '9440:9440'
+            - '9009:9009'
+        volumes:
+            - ../ee/idl:/idl
+            - ../docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            - ../docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ../docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
+            - clickhouse-data:/var/lib/clickhouse/data
+
+    # Needed for 1. clickhouse distributed queries 2. kafka replication
+    zookeeper:
+        image: wurstmeister/zookeeper
+
+    kafka:
+        image: wurstmeister/kafka
+        depends_on:
+            - zookeeper
+        ports:
+            - '9092:9092'
+        environment:
+            KAFKA_ADVERTISED_HOST_NAME: kafka
+            KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+
+# Make sure we persist between container recreation. We only really care about
+# postgres and clickhouse here
+volumes:
+    postgres-data:
+    clickhouse-data:

@@ -66,7 +66,7 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
             MAX(timestamp) AS end_time,
             dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
             any(distinct_id) as distinct_id,
-            COUNT((JSONExtractInt(snapshot_data, 'type') = 2 OR JSONExtractBool(snapshot_data, 'has_full_snapshot')) ? 1 : NULL) as full_snapshots
+            SUM(has_full_snapshot) as full_snapshots
         FROM session_recording_events
         WHERE
             team_id = %(team_id)s

@@ -1,0 +1,112 @@
+#!/bin/bash
+set -e
+
+# Seed a secret
+POSTHOG_SECRET=$(echo $RANDOM | md5sum | head -c 25)
+export POSTHOG_SECRET
+
+# Talk to the user
+echo "Welcome to the single instance PostHog installer 🦔"
+echo ""
+echo "⚠️  You really need 4gb or more of memory to run this stack ⚠️"
+echo ""
+echo "Let's first start by getting the exact domain PostHog will be installed on"
+echo "Make sure that you have a Host A DNS record pointing to this instance!"
+echo "This will be used for TLS 🔐"
+echo "ie: test.posthog.net"
+read -r DOMAIN
+export DOMAIN=$DOMAIN
+echo "Ok we'll set up certs for https://$DOMAIN"
+echo ""
+echo "Do you have a Sentry DSN you would like for debugging should something go wrong?"
+echo "If you do enter it now, otherwise just hit enter to continue"
+read -r SENTRY_DSN
+export SENTRY_DSN=$SENTRY_DSN
+echo ""
+echo "We will need sudo access so the next question is for you to give us superuser access"
+echo "Please enter your sudo password now:"
+sudo echo ""
+echo "Thanks! 🙏"
+echo ""
+echo "Ok! We'll take it from here 🚀"
+
+echo "Making sure any stack that might exist is stopped"
+sudo -E docker-compose -f docker-compose.hobby.yml stop || true
+
+# update apt cache
+echo "Grabbing latest apt caches"
+sudo apt update
+
+# clone posthog
+echo "Installing PostHog 🦔 from Github"
+sudo apt install -y git
+rm -rf posthog
+git clone https://github.com/PostHog/posthog.git 
+
+# rewrite caddyfile
+rm -f Caddyfile
+envsubst > Caddyfile <<EOF
+$DOMAIN, :80, :443 {
+reverse_proxy http://web:8000
+}
+EOF
+
+# write entrypoint
+rm -rf compose
+mkdir -p compose
+cat > compose/start <<EOF
+#!/bin/bash
+python manage.py migrate
+python manage.py migrate_clickhouse
+./bin/docker-server
+./bin/docker-frontend
+EOF
+chmod +x compose/start
+
+# setup docker
+echo "Setting up Docker"
+sudo apt install -y apt-transport-https ca-certificates curl software-properties-common
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo -E apt-key add -
+sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable"
+sudo apt update
+sudo apt-cache policy docker-ce
+sudo apt install -y docker-ce
+
+
+# setup docker-compose
+echo "Setting up Docker Compose"
+sudo curl -L "https://github.com/docker/compose/releases/download/1.27.4/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose || true
+sudo chmod +x /usr/local/bin/docker-compose
+
+# enable docker without sudo
+sudo usermod -aG docker "${USER}"
+
+# send log of this install for continued support!
+curl -L --header "Content-Type: application/json" -d '{
+    "api_key": "sTMFPsFhdP1Ssg",
+    "properties": {"domain": "${DOMAIN}"},
+    "type": "capture",
+    "event": "magic_curl_install"
+}' https://app.posthog.com/batch/
+
+# start up the stack 
+rm -f docker-compose.hobby.yml
+curl -o docker-compose.hobby.yml https://raw.githubusercontent.com/posthog/posthog/HEAD/docker-compose.hobby.yml
+sudo -E docker-compose -f docker-compose.hobby.yml up -d
+
+echo "We will need to wait ~5-10 minutes for things to settle down, migrations to finish, and TLS certs to be issued"
+echo ""
+echo "⏳ Waiting for PostHog web to boot (this will take a few minutes)"
+bash -c 'while [[ "$(curl -s -o /dev/null -w ''%{http_code}'' localhost:8000/_health)" != "200" ]]; do sleep 5; done' 
+echo "⌛️ PostHog looks up!"
+echo ""
+echo "🎉🎉🎉  Done! 🎉🎉🎉"
+echo ""
+echo "To stop the stack run 'docker-compose stop'"
+echo "To start the stack again run 'docker-compose start'"
+echo "If you have any issues at all delete everything in this directory and run the curl command again"
+echo ""
+echo "PostHog will be up at the location you provided!"
+echo "https://${DOMAIN}"
+echo ""
+echo "It's dangerous to go alone! Take this: 🦔"

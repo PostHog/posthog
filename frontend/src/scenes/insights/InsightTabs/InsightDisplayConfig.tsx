@@ -3,7 +3,7 @@ import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { TZIndicator } from 'lib/components/TimezoneAware'
-import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE } from 'lib/constants'
+import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE, FEATURE_FLAGS } from 'lib/constants'
 import { ChartDisplayType, FilterType, FunnelVizType, ItemMode, InsightType } from '~/types'
 import { CalendarOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from '../InsightDateFilter'
@@ -12,6 +12,8 @@ import { FunnelStepReferencePicker } from './FunnelTab/FunnelStepReferencePicker
 import { FunnelDisplayLayoutPicker } from './FunnelTab/FunnelDisplayLayoutPicker'
 import { FunnelBinsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBinsPicker'
 import { PathStepPicker } from './PathTab/PathStepPicker'
+import { useValues } from 'kea'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 interface InsightDisplayConfigProps {
     clearAnnotationsToCreate: () => void
@@ -86,6 +88,7 @@ export function InsightDisplayConfig({
     const showFunnelBarOptions = activeView === InsightType.FUNNELS
     const showPathOptions = activeView === InsightType.PATHS
     const dateFilterDisabled = showFunnelBarOptions && isFunnelEmpty(filters)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div className="display-config-inner">
@@ -111,7 +114,7 @@ export function InsightDisplayConfig({
                 {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.Steps && (
                     <>
                         <FunnelDisplayLayoutPicker />
-                        <FunnelStepReferencePicker />
+                        {!featureFlags[FEATURE_FLAGS.FUNNEL_SIMPLE_MODE] && <FunnelStepReferencePicker />}
                     </>
                 )}
 

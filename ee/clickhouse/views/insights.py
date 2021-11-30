@@ -107,8 +107,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
                 ).run()
             }
         else:
-            base_uri = request.build_absolute_uri("/")
-            return {"result": funnel_order_class(team=team, filter=filter, base_uri=base_uri).run()}
+            return {"result": funnel_order_class(team=team, filter=filter).run()}
 
     # ******************************************
     # /projects/:id/insights/funnel/correlation

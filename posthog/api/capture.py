@@ -15,7 +15,7 @@ from statshog.defaults.django import statsd
 
 from posthog.api.utils import get_data, get_team, get_token
 from posthog.celery import app as celery_app
-from posthog.exceptions import RequestParsingError, generate_exception_response
+from posthog.exceptions import generate_exception_response
 from posthog.helpers.session_recording import preprocess_session_recording_events
 from posthog.models import Team
 from posthog.models.feature_flag import get_overridden_feature_flags
@@ -24,7 +24,8 @@ from posthog.utils import cors_response, get_ip_address, is_clickhouse_enabled
 
 if is_clickhouse_enabled():
     from ee.kafka_client.client import KafkaProducer
-    from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE, KAFKA_EVENTS_PLUGIN_INGESTION
+    from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
+    from ee.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 
     def parse_kafka_event_data(
         distinct_id: str,
@@ -47,19 +48,19 @@ if is_clickhouse_enabled():
             "sent_at": sent_at.isoformat() if sent_at else "",
         }
 
-    def log_event(data: Dict, event_name: str, topic: str = KAFKA_EVENTS_PLUGIN_INGESTION,) -> None:
+    def log_event(data: Dict, event_name: str) -> None:
         if settings.DEBUG:
-            print(f"Logging event {event_name} to Kafka topic {topic}")
+            print(f"Logging event {event_name} to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC}")
 
         # TODO: Handle Kafka being unavailable with exponential backoff retries
         try:
-            KafkaProducer().produce(topic=topic, data=data)
+            KafkaProducer().produce(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=data)
         except Exception as e:
             capture_exception(e, {"data": data})
             statsd.incr("capture_endpoint_log_event_error")
 
             if settings.DEBUG:
-                print(f"Failed to produce event to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION} with error:", e)
+                print(f"Failed to produce event to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC} with error:", e)
 
     def log_event_to_dead_letter_queue(
         raw_payload: Dict,
@@ -204,6 +205,13 @@ def get_event(request):
         distinct_id = get_distinct_id(event)
         if not distinct_id:
             continue
+
+        payload_uuid = event.get("uuid", None)
+        if payload_uuid:
+            if UUIDT.is_valid_uuid(payload_uuid):
+                event_uuid = UUIDT(uuid_str=payload_uuid)
+            else:
+                statsd.incr("invalid_event_uuid")
 
         event = parse_event(event, distinct_id, team)
         if not event:

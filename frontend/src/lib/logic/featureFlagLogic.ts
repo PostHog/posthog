@@ -8,7 +8,7 @@ import { featureFlagLogicType } from './featureFlagLogicType'
 import posthog from 'posthog-js'
 import { getAppContext } from 'lib/utils/getAppContext'
 
-type FeatureFlagsSet = {
+export type FeatureFlagsSet = {
     [flag: string]: boolean | string
 }
 const eventsNotified: Record<string, boolean> = {}

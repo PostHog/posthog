@@ -1,33 +1,30 @@
 import React from 'react'
-import { Button } from 'antd'
 import { useActions, useValues } from 'kea'
-import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTable'
-import { humanFriendlyDetailedTime } from 'lib/utils'
 import { Group } from '~/types'
 import { groupsListLogic } from './groupsListLogic'
-import { LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { PersonPageHeader } from 'scenes/persons/PersonPageHeader'
+import { LemonTableColumns } from 'lib/components/LemonTable/types'
+import { TZLabel } from 'lib/components/TimezoneAware'
+import { LemonTable } from 'lib/components/LemonTable/LemonTable'
 
 export function Groups(): JSX.Element {
     const { groups, groupsLoading } = useValues(groupsListLogic)
     const { loadGroups } = useActions(groupsListLogic)
 
-    const columns: ResizableColumnType<Partial<Group>>[] = [
+    const columns: LemonTableColumns<Group> = [
         {
             title: 'Key',
             key: 'group_key',
-            span: 8,
-            render: function Render(group: Group) {
+            render: function Render(_, group: Group) {
                 return <>{group.group_key}</>
             },
         },
         {
             title: 'Last updated',
             key: 'created_at',
-            span: 8,
-            render: function Render(group: Group) {
-                return <div>{humanFriendlyDetailedTime(group.created_at)}</div>
+            render: function Render(_, group: Group) {
+                return <TZLabel time={group.created_at} />
             },
         },
     ]
@@ -35,8 +32,7 @@ export function Groups(): JSX.Element {
     return (
         <>
             <PersonPageHeader />
-            <ResizableTable
-                size="small"
+            <LemonTable
                 columns={columns}
                 rowKey="group_key"
                 loading={groupsLoading}
@@ -48,32 +44,22 @@ export function Groups(): JSX.Element {
                     rowExpandable: ({ group_properties }) =>
                         !!group_properties && Object.keys(group_properties).length > 0,
                 }}
-                pagination={false}
+                pagination={{
+                    controlled: true,
+                    onBackward: groups.previous_url
+                        ? () => {
+                              loadGroups(groups.previous_url)
+                              window.scrollTo(0, 0)
+                          }
+                        : undefined,
+                    onForward: groups.next_url
+                        ? () => {
+                              loadGroups(groups.next_url)
+                              window.scrollTo(0, 0)
+                          }
+                        : undefined,
+                }}
             />
-            {(groups.previous_url || groups.next_url) && (
-                <div style={{ margin: '3rem auto 10rem', width: 200, display: 'flex', alignItems: 'center' }}>
-                    <Button
-                        type="link"
-                        disabled={!groups.previous_url}
-                        onClick={() => {
-                            loadGroups(groups.previous_url)
-                            window.scrollTo(0, 0)
-                        }}
-                    >
-                        <LeftOutlined /> Previous
-                    </Button>
-                    <Button
-                        type="link"
-                        disabled={!groups.next_url}
-                        onClick={() => {
-                            loadGroups(groups.next_url)
-                            window.scrollTo(0, 0)
-                        }}
-                    >
-                        Next <RightOutlined />
-                    </Button>
-                </div>
-            )}
         </>
     )
 }

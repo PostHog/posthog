@@ -10,7 +10,6 @@ export function IPCapture(): JSX.Element {
     return (
         <div>
             <Switch
-                // @ts-expect-error - id works just fine despite not being in CompoundedComponent
                 id="anonymize-ip"
                 onChange={(checked) => {
                     updateCurrentTeam({ anonymize_ips: checked })

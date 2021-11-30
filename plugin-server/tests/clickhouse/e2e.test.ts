@@ -243,7 +243,7 @@ describe('e2e', () => {
                 type: 'Export historical events',
                 jobOp: 'start',
                 payload: {
-                    dateFrom: new Date().toISOString(),
+                    dateFrom: new Date(Date.now() - ONE_HOUR).toISOString(),
                     dateTo: new Date().toISOString(),
                 },
             }
@@ -251,28 +251,16 @@ describe('e2e', () => {
 
             const client = new Client(hub.db, hub.PLUGINS_CELERY_QUEUE)
 
-            // pass in an incorrect date range first
-            client.sendTask('posthog.tasks.plugins.plugin_job', args, {})
-
-            await delay(10000)
-
-            const exportedEventsCountAfterFirstJob = testConsole
-                .read()
-                .filter((log) => log[0] === 'exported historical event').length
-            expect(exportedEventsCountAfterFirstJob).toEqual(0)
-
-            // pass in the correct date range
-            kwargs.payload.dateFrom = new Date(Date.now() - ONE_HOUR).toISOString()
             args = Object.values(kwargs)
             client.sendTask('posthog.tasks.plugins.plugin_job', args, {})
 
             await delayUntilEventIngested(awaitHistoricalEventLogs, 4, 1000)
 
             const exportLogs = testConsole.read().filter((log) => log[0] === 'exported historical event')
-            const exportedEventsCountAfterSecondJob = exportLogs.length
+            const exportedEventsCountAfterJob = exportLogs.length
             const exportedEvents = exportLogs.map((log) => log[1])
 
-            expect(exportedEventsCountAfterSecondJob).toEqual(4)
+            expect(exportedEventsCountAfterJob).toEqual(4)
             expect(exportedEvents.map((e) => e.event)).toEqual(
                 expect.arrayContaining(['historicalEvent1', 'historicalEvent2', 'historicalEvent3', 'historicalEvent4'])
             )

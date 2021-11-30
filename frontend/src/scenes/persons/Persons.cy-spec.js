@@ -14,21 +14,6 @@ describe('<Person /> ', () => {
         helpers.setLocation('/persons')
     })
 
-    it('person type tabs', () => {
-        mount()
-        cy.contains('Persons').should('be.visible')
-        cy.wait('@api_persons').map(helpers.getSearchParameters).should('be.empty')
-        cy.get('[data-attr="people-types-tab-identified"]').click({ force: true })
-        cy.wait('@api_persons').map(helpers.getSearchParameters).should('include', {
-            is_identified: 'true',
-        })
-
-        cy.get('[data-attr="people-types-tab-anonymous"]').click({ force: true })
-        cy.wait('@api_persons').map(helpers.getSearchParameters).should('include', {
-            is_identified: 'false',
-        })
-    })
-
     it('person search', () => {
         mount()
 
@@ -45,7 +30,7 @@ describe('<Person /> ', () => {
         mount()
 
         cy.wait('@api_persons').map(helpers.getSearchParameters).should('be.empty')
-        cy.get('[data-attr="goto-person-arrow-0"]').click()
+        cy.get('[data-attr="goto-person-email-01776f08-b02e-0025-98c6-d8c376e3617b"]').click()
         cy.wait('@api_persons').map(helpers.getSearchParameters).should('include', {
             distinct_id: '01776f08-b02e-0025-98c6-d8c376e3617b',
         })

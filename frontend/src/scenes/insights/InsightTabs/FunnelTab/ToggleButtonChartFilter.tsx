@@ -10,6 +10,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 interface ToggleButtonChartFilterProps {
     onChange?: (chartFilter: FunnelVizType) => void
     disabled?: boolean
+    simpleMode?: boolean // Hide title & compact mode for dropdown
 }
 
 const noop = (): void => {}
@@ -17,6 +18,7 @@ const noop = (): void => {}
 export function ToggleButtonChartFilter({
     onChange = noop,
     disabled = false,
+    simpleMode,
 }: ToggleButtonChartFilterProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { clickhouseFeaturesEnabled, aggregationTargetLabel } = useValues(funnelLogic(insightProps))
@@ -51,22 +53,29 @@ export function ToggleButtonChartFilter({
         return null
     }
 
-    return (
-        <div style={{ paddingBottom: '1rem' }}>
+    const innerContent = (
+        <div className="funnel-chart-filter">
+            <DropdownSelector
+                options={options}
+                value={chartFilter || defaultDisplay}
+                onValueChange={(val) => {
+                    const valueTyped = val as FunnelVizType
+                    setChartFilter(valueTyped)
+                    onChange(valueTyped)
+                }}
+                disabled={disabled}
+                hideDescriptionOnDisplay
+                compact={simpleMode}
+            />
+        </div>
+    )
+
+    return simpleMode ? (
+        innerContent
+    ) : (
+        <div>
             <h4 className="secondary">Graph Type</h4>
-            <div className="funnel-chart-filter">
-                <DropdownSelector
-                    options={options}
-                    value={chartFilter || defaultDisplay}
-                    onValueChange={(val) => {
-                        const valueTyped = val as FunnelVizType
-                        setChartFilter(valueTyped)
-                        onChange(valueTyped)
-                    }}
-                    disabled={disabled}
-                    hideDescriptionOnDisplay
-                />
-            </div>
+            {innerContent}
         </div>
     )
 }

@@ -56,7 +56,7 @@
         left: 0;
         right: 0;
 
-        min-width: 300px;
+        min-width: 320px;
 
         // Make sure we don't get covered up
         z-index: 100; // number is abritrary
@@ -94,11 +94,10 @@
             overflow-y: auto;
 
             .checkbox {
-                display: block;
                 padding: 8px;
 
                 height: 40px;
-                margin: 4px 0px;
+                margin: 2px 0px;
                 width: 100%;
 
                 background: #ffffff;

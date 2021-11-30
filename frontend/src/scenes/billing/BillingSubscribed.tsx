@@ -3,7 +3,7 @@ import React from 'react'
 import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
 import './BillingSubscribed.scss'
 import hedgehogMain from 'public/hedgehog-bridge-page.png'
-import { HelpButton } from 'lib/components/HelpButton/HelpButton'
+import { helpButtonLogic } from 'lib/components/HelpButton/HelpButton'
 import { CheckCircleOutlined, CloseCircleOutlined, ArrowRightOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -18,6 +18,7 @@ export const scene: SceneExport = {
 
 export function BillingSubscribed(): JSX.Element {
     const { status } = useValues(billingSubscribedLogic)
+    const { toggleHelp } = useActions(helpButtonLogic)
 
     return (
         <div className="bridge-page billing-subscribed">
@@ -29,7 +30,10 @@ export function BillingSubscribed(): JSX.Element {
                         <div className="inner">
                             {status === SubscriptionStatus.Success ? <SubscriptionSuccess /> : <SubscriptionFailure />}
                             <div className="support-footer">
-                                Have questions? <HelpButton inline customComponent={<a href="#">Get help</a>} />
+                                Have questions?{' '}
+                                <Button type="link" onClick={toggleHelp} style={{ paddingLeft: 0 }}>
+                                    Get help
+                                </Button>
                             </div>
                         </div>
                     </div>
@@ -68,7 +72,7 @@ function SubscriptionSuccess(): JSX.Element {
                 questions.
             </p>
             <Button className="btn-bridge outlined" block onClick={() => push('/')}>
-                Continue to PostHog
+                Finish
             </Button>
         </>
     )

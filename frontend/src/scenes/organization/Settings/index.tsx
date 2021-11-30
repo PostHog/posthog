@@ -120,7 +120,6 @@ function EmailPreferences({ isRestricted }: RestrictedComponentProps): JSX.Eleme
             </h2>
             <div>
                 <Switch
-                    // @ts-expect-error - id works just fine despite not being in CompoundedComponent
                     id="is-member-join-email-enabled-switch"
                     data-attr="is-member-join-email-enabled-switch"
                     onChange={(checked) => {

@@ -1,13 +1,12 @@
-import './Insights.scss'
+import './Insight.scss'
 import React from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 import { Row, Col, Card, Button, Popconfirm, Alert } from 'antd'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { router } from 'kea-router'
 import { FunnelTab, PathTab, RetentionTab, SessionTab, TrendTab } from './InsightTabs'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
-import { HotKeys, ItemMode, InsightType } from '~/types'
+import { HotKeys, ItemMode, InsightType, InsightShortId } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
@@ -22,22 +21,20 @@ import { HotkeyButton } from 'lib/components/HotkeyButton/HotkeyButton'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { UNNAMED_INSIGHT_NAME } from './EmptyStates'
+import { InsightSaveButton } from './InsightSaveButton'
 import posthog from 'posthog-js'
 import { helpButtonLogic } from 'lib/components/HelpButton/HelpButton'
 
 export const scene: SceneExport = {
-    component: Insights,
+    component: Insight,
     logic: insightLogic,
-    paramsToProps: ({ hashParams: { fromItem } }) => ({ dashboardItemId: fromItem, syncWithUrl: true }),
+    paramsToProps: ({ params: { shortId } }) => ({ dashboardItemId: shortId, syncWithUrl: true }),
 }
 
-export function Insights(): JSX.Element {
+export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Element {
     useMountedLogic(insightCommandLogic)
-    const {
-        hashParams: { fromItem },
-    } = useValues(router)
 
-    const logic = insightLogic({ dashboardItemId: fromItem, syncWithUrl: true })
+    const logic = insightLogic({ dashboardItemId: shortId, syncWithUrl: true })
     const {
         insightProps,
         activeView,
@@ -49,8 +46,16 @@ export function Insights(): JSX.Element {
         tagLoading,
         metadataEditable,
     } = useValues(logic)
-    const { setActiveView, setInsightMode, saveInsight, setFilters, setInsightMetadata, saveNewTag, deleteTag } =
-        useActions(logic)
+    const {
+        setActiveView,
+        setInsightMode,
+        saveInsight,
+        setFilters,
+        setInsightMetadata,
+        saveNewTag,
+        deleteTag,
+        saveAs,
+    } = useActions(logic)
 
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
@@ -59,7 +64,7 @@ export function Insights(): JSX.Element {
     const { reportInsightsTabReset } = useActions(eventUsageLogic)
     const { showHelp } = useActions(helpButtonLogic)
 
-    const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
+    const { reportCohortCreatedFromPersonsModal } = useActions(eventUsageLogic)
     const verticalLayout = activeView === InsightType.FUNNELS && !featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] // Whether to display the control tab on the side instead of on top
 
     const handleHotkeyNavigation = (view: InsightType, hotkey: HotKeys): void => {
@@ -100,6 +105,17 @@ export function Insights(): JSX.Element {
         },
     })
 
+    /* These are insight specific filters. They each have insight specific logics */
+    const insightTab = {
+        [`${InsightType.TRENDS}`]: <TrendTab view={InsightType.TRENDS} />,
+        [`${InsightType.STICKINESS}`]: <TrendTab view={InsightType.STICKINESS} />,
+        [`${InsightType.LIFECYCLE}`]: <TrendTab view={InsightType.LIFECYCLE} />,
+        [`${InsightType.SESSIONS}`]: <SessionTab />,
+        [`${InsightType.FUNNELS}`]: <FunnelTab />,
+        [`${InsightType.RETENTION}`]: <RetentionTab />,
+        [`${InsightType.PATHS}`]: <PathTab />,
+    }[activeView]
+
     const insightScene = (
         <div className="insights-page">
             <div className="insight-metadata">
@@ -133,7 +149,7 @@ export function Insights(): JSX.Element {
                                 </Button>
                             </Popconfirm>
                         ) : null}
-                        {insight.id && <SaveToDashboard insight={insight} />}
+                        {insight.short_id && <SaveToDashboard insight={insight} />}
                         {insightMode === ItemMode.View ? (
                             <HotkeyButton
                                 type="primary"
@@ -145,14 +161,7 @@ export function Insights(): JSX.Element {
                                 Edit
                             </HotkeyButton>
                         ) : (
-                            <Button
-                                style={{ marginLeft: 8 }}
-                                type="primary"
-                                onClick={saveInsight}
-                                data-attr="insight-save-button"
-                            >
-                                Save
-                            </Button>
+                            <InsightSaveButton saveAs={saveAs} saveInsight={saveInsight} isSaved={insight.saved} />
                         )}
                     </Col>
                 </Row>
@@ -179,14 +188,14 @@ export function Insights(): JSX.Element {
             </div>
 
             {insightMode === ItemMode.View ? (
-                <Row>
-                    <Col span={24} style={{ marginTop: 16 }}>
+                <Row style={{ marginTop: 16 }}>
+                    <Col span={24}>
                         <InsightContainer />
                     </Col>
                 </Row>
             ) : (
                 <>
-                    <Row style={{ marginTop: 16 }}>
+                    <Row style={{ marginTop: 8 }}>
                         <InsightsNav />
                     </Row>
 
@@ -226,24 +235,18 @@ export function Insights(): JSX.Element {
                         />
                     )}
 
-                    <Row gutter={16}>
+                    <Row gutter={16} style={verticalLayout ? { marginBottom: 64 } : undefined}>
                         <Col span={24} xl={verticalLayout ? 8 : undefined}>
-                            <Card className="insight-controls">
-                                <div className="tabs-inner">
-                                    {/* These are insight specific filters. They each have insight specific logics */}
-                                    {
-                                        {
-                                            [`${InsightType.TRENDS}`]: <TrendTab view={InsightType.TRENDS} />,
-                                            [`${InsightType.STICKINESS}`]: <TrendTab view={InsightType.STICKINESS} />,
-                                            [`${InsightType.LIFECYCLE}`]: <TrendTab view={InsightType.LIFECYCLE} />,
-                                            [`${InsightType.SESSIONS}`]: <SessionTab />,
-                                            [`${InsightType.FUNNELS}`]: <FunnelTab />,
-                                            [`${InsightType.RETENTION}`]: <RetentionTab />,
-                                            [`${InsightType.PATHS}`]: <PathTab />,
-                                        }[activeView]
-                                    }
-                                </div>
-                            </Card>
+                            {featureFlags[FEATURE_FLAGS.FUNNEL_SIMPLE_MODE] && verticalLayout ? (
+                                insightTab
+                            ) : (
+                                <Card className="insight-controls">
+                                    <div className="tabs-inner">
+                                        {/* These are insight specific filters. They each have insight specific logics */}
+                                        {insightTab}
+                                    </div>
+                                </Card>
+                            )}
                         </Col>
                         <Col span={24} xl={verticalLayout ? 16 : undefined}>
                             <InsightContainer />
@@ -258,7 +261,7 @@ export function Insights(): JSX.Element {
                 onOk={(title: string) => {
                     saveCohortWithFilters(title, filters)
                     setCohortModalVisible(false)
-                    reportCohortCreatedFromPersonModal(filters)
+                    reportCohortCreatedFromPersonsModal(filters)
                 }}
                 onCancel={() => setCohortModalVisible(false)}
             />

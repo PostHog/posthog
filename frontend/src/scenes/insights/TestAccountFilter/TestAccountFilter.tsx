@@ -1,4 +1,4 @@
-import { Row, Switch } from 'antd'
+import { Row } from 'antd'
 import { useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import React from 'react'
@@ -6,6 +6,7 @@ import { FilterType } from '~/types'
 import { SettingOutlined } from '@ant-design/icons'
 import { teamLogic } from 'scenes/teamLogic'
 import { Tooltip } from 'lib/components/Tooltip'
+import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 
 export function TestAccountFilter({
     filters,
@@ -26,29 +27,34 @@ export function TestAccountFilter({
             }
         >
             <Row style={{ alignItems: 'center', flexWrap: 'nowrap' }}>
-                <Switch
+                <div>
+                    <Link to="/project/settings#internal-users-filtering">
+                        <SettingOutlined
+                            style={{
+                                marginRight: 4,
+                                fontSize: '0.85em',
+                            }}
+                        />
+                    </Link>
+                    <label
+                        style={{
+                            marginRight: 6,
+                            fontWeight: 500,
+                        }}
+                        htmlFor="text-account-filter"
+                    >
+                        Filter out internal and test users
+                    </label>
+                </div>
+                <LemonSwitch
                     disabled={!hasFilters}
-                    checked={hasFilters ? filters.filter_test_accounts : false}
+                    checked={hasFilters ? !!filters.filter_test_accounts : false}
                     onChange={(checked: boolean) => {
                         localStorage.setItem('default_filter_test_accounts', checked.toString())
                         onChange({ filter_test_accounts: checked })
                     }}
-                    size="small"
+                    id="test-account-filter"
                 />
-                <label
-                    style={{
-                        marginLeft: 10,
-                    }}
-                >
-                    Filter out internal and test users
-                </label>
-                <Link to="/project/settings#internal-users-filtering">
-                    <SettingOutlined
-                        style={{
-                            marginLeft: 8,
-                        }}
-                    />
-                </Link>
             </Row>
         </Tooltip>
     )

@@ -27,11 +27,11 @@ const { TabPane } = Tabs
 export const scene: SceneExport = {
     component: Person,
     logic: personsLogic,
-    paramsToProps: () => ({ syncWithUrl: true }),
+    paramsToProps: ({ params }) => ({ syncWithUrl: true, urlId: params._ }), // wildcard is stored in _
 }
 
-export function Person({ id: urlId }: { id?: string } = {}): JSX.Element {
-    const personsLogicProps: PersonLogicProps = { syncWithUrl: true }
+export function Person({ _: urlId }: { _?: string } = {}): JSX.Element {
+    const personsLogicProps: PersonLogicProps = { syncWithUrl: true, urlId }
     const [activeCardTab, setActiveCardTab] = useState('properties')
     const {
         person,
@@ -122,7 +122,10 @@ export function Person({ id: urlId }: { id?: string } = {}): JSX.Element {
                                         pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
                                         fixedFilters={{ person_id: person.id }}
                                         hidePersonColumn
-                                        sceneUrl={urls.person(urlId || person.distinct_ids[0] || String(person.id))}
+                                        sceneUrl={urls.person(
+                                            urlId || person.distinct_ids[0] || String(person.id),
+                                            false
+                                        )}
                                     />
                                 )}
                             </div>

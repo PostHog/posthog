@@ -2,7 +2,7 @@ import { Meta } from '@storybook/react'
 
 import { keaStory } from 'lib/storybook/kea-story'
 
-import { Insights } from '../Insights'
+import { Insight } from '../Insight'
 
 import retentionJson from './retention.json'
 import lifecycleJson from './lifecycle.json'
@@ -14,8 +14,8 @@ export default {
     title: 'PostHog/Scenes/Insights',
 } as Meta
 
-export const Retention = keaStory(Insights, retentionJson)
-export const UserPaths = keaStory(Insights, pathsJson)
-export const Sessions = keaStory(Insights, sessionsJson)
-export const Stickiness = keaStory(Insights, stickinessJson)
-export const Lifecycle = keaStory(Insights, lifecycleJson)
+export const Retention = keaStory(Insight, retentionJson)
+export const UserPaths = keaStory(Insight, pathsJson)
+export const Sessions = keaStory(Insight, sessionsJson)
+export const Stickiness = keaStory(Insight, stickinessJson)
+export const Lifecycle = keaStory(Insight, lifecycleJson)

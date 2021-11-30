@@ -8,7 +8,6 @@ export function EventPageHeader({ activeTab, hideTabs }: { activeTab: EventsTab;
             <PageHeader
                 title="Events &amp; actions"
                 caption="See events being sent to this project and manage custom actions."
-                style={{ marginTop: 0 }}
                 tabbedPage
             />
             {!hideTabs && <EventsTabs tab={activeTab} />}

@@ -25,7 +25,7 @@ import { toast } from 'react-toastify'
 import { cohortsModel } from '~/models/cohortsModel'
 import { dayjs } from 'lib/dayjs'
 
-export interface PersonModalParams {
+export interface PersonsModalParams {
     action: ActionFilter | 'session' // todo, refactor this session string param out
     label: string // Contains the step name
     date_from: string | number
@@ -106,18 +106,18 @@ type LoadPeopleFromUrlProps = {
     label: string
     // Needed for display
     date_from?: string | number
-    // Copied from `PersonModalParams`, likely needed for display logic
+    // Copied from `PersonsModalParams`, likely needed for display logic
     action: ActionFilter | 'session'
-    // Copied from `PersonModalParams`, likely needed for diplay logic
+    // Copied from `PersonsModalParams`, likely needed for diplay logic
     pathsDropoff?: boolean
 }
 
-export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProps, PersonModalParams>>({
+export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProps, PersonsModalParams>>({
     path: ['scenes', 'trends', 'personsModalLogic'],
     actions: () => ({
         setSearchTerm: (term: string) => ({ term }),
         setCohortModalVisible: (visible: boolean) => ({ visible }),
-        loadPeople: (peopleParams: PersonModalParams) => ({ peopleParams }),
+        loadPeople: (peopleParams: PersonsModalParams) => ({ peopleParams }),
         loadPeopleFromUrl: (props: LoadPeopleFromUrlProps) => props,
         loadMorePeople: true,
         hidePeople: true,
@@ -129,7 +129,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         }),
         saveFirstLoadedPeople: (people: TrendPeople) => ({ people }),
         setFirstLoadedPeople: (firstLoadedPeople: TrendPeople | null) => ({ firstLoadedPeople }),
-        savePeopleParams: (peopleParams: PersonModalParams) => ({ peopleParams }),
+        savePeopleParams: (peopleParams: PersonsModalParams) => ({ peopleParams }),
     }),
     reducers: () => ({
         searchTerm: [
@@ -191,7 +191,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             },
         ],
         peopleParams: [
-            null as PersonModalParams | null,
+            null as PersonsModalParams | null,
             {
                 loadPeople: (_, { peopleParams }) => peopleParams,
             },
@@ -293,7 +293,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     pathsDropoff,
                 } as TrendPeople
 
-                eventUsageLogic.actions.reportPersonModalViewed(peopleParams, peopleResult.count, !!people?.next)
+                eventUsageLogic.actions.reportPersonsModalViewed(peopleParams, peopleResult.count, !!people?.next)
 
                 if (saveOriginal) {
                     actions.saveFirstLoadedPeople(peopleResult)
@@ -419,7 +419,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/insights': (_, {}, { personModal }) => {
+        '/insights/': (_, {}, { personModal }) => {
             if (personModal && !values.showingPeople) {
                 actions.loadPeople(personModal)
             }

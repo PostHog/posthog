@@ -5,6 +5,7 @@
     // bridgePagesShared overrides
     .auth-main-content {
         flex-direction: row !important;
+        min-height: calc(100vh - 3.5rem) !important; // To account for the TopBar
     }
 
     .support-footer {

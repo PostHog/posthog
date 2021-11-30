@@ -80,7 +80,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
             key: 'person',
             render: function RenderSession(session: SessionType) {
                 return (
-                    <Link to={`/person/${encodeURIComponent(session.distinct_id)}`} className="ph-no-capture">
+                    <Link to={urls.person(session.distinct_id)} className="ph-no-capture">
                         {session?.email || session.distinct_id}
                     </Link>
                 )
@@ -187,12 +187,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 <div className="sessions-view-actions-left-items">
                     {filters.length > 0 && (
                         <Row className="action ml-05">
-                            <Switch
-                                // @ts-expect-error `id` prop is valid on switch
-                                id="show-only-matches"
-                                onChange={setShowOnlyMatches}
-                                checked={showOnlyMatches}
-                            />
+                            <Switch id="show-only-matches" onChange={setShowOnlyMatches} checked={showOnlyMatches} />
                             <label className="ml-025" htmlFor="show-only-matches">
                                 <b>Show only event matches</b>
                             </label>

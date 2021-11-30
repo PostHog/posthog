@@ -1,4 +1,4 @@
-@import '~/vars.scss';
+@import '~/vars';
 
 .LemonSwitch {
     position: relative;
@@ -19,13 +19,24 @@
     width: 36px;
     height: 10px;
     border-radius: 25px;
-    background-color: var(--border);
+    background-color: $border;
     transition: background-color 100ms ease;
     .LemonSwitch--checked & {
         background-color: rgba($primary, 0.25);
     }
     .LemonSwitch--alt.LemonSwitch--checked & {
         background-color: rgba($primary_alt, 0.25);
+    }
+}
+
+.LemonSwitch--disabled {
+    cursor: not-allowed;
+    .LemonSwitch__handle {
+        border-color: $border_light;
+    }
+    .LemonSwitch__slider {
+        cursor: not-allowed;
+        background-color: $border_light;
     }
 }
 
@@ -37,7 +48,7 @@
     height: 1.25rem;
     border-radius: 0.625rem;
     background-color: #fff;
-    border: 2px solid var(--border);
+    border: 2px solid $border;
     transition: background-color 100ms ease, transform 100ms ease, border-color 100ms ease;
     &::after {
         content: '';

@@ -33,7 +33,7 @@ export function CardContainer({
                         {`Step ${index + 1} ${totalSteps ? 'of' : ''} ${totalSteps ? totalSteps : ''}`}
                     </Row>
                 }
-                style={{ width: '65vw', maxHeight: '70vh', overflow: 'auto' }}
+                style={{ width: '65vw', maxHeight: '70vh', overflow: 'auto', border: '1px solid var(--border)' }}
             >
                 {children}
             </Card>

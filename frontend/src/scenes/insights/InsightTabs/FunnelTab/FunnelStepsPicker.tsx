@@ -51,7 +51,7 @@ export function FunnelStepsPicker(): JSX.Element | null {
                 data-attr="funnel-header-steps-funnel_from_step-selector"
                 optionLabelProp="label"
                 value={filters.funnel_from_step}
-                onChange={(fromStep: number) => onChange(fromStep)}
+                onChange={(fromStep: number) => onChange(fromStep, filters.funnel_to_step)}
                 style={{ marginLeft: 4, marginRight: 4 }}
             >
                 {renderStepOptions(fromRange)}
@@ -65,7 +65,7 @@ export function FunnelStepsPicker(): JSX.Element | null {
                 data-attr="funnel-header-steps-funnel_to_step-selector"
                 optionLabelProp="label"
                 value={filters.funnel_to_step}
-                onChange={(toStep: number) => onChange(undefined, toStep)}
+                onChange={(toStep: number) => onChange(filters.funnel_from_step, toStep)}
                 style={{ marginLeft: 4, marginRight: 4 }}
             >
                 {renderStepOptions(toRange)}

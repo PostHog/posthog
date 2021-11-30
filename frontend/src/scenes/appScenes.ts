@@ -7,7 +7,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.ErrorProjectUnavailable]: () => ({ default: preloadedScenes[Scene.ErrorProjectUnavailable].component }),
     [Scene.Dashboards]: () => import('./dashboard/Dashboards'),
     [Scene.Dashboard]: () => import('./dashboard/Dashboard'),
-    [Scene.Insights]: () => import('./insights/Insights'),
+    [Scene.Insight]: () => import('./insights/Insight'),
     [Scene.InsightRouter]: () => import('./insights/InsightRouter'),
     [Scene.Cohorts]: () => import('./cohorts/Cohorts'),
     [Scene.Events]: () => import('./events/Events'),

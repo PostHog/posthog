@@ -14,12 +14,16 @@ export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     return (
         <div>
-            <Row style={{ alignItems: 'center', marginBottom: 16 }}>
-                <PageHeader title="Recordings" />
-                <Tag color="orange" style={{ marginLeft: 8, marginTop: 16 }}>
-                    BETA
-                </Tag>
-            </Row>
+            <PageHeader
+                title={
+                    <Row align="middle">
+                        Recordings
+                        <Tag color="orange" style={{ marginLeft: 8 }}>
+                            BETA
+                        </Tag>
+                    </Row>
+                }
+            />
             {currentTeam && !currentTeam?.session_recording_opt_in ? (
                 <Alert
                     style={{ marginBottom: 16, display: 'flex', alignItems: 'center' }}

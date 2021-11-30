@@ -1,7 +1,9 @@
+import { urls } from 'scenes/urls'
+
 describe('Trends sessions', () => {
     beforeEach(() => {
         // given
-        cy.visit('/insights')
+        cy.visit(urls.insightNew())
         cy.get('[id="rc-tabs-0-tab-SESSIONS"]').click()
     })
 

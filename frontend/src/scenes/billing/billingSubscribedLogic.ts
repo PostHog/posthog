@@ -1,6 +1,7 @@
 import { kea } from 'kea'
 import { setPageTitle } from 'lib/utils'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { billingLogic } from './billingLogic'
 import { billingSubscribedLogicType } from './billingSubscribedLogicType'
 
@@ -34,7 +35,10 @@ export const billingSubscribedLogic = kea<billingSubscribedLogicType<Subscriptio
         ],
     },
     listeners: ({ values }) => ({
-        setScene: async (_, breakpoint) => {
+        setScene: async ({ scene }, breakpoint) => {
+            if (scene !== Scene.BillingSubscribed) {
+                return
+            }
             await breakpoint(100)
             if (values.status === SubscriptionStatus.Success) {
                 setPageTitle('Subscribed!')

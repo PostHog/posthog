@@ -31,8 +31,7 @@ describe('Actions', () => {
         createAction(actionName)
 
         // Test the action is immediately available
-        cy.clickNavMenu('insights')
-        // cy.reload() //TODO is this only because of turbo mode?
+        cy.clickNavMenu('insight')
 
         cy.contains('Add graph series').click()
         cy.get('[data-attr=trend-element-subject-1]').click()

@@ -1,16 +1,17 @@
 import React from 'react'
-import { Insights } from './Insights'
+import { Insight } from './Insight'
 import * as helpers from 'cypress/support/helpers'
 import { toParams } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 // These tests are broken in our CI pipeline and not sure how to fix them
 // Could still be useful locally
 
 xdescribe('<Insights /> trends', () => {
-    const mount = () => helpers.mountPage(<Insights />)
+    const mount = () => helpers.mountPage(<Insight />)
 
     const mountAndCheckAPI = () => {
-        helpers.setLocation('/insights', given.params)
+        helpers.setLocation(urls.insightNew(given.params))
         mount()
 
         cy.wait('@api_insight').its('request.url').should('contain', toParams(given.params))
@@ -101,28 +102,30 @@ xdescribe('<Insights /> trends', () => {
 
     describe('filtered in url', () => {
         it('responds to multiple entities', () => {
-            helpers.setLocation('/insights', {
-                insight: 'TRENDS',
-                interval: 'day',
-                display: 'ActionsLineGraph',
-                events: [
-                    {
-                        id: '$pageview',
-                        name: '$pageview',
-                        type: 'events',
-                        order: 0,
-                    },
-                ],
-                actions: [
-                    {
-                        id: 8,
-                        name: 'Entered Free Trial',
-                        type: 'actions',
-                        order: 1,
-                    },
-                ],
-                properties: [],
-            })
+            helpers.setLocation(
+                urls.insightNew({
+                    insight: 'TRENDS',
+                    interval: 'day',
+                    display: 'ActionsLineGraph',
+                    events: [
+                        {
+                            id: '$pageview',
+                            name: '$pageview',
+                            type: 'events',
+                            order: 0,
+                        },
+                    ],
+                    actions: [
+                        {
+                            id: 8,
+                            name: 'Entered Free Trial',
+                            type: 'actions',
+                            order: 1,
+                        },
+                    ],
+                    properties: [],
+                })
+            )
             mount()
 
             cy.wait('@api_insight')
@@ -149,27 +152,29 @@ xdescribe('<Insights /> trends', () => {
         })
 
         it('responds to a single prop', () => {
-            helpers.setLocation('/insights', {
-                insight: 'TRENDS',
-                interval: 'day',
-                display: 'ActionsLineGraph',
-                events: [
-                    {
-                        id: '$pageview',
-                        name: '$pageview',
-                        type: 'events',
-                        order: 0,
-                    },
-                ],
-                properties: [
-                    {
-                        key: '$browser',
-                        value: 'Chrome',
-                        operator: 'exact',
-                        type: 'event',
-                    },
-                ],
-            })
+            helpers.setLocation(
+                urls.insightNew({
+                    insight: 'TRENDS',
+                    interval: 'day',
+                    display: 'ActionsLineGraph',
+                    events: [
+                        {
+                            id: '$pageview',
+                            name: '$pageview',
+                            type: 'events',
+                            order: 0,
+                        },
+                    ],
+                    properties: [
+                        {
+                            key: '$browser',
+                            value: 'Chrome',
+                            operator: 'exact',
+                            type: 'event',
+                        },
+                    ],
+                })
+            )
             mount()
 
             cy.wait('@api_insight')
@@ -190,33 +195,35 @@ xdescribe('<Insights /> trends', () => {
         })
 
         it('responds to multiple props', () => {
-            helpers.setLocation('/insights', {
-                insight: 'TRENDS',
-                interval: 'day',
-                display: 'ActionsLineGraph',
-                events: [
-                    {
-                        id: '$pageview',
-                        name: '$pageview',
-                        type: 'events',
-                        order: 0,
-                    },
-                ],
-                properties: [
-                    {
-                        key: '$browser',
-                        value: 'Chrome',
-                        operator: 'exact',
-                        type: 'event',
-                    },
-                    {
-                        key: '$current_url',
-                        value: 'http://posthog.com',
-                        operator: 'exact',
-                        type: 'event',
-                    },
-                ],
-            })
+            helpers.setLocation(
+                urls.insightNew({
+                    insight: 'TRENDS',
+                    interval: 'day',
+                    display: 'ActionsLineGraph',
+                    events: [
+                        {
+                            id: '$pageview',
+                            name: '$pageview',
+                            type: 'events',
+                            order: 0,
+                        },
+                    ],
+                    properties: [
+                        {
+                            key: '$browser',
+                            value: 'Chrome',
+                            operator: 'exact',
+                            type: 'event',
+                        },
+                        {
+                            key: '$current_url',
+                            value: 'http://posthog.com',
+                            operator: 'exact',
+                            type: 'event',
+                        },
+                    ],
+                })
+            )
             mount()
 
             cy.wait('@api_insight')
@@ -244,22 +251,24 @@ xdescribe('<Insights /> trends', () => {
         })
 
         it('responds to breakdown paramters', () => {
-            helpers.setLocation('/insights', {
-                insight: 'TRENDS',
-                interval: 'day',
-                display: 'ActionsLineGraph',
-                events: [
-                    {
-                        id: '$pageview',
-                        name: '$pageview',
-                        type: 'events',
-                        order: 0,
-                    },
-                ],
-                properties: [],
-                breakdown: '$browser',
-                breakdown_type: 'event',
-            })
+            helpers.setLocation(
+                urls.insightNew({
+                    insight: 'TRENDS',
+                    interval: 'day',
+                    display: 'ActionsLineGraph',
+                    events: [
+                        {
+                            id: '$pageview',
+                            name: '$pageview',
+                            type: 'events',
+                            order: 0,
+                        },
+                    ],
+                    properties: [],
+                    breakdown: '$browser',
+                    breakdown_type: 'event',
+                })
+            )
             mount()
 
             cy.wait('@api_insight').map(helpers.getSearchParameters).should('include', {

@@ -1,0 +1,31 @@
+@import '~/vars';
+
+.funnels-product-cue {
+    margin-bottom: $default_spacing;
+    max-height: 0;
+    //transition: max-height 0.3s ease-in-out;
+    position: relative;
+    overflow: hidden;
+
+    &.shown {
+        height: auto;
+        max-height: 600px;
+        overflow: visible;
+    }
+
+    .inline-message {
+        border: 1px solid $primary;
+        background-color: white;
+        max-width: 800px;
+    }
+
+    .tooltip-arrow {
+        position: absolute;
+        bottom: -5px;
+        width: 0;
+        height: 0;
+        border-left: 5px solid transparent;
+        border-right: 5px solid transparent;
+        border-top: 5px solid $primary;
+    }
+}

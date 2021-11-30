@@ -38,7 +38,11 @@ class UUIDT(uuid.UUID):
 
     current_series_per_ms: Dict[int, int] = defaultdict(int)
 
-    def __init__(self, unix_time_ms: Optional[int] = None) -> None:
+    def __init__(self, unix_time_ms: Optional[int] = None, uuid_str: Optional[str] = None) -> None:
+        if uuid_str and self.is_valid_uuid(uuid_str):
+            super().__init__(uuid_str)
+            return
+
         if unix_time_ms is None:
             unix_time_ms = int(time() * 1000)
         time_component = unix_time_ms.to_bytes(6, "big", signed=False)  # 48 bits for time, WILL FAIL in 10 895 CE

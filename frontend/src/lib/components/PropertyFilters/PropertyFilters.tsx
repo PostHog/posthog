@@ -21,6 +21,7 @@ interface PropertyFiltersProps {
     style?: CSSProperties
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     showNestedArrow?: boolean
+    greyBadges?: boolean
 }
 
 export function PropertyFilters({
@@ -34,13 +35,14 @@ export function PropertyFilters({
     taxonomicGroupTypes,
     style = {},
     showNestedArrow = false,
+    greyBadges = false,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filters } = useValues(propertyFilterLogic(logicProps))
     const { remove } = useActions(propertyFilterLogic(logicProps))
 
     return (
-        <div className="mb" style={style}>
+        <div className="property-filters" style={style}>
             <BindLogic logic={propertyFilterLogic} props={logicProps}>
                 {filters?.length &&
                     filters.map((item, index) => {
@@ -59,6 +61,7 @@ export function PropertyFilters({
                                 showNestedArrow={showNestedArrow}
                                 label={'Add filter'}
                                 onRemove={remove}
+                                greyBadges={greyBadges}
                                 filterComponent={(onComplete) => {
                                     const propertyFilterCommonProps = {
                                         key: index,

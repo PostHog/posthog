@@ -14,7 +14,7 @@ describe('Feature Flags', () => {
             .should('have.value', 'This is a new feature.')
 
         // select "add filter" and "property"
-        cy.get('[data-attr=new-prop-filter-feature-flag-null-0-1').click()
+        cy.get('[data-attr=new-prop-filter-feature-flag-null-0-1-').click()
 
         // select the first property
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()

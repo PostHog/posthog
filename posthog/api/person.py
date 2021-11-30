@@ -50,7 +50,6 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
             "name",
             "distinct_ids",
             "properties",
-            "is_identified",
             "created_at",
             "uuid",
         ]
@@ -77,7 +76,7 @@ class PersonFilter(filters.FilterSet):
 
     class Meta:
         model = Person
-        fields = ["is_identified"]
+        fields = ["email"]
 
 
 class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):

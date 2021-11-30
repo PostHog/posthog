@@ -129,3 +129,29 @@ class TestCaptureAPI(APIBaseTest):
 
         self.assertEqual(team, None)
         self.assertEqual(db_error, "Exception('test exception')")
+
+    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    def test_capture_event_with_uuid_in_payload(self, kafka_produce):
+        response = self.client.post(
+            "/track/",
+            {
+                "data": json.dumps(
+                    [
+                        {
+                            "event": "event1",
+                            "uuid": "017d37c1-f285-0000-0e8b-e02d131925dc",
+                            "properties": {"distinct_id": "id1", "token": self.team.api_token,},
+                        },
+                    ]
+                ),
+                "api_key": self.team.api_token,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        kafka_produce_call = kafka_produce.call_args_list[0].kwargs
+        event_data = json.loads(kafka_produce_call["data"]["data"])
+
+        self.assertEqual(event_data["event"], "event1")
+        self.assertEqual(kafka_produce_call["data"]["uuid"], "017d37c1-f285-0000-0e8b-e02d131925dc")

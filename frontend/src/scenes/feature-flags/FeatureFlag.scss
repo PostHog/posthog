@@ -33,3 +33,16 @@
         }
     }
 }
+
+.feature-flag-form-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+
+    .centered {
+        display: flex;
+        align-items: center;
+        white-space: pre-wrap;
+    }
+}

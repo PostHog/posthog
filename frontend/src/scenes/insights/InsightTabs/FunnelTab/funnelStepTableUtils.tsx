@@ -5,6 +5,7 @@ import {
     FunnelStep,
     FunnelStepReference,
     FunnelStepWithConversionMetrics,
+    InsightShortId,
 } from '~/types'
 import { getReferenceStep, getSeriesColor, humanizeOrder } from 'scenes/funnels/funnelUtils'
 import { RenderedCell } from 'rc-table/lib/interface'
@@ -26,10 +27,16 @@ export function getStepColor(step: FlattenedFunnelStep, isBreakdown?: boolean): 
     return getColor(step, 'var(--text-default)', isBreakdown)
 }
 
+/**
+ * While we have both multi and single property breakdown modes.
+ * And FlattenedFunnelStep['breakdowns'] property is being copied onto FlattenedFunnelStep['breakdown']
+ * This might receive an Array of strings
+ * @param stepBreakdown
+ */
 export function isBreakdownChildType(
-    stepBreakdown: FlattenedFunnelStep['breakdown']
-): stepBreakdown is string | number | undefined {
-    return ['string', 'number', 'undefined'].includes(typeof stepBreakdown)
+    stepBreakdown: FlattenedFunnelStep['breakdown'] | Array<string | number>
+): stepBreakdown is string | number | undefined | Array<string | number> {
+    return Array.isArray(stepBreakdown) || ['string', 'number', 'undefined'].includes(typeof stepBreakdown)
 }
 
 export const renderSubColumnTitle = (title: string | JSX.Element): JSX.Element => (
@@ -46,7 +53,7 @@ function BreakdownBarGroupWrapper({
     showLabels,
 }: {
     step: FunnelStepWithConversionMetrics
-    dashboardItemId?: number
+    dashboardItemId?: InsightShortId
     showLabels: boolean
 }): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -99,8 +106,7 @@ export const renderGraphAndHeader = (
     headerElement: JSX.Element,
     showLabels: boolean,
     step?: FunnelStepWithConversionMetrics,
-    dashboardItemId?: number,
-    useCustomName?: boolean
+    dashboardItemId?: InsightShortId
 ): JSX.Element | RenderedCell<FlattenedFunnelStepByBreakdown> => {
     const stepIndex = step?.order ?? 0
     if (rowIndex === 0 || rowIndex === 1) {
@@ -148,11 +154,7 @@ export const renderGraphAndHeader = (
                     children: (
                         <div className="funnel-step-title">
                             <span className="funnel-step-glyph">{zeroPad(humanizeOrder(stepIndex), 2)}</span>
-                            {useCustomName && step ? (
-                                <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
-                            ) : (
-                                <PropertyKeyInfo value={step?.name ?? ''} disableIcon className="funnel-step-name" />
-                            )}
+                            {step && <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />}
                             <FunnelStepDropdown index={stepIndex} />
                         </div>
                     ),

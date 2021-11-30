@@ -118,10 +118,12 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
                 organizationMembers
                     .filter(({ user }) => user.uuid !== currentUser.uuid)
                     .map((organizationMember) => {
-                        const explicitMember = explicitMembers.find(({ user }) => user.uuid === user.uuid)
+                        const matchedExplicitMember = explicitMembers.find(
+                            (explicitMember) => explicitMember.user.uuid === organizationMember.user.uuid
+                        )
                         let effectiveLevel: OrganizationMembershipLevel | null
-                        if (explicitMember) {
-                            effectiveLevel = Math.max(explicitMember.effective_level, organizationMember.level)
+                        if (matchedExplicitMember) {
+                            effectiveLevel = Math.max(matchedExplicitMember.effective_level, organizationMember.level)
                         } else {
                             effectiveLevel =
                                 organizationMember.level >= MINIMUM_IMPLICIT_ACCESS_LEVEL
@@ -131,7 +133,7 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
                         return {
                             ...organizationMember,
                             level: effectiveLevel,
-                            explicit_team_level: explicitMember ? explicitMember.level : null,
+                            explicit_team_level: matchedExplicitMember ? matchedExplicitMember.level : null,
                             organization_level: organizationMember.level,
                         } as FusedTeamMemberType
                     }),

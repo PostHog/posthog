@@ -7,6 +7,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 import { VersionType } from '~/types'
@@ -23,7 +24,7 @@ type WarningType =
 export const navigationLogic = kea<navigationLogicType<WarningType>>({
     path: ['layout', 'navigation', 'navigationLogic'],
     connect: {
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], sceneLogic, ['sceneConfig']],
     },
     actions: {
         toggleSideBar: true,
@@ -108,11 +109,15 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
             },
         ],
     },
+    windowValues: () => ({
+        fullscreen: (window) => !!window.document.fullscreenElement,
+    }),
     selectors: {
-        isSideBarForciblyHidden: [() => [() => document.fullscreenElement], (fullscreenElement) => !!fullscreenElement],
+        /** `bareNav` whether the current scene should display a sidebar at all */
+        bareNav: [(s) => [s.fullscreen, s.sceneConfig], (fullscreen, sceneConfig) => fullscreen || sceneConfig?.plain],
         isSideBarShown: [
-            (s) => [s.isSideBarShownRaw, s.isSideBarForciblyHidden],
-            (isSideBarShownRaw, isSideBarForciblyHidden) => isSideBarShownRaw && !isSideBarForciblyHidden,
+            (s) => [s.isSideBarShownRaw, s.bareNav],
+            (isSideBarShownRaw, bareNav) => isSideBarShownRaw && !bareNav,
         ],
         announcementMessage: [
             (s) => [s.featureFlags],

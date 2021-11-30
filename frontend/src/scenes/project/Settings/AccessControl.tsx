@@ -47,7 +47,6 @@ export function AccessControl({ isRestricted }: RestrictedComponentProps): JSX.E
                 )}
             </p>
             <Switch
-                // @ts-expect-error - id works just fine despite not being in CompoundedComponent
                 id="access-control-switch"
                 onChange={(checked) => {
                     guardAvailableFeature(

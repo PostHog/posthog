@@ -1,8 +1,13 @@
 import inspect
+import re
+from functools import wraps
 from typing import Any, Dict, Optional
 
 import pytest
+import sqlparse
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APITestCase as DRFTestCase
 
 from posthog.models import Organization, Team, User
@@ -199,3 +204,41 @@ def test_with_materialized_columns(event_properties=[], person_properties=[], ve
         return fn
 
     return decorator
+
+
+@pytest.mark.usefixtures("unittest_snapshot")
+class QueryMatchingTest:
+    snapshot: Any
+
+    # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
+    def assertQueryMatchesSnapshot(self, query, params=None):
+        # :TRICKY: team_id changes every test, avoid it messing with snapshots.
+        query = re.sub(r"(team|cohort)_id\"? = \d+", r"\1_id = 2", query)
+
+        assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
+        if params is not None:
+            del params["team_id"]  # Changes every run
+            assert params == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
+
+
+def snapshot_postgres_queries(fn):
+    """
+    Captures and snapshots select queries from test using `syrupy` library.
+
+    Requires queries to be stable to avoid flakiness.
+
+    Snapshots are automatically saved in a __snapshot__/*.ambr file.
+    Update snapshots via --snapshot-update.
+    """
+    from django.db import connections
+
+    @wraps(fn)
+    def wrapped(self, *args, **kwargs):
+        with CaptureQueriesContext(connections["default"]) as context:
+            fn(self, *args, **kwargs)
+
+        for query_with_time in context.captured_queries:
+            query = query_with_time["sql"]
+            self.assertQueryMatchesSnapshot(query)
+
+    return wrapped

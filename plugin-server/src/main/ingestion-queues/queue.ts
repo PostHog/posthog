@@ -5,6 +5,7 @@ import * as Sentry from '@sentry/node'
 import { CeleryTriggeredJobOperation, Hub, PluginConfig, Queue, Team, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
 import { sanitizeEvent, UUIDT } from '../../utils/utils'
+import { Action } from './../../types'
 import { CeleryQueue } from './celery-queue'
 import { ingestEvent } from './ingest-event'
 import { KafkaQueue } from './kafka-queue'
@@ -34,6 +35,11 @@ export async function startQueues(
             server.lastActivity = new Date().valueOf()
             server.lastActivityType = 'onEvent'
             return piscina.run({ task: 'onEvent', args: { event } })
+        },
+        onAction: (action: Action, event: PluginEvent) => {
+            server.lastActivity = new Date().valueOf()
+            server.lastActivityType = 'onAction'
+            return piscina.run({ task: 'onAction', args: { event, action } })
         },
         onSnapshot: (event: PluginEvent) => {
             server.lastActivity = new Date().valueOf()

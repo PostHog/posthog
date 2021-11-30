@@ -3,16 +3,25 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightType } from '~/types'
+import { InsightShortId, InsightType } from '~/types'
 
 jest.mock('lib/api')
+
+const Insight123 = '123' as InsightShortId
 
 describe('retentionTableLogic', () => {
     let logic: ReturnType<typeof retentionTableLogic.build>
 
     mockAPI(async (url) => {
         const { pathname } = url
-        if ([`api/projects/${MOCK_TEAM_ID}/insights/`, `api/projects/${MOCK_TEAM_ID}/actions/`].includes(pathname)) {
+        if (
+            [
+                `api/projects/${MOCK_TEAM_ID}/insights/`,
+                `api/projects/${MOCK_TEAM_ID}/actions/`,
+                `api/projects/${MOCK_TEAM_ID}/insights/123`,
+                `api/projects/${MOCK_TEAM_ID}/insights`,
+            ].includes(pathname)
+        ) {
             return { results: [] }
         } else if (pathname === `api/projects/${MOCK_TEAM_ID}/insights/retention/`) {
             return { result: ['result from api'] }
@@ -21,7 +30,7 @@ describe('retentionTableLogic', () => {
     })
 
     describe('syncs with insightLogic', () => {
-        const props = { dashboardItemId: 123 }
+        const props = { dashboardItemId: Insight123 }
         initKeaTestLogic({
             logic: retentionTableLogic,
             props,
