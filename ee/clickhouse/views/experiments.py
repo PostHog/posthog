@@ -10,10 +10,10 @@ class ExperimentSerializer(serializers.ModelSerializer):
         model = Experiment
         fields = ["id", "name", "description", "feature_flags", "filters"]
 
+
 class ClickhouseExperimentsViewSet(SessionRecordingViewSet):
     serializer_class = ExperimentSerializer
     queryset = Experiment.objects.all()
-    
+
     def get_queryset(self):
         return super().get_queryset()
-    
