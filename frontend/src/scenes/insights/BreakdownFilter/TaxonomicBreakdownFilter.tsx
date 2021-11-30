@@ -15,7 +15,7 @@ export interface TaxonomicBreakdownFilterProps {
     filters: Partial<FilterType>
     setFilters: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
     buttonType?: ButtonType
-    useMultiBreakdown: boolean
+    useMultiBreakdown?: boolean
 }
 
 const isAllCohort = (t: number | string): t is string => typeof t === 'string' && t == 'all'

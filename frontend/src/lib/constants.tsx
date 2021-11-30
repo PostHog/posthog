@@ -84,11 +84,8 @@ export const FEATURE_FLAGS = {
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @paolodamico
     FUNNELS_CUE_ENABLED: 'funnels-cue-enabled', // owner: @paolodamico
     FUNNEL_SIMPLE_MODE: 'funnel-simple-mode', // owner: @paolodamico
-<<<<<<< HEAD
     EXPERIMENTATION: 'experimentation', // owner: @neilkakkar
-=======
     RETENTION_BREAKDOWN: 'retention-breakdown', // owner: @hazzadous
->>>>>>> f4cdd0f44 (Add breakdown filter to retention insight)
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
