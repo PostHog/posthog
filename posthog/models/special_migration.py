@@ -17,7 +17,7 @@ class SpecialMigration(models.Model):
     id: models.BigAutoField = models.BigAutoField(primary_key=True)
     name: models.CharField = models.CharField(max_length=50, null=False, blank=False)
     description: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    progress: models.IntegerField = models.IntegerField(null=False, blank=False, default=0)
+    progress: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(null=False, blank=False, default=0)
     status: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
         null=False, blank=False, default=MigrationStatus.NotStarted
     )

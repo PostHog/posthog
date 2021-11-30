@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
                 ("id", models.BigAutoField(primary_key=True, serialize=False)),
                 ("name", models.CharField(max_length=50)),
                 ("description", models.CharField(blank=True, max_length=400, null=True)),
-                ("progress", models.IntegerField(default=0)),
+                ("progress", models.PositiveSmallIntegerField(default=0)),
                 ("status", models.PositiveSmallIntegerField(default=0)),
                 ("current_operation_index", models.PositiveSmallIntegerField(default=0)),
                 ("current_query_id", models.CharField(default="", max_length=100)),
