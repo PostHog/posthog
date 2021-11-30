@@ -1,7 +1,6 @@
-from rest_framework import serializers
-from ee.clickhouse.queries.session_recordings.clickhouse_session_recording import ClickhouseSessionRecording
-from ee.clickhouse.queries.session_recordings.clickhouse_session_recording_list import ClickhouseSessionRecordingList
-from posthog.api.session_recording import SessionRecordingViewSet
+from rest_framework import serializers, viewsets
+
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.models.experiment import Experiment
 
 
@@ -11,7 +10,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "description", "feature_flags", "filters"]
 
 
-class ClickhouseExperimentsViewSet(SessionRecordingViewSet):
+class ClickhouseExperimentsView(StructuredViewSetMixin, viewsets.ReadOnlyModelViewSet):
     serializer_class = ExperimentSerializer
     queryset = Experiment.objects.all()
 
