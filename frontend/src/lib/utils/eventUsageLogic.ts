@@ -21,6 +21,7 @@ import {
     AvailableFeature,
     SessionRecordingUsageType,
     FunnelCorrelation,
+    ItemMode,
 } from '~/types'
 import { Dayjs } from 'dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -150,12 +151,14 @@ export const eventUsageLogic = kea<
         reportInsightCreated: (insight: InsightType | null) => ({ insight }),
         reportInsightViewed: (
             filters: Partial<FilterType>,
+            insightMode: ItemMode,
             isFirstLoad: boolean,
             fromDashboard: boolean,
             delay?: number,
             changedFilters?: Record<string, any>
         ) => ({
             filters,
+            insightMode,
             isFirstLoad,
             fromDashboard,
             delay, // Number of delayed seconds to report event (useful to measure insights where users don't navigate immediately away)
@@ -349,7 +352,10 @@ export const eventUsageLogic = kea<
             await breakpoint(500) // Debounce to avoid multiple quick "New insight" clicks being reported
             posthog.capture('insight created', { insight })
         },
-        reportInsightViewed: async ({ filters, isFirstLoad, fromDashboard, delay, changedFilters }, breakpoint) => {
+        reportInsightViewed: async (
+            { filters, insightMode, isFirstLoad, fromDashboard, delay, changedFilters },
+            breakpoint
+        ) => {
             if (!delay) {
                 await breakpoint(500) // Debounce to avoid noisy events from changing filters multiple times
             }
@@ -403,6 +409,7 @@ export const eventUsageLogic = kea<
                 properties.stickiness_days = filters.stickiness_days
             }
             properties.compare = filters.compare // "Compare previous" option
+            properties.mode = insightMode // View or edit
 
             const eventName = delay ? 'insight analyzed' : 'insight viewed'
             posthog.capture(eventName, { ...properties, ...(changedFilters ? changedFilters : {}) })

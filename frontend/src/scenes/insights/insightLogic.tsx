@@ -431,6 +431,7 @@ export const insightLogic = kea<insightLogicType>({
 
             eventUsageLogic.actions.reportInsightViewed(
                 filters,
+                values.insightMode,
                 values.isFirstLoad,
                 Boolean(fromDashboard),
                 0,
@@ -474,6 +475,7 @@ export const insightLogic = kea<insightLogicType>({
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
             eventUsageLogic.actions.reportInsightViewed(
                 filters,
+                values.insightMode,
                 values.isFirstLoad,
                 Boolean(fromDashboard),
                 10,
