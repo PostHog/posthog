@@ -98,7 +98,7 @@ djangorestframework==3.12.2
     #   djangorestframework-csv
     #   drf-exceptions-hog
     #   drf-extensions
-drf-exceptions-hog==0.0.4
+drf-exceptions-hog==0.1.0
     # via -r requirements.in
 drf-extensions==0.7.0
     # via -r requirements.in
