@@ -55,8 +55,6 @@ export enum RecordingWatchedSource {
     Direct = 'direct', // Visiting the URL directly
     Unknown = 'unknown',
     RecordingsList = 'recordings_list', // New recordings list page
-    SessionsList = 'sessions_list', // DEPRECATED sessions list page
-    SessionsListPlayAll = 'sessions_list_play_all', // DEPRECATED play all button on sessions list
 }
 
 export enum GraphSeriesAddedSource {

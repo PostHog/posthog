@@ -20,7 +20,7 @@ class PaginationMode(Enum):
 
 
 def get_target_entity(request: request.Request) -> Entity:
-    entity_id: Optional[Union[int, str]] = request.GET.get(ENTITY_ID)
+    entity_id: Optional[str] = request.GET.get(ENTITY_ID)
     events = request.GET.get("events", "[]")
     actions = request.GET.get("actions", "[]")
     entity_type = request.GET.get(ENTITY_TYPE)
@@ -38,15 +38,25 @@ def get_target_entity(request: request.Request) -> Entity:
         raise ValueError("An entity must be provided for target entity to be determined")
 
 
-def retrieve_entity_from(entity_id: Union[str, int], events: List[Dict], actions: List[Dict]) -> Optional[Dict]:
+def retrieve_entity_from(entity_id: str, events: List[Dict], actions: List[Dict]) -> Optional[Dict]:
     """
     Retrieves the entity from the events and actions.
+
+    NOTE: entity_id here is considered always to be a string. event ids are
+    strings, and action ids are ints. Elsewhere we get the `entity_id` from a
+    get request, from which we do not get type information, and we do not
+    require the entity type to be provided. A more complete solution might be to
+    require entity type information, but to resolve the issue we cast the action
+    id to a string, such that we can get equality.
+
+    This doesn't preclude ths issue that an event name could be a string that is
+    also a valid number however, but this should be an unlikely occurance.
     """
     for event in events:
         if event.get("id") == entity_id:
             return event
     for action in actions:
-        if action.get("id") == entity_id:
+        if str(action.get("id")) == entity_id:
             return action
     return None
 

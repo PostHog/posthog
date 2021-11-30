@@ -678,6 +678,13 @@ code.code {
         max-width: 50px;
     }
 
+    &.or-light-grey {
+        font-family: Inter;
+        background-color: $light-grey;
+        text-align: center;
+        max-width: 50px;
+    }
+
     &.width-locked {
         width: 40px;
         text-align: center;

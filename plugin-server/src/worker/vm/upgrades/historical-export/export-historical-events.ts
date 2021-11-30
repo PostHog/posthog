@@ -31,15 +31,15 @@ const OLD_TIMESTAMP_CURSOR_KEY = 'old_timestamp_cursor'
 
 const INTERFACE_JOB_NAME = 'Export historical events'
 
-export function addHistoricalEventsExportCapability(
+export async function addHistoricalEventsExportCapability(
     hub: Hub,
     pluginConfig: PluginConfig,
     response: PluginConfigVMInternalResponse<PluginMeta<ExportHistoricalEventsUpgrade>>
-): void {
+): Promise<void> {
     const { methods, tasks, meta } = response
 
     // we can void this as the job appearing on the interface is not time-sensitive
-    void addPublicJobIfNotExists(hub.db, pluginConfig.plugin_id, INTERFACE_JOB_NAME, {})
+    await addPublicJobIfNotExists(hub.db, pluginConfig.plugin_id, INTERFACE_JOB_NAME, {})
 
     const oldSetupPlugin = methods.setupPlugin
 

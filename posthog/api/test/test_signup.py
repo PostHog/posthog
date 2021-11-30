@@ -2,7 +2,7 @@ import datetime
 import uuid
 from typing import cast
 from unittest import mock
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import pytest
 import pytz
@@ -727,6 +727,7 @@ class TestInviteSignup(APIBaseTest):
                 "org_current_project_count": 1,
                 "org_current_members_count": 1,
             },
+            groups={"instance": ANY, "organization": str(new_org.id)},
         )
         mock_identify.assert_called_once()
 
@@ -784,6 +785,7 @@ class TestInviteSignup(APIBaseTest):
                 "org_current_project_count": 1,
                 "org_current_members_count": 2,
             },
+            groups={"instance": ANY, "organization": str(new_org.id)},
         )
 
     def test_cant_claim_sign_up_invite_without_required_attributes(self):

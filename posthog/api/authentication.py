@@ -69,14 +69,14 @@ class LoginSerializer(serializers.Serializer):
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-        report_user_logged_in(user.distinct_id, social_provider="")
+        report_user_logged_in(user, social_provider="")
         return user
 
 
 class NonCreatingViewSetMixin(mixins.CreateModelMixin):
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
-            Method `create()` is overridden to send a more appropriate HTTP 
+            Method `create()` is overridden to send a more appropriate HTTP
             status code (as no object is actually created).
             """
         response = super().create(request, *args, **kwargs)

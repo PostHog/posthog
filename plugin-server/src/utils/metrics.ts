@@ -13,9 +13,6 @@ export async function instrumentQuery<T>(
     statsd?.increment(`${metricName}.total`, tags)
     try {
         return await runQuery()
-    } catch (error) {
-        Sentry.captureException(error, { extra: { query_tag: tag } })
-        throw error
     } finally {
         statsd?.timing(metricName, timer, tags)
     }

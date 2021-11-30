@@ -198,8 +198,8 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             () => [selectors.currentTeamId, selectors.eventFilter, selectors.orderBy, selectors.properties],
             (teamId, eventFilter, orderBy, properties) =>
                 `/api/projects/${teamId}/events.csv?${toParams({
-                    properties,
                     ...(props.fixedFilters || {}),
+                    properties: [...properties, ...(props.fixedFilters?.properties || [])],
                     ...(eventFilter ? { event: eventFilter } : {}),
                     orderBy: [orderBy],
                 })}`,
@@ -292,8 +292,8 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 clearTimeout(values.pollTimeout)
 
                 const urlParams = toParams({
-                    properties: values.properties,
                     ...(props.fixedFilters || {}),
+                    properties: [...values.properties, ...(props.fixedFilters?.properties || [])],
                     ...(nextParams || {}),
                     ...(values.eventFilter ? { event: values.eventFilter } : {}),
                     orderBy: [values.orderBy],
@@ -330,8 +330,8 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             }
 
             const params: Record<string, unknown> = {
-                properties: values.properties,
                 ...(props.fixedFilters || {}),
+                properties: [...values.properties, ...(props.fixedFilters?.properties || [])],
                 ...(values.eventFilter ? { event: values.eventFilter } : {}),
                 orderBy: [values.orderBy],
             }
