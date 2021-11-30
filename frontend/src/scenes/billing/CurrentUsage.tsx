@@ -61,7 +61,7 @@ export function CurrentUsage(): JSX.Element | null {
                             'Your current plan has an unlimited event allocation.'}
                         <Progress
                             type="line"
-                            percent={percentage !== null ? percentage * 100 : 100}
+                            percent={percentage !== null ? Math.floor(percentage * 100) : 100}
                             strokeColor={strokeColor}
                             status={percentage !== null ? 'normal' : 'success'}
                         />
