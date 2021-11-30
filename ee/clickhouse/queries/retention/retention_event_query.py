@@ -1,7 +1,9 @@
 from typing import Any, Dict, Tuple
 
+from ee.clickhouse.client import substitute_params
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.group import get_aggregation_target_field
+from ee.clickhouse.models.property import get_single_or_multi_property_string_expr
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from ee.clickhouse.queries.util import get_trunc_func_ch
 from posthog.constants import (
@@ -23,7 +25,12 @@ class RetentionEventsQuery(ClickhouseEventQuery):
 
     def __init__(self, event_query_type: RetentionQueryType, *args, **kwargs):
         self._event_query_type = event_query_type
-        super().__init__(*args, **kwargs)
+        super().__init__(
+            *args,
+            should_join_persons=True,
+            extra_person_fields=["person_props"] if event_query_type != RetentionQueryType.RETURNING else [],
+            **kwargs,
+        )
 
         self._trunc_func = get_trunc_func_ch(self._filter.period)
 
@@ -31,18 +38,31 @@ class RetentionEventsQuery(ClickhouseEventQuery):
         _fields = [
             self.get_timestamp_field(),
             f"{get_aggregation_target_field(self._filter.aggregation_group_type_index, self.EVENT_TABLE_ALIAS, self.DISTINCT_ID_TABLE_ALIAS)} as target",
-            (
-                f"argMin(e.uuid, {self._trunc_func}(e.timestamp)) as min_uuid"
-                if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME
-                else f"{self.EVENT_TABLE_ALIAS}.uuid AS uuid"
-            ),
-            (
-                f"argMin(e.event, {self._trunc_func}(e.timestamp)) as min_event"
-                if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME
-                else f"{self.EVENT_TABLE_ALIAS}.event AS event"
-            ),
+            f"{self.EVENT_TABLE_ALIAS}.uuid AS uuid",
+            f"{self.EVENT_TABLE_ALIAS}.event AS event",
         ]
-        _fields = list(filter(None, _fields))
+
+        if self._event_query_type != RetentionQueryType.RETURNING:
+            if self._filter.breakdowns:
+                # NOTE: `get_single_or_multi_property_string_expr` doesn't
+                # support breakdowns with different types e.g. a person property
+                # then an event property, so for now we just take the type of
+                # the first breakdown.
+                # TODO: update 'get_single_or_multi_property_string_expr` to take
+                # `Breakdown` type
+                first_breakdown = self._filter.breakdowns[0]
+                table = "events"
+
+                if first_breakdown["type"] == "person":
+                    table = "person"
+
+                _fields += [
+                    get_single_or_multi_property_string_expr(
+                        breakdown=[breakdown["property"] for breakdown in self._filter.breakdowns],
+                        table=table,
+                        query_alias="breakdown_values",
+                    )
+                ]
 
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
@@ -74,7 +94,8 @@ class RetentionEventsQuery(ClickhouseEventQuery):
             {f"AND {entity_query}"}
             {f"AND {date_query}" if self._event_query_type != RetentionQueryType.TARGET_FIRST_TIME else ''}
             {prop_query}
-            {f"GROUP BY target HAVING {date_query}" if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME else ''}
+            ORDER BY event_date, target
+            {f"LIMIT 1 BY target" if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME else ''}
         """
 
         return query, self.params
@@ -83,7 +104,7 @@ class RetentionEventsQuery(ClickhouseEventQuery):
         if self._event_query_type == RetentionQueryType.TARGET:
             return f"DISTINCT {self._trunc_func}({self.EVENT_TABLE_ALIAS}.timestamp) AS event_date"
         elif self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
-            return f"min({self._trunc_func}(e.timestamp)) as event_date"
+            return f"{self._trunc_func}(e.timestamp) as event_date"
         else:
             return f"{self.EVENT_TABLE_ALIAS}.timestamp AS event_date"
 
