@@ -52,7 +52,7 @@ class SimplifyFilterMixin:
         entity = EntityClass(entity_params)
         properties = self._simplify_properties(team, entity.properties, **kwargs)
         if entity.math == "unique_group":
-            properties.append(self._group_set_property(cast(int, entity.math_group_type_index)))
+            properties.append(self._group_set_property(cast(GroupTypeIndex, entity.math_group_type_index)))
 
         return EntityClass({**entity_params, "properties": properties}).to_dict()
 
