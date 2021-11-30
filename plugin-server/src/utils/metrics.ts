@@ -13,8 +13,6 @@ export async function instrumentQuery<T>(
     statsd?.increment(`${metricName}.total`, tags)
     try {
         return await runQuery()
-    } catch (error) {
-        throw error
     } finally {
         statsd?.timing(metricName, timer, tags)
     }
