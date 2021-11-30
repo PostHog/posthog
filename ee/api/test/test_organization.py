@@ -53,6 +53,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
     @patch("posthoganalytics.capture")
     def test_delete_second_managed_organization(self, mock_capture):
         organization, _, team = Organization.objects.bootstrap(self.user, name="X")
+        organization_props = self.organization.get_analytics_metadata()
         self.assertTrue(Organization.objects.filter(id=organization.id).exists())
         self.assertTrue(Team.objects.filter(id=team.id).exists())
         response = self.client.delete(f"/api/organizations/{organization.id}")
@@ -63,13 +64,14 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         mock_capture.assert_called_once_with(
             self.user.distinct_id,
             "organization deleted",
-            ANY,
+            organization_props,
             groups={"instance": ANY, "organization": str(organization.id)},
         )
 
     @patch("posthoganalytics.capture")
     def test_delete_last_organization(self, mock_capture):
         org_id = self.organization.id
+        organization_props = self.organization.get_analytics_metadata()
         self.assertTrue(Organization.objects.filter(id=org_id).exists())
 
         self.organization_membership.level = OrganizationMembership.Level.OWNER
@@ -86,7 +88,10 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.assertEqual(response_bis.status_code, 404, "Did not return a 404 on trying to delete a nonexistent org")
 
         mock_capture.assert_called_once_with(
-            self.user.distinct_id, "organization deleted", ANY, groups={"instance": ANY, "organization": str(org_id)}
+            self.user.distinct_id,
+            "organization deleted",
+            organization_props,
+            groups={"instance": ANY, "organization": str(org_id)},
         )
 
     def test_no_delete_organization_not_owning(self):
