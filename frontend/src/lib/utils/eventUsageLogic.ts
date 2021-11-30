@@ -147,6 +147,7 @@ export const eventUsageLogic = kea<
     actions: {
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
+        reportInsightCreated: (insight: InsightType) => ({ insight }),
         reportInsightViewed: (
             filters: Partial<FilterType>,
             isFirstLoad: boolean,
@@ -343,6 +344,10 @@ export const eventUsageLogic = kea<
                 posthog_properties_count,
             }
             posthog.capture('person viewed', properties)
+        },
+        reportInsightCreated: async ({ insight }, breakpoint) => {
+            await breakpoint(500) // Debounce to avoid multiple quick "New insight" clicks being reported
+            posthog.capture('insight created', { insight })
         },
         reportInsightViewed: async ({ filters, isFirstLoad, fromDashboard, delay, changedFilters }, breakpoint) => {
             if (!delay) {
