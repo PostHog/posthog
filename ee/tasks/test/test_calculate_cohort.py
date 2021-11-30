@@ -45,6 +45,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
             "STICKINESS",
             {
                 "date_from": "2021-01-01",
+                "display": "ActionsLineGraph",
                 "events": [
                     {
                         "id": "$pageview",
@@ -58,6 +59,8 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
                         "properties": [],
                     }
                 ],
+                "entity_id": "$pageview",
+                "entity_type": "events",
                 "insight": "STICKINESS",
                 "interval": "day",
                 "selected_interval": 1,
