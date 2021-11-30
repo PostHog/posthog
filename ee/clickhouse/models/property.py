@@ -102,7 +102,7 @@ def parse_prop_clauses(
                 allow_denormalized_props=allow_denormalized_props,
             )
 
-            final.append(filter_query)
+            final.append(f" AND {filter_query}")
             params.update(filter_params)
         elif prop.type == "group":
             if group_properties_joined:
