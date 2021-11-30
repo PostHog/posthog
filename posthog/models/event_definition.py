@@ -1,5 +1,6 @@
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
+from django.utils import timezone
 
 from posthog.models.team import Team
 from posthog.models.utils import UUIDModel
@@ -10,6 +11,8 @@ class EventDefinition(UUIDModel):
         Team, on_delete=models.CASCADE, related_name="event_definitions", related_query_name="team",
     )
     name: models.CharField = models.CharField(max_length=400)
+    created_at: models.DateTimeField = models.DateTimeField(default=timezone.now, null=True)
+    last_seen_at: models.DateTimeField = models.DateTimeField(default=None, null=True)
     volume_30_day: models.IntegerField = models.IntegerField(
         default=None, null=True,
     )  # Volume of events in the last 30 rolling days (computed asynchronously)
