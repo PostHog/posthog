@@ -25,12 +25,8 @@ class PropertyDefinition(UUIDModel):
     class Meta:
         unique_together = ("team", "name")
         indexes = [
-            # To speed up DB-based fuzzy searching
             GinIndex(name="index_property_definition_name", fields=["name"], opclasses=["gin_trgm_ops"]),
-            # Improve ordering performance
-            models.Index(fields=["team_id", "-volume_30_day"]),
-            models.Index(fields=["team_id", "-query_usage_30_day"]),
-        ]
+        ]  # To speed up DB-based fuzzy searching
 
     def __str__(self) -> str:
         return f"{self.name} / {self.team.name}"
