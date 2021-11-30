@@ -7,7 +7,7 @@ import { sceneLogic } from '../../../scenes/sceneLogic'
 import { Scene } from '../../../scenes/sceneTypes'
 import { urls } from '../../../scenes/urls'
 import { preflightLogic } from '../../../scenes/PreflightCheck/logic'
-import { identifierToHuman, stripHTTP } from '../../../lib/utils'
+import { capitalizeFirstLetter, identifierToHuman, stripHTTP } from '../../../lib/utils'
 import { userLogic } from '../../../scenes/userLogic'
 import React from 'react'
 import { Lettermark } from '../../../lib/components/Lettermark/Lettermark'
@@ -20,6 +20,8 @@ import { PopupProps } from 'lib/components/Popup/Popup'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import { OrganizationSwitcherOverlay } from '~/layout/navigation/OrganizationSwitcher'
 import { sceneConfigurations } from 'scenes/scenes'
+import { groupLogic } from 'scenes/groups/groupLogic'
+import { groupsListLogic } from 'scenes/groups/groupsListLogic'
 
 export interface Breadcrumb {
     /** Name to display. */
@@ -73,6 +75,10 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                 s.featureFlag,
                 s.person,
                 s.otherOrganizations,
+                groupsListLogic.selectors.currentTabName,
+                groupLogic.selectors.groupTypeName,
+                groupLogic.selectors.groupTypeIndex,
+                groupLogic.selectors.groupKey,
             ],
             (
                 preflight,
@@ -85,7 +91,11 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                 lastDashboardId,
                 featureFlag,
                 person,
-                otherOrganizations
+                otherOrganizations,
+                groupListTabName,
+                groupTypeName,
+                groupTypeIndex,
+                groupKey
             ) => {
                 const breadcrumbs: Breadcrumb[] = []
                 if (!activeScene || !sceneConfig) {
@@ -198,6 +208,22 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType<Breadcrumb>>({
                                 lastDashboardId !== null && lastDashboardId in rawDashboards
                                     ? rawDashboards[lastDashboardId].name || 'Unnamed dashboard'
                                     : null,
+                            here: true,
+                        })
+                        break
+                    case Scene.Groups:
+                        breadcrumbs.push({
+                            name: `${groupListTabName}(s)`,
+                            here: true,
+                        })
+                        break
+                    case Scene.Group:
+                        breadcrumbs.push({
+                            name: groupTypeName ? capitalizeFirstLetter(`${groupTypeName}(s)`) : '',
+                            path: urls.groups(groupTypeIndex.toString()),
+                        })
+                        breadcrumbs.push({
+                            name: groupKey,
                             here: true,
                         })
                         break
