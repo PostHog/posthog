@@ -258,7 +258,7 @@ export function DashboardItem({
 
     // Empty states that can coexist with the graph (e.g. Loading)
     const CoexistingEmptyState = (() => {
-        if (isLoading || insightLoading) {
+        if (isLoading || insightLoading || isReloading) {
             return <Loading />
         }
         return null
@@ -272,8 +272,9 @@ export function DashboardItem({
             } ph-no-capture`}
             {...longPressProps}
             data-attr={'dashboard-item-' + index}
-            style={{ border: isHighlighted ? '1px solid var(--primary)' : undefined, opacity: isReloading ? 0.5 : 1 }}
+            style={{ border: isHighlighted ? '1px solid var(--primary)' : undefined }}
         >
+            {!BlockingEmptyState && CoexistingEmptyState}
             <div className={`dashboard-item-container ${className}`}>
                 <div className="dashboard-item-header" style={{ cursor: isOnEditMode ? 'move' : 'inherit' }}>
                     <div className="dashboard-item-title" data-attr="dashboard-item-title">
@@ -570,7 +571,6 @@ export function DashboardItem({
                 )}
 
                 <div className={`dashboard-item-content ${_type}`} onClickCapture={onClick}>
-                    {!BlockingEmptyState && CoexistingEmptyState}
                     {!!BlockingEmptyState ? (
                         BlockingEmptyState
                     ) : (
