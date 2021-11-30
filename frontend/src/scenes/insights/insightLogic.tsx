@@ -104,9 +104,8 @@ export const insightLogic = kea<insightLogicType>({
         saveInsight: (options?: Record<string, any>) => ({ setViewMode: options?.setViewMode }),
         setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
         fetchedResults: (filters: Partial<FilterType>) => ({ filters }),
-        loadInsight: (shortId: InsightShortId, { doNotLoadResults }: { doNotLoadResults?: boolean } = {}) => ({
+        loadInsight: (shortId: InsightShortId) => ({
             shortId,
-            doNotLoadResults,
         }),
         updateInsight: (
             insight: Partial<DashboardItemType>,
@@ -640,10 +639,9 @@ export const insightLogic = kea<insightLogicType>({
                 router.actions.push(urls.insightEdit(insight.short_id, values.filters))
             }
         },
-        loadInsightSuccess: async ({ payload, insight }) => {
-            actions.reportInsightViewed(insight?.filters || {})
+        loadInsightSuccess: async ({ insight }) => {
             // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query
-            if (!insight.result && values.filters && !payload?.doNotLoadResults) {
+            if (!insight.result && values.filters) {
                 actions.loadResults()
             }
         },
@@ -743,8 +741,7 @@ export const insightLogic = kea<insightLogicType>({
                 }
 
                 if (!loadedFromAnotherLogic && insightIdChanged) {
-                    // Do not load the result if missing, as setFilters below will do so anyway.
-                    actions.loadInsight(insightId, { doNotLoadResults: true })
+                    actions.loadInsight(insightId)
                 }
 
                 const cleanSearchParams = cleanFilters(searchParams, values.filters, values.featureFlags)
