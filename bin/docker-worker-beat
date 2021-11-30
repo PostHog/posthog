@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
 
+
 rm celerybeat.pid || echo "celerybeat.pid not found, proceeding"
-celery -A posthog beat -S redbeat.RedBeatScheduler
+celery -A posthog beat -S redbeat.RedBeatScheduler -n node@%%h
