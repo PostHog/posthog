@@ -61,6 +61,48 @@ class RetentionTests(TestCase):
             "Day 1": {"1": 1},  # ["person 3"]
         }
 
+    def test_retention_first_time_excludes_historical_users(self):
+        """
+        e.g. if a user performed the target_event before `date_from` then they
+        shouldn't be included in any cohorts within the requested range.
+        """
+        organization = create_organization(name="test")
+        team = create_team(organization=organization)
+        user = create_user(email="test@posthog.com", password="1234", organization=organization)
+
+        self.client.force_login(user)
+
+        events = user_activity_by_day(
+            daily_activity={"2019-12-31": ["person 1"], "2020-01-01": ["person 1"],},
+            target_event="target event",
+            returning_event="target event",
+            team=team,
+        )
+
+        update_or_create_person(distinct_ids=["person 1"], team_id=team.pk)
+        _create_all_events(all_events=events)
+
+        retention = get_retention_ok(
+            client=self.client,
+            team_id=team.pk,
+            request=RetentionRequest(
+                target_entity={"id": "target event", "type": "events"},
+                returning_entity={"id": "target event", "type": "events"},
+                date_from="2020-01-01",
+                total_intervals=2,
+                date_to="2020-01-02",
+                period="Day",
+                retention_type="retention_first_time",
+            ),
+        )
+
+        retention_by_cohort_by_period = get_by_cohort_by_period_from_response(response=retention)
+
+        assert retention_by_cohort_by_period == {
+            "Day 0": {"1": 0, "2": 0},
+            "Day 1": {"1", 0},
+        }
+
     def test_can_specify_alternative_breakdown_person_property(self):
         """
         By default, we group users together by the first time they perform the
@@ -105,15 +147,15 @@ class RetentionTests(TestCase):
                 date_to="2020-01-02",
                 period="Day",
                 retention_type="retention_first_time",
-                breakdowns=[{"type": "person", "property": "os"}],
+                breakdowns=[Breakdown(type="person", property="os")],
             ),
         )
 
         retention_by_cohort_by_period = get_by_cohort_by_period_from_response(response=retention)
 
         assert retention_by_cohort_by_period == {
-            ("Chrome",): {"1": 1, "2": 1},
-            ("Safari",): {"1": 1, "2": 1},  # IMPORTANT: the "2" value is from past the requested `date_to`
+            "Chrome": {"1": 1, "2": 1},
+            "Safari": {"1": 1, "2": 1},  # IMPORTANT: the "2" value is from past the requested `date_to`
         }
 
 
@@ -140,9 +182,6 @@ class RetentionRequest:
     returning_entity: EventPattern
     period: Union[Literal["Hour"], Literal["Day"], Literal["Week"], Literal["Month"]]
     retention_type: Literal["retention_first_time"]  # probably not an exhaustive list
-
-    breakdown: Optional[str] = None
-    breakdown_type: Literal["person", "event"] = "person"
 
     breakdowns: Optional[List[Breakdown]] = None
 
@@ -171,12 +210,16 @@ def get_retention(client: Client, team_id: int, request: RetentionRequest):
     return client.get(
         f"/api/projects/{team_id}/insights/retention/",
         # NOTE: for get requests we need to JSON encode non-scalars
-        data={k: (v if isinstance(v, (str, numbers.Number)) else json.dumps(v)) for k, v in asdict(request).items()},
+        data={
+            k: (v if isinstance(v, (str, numbers.Number)) else json.dumps(v))
+            for k, v in asdict(request).items()
+            if v is not None
+        },
     )
 
 
 def get_by_cohort_by_period_from_response(response: RetentionResponse):
     return {
-        tuple(cohort["label"]): {f"{period + 1}": value["count"] for period, value in enumerate(cohort["values"])}
+        cohort["label"]: {f"{period + 1}": value["count"] for period, value in enumerate(cohort["values"])}
         for cohort in response["result"]
     }

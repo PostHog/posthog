@@ -1,4 +1,13 @@
-from typing import Any, Dict, Iterable, List, Tuple, cast
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    List,
+    NamedTuple,
+    Tuple,
+    Union,
+    cast,
+)
 
 from django.db.models.query import Prefetch
 
@@ -38,6 +47,8 @@ from posthog.models.filters import RetentionFilter
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.queries.retention import AppearanceRow, Retention
+
+CohortKey = NamedTuple("CohortKey", (("breakdown_values", Tuple[str]), ("period", int)))
 
 
 class ClickhouseRetention(Retention):
@@ -83,11 +94,17 @@ class ClickhouseRetention(Retention):
                 )
             )
 
+            result = [(tuple(res[0]), *res[1:]) for res in result]  # make breakdown hashable, required later
+
             initial_interval_result = sync_execute(
                 substitute_params(INITIAL_BREAKDOWN_INTERVAL_SQL, all_params).format(
                     reference_event_sql=target_event_query, trunc_func=trunc_func,
                 ),
             )
+
+            initial_interval_result = [
+                (tuple(res[0]), *res[1:]) for res in initial_interval_result
+            ]  # make breakdown hashable, required later
         else:
             result = sync_execute(
                 substitute_params(RETENTION_SQL, all_params).format(
@@ -105,31 +122,33 @@ class ClickhouseRetention(Retention):
 
         result_dict = {}
         for initial_res in initial_interval_result:
-            result_dict.update({(tuple(initial_res[0]), 0): {"count": initial_res[1], "people": []}})
+            result_dict.update({CohortKey(initial_res[0], 0): {"count": initial_res[1], "people": []}})
 
         for res in result:
-            result_dict.update({(tuple(res[0]), res[1]): {"count": res[2], "people": []}})
+            result_dict.update({CohortKey(res[0], res[1]): {"count": res[2], "people": []}})
 
         return result_dict
 
     def process_table_result(
-        self, resultset: Dict[Tuple[int, int], Dict[str, Any]], filter: RetentionFilter,
+        self, resultset: Dict[CohortKey, Dict[str, Any]], filter: RetentionFilter,
     ):
         if not filter.breakdowns:
             # If we're not using breakdowns, just use the non-clickhouse
             # `process_table_result`
-            return super().process_table_result(resultset, filter)
+            return super().process_table_result(cast(Dict[Tuple[int, int], Dict[str, Any]], resultset), filter)
 
         result = [
             {
                 "values": [
-                    resultset.get((cohort, interval), {"count": 0, "people": []})
+                    resultset.get(CohortKey(breakdown_values, interval), {"count": 0, "people": []})
                     for interval in range(filter.total_intervals)
                 ],
-                "label": cohort,
-                "date": cohort,
+                "label": "::".join(breakdown_values),
+                "breakdown_values": breakdown_values,
             }
-            for cohort in set(key[0] for key in resultset.keys())
+            for breakdown_values in set(
+                cohort_key.breakdown_values for cohort_key in cast(Dict[CohortKey, Dict[str, Any]], resultset).keys()
+            )
         ]
 
         return result
