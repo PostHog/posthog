@@ -186,14 +186,14 @@ class ClickhousePersonViewSet(PersonViewSet):
                 funnel_filter_data = json.loads(funnel_filter_data)
             funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data}, team=self.team)
 
-        people, _ = ClickhousePathsActors(filter, self.team, funnel_filter=funnel_filter).get_actors()
+        people, serialized_actors = ClickhousePathsActors(filter, self.team, funnel_filter=funnel_filter).get_actors()
         _should_paginate = should_paginate(people, filter.limit)
 
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
         initial_url = format_query_params_absolute_url(request, 0)
 
         # cached_function expects a dict with the key result
-        return {"result": (people, next_url, initial_url)}
+        return {"result": (serialized_actors, next_url, initial_url)}
 
     def destroy(self, request: Request, pk=None, **kwargs):  # type: ignore
         try:
