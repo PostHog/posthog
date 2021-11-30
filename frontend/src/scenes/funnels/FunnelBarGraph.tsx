@@ -14,9 +14,9 @@ import { useActions, useValues } from 'kea'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import {
-    cleanBreakdownValue,
     formatDisplayPercentage,
     getBreakdownMaxIndex,
+    getBreakdownStepValues,
     getReferenceStep,
     getSeriesColor,
     getSeriesPositionName,
@@ -76,7 +76,7 @@ interface BreakdownBarGroupProps {
     basisStep: FunnelStepWithConversionMetrics
     previousStep: FunnelStepWithConversionMetrics
     showLabels: boolean
-    onBarClick?: (breakdown_value: string | undefined | number) => void
+    onBarClick?: (breakdown_value: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>) => void
     disabled: boolean
     isSingleSeries?: boolean
     aggregationTargetLabel: { singular: string; plural: string }
@@ -104,6 +104,7 @@ export function BreakdownVerticalBarGroup({
                 const previousBarHeight =
                     (height * (previousStep?.nested_breakdown?.[breakdownIndex]?.count ?? 0)) / basisBreakdownCount
                 const color = getSeriesColor(breakdown.order, isSingleSeries)
+                const breakdownValues = getBreakdownStepValues(breakdown, breakdownIndex)
 
                 const popoverMetrics = [
                     {
@@ -162,9 +163,9 @@ export function BreakdownVerticalBarGroup({
                                     altTitle={
                                         <div style={{ wordWrap: 'break-word' }}>
                                             <PropertyKeyInfo value={currentStep.name} />
-                                            {(breakdown.breakdown_value === 'Baseline'
+                                            {breakdownValues.breakdown_value?.[0] === 'Baseline'
                                                 ? ''
-                                                : ` • ${breakdown.breakdown}`) ?? ' • Other'}
+                                                : ` • ${breakdownValues.breakdown.join(',')}`}
                                         </div>
                                     }
                                 >
@@ -182,7 +183,7 @@ export function BreakdownVerticalBarGroup({
                                     width: barWidth,
                                     cursor: disabled ? undefined : 'pointer',
                                 }}
-                                onClick={() => onBarClick && onBarClick(cleanBreakdownValue(breakdown.breakdown_value))}
+                                onClick={() => onBarClick && onBarClick(breakdown)}
                             />
                         </Popover>
                         {showLabels && (

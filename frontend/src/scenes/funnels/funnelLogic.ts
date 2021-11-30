@@ -1233,13 +1233,16 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 return
             }
 
+            const funnelStep = converted ? step.order : -step.order
+            const breakdownValues = getBreakdownStepValues(step, funnelStep)
+
             personsModalLogic.actions.loadPeopleFromUrl({
                 url: converted ? step.converted_people_url : step.dropped_people_url,
                 // NOTE: although we have the url that contains all of the info needed
                 // to return people, we currently still need to pass something in for the
                 // purpose of the modal displaying the label.
                 funnelStep: converted ? step.order : -step.order,
-                breakdown_value: step.breakdown_value?.[0] ?? step.breakdown_value,
+                breakdown_value: breakdownValues.isEmpty ? undefined : breakdownValues.breakdown_value.join(', '),
                 label: step.name,
                 // NOTE: session value copied from previous code, not clear that this should be the case
                 action: 'session',

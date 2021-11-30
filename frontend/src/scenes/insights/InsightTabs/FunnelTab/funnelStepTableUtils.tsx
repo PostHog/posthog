@@ -73,8 +73,10 @@ function BreakdownBarGroupWrapper({
                 basisStep={basisStep}
                 previousStep={previousStep}
                 showLabels={showLabels}
-                onBarClick={() => {
-                    openPersonsModalForStep({ step, converted: true })
+                onBarClick={(breakdown) => {
+                    // Breakdown parameter carries nested breakdown information that should be passed into
+                    // openPersonsModalForStep.
+                    openPersonsModalForStep({ step: breakdown, converted: true })
                 }}
                 disabled={!isModalActive}
                 isSingleSeries={flattenedBreakdowns.length === 1}
