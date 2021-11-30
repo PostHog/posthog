@@ -51,6 +51,7 @@ import { urls } from 'scenes/urls'
 interface DashboardItemProps {
     item: DashboardItemType
     dashboardId?: number
+    receivedErrorFromAPI: boolean
     updateItemColor?: (insightId: number, itemClassName: string) => void
     setDiveDashboard?: (insightId: number, diveDashboard: number | null) => void
     loadDashboardItems?: () => void
@@ -148,6 +149,7 @@ const dashboardDiveLink = (dive_dashboard: number, dive_source_id: InsightShortI
 export function DashboardItem({
     item,
     dashboardId,
+    receivedErrorFromAPI,
     updateItemColor,
     setDiveDashboard,
     loadDashboardItems,
@@ -246,8 +248,8 @@ export function DashboardItem({
         }
 
         // Insight agnostic empty states
-        if (showErrorMessage) {
-            return <InsightErrorState />
+        if (showErrorMessage || receivedErrorFromAPI) {
+            return <InsightErrorState smallContainer={true} />
         }
         if (showTimeoutMessage) {
             return <InsightTimeoutState isLoading={isLoading} />

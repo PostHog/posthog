@@ -4,6 +4,7 @@ import React from 'react'
 import { PlusOutlined } from '@ant-design/icons'
 import { dashboardLogic } from './dashboardLogic'
 import { useActions } from 'kea'
+import { InsightErrorState } from 'scenes/insights/EmptyStates'
 
 function SkeletonOne(): JSX.Element {
     return (
@@ -73,30 +74,25 @@ export interface EmptyDashboardComponentProps {
 export function EmptyDashboardComponent({ emptyWithErrors }: EmptyDashboardComponentProps): JSX.Element {
     const { addGraph } = useActions(dashboardLogic)
 
-    return (
+    return emptyWithErrors ? (
+        <InsightErrorState title={'There was an error loading this dashboard'} />
+    ) : (
         <div className="empty-state">
             <div className="cta">
-                {emptyWithErrors ? (
-                    <Card className="card-elevated" title={'Could not load this dashboard'} extra={'💣'}>
-                        You can try refreshing the page or{' '}
-                        <a href="https://posthog.com/slack">join our community on Slack</a> and ask for support
-                    </Card>
-                ) : (
-                    <Card className="card-elevated">
-                        <h3 className="l3">Dashboard empty</h3>
-                        <p>This dashboard sure would look better with some graphs!</p>
-                        <div className="mt text-center">
-                            <HotkeyButton
-                                onClick={() => addGraph()}
-                                data-attr="dashboard-add-graph-header"
-                                icon={<PlusOutlined />}
-                                hotkey="n"
-                            >
-                                Add graph
-                            </HotkeyButton>
-                        </div>
-                    </Card>
-                )}
+                <Card className="card-elevated">
+                    <h3 className="l3">Dashboard empty</h3>
+                    <p>This dashboard sure would look better with some graphs!</p>
+                    <div className="mt text-center">
+                        <HotkeyButton
+                            onClick={() => addGraph()}
+                            data-attr="dashboard-add-graph-header"
+                            icon={<PlusOutlined />}
+                            hotkey="n"
+                        >
+                            Add graph
+                        </HotkeyButton>
+                    </div>
+                </Card>
             </div>
             <Row gutter={16}>
                 <Col span={24} lg={12}>
