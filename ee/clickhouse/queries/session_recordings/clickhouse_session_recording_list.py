@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any, Dict, List, NamedTuple, Set, Tuple, Union
+from typing import Any, Dict, List, NamedTuple, Tuple, Union
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_entity_filter
@@ -10,7 +10,7 @@ from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Entity
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.queries.session_recordings.session_recording_list import SessionRecordingList, SessionRecordingQueryResult
+from posthog.queries.session_recordings.session_recording_list import SessionRecordingQueryResult
 
 
 class EventFiltersSQL(NamedTuple):
@@ -55,7 +55,7 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
             MAX(timestamp) AS end_time,
             dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
             any(distinct_id) as distinct_id,
-            COUNT((JSONExtractInt(snapshot_data, 'type') = 2 OR JSONExtractBool(snapshot_data, 'has_full_snapshot')) ? 1 : NULL) as full_snapshots
+            SUM(has_full_snapshot) as full_snapshots
         FROM session_recording_events
         WHERE
             team_id = %(team_id)s
