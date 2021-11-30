@@ -80,7 +80,7 @@ class Migration(SpecialMigrationDefinition):
         else:
             return (False, "Upgrade your ClickHouse storage.")
 
-    def progress(self, migration_instance):
+    def progress(self, _):
         result = sync_execute(f"SELECT COUNT(1) FROM {TEMPORARY_TABLE_NAME}")
         result2 = sync_execute(f"SELECT COUNT(1) FROM {PERSONS_DISTINCT_ID_TABLE}")
         total_events_to_move = result2[0][0]

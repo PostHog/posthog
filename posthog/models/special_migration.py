@@ -1,3 +1,5 @@
+from typing import List
+
 from django.db import models
 
 
@@ -35,9 +37,9 @@ class SpecialMigration(models.Model):
     error: models.TextField = models.TextField(null=True, blank=True)
 
 
-def get_all_completed_special_migrations():
+def get_all_completed_special_migrations() -> List[SpecialMigration]:
     return SpecialMigration.objects.filter(status=MigrationStatus.CompletedSuccessfully)
 
 
-def get_all_running_special_migrations():
+def get_all_running_special_migrations() -> List[SpecialMigration]:
     return SpecialMigration.objects.filter(status=MigrationStatus.Running)

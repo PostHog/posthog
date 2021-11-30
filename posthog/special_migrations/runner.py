@@ -8,7 +8,7 @@ from posthog.tasks.special_migrations import run_special_migration
 
 
 # select for update?
-def start_special_migration(migration_name):
+def start_special_migration(migration_name: str) -> bool:
     migration_instance = SpecialMigration.objects.get(name=migration_name)
     if not migration_instance or migration_instance.status == MigrationStatus.Running:
         return False
@@ -34,7 +34,7 @@ def start_special_migration(migration_name):
     return run_special_migration_next_op(migration_name, migration_instance)
 
 
-def run_special_migration_next_op(migration_name, migration_instance=None):
+def run_special_migration_next_op(migration_name: str, migration_instance: SpecialMigration = None):
     migration_instance = migration_instance or SpecialMigration.objects.get(
         name=migration_name, status=MigrationStatus.Running
     )
@@ -73,7 +73,7 @@ def run_special_migration_next_op(migration_name, migration_instance=None):
     return run_special_migration_next_op(migration_name, migration_instance)
 
 
-def execute_op(database, sql, timeout_seconds, query_id):
+def execute_op(database: str, sql: str, timeout_seconds: int, query_id: str):
     if database == "clickhouse":
         execute_op_clickhouse(sql, query_id, timeout_seconds)
         return
@@ -81,20 +81,20 @@ def execute_op(database, sql, timeout_seconds, query_id):
     execute_op_postgres(sql, query_id)
 
 
-def execute_op_clickhouse(sql, query_id, timeout_seconds):
+def execute_op_clickhouse(sql: str, query_id: str, timeout_seconds: int):
     from ee.clickhouse.client import sync_execute
 
     sync_execute(f"/* {query_id} */" + sql, settings={"max_execution_time": timeout_seconds})
 
 
-def execute_op_postgres(sql, query_id):
+def execute_op_postgres(sql: str, query_id: str):
     from django.db import connection
 
     with connection.cursor() as cursor:
         cursor.execute(f"/* {query_id} */" + sql)
 
 
-def process_error(migration_instance, error):
+def process_error(migration_instance: SpecialMigration, error: str):
     migration_instance.status = MigrationStatus.Errored
     migration_instance.error = error
     migration_instance.finished_at = datetime.now()
@@ -104,11 +104,11 @@ def process_error(migration_instance, error):
     migration_instance.save()
 
 
-def run_migration_healthcheck(migration_instance):
+def run_migration_healthcheck(migration_instance: SpecialMigration):
     return ALL_SPECIAL_MIGRATIONS[migration_instance.name].healthcheck()
 
 
-def update_migration_progress(migration_instance):
+def update_migration_progress(migration_instance: SpecialMigration):
     try:
         migration_instance.progress = ALL_SPECIAL_MIGRATIONS[migration_instance.name].progress(migration_instance)
         migration_instance.save()
@@ -116,7 +116,7 @@ def update_migration_progress(migration_instance):
         pass
 
 
-def attempt_migration_rollback(migration_instance, force=False):
+def attempt_migration_rollback(migration_instance: SpecialMigration, force: bool = False):
     error = None
     try:
         rollback = ALL_SPECIAL_MIGRATIONS[migration_instance.name].rollback
@@ -135,17 +135,17 @@ def attempt_migration_rollback(migration_instance, force=False):
         migration_instance.save()
 
 
-def trigger_migration(migration_instance):
+def trigger_migration(migration_instance: SpecialMigration):
     task = run_special_migration.delay(migration_instance.name)
     migration_instance.celery_task_id = str(task.id)
     migration_instance.save()
 
 
 # DANGEROUS! Can cause another task to be lost
-def force_stop_migration(migration_instance, error="Force stopped by user"):
+def force_stop_migration(migration_instance: SpecialMigration, error: str = "Force stopped by user"):
     app.control.revoke(migration_instance.celery_task_id, terminate=True)
     process_error(migration_instance, error)
 
 
-def force_rollback_migration(migration_instance):
+def force_rollback_migration(migration_instance: SpecialMigration):
     attempt_migration_rollback(migration_instance, force=True)

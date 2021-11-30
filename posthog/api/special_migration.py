@@ -5,11 +5,10 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.celery import app
 from posthog.models.special_migration import MigrationStatus, SpecialMigration, get_all_running_special_migrations
 from posthog.permissions import StaffUser
-from posthog.special_migrations.runner import force_rollback_migration, force_stop_migration, process_error, trigger_migration
-from posthog.tasks.special_migrations import run_special_migration
+from posthog.special_migrations.runner import force_rollback_migration, force_stop_migration, trigger_migration
 
-# allow users to set this?
 # important to prevent us taking up too many celery workers
+# and running migrations sequentially
 MAX_CONCURRENT_SPECIAL_MIGRATIONS = 1
 
 
@@ -74,8 +73,8 @@ class SpecialMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["POST"], detail=True)
     def force_rollback(self, request, **kwargs):
-        sm = self.get_object()
-        if sm.status != MigrationStatus.CompletedSuccessfully:
+        migration_instance = self.get_object()
+        if migration_instance.status != MigrationStatus.CompletedSuccessfully:
             return response.Response(
                 {
                     "success": False,

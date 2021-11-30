@@ -18,7 +18,7 @@ for name, module in import_submodules("posthog.special_migrations.migrations"):
 POSTHOG_VERSION = Version(VERSION)
 
 
-def init_special_migrations():
+def init_special_migrations() -> None:
 
     applied_migrations = set(instance.name for instance in get_all_completed_special_migrations())
     unapplied_migrations = set(ALL_SPECIAL_MIGRATIONS.keys()) - applied_migrations
