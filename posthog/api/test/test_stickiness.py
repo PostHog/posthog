@@ -7,7 +7,6 @@ from django.test.client import Client
 from django.utils import timezone
 from freezegun import freeze_time
 
-from ee.clickhouse.test.test_journeys import journeys_for
 from posthog.constants import ENTITY_ID, ENTITY_TYPE
 from posthog.models import Action, ActionStep, Event, Person
 from posthog.queries.abstract_test.test_compare import AbstractCompareTest
@@ -390,20 +389,18 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self.assertEqual(str(people[0]["id"]), str(person1.id))
 
         def test_stickiness_people_paginated(self):
-            journey = {}
             for i in range(150):
                 person_name = f"person{i}"
                 person = person_factory(
                     team_id=self.team.id, distinct_ids=[person_name], properties={"name": person_name}
                 )
-                journey[person_name] = [
-                    {
-                        "event": "watched movie",
-                        "timestamp": datetime(2020, 1, 1, 12),
-                        "properties": {"$browser": "Chrome"},
-                    }
-                ]
-            people = journeys_for(journey, self.team)
+                event_factory(
+                    team=self.team,
+                    event="watched movie",
+                    distinct_id=person_name,
+                    timestamp="2020-01-01T12:00:00.00Z",
+                    properties={"$browser": "Chrome"},
+                )
             watched_movie = action_factory(team=self.team, name="watch movie action", event_name="watched movie")
 
             result = get_stickiness_people_ok(
