@@ -1,6 +1,7 @@
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 from posthog.models.special_migration import SpecialMigration
+from posthog.version_requirement import ServiceVersionRequirement
 
 
 class SpecialMigrationOperation:
@@ -15,8 +16,8 @@ class SpecialMigrationDefinition:
     posthog_min_version = "0.0.0"
     posthog_max_version = "10000.0.0"
 
-    service_version_requirements = []
-    operations = []
+    service_version_requirements: List[ServiceVersionRequirement] = []
+    operations: List[SpecialMigrationOperation] = []
 
     def is_required(self) -> bool:
         return True
