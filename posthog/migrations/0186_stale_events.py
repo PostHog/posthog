@@ -7,10 +7,11 @@ from posthog.constants import AnalyticsDBMS
 
 
 def set_created_at(apps, schema_editor):
+
     try:
         from ee.clickhouse.client import sync_execute
     except ImportError:
-        sync_execute = None
+        sync_execute = None  # type: ignore
 
     EventDefinition = apps.get_model("posthog", "EventDefinition")
     for instance in EventDefinition.objects.filter(created_at=None):
