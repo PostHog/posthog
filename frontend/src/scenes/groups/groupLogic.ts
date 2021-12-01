@@ -3,7 +3,7 @@ import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { groupsModel } from '~/models/groupsModel'
-import { Group, RelatedActor } from '~/types'
+import { Group } from '~/types'
 import { groupLogicType } from './groupLogicType'
 
 export const groupLogic = kea<groupLogicType>({
@@ -21,18 +21,6 @@ export const groupLogic = kea<groupLogicType>({
                     const url = `api/projects/${values.currentTeamId}/groups/find?${toParams(params)}`
                     return await api.get(url)
                 },
-            },
-        ],
-        relatedActors: [
-            [] as RelatedActor[],
-            {
-                loadRelatedActors: async () => {
-                    const params = { group_type_index: values.groupTypeIndex, id: values.groupKey }
-                    const url = `api/projects/${values.currentTeamId}/groups/related?${toParams(params)}`
-
-                    return await api.get(url)
-                },
-                setGroup: () => [],
             },
         ],
     }),

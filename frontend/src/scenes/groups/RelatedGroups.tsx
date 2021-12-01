@@ -1,6 +1,5 @@
 import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import { groupLogic } from 'scenes/groups/groupLogic'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
 import { RelatedActor } from '~/types'
 import { Skeleton } from 'antd'
@@ -10,19 +9,20 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { Link } from 'lib/components/Link'
 import { asDisplay } from 'scenes/persons/PersonHeader'
+import { relatedGroupsLogic } from 'scenes/groups/relatedGroupsLogic'
 
 interface Props {
-    groupTypeIndex: number
+    groupTypeIndex: number | null
     id: string
 }
 
 export function RelatedGroups({ groupTypeIndex, id }: Props): JSX.Element {
-    const { relatedActors, relatedActorsLoading } = useValues(groupLogic)
-    const { loadRelatedActors } = useActions(groupLogic)
+    const { relatedActors, relatedActorsLoading } = useValues(relatedGroupsLogic)
+    const { loadRelatedActors } = useActions(relatedGroupsLogic)
     const { groupTypes } = useValues(groupsModel)
 
     useEffect(() => {
-        loadRelatedActors()
+        loadRelatedActors(groupTypeIndex, id)
     }, [groupTypeIndex, id])
 
     if (relatedActorsLoading) {
