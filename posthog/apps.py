@@ -4,7 +4,6 @@ import posthoganalytics
 from django.apps import AppConfig
 from django.conf import settings
 
-from posthog.special_migrations.setup import setup_special_migrations
 from posthog.utils import get_git_branch, get_git_commit, get_machine_id
 from posthog.version import VERSION
 
@@ -44,5 +43,7 @@ class PostHogConfig(AppConfig):
                     if start_anyway.lower() != "y":
                         print(f"Unsupported version for service {service_version_requirement.service}, exiting...")
                         exit(1)
+
+        from posthog.special_migrations.setup import setup_special_migrations
 
         setup_special_migrations()

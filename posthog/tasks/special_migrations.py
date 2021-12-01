@@ -1,15 +1,13 @@
 from celery.result import AsyncResult
 
 from posthog.celery import app
-from posthog.models.special_migration import MigrationStatus, SpecialMigration
 from posthog.special_migrations.runner import (
-    force_stop_migration,
-    process_error,
     run_migration_healthcheck,
     run_special_migration_next_op,
     start_special_migration,
     update_migration_progress,
 )
+from posthog.special_migrations.utils import force_stop_migration, process_error
 
 
 class CeleryTaskState:
@@ -36,6 +34,8 @@ def run_special_migration(migration_name: str, start=True) -> None:
 
 @app.task(ignore_result=False, track_started=True, max_retries=0)
 def check_special_migration_health() -> None:
+    from posthog.models.special_migration import MigrationStatus, SpecialMigration
+
     migration_instance = SpecialMigration.objects.get(status=MigrationStatus.Running)
     if not migration_instance:
         return
