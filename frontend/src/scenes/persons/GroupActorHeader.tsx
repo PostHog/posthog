@@ -1,15 +1,19 @@
 import { GroupActorType } from '~/types'
 import React from 'react'
 import './PersonHeader.scss'
+import { Link } from 'lib/components/Link'
+import { urls } from 'scenes/urls'
 
 export interface GroupActorHeaderProps {
     actor: GroupActorType
 }
 
-export function GroupActorHeader(props: GroupActorHeaderProps): JSX.Element {
+export function GroupActorHeader({ actor }: GroupActorHeaderProps): JSX.Element {
     return (
-        <div className="person-header identified">
-            <span className="ph-no-capture">{props.actor.id}</span>
-        </div>
+        <Link to={urls.group(actor.group_type_index.toString(), actor.group_key)}>
+            <div className="person-header identified">
+                <span className="ph-no-capture">{actor.id}</span>
+            </div>
+        </Link>
     )
 }

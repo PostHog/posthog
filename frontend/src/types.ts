@@ -466,6 +466,7 @@ export interface GroupActorType {
     properties: Record<string, any>
     created_at?: string
     group_key: string
+    group_type_index: number
 }
 
 export type ActorType = PersonType | GroupActorType
