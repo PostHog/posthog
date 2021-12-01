@@ -1,6 +1,5 @@
 from typing import Any, Dict, Tuple
 
-from ee.clickhouse.client import substitute_params
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.group import get_aggregation_target_field
 from ee.clickhouse.models.property import get_single_or_multi_property_string_expr
