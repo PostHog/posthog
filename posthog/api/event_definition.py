@@ -53,7 +53,7 @@ class EventDefinitionViewSet(
                     FROM ee_enterpriseeventdefinition
                     FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
                     WHERE team_id = %(team_id)s {search_query}
-                    ORDER BY name
+                    ORDER BY query_usage_30_day DESC NULLS LAST, name ASC
                     """,
                     params={"team_id": self.team_id, **search_kwargs},
                 )

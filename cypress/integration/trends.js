@@ -103,7 +103,8 @@ describe('Trends', () => {
         cy.get('[data-attr=date-filter]').click()
         cy.contains('Last 30 days').click()
 
-        cy.get('[data-attr=trend-line-graph]', { timeout: 8000 }).should('exist')
+        cy.get('[data-attr="date-filter"] .ant-select-selection-item').contains('Last 30 days')
+        cy.get('[data-attr=trend-line-graph]', { timeout: 10000 }).should('exist')
     })
 
     it('Apply property breakdown', () => {

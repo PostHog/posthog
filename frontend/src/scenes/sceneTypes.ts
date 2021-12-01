@@ -21,6 +21,7 @@ export enum Scene {
     Group = 'Group',
     Action = 'Action',
     Actions = 'ActionsTable',
+    Experiments = 'Experiments',
     FeatureFlags = 'FeatureFlags',
     FeatureFlag = 'FeatureFlag',
     OrganizationSettings = 'OrganizationSettings',
