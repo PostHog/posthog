@@ -52,7 +52,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        _, serialized_actors = FunnelCorrelationActors(filter, self.team).get_actors()
+        _, serialized_actors = FunnelCorrelationActors(person_filter, self.team).get_actors()
         return [str(row["id"]) for row in serialized_actors]
 
     def _get_people_for_property(self, filter: Filter, property_values: list, success=True):
@@ -64,7 +64,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 "funnel_correlation_person_converted": "TrUe" if success else "falSE",
             }
         )
-        _, serialized_actors = FunnelCorrelationActors(filter, self.team).get_actors()
+        _, serialized_actors = FunnelCorrelationActors(person_filter, self.team).get_actors()
         return [str(row["id"]) for row in serialized_actors]
 
     def test_basic_funnel_correlation_with_events(self):
