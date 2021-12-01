@@ -1128,19 +1128,10 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         ],
         isModalActive: [
             (s) => [s.insightMode, s.clickhouseFeaturesEnabled, s.filters],
-            (insightMode, clickhouseFeaturesEnabled, filters) => {
-                console.log(
-                    'ISMODALACTIVE',
-                    insightMode,
-                    clickhouseFeaturesEnabled,
-                    filters.aggregation_group_type_index
-                )
-                return (
-                    clickhouseFeaturesEnabled &&
-                    insightMode === ItemMode.Edit &&
-                    filters.aggregation_group_type_index === undefined
-                )
-            },
+            (insightMode, clickhouseFeaturesEnabled, filters) =>
+                clickhouseFeaturesEnabled &&
+                insightMode === ItemMode.Edit &&
+                filters.aggregation_group_type_index === undefined,
         ],
     }),
 
