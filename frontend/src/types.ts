@@ -460,6 +460,7 @@ export interface PersonType {
     is_identified: boolean
 }
 
+// TODO: reconcile with "Group". This pattern is meant to mirror returned persons but overlaps with the already existing group type
 export interface GroupActorType {
     type: 'group'
     id?: string | number
