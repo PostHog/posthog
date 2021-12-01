@@ -24,7 +24,8 @@ def set_created_at(apps, schema_editor):
                 created_at = event_instance.timestamp
         else:
             result = sync_execute(
-                "SELECT timestamp FROM events where team_id=%(team_id)s AND event=%(event)s" " limit 1",
+                "SELECT timestamp FROM events where team_id=%(team_id)s AND event=%(event)s"
+                " order by timestamp limit 1",
                 {"team_id": instance.team.pk, "event": instance.name,},
             )
             if result:
@@ -38,7 +39,7 @@ def set_created_at(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0184_delete_sessionsfilter"),
+        ("posthog", "0185_special_migrations"),
     ]
 
     operations = [
