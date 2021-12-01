@@ -2,7 +2,7 @@ from django.core.exceptions import ImproperlyConfigured
 from infi.clickhouse_orm.utils import import_submodules
 from semantic_version.base import SimpleSpec, Version
 
-from posthog.settings import DEBUG, TEST
+from posthog.settings import DEBUG, E2E_TESTING, TEST
 from posthog.version import VERSION
 
 ALL_SPECIAL_MIGRATIONS = {}
@@ -13,7 +13,7 @@ POSTHOG_VERSION = Version(VERSION)
 def setup_special_migrations():
     from posthog.models.special_migration import SpecialMigration, get_all_completed_special_migrations
 
-    if TEST:
+    if TEST or E2E_TESTING:
         return
 
     all_migrations = import_submodules("posthog.special_migrations.migrations")
