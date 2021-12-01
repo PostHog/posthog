@@ -490,7 +490,8 @@ export class DB {
     public async createPerson(
         createdAt: DateTime,
         properties: Properties,
-        propertiesOnce: Properties,
+        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
+        propertiesLastOperation: PropertiesLastOperation,
         teamId: number,
         isUserId: number | null,
         isIdentified: boolean,
@@ -499,26 +500,14 @@ export class DB {
     ): Promise<Person> {
         const kafkaMessages: ProducerRecord[] = []
 
-        const props = { ...propertiesOnce, ...properties }
-        const props_last_operation: Record<string, any> = {}
-        const props_last_updated_at: Record<string, any> = {}
-        Object.keys(propertiesOnce).forEach((key) => {
-            props_last_operation[key] = PropertyUpdateOperation.SetOnce
-            props_last_updated_at[key] = createdAt
-        })
-        Object.keys(properties).forEach((key) => {
-            props_last_operation[key] = PropertyUpdateOperation.Set
-            props_last_updated_at[key] = createdAt
-        })
-
         const person = await this.postgresTransaction(async (client) => {
             const insertResult = await this.postgresQuery(
                 'INSERT INTO posthog_person (created_at, properties, properties_last_updated_at, properties_last_operation, team_id, is_user_id, is_identified, uuid, version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *',
                 [
                     createdAt.toISO(),
-                    JSON.stringify(props),
-                    JSON.stringify(props_last_updated_at),
-                    JSON.stringify(props_last_operation),
+                    JSON.stringify(properties),
+                    JSON.stringify(propertiesLastUpdatedAt),
+                    JSON.stringify(propertiesLastOperation),
                     teamId,
                     isUserId,
                     isIdentified,
@@ -537,7 +526,7 @@ export class DB {
 
             if (this.kafkaProducer) {
                 kafkaMessages.push(
-                    generateKafkaPersonUpdateMessage(createdAt, props, teamId, isIdentified, uuid, person.version)
+                    generateKafkaPersonUpdateMessage(createdAt, properties, teamId, isIdentified, uuid, person.version)
                 )
             }
 
@@ -604,6 +593,41 @@ export class DB {
         }
 
         return client ? kafkaMessages : updatedPerson
+    }
+
+    public async updatePersonProperties(
+        client: PoolClient,
+        personId: number,
+        createdAt: DateTime,
+        properties: Properties,
+        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
+        propertiesLastOperation: PropertiesLastOperation
+    ): Promise<number> {
+        const updateResult: QueryResult = await this.postgresQuery(
+            `UPDATE posthog_person SET
+            created_at = $1
+            properties = $2,
+            properties_last_updated_at = $3,
+            properties_last_operation = $4,
+            version = COALESCE(version, 0)::numeric + 1
+        WHERE id = $5
+        RETURNING version`,
+            [
+                createdAt.toISO(),
+                JSON.stringify(properties),
+                JSON.stringify(propertiesLastUpdatedAt),
+                JSON.stringify(propertiesLastOperation),
+                personId,
+            ],
+            'updatePersonProperties',
+            client
+        )
+
+        if (updateResult.rows.length === 0) {
+            // this function should always be called in a transaction with person fetch locking for update before
+            throw new RaceConditionError('Failed updating person properties, person was not locked properly')
+        }
+        return Number(updateResult.rows[0].version)
     }
 
     public async deletePerson(person: Person, client: PoolClient): Promise<ProducerRecord[]> {

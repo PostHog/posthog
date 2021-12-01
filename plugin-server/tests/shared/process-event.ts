@@ -67,6 +67,7 @@ export async function createPerson(
         DateTime.utc(),
         properties,
         {},
+        {},
         team.id,
         null,
         false,
@@ -274,6 +275,7 @@ export const createProcessEventTests = (
                     otherPerson: person1,
                     otherPersonDistinctId: 'person_1',
                     totalMergeAttempts: 0,
+                    timestamp: DateTime.now(),
                 })
             }).rejects.toThrow()
 
@@ -286,6 +288,7 @@ export const createProcessEventTests = (
             otherPerson: person1,
             otherPersonDistinctId: 'person_1',
             totalMergeAttempts: 0,
+            timestamp: DateTime.now(),
         })
 
         if (database === 'clickhouse') {

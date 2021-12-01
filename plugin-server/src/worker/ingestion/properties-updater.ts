@@ -49,25 +49,15 @@ export async function updatePersonProperties(
             person.properties_last_operation || {},
             timestamp
         )
-        if (propertiesUpdate.updated) {
-            const updateResult: QueryResult = await db.postgresQuery(
-                `UPDATE posthog_person SET
-                    properties = $1,
-                    properties_last_updated_at = $2,
-                    properties_last_operation = $3,
-                    version = COALESCE(version, 0)::numeric + 1
-                WHERE id = $4
-                RETURNING version`,
-                [
-                    JSON.stringify(propertiesUpdate.properties),
-                    JSON.stringify(propertiesUpdate.properties_last_updated_at),
-                    JSON.stringify(propertiesUpdate.properties_last_operation),
-                    person.id,
-                ],
-                'updatePersonProperties',
-                client
+        if (propertiesUpdate.updated || timestamp < person.created_at) {
+            person.version = await db.updatePersonProperties(
+                client,
+                person.id,
+                DateTime.min(timestamp, person.created_at),
+                propertiesUpdate.properties,
+                propertiesUpdate.properties_last_updated_at,
+                propertiesUpdate.properties_last_operation
             )
-            person.version = Number(updateResult.rows[0].version)
         }
         return [propertiesUpdate, person]
     })
