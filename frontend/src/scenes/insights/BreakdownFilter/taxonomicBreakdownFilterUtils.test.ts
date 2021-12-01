@@ -1,5 +1,4 @@
 import { onFilterChange } from 'scenes/insights/BreakdownFilter/taxonomicBreakdownFilterUtils'
-import { FilterType } from '~/types'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 const taxonomicGroupFor = (
@@ -14,12 +13,9 @@ const taxonomicGroupFor = (
     getValue: () => 'unused in these tests',
 })
 
-describe('taxonomic breakdown filter utils', () => {
-    let setFilters: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
-    beforeEach(() => {
-        setFilters = jest.fn()
-    })
+const setFilters = jest.fn()
 
+describe('taxonomic breakdown filter utils', () => {
     describe('with multi property breakdown flag on', () => {
         it('sets breakdowns for events', () => {
             const onChange = onFilterChange({
