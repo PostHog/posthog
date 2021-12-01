@@ -28,8 +28,7 @@
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
        AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-       AND NOT has([''], $group_0)
-       AND team_id = 2 ) event
+       AND NOT has([''], $group_0) ) event
   JOIN
     (SELECT DISTINCT toStartOfWeek(e.timestamp) AS event_date,
                      e.$group_0 as target,
@@ -54,8 +53,7 @@
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
        AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-       AND NOT has([''], $group_0)
-       AND team_id = 2 ) reference_event ON (event.target = reference_event.target)
+       AND NOT has([''], $group_0) ) reference_event ON (event.target = reference_event.target)
   WHERE toStartOfWeek(event.event_date) > toStartOfWeek(reference_event.event_date)
   GROUP BY base_interval,
            intervals_from_base
@@ -92,8 +90,7 @@
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
        AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-       AND NOT has([''], $group_0)
-       AND team_id = 2 )
+       AND NOT has([''], $group_0) )
   GROUP BY event_date
   ORDER BY event_date
   '
@@ -128,8 +125,7 @@
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
        AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-       AND NOT has([''], $group_1)
-       AND team_id = 2 ) event
+       AND NOT has([''], $group_1) ) event
   JOIN
     (SELECT DISTINCT toStartOfWeek(e.timestamp) AS event_date,
                      e.$group_1 as target,
@@ -154,8 +150,7 @@
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
        AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-       AND NOT has([''], $group_1)
-       AND team_id = 2 ) reference_event ON (event.target = reference_event.target)
+       AND NOT has([''], $group_1) ) reference_event ON (event.target = reference_event.target)
   WHERE toStartOfWeek(event.event_date) > toStartOfWeek(reference_event.event_date)
   GROUP BY base_interval,
            intervals_from_base
@@ -192,8 +187,7 @@
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
        AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
-       AND NOT has([''], $group_1)
-       AND team_id = 2 )
+       AND NOT has([''], $group_1) )
   GROUP BY event_date
   ORDER BY event_date
   '
