@@ -35,7 +35,6 @@ from posthog.utils import is_valid_regex, relative_date_parse
 
 def parse_prop_clauses(
     filters: List[Property],
-    team_id: Optional[int],
     prepend: str = "global",
     table_name: str = "",
     allow_denormalized_props: bool = True,
@@ -46,15 +45,13 @@ def parse_prop_clauses(
 ) -> Tuple[str, Dict]:
     final = []
     params: Dict[str, Any] = {}
-    if team_id is not None:
-        params["team_id"] = team_id
     if table_name != "":
         table_name += "."
 
     for idx, prop in enumerate(filters):
         if prop.type == "cohort":
             try:
-                cohort = Cohort.objects.get(pk=prop.value, team_id=team_id)
+                cohort = Cohort.objects.get(pk=prop.value)
             except Cohort.DoesNotExist:
                 final.append("AND 0 = 13")  # If cohort doesn't exist, nothing can match
             else:
