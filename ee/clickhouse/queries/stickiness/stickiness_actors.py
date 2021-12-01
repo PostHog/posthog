@@ -11,7 +11,7 @@ from posthog.models.team import Team
 
 class ClickhouseStickinessActors(ActorBaseQuery):
     entity: Entity
-    filter: StickinessFilter
+    _filter: StickinessFilter
 
     def __init__(self, team: Team, entity: Optional[Entity], filter: StickinessFilter):
         if not entity:
@@ -25,19 +25,19 @@ class ClickhouseStickinessActors(ActorBaseQuery):
 
     def actor_query(self) -> Tuple[str, Dict]:
         events_query, event_params = StickinessEventsQuery(
-            entity=self.entity, filter=self.filter, team_id=self._team.pk
+            entity=self.entity, filter=self._filter, team_id=self._team.pk
         ).get_query()
 
         return (
             f"""
         SELECT DISTINCT aggregation_target FROM ({events_query}) WHERE num_intervals = %(stickiness_day)s
-        {'LIMIT %(limit)s' if self.filter.limit is not None else ''}
-        {'OFFSET %(offset)s' if self.filter.limit is not None else ''}
+        {'LIMIT %(limit)s' if self._filter.limit > 0 else ''}
+        {'OFFSET %(offset)s' if self._filter.limit > 0 else ''}
         """,
             {
                 **event_params,
-                "stickiness_day": self.filter.selected_interval,
-                "offset": self.filter.offset,
-                "limit": self.filter.limit,
+                "stickiness_day": self._filter.selected_interval,
+                "offset": self._filter.offset,
+                "limit": self._filter.limit,
             },
         )
