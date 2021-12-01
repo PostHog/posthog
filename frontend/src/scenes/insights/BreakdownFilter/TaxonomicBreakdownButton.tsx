@@ -1,4 +1,8 @@
-import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import {
+    TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
+    TaxonomicFilterValue,
+} from 'lib/components/TaxonomicFilter/types'
 import React, { useState } from 'react'
 import { Popup } from 'lib/components/Popup/Popup'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
@@ -11,7 +15,7 @@ import { ButtonType } from 'antd/lib/button'
 
 export interface TaxonomicBreakdownButtonProps {
     breakdownType?: TaxonomicFilterGroupType
-    onChange: (breakdown: TaxonomicFilterValue, groupType: TaxonomicFilterGroupType) => void
+    onChange: (breakdown: TaxonomicFilterValue, taxonomicGroup: TaxonomicFilterGroup) => void
     onlyCohorts?: boolean
     buttonType?: ButtonType
 }
@@ -32,7 +36,7 @@ export function TaxonomicBreakdownButton({
                     groupType={breakdownType}
                     onChange={(taxonomicGroup, value) => {
                         if (value) {
-                            onChange(value, taxonomicGroup.type)
+                            onChange(value, taxonomicGroup)
                             setOpen(false)
                         }
                     }}
