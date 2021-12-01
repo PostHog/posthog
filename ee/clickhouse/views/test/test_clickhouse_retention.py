@@ -50,10 +50,13 @@ class RetentionTests(TestCase):
 
         retention_by_cohort_by_period = get_by_cohort_by_period_from_response(response=retention)
 
-        assert retention_by_cohort_by_period == {
-            "Day 0": {"1": 2, "2": 1,},  # ["person 1", "person 2"]  # ["person 1"]
-            "Day 1": {"1": 1},  # ["person 3"]
-        }
+        self.assertEqual(
+            retention_by_cohort_by_period,
+            {
+                "Day 0": {"1": 2, "2": 1,},  # ["person 1", "person 2"]  # ["person 1"]
+                "Day 1": {"1": 1},  # ["person 3"]
+            },
+        )
 
     def test_can_specify_breakdown_person_property(self):
         """
@@ -102,10 +105,13 @@ class RetentionTests(TestCase):
 
         retention_by_cohort_by_period = get_by_cohort_by_period_from_response(response=retention)
 
-        assert retention_by_cohort_by_period == {
-            "Chrome": {"1": 1, "2": 1},
-            "Safari": {"1": 1, "2": 1},  # IMPORTANT: the "2" value is from past the requested `date_to`
-        }
+        self.assertEqual(
+            retention_by_cohort_by_period,
+            {
+                "Chrome": {"1": 1, "2": 1},
+                "Safari": {"1": 1, "2": 1},  # IMPORTANT: the "2" value is from past the requested `date_to`
+            },
+        )
 
     def test_can_specify_breakdown_event_property(self):
         """
@@ -157,10 +163,13 @@ class RetentionTests(TestCase):
 
         retention_by_cohort_by_period = get_by_cohort_by_period_from_response(response=retention)
 
-        assert retention_by_cohort_by_period == {
-            "Chrome": {"1": 1, "2": 1},
-            "Safari": {"1": 1, "2": 1},  # IMPORTANT: the "2" value is from past the requested `date_to`
-        }
+        self.assertEqual(
+            retention_by_cohort_by_period,
+            {
+                "Chrome": {"1": 1, "2": 1},
+                "Safari": {"1": 1, "2": 1},  # IMPORTANT: the "2" value is from past the requested `date_to`
+            },
+        )
 
 
 def setup_user_activity_by_day(daily_activity, team):
