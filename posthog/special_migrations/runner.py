@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 
 from posthog.celery import app
 from posthog.models.special_migration import MigrationStatus, SpecialMigration
@@ -26,7 +27,7 @@ def start_special_migration(migration_name: str) -> bool:
     ok, error = migration_definition.healthcheck()
     if not ok:
         process_error(migration_instance, error)
-        return
+        return False
 
     migration_instance.status = MigrationStatus.Running
     migration_instance.started_at = datetime.now()
@@ -34,7 +35,7 @@ def start_special_migration(migration_name: str) -> bool:
     return run_special_migration_next_op(migration_name, migration_instance)
 
 
-def run_special_migration_next_op(migration_name: str, migration_instance: SpecialMigration = None):
+def run_special_migration_next_op(migration_name: str, migration_instance: Optional[SpecialMigration] = None):
     migration_instance = migration_instance or SpecialMigration.objects.get(
         name=migration_name, status=MigrationStatus.Running
     )

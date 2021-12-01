@@ -27,7 +27,7 @@ def execute_op_postgres(sql: str, query_id: str):
 
 def process_error(migration_instance: SpecialMigration, error: str):
     migration_instance.status = MigrationStatus.Errored
-    migration_instance.error = error
+    migration_instance.last_error = error
     migration_instance.finished_at = datetime.now()
 
     from posthog.special_migrations.runner import attempt_migration_rollback

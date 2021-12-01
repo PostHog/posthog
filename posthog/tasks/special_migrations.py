@@ -23,7 +23,7 @@ class CeleryTaskState:
 # 2. suggesting users scale celery when running special migrations
 # 3. ...
 @app.task(ignore_result=False, max_retries=0)
-def run_special_migration(migration_name: str, start=True) -> None:
+def run_special_migration(migration_name: str, start: bool = True) -> None:
     if start:
         start_special_migration(migration_name)
         return
@@ -36,7 +36,7 @@ def run_special_migration(migration_name: str, start=True) -> None:
 def check_special_migration_health() -> None:
     from posthog.models.special_migration import MigrationStatus, SpecialMigration
 
-    migration_instance = SpecialMigration.objects.get(status=MigrationStatus.Running)
+    migration_instance: SpecialMigration = SpecialMigration.objects.get(status=MigrationStatus.Running)
     if not migration_instance:
         return
 
