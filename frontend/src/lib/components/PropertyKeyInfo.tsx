@@ -455,7 +455,7 @@ export const keyMapping: KeyMappingInterface = {
                 <span>
                     HTML tag name of the element which you want to filter.
                     <br />
-                    <span className="text-muted">Note: Only works with the "Autocapture" event.</span>
+                    <span className="text-muted mt-05">Note: Only works with the "Autocapture" event.</span>
                 </span>
             ),
             examples: ['a', 'button', 'input'],
@@ -464,9 +464,9 @@ export const keyMapping: KeyMappingInterface = {
             label: 'CSS Selector',
             description: (
                 <span>
-                    Select any element by CSS selector (e.g. <code>.my-class</code>)
+                    Select any element by CSS selector.
                     <br />
-                    <span className="text-muted">Note: Only works with the "Autocapture" event.</span>
+                    <span className="text-muted mt-05">Note: Only works with the "Autocapture" event.</span>
                 </span>
             ),
             examples: ['div > a', 'table td:nth-child(2)', '.my-class'],
@@ -477,7 +477,7 @@ export const keyMapping: KeyMappingInterface = {
                 <span>
                     Filter on the inner text of the HTML element.
                     <br />
-                    <span className="text-muted">Note: Only works with the "Autocapture" event.</span>
+                    <span className="text-muted mt-05">Note: Only works with the "Autocapture" event.</span>
                 </span>
             ),
         },
@@ -487,7 +487,7 @@ export const keyMapping: KeyMappingInterface = {
                 <span>
                     Filter on the <code>href</code> attribute of the element.
                     <br />
-                    <span className="text-muted">Note: Only works with the "Autocapture" event.</span>
+                    <span className="text-muted mt-05">Note: Only works with the "Autocapture" event.</span>
                 </span>
             ),
             examples: ['https://posthog.com/about'],
