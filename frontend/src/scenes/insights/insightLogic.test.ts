@@ -132,9 +132,16 @@ describe('insightLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setFilters({ insight: InsightType.FUNNELS })
             }).toDispatchActions([
-                eventUsageLogic.actionCreators.reportInsightViewed({ insight: InsightType.FUNNELS }, true, false, 0, {
-                    changed_insight: InsightType.TRENDS,
-                }),
+                eventUsageLogic.actionCreators.reportInsightViewed(
+                    { insight: InsightType.FUNNELS },
+                    ItemMode.View,
+                    true,
+                    false,
+                    0,
+                    {
+                        changed_insight: InsightType.TRENDS,
+                    }
+                ),
             ])
         })
     })
