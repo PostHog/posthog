@@ -27,14 +27,13 @@ class ClickhouseStickinessActors(ActorBaseQuery):
         events_query, event_params = StickinessEventsQuery(
             entity=self.entity, filter=self.filter, team_id=self._team.pk
         ).get_query()
-        query = f"""
-        SELECT DISTINCT aggregation_target FROM ({events_query}) WHERE num_intervals = %(stickiness_day)s
-        {'LIMIT %(limit)s' if self.filter.limit else ''}
-        {'OFFSET %(offset)s' if self.filter.limit else ''}
-        """
 
         return (
-            query,
+            f"""
+        SELECT DISTINCT aggregation_target FROM ({events_query}) WHERE num_intervals = %(stickiness_day)s
+        {'LIMIT %(limit)s' if self.filter.limit is not None else ''}
+        {'OFFSET %(offset)s' if self.filter.limit is not None else ''}
+        """,
             {
                 **event_params,
                 "stickiness_day": self.filter.selected_interval,
