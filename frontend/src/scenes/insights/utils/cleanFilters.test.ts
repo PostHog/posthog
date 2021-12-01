@@ -1,7 +1,6 @@
 import { cleanFilters } from './cleanFilters'
-import { ChartDisplayType, InsightType } from '~/types'
+import { ChartDisplayType, FilterType, InsightType } from '~/types'
 import { FEATURE_FLAGS, ShownAsValue } from 'lib/constants'
-import { cleanFilters } from './cleanFilters'
 
 describe('cleanFilters', () => {
     it('switches display to table if moving from TRENDS to RETENTION', () => {
@@ -70,20 +69,30 @@ describe('cleanFilters', () => {
     })
 
     const breakdownIndexTestCases = [
-        { provided: 0, expected: 0 },
-        { provided: 27, expected: 27 },
-        { provided: null, expected: undefined },
-        { provided: undefined, expected: undefined },
-        { provided: 0, breakdown_type: 'event', expected: undefined },
+        {
+            filters: { breakdown_type: 'group', breakdown_group_type_index: 0, insight: InsightType.TRENDS },
+            expected: 0,
+        },
+        {
+            filters: { breakdown_type: 'group', breakdown_group_type_index: 3, insight: InsightType.TRENDS },
+            expected: 3,
+        },
+        {
+            filters: { breakdown_type: 'group', breakdown_group_type_index: null, insight: InsightType.TRENDS },
+            expected: undefined,
+        },
+        {
+            filters: { breakdown_type: 'group', breakdown_group_type_index: undefined, insight: InsightType.TRENDS },
+            expected: undefined,
+        },
+        {
+            filters: { breakdown_type: 'event', breakdown_group_type_index: 0, insight: InsightType.TRENDS },
+            expected: undefined,
+        },
     ]
     breakdownIndexTestCases.forEach((testCase) => {
-        testCase.breakdown_type = testCase.breakdown_type || 'group'
-        it(`can add a breakdown_group_type_index of ${testCase.provided} when breakdown type is ${testCase.breakdown_type}`, () => {
-            const cleanedFilters = cleanFilters({
-                breakdown_type: testCase.breakdown_type as BreakdownType,
-                breakdown_group_type_index: testCase.provided,
-                insight: InsightType.TRENDS,
-            })
+        it(`can add a breakdown_group_type_index of ${testCase.filters.breakdown_group_type_index} when breakdown type is ${testCase.filters.breakdown_type}`, () => {
+            const cleanedFilters = cleanFilters(testCase.filters as Partial<FilterType>)
             expect(cleanedFilters.breakdown_group_type_index).toEqual(testCase.expected)
         })
     })
