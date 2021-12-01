@@ -1,5 +1,4 @@
 from datetime import datetime
-from uuid import uuid4
 
 from freezegun.api import freeze_time
 
@@ -14,7 +13,6 @@ from posthog.api.test.test_trends import (
     get_trends_people_ok,
     get_trends_time_series_ok,
 )
-from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
@@ -323,17 +321,6 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
         )
 
 
-def _create_group(**kwargs) -> Group:
-    group = Group.objects.create(**kwargs, version=0)
-    create_group(
-        team_id=group.team.pk,
-        group_type_index=group.group_type_index,
-        group_key=group.group_key,
-        properties=group.group_properties,
-    )
-    return group
-
-
 class ClickhouseTestTrendsGroups(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
     maxDiff = None
     CLASS_DATA_LEVEL_SETUP = False
@@ -342,13 +329,11 @@ class ClickhouseTestTrendsGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
 
-        _create_group(team=self.team, group_type_index=0, group_key="org:5", group_properties={"industry": "finance"})
-        _create_group(
-            team=self.team, group_type_index=0, group_key="org:6", group_properties={"industry": "technology"}
-        )
-        _create_group(team=self.team, group_type_index=0, group_key="org:7", group_properties={"industry": "finance"})
-        _create_group(
-            team=self.team, group_type_index=1, group_key="company:10", group_properties={"industry": "finance"}
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:7", properties={"industry": "finance"})
+        create_group(
+            team_id=self.team.pk, group_type_index=1, group_key="company:10", properties={"industry": "finance"}
         )
 
     @snapshot_clickhouse_queries

@@ -1,6 +1,5 @@
 import React, { useState } from 'react'
 import { Row, Tabs, Col, Card, Skeleton, Tag, Dropdown, Menu, Button, Popconfirm } from 'antd'
-import { SessionsView } from '../sessions/SessionsView'
 import { EventsTable } from 'scenes/events'
 import { SessionRecordingsTable } from 'scenes/session-recordings/SessionRecordingsTable'
 import { useActions, useValues, BindLogic } from 'kea'
@@ -17,8 +16,6 @@ import { NewPropertyComponent } from './NewPropertyComponent'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { PersonsTabType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -40,14 +37,11 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element {
         hasNewKeys,
         currentTab,
         showSessionRecordings,
-        showTabs,
         splitMergeModalShown,
     } = useValues(personsLogic(personsLogicProps))
     const { deletePerson, editProperty, navigateToTab, setSplitMergeModalShown } = useActions(
         personsLogic(personsLogicProps)
     )
-
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const ids = (
         <Menu>
@@ -66,7 +60,7 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element {
             <div style={{ paddingTop: 32 }}>
                 <Row gutter={16}>
                     <Col span={16}>
-                        {showTabs ? (
+                        {showSessionRecordings && (
                             <Tabs
                                 defaultActiveKey={PersonsTabType.EVENTS}
                                 activeKey={currentTab}
@@ -74,21 +68,13 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element {
                                     navigateToTab(tab as PersonsTabType)
                                 }}
                             >
-                                {showSessionRecordings ? (
-                                    <TabPane
-                                        tab={<span data-attr="person-session-recordings-tab">Recordings</span>}
-                                        key="sessionRecordings"
-                                    />
-                                ) : null}
+                                <TabPane
+                                    tab={<span data-attr="person-session-recordings-tab">Recordings</span>}
+                                    key="sessionRecordings"
+                                />
                                 <TabPane tab={<span data-attr="persons-events-tab">Events</span>} key="events" />
-                                {!featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS] ? (
-                                    <TabPane
-                                        tab={<span data-attr="person-sessions-tab">Sessions</span>}
-                                        key="sessions"
-                                    />
-                                ) : null}
                             </Tabs>
-                        ) : null}
+                        )}
                         {person && (
                             <div>
                                 {currentTab === PersonsTabType.SESSION_RECORDINGS ? (
@@ -101,19 +87,6 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element {
                                         <SessionRecordingsTable
                                             key={person.distinct_ids.join('__')} // force refresh if distinct_ids change
                                             personUUID={person.uuid}
-                                            isPersonPage
-                                        />
-                                    </>
-                                ) : currentTab === PersonsTabType.SESSIONS ? (
-                                    <>
-                                        <PageHeader
-                                            title="Sessions"
-                                            caption="Explore how events are being processed within sessions."
-                                            style={{ marginTop: 0 }}
-                                        />
-                                        <SessionsView
-                                            key={person.distinct_ids.join('__')} // force refresh if distinct_ids change
-                                            personIds={person.distinct_ids}
                                             isPersonPage
                                         />
                                     </>

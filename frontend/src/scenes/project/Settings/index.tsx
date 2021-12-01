@@ -17,13 +17,12 @@ import { DangerZone } from './DangerZone'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Link } from 'lib/components/Link'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
-import { RestrictedArea, RestrictionScope } from '../../../lib/components/RestrictedArea'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from '../../../lib/constants'
+import { RestrictedArea, RestrictionScope } from 'lib/components/RestrictedArea'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
 import { TimezoneConfig } from './TimezoneConfig'
 import { DataAttributes } from 'scenes/project/Settings/DataAttributes'
-import { featureFlagLogic } from '../../../lib/logic/featureFlagLogic'
-import { AvailableFeature, InsightType } from '../../../types'
+import { AvailableFeature, InsightType } from '~/types'
 import { TeamMembers } from './TeamMembers'
 import { teamMembersLogic } from './teamMembersLogic'
 import { AccessControl } from './AccessControl'
@@ -80,7 +79,6 @@ export function ProjectSettings(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
     const { location } = useValues(router)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { user, hasAvailableFeature } = useValues(userLogic)
 
     useAnchor(location.hash)
@@ -262,12 +260,9 @@ export function ProjectSettings(): JSX.Element {
                 </h2>
                 <p>
                     Watch replays to see how users interact with your app and find out what can be improved. Recordings
-                    are found in the{' '}
-                    <Link to={featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS] ? '/recordings' : '/sessions'}>
-                        {featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS] ? 'recordings' : 'sessions'} page
-                    </Link>
-                    . Please note <b>your website needs to have</b> the <a href="#snippet">PostHog snippet</a> or the
-                    latest version of{' '}
+                    are found in the <Link to={urls.sessionRecordings()}>recordings page</Link>. Please note{' '}
+                    <b>your website needs to have</b> the <a href="#snippet">PostHog snippet</a> or the latest version
+                    of{' '}
                     <a
                         href="https://posthog.com/docs/integrations/js-integration?utm_campaign=session-recording&utm_medium=in-product"
                         target="_blank"

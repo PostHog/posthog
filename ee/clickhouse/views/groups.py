@@ -1,14 +1,15 @@
 from collections import defaultdict
 
-from rest_framework import request, response, serializers, viewsets
+from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.mixins import ListModelMixin
+from rest_framework.pagination import CursorPagination
+from rest_framework.permissions import IsAuthenticated
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.group import ClickhouseGroupSerializer
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.utils import PaginationMode, format_paginated_url
+from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
 
 class GroupTypeSerializer(serializers.ModelSerializer):
@@ -17,51 +18,37 @@ class GroupTypeSerializer(serializers.ModelSerializer):
         fields = ["group_type", "group_type_index"]
 
 
-class ClickhouseGroupsTypesView(StructuredViewSetMixin, ListModelMixin, viewsets.GenericViewSet):
+class ClickhouseGroupsTypesView(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = GroupTypeSerializer
     queryset = GroupTypeMapping.objects.all()
     pagination_class = None
 
 
-class ClickhouseGroupsView(StructuredViewSetMixin, ListModelMixin, viewsets.GenericViewSet):
-    serializer_class = ClickhouseGroupSerializer
-    queryset = None
-    pagination_class = None
+class GroupCursorPagination(CursorPagination):
+    ordering = "group_key"
+    page_size = 100
 
-    def list(self, request, *args, **kwargs):
-        limit = int(request.GET.get("limit", 100))
-        offset = int(request.GET.get("offset", 0))
 
-        query_result = sync_execute(
-            """
-                SELECT
-                    %(group_type_index)s,
-                    group_key,
-                    argMax(created_at, _timestamp),
-                    argMax(group_properties, _timestamp)
-                FROM groups
-                WHERE team_id = %(team_id)s
-                  AND group_type_index = %(group_type_index)s
-                GROUP BY group_key
-                ORDER BY group_key
-                LIMIT %(limit)s
-                OFFSET %(offset)s
-            """,
-            {
-                "team_id": self.team_id,
-                "group_type_index": request.GET["group_type_index"],
-                "offset": offset,
-                "limit": limit + 1,
-            },
-        )
+class GroupSerializer(serializers.HyperlinkedModelSerializer):
+    class Meta:
+        model = Group
+        fields = [
+            "group_type_index",
+            "group_key",
+            "group_properties",
+            "created_at",
+        ]
 
-        return response.Response(
-            {
-                "next_url": format_paginated_url(request, offset, limit) if len(query_result) > limit else None,
-                "previous_url": format_paginated_url(request, offset, limit, mode=PaginationMode.previous),
-                "results": ClickhouseGroupSerializer(query_result[:limit], many=True).data,
-            }
-        )
+
+class ClickhouseGroupsView(StructuredViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    serializer_class = GroupSerializer
+    queryset = Group.objects.all()
+    pagination_class = GroupCursorPagination
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    lookup_field = "group_key"
+
+    def get_queryset(self):
+        return super().get_queryset().filter(group_type_index=self.request.GET["group_type_index"])
 
     @action(methods=["GET"], detail=False)
     def property_definitions(self, request: request.Request, **kw):

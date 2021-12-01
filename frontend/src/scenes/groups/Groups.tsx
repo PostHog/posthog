@@ -7,6 +7,8 @@ import { PersonPageHeader } from 'scenes/persons/PersonPageHeader'
 import { LemonTableColumns } from 'lib/components/LemonTable/types'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { LemonTable } from 'lib/components/LemonTable/LemonTable'
+import { Link } from 'lib/components/Link'
+import { urls } from 'scenes/urls'
 
 export function Groups(): JSX.Element {
     const { groups, groupsLoading } = useValues(groupsListLogic)
@@ -17,11 +19,13 @@ export function Groups(): JSX.Element {
             title: 'Key',
             key: 'group_key',
             render: function Render(_, group: Group) {
-                return <>{group.group_key}</>
+                return (
+                    <Link to={urls.group(group.group_type_index.toString(), group.group_key)}>{group.group_key}</Link>
+                )
             },
         },
         {
-            title: 'Last updated',
+            title: 'First seen',
             key: 'created_at',
             render: function Render(_, group: Group) {
                 return <TZLabel time={group.created_at} />
@@ -46,15 +50,15 @@ export function Groups(): JSX.Element {
                 }}
                 pagination={{
                     controlled: true,
-                    onBackward: groups.previous_url
+                    onBackward: groups.previous
                         ? () => {
-                              loadGroups(groups.previous_url)
+                              loadGroups(groups.previous)
                               window.scrollTo(0, 0)
                           }
                         : undefined,
-                    onForward: groups.next_url
+                    onForward: groups.next
                         ? () => {
-                              loadGroups(groups.next_url)
+                              loadGroups(groups.next)
                               window.scrollTo(0, 0)
                           }
                         : undefined,
