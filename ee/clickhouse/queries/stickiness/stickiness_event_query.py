@@ -13,31 +13,10 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 class StickinessEventsQuery(ClickhouseEventQuery):
     _entity: Entity
     _filter: StickinessFilter
-    _trunc_func: str
 
-    def __init__(
-        self,
-        entity: Entity,
-        filter: StickinessFilter,
-        team_id: int,
-        round_interval=False,
-        should_join_distinct_ids=False,
-        should_join_persons=False,
-        extra_fields: List[ColumnName] = [],
-        extra_person_fields: List[ColumnName] = [],
-        **kwargs,
-    ) -> None:
+    def __init__(self, entity: Entity, *args, **kwargs):
         self._entity = entity
-        super().__init__(
-            filter,
-            team_id,
-            round_interval=round_interval,
-            should_join_distinct_ids=should_join_distinct_ids,
-            should_join_persons=should_join_persons,
-            extra_fields=extra_fields,
-            extra_person_fields=extra_person_fields,
-            **kwargs,
-        )
+        super().__init__(*args, **kwargs)
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         prop_query, prop_params = self._get_props(self._filter.properties + self._entity.properties)

@@ -2,7 +2,6 @@ from datetime import timedelta
 from typing import Any, Dict, List, NamedTuple, Tuple, Union
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.action import format_entity_filter
 from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
@@ -131,28 +130,6 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
     ORDER BY start_time DESC
     LIMIT %(limit)s OFFSET %(offset)s
     """
-
-    def __init__(
-        self,
-        filter: SessionRecordingsFilter,
-        team_id: int,
-        round_interval=False,
-        should_join_distinct_ids=False,
-        should_join_persons=False,
-        extra_fields: List[ColumnName] = [],
-        extra_person_fields: List[ColumnName] = [],
-        **kwargs,
-    ) -> None:
-        super().__init__(
-            filter,
-            team_id,
-            round_interval=round_interval,
-            should_join_distinct_ids=should_join_distinct_ids,
-            should_join_persons=should_join_persons,
-            extra_fields=extra_fields,
-            extra_person_fields=extra_person_fields,
-            **kwargs,
-        )
 
     @property
     def limit(self):
