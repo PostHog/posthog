@@ -100,7 +100,6 @@ if is_clickhouse_enabled():
     from ee.clickhouse.views.cohort import ClickhouseCohortViewSet, LegacyClickhouseCohortViewSet
     from ee.clickhouse.views.element import ClickhouseElementViewSet, LegacyClickhouseElementViewSet
     from ee.clickhouse.views.events import ClickhouseEventsViewSet, LegacyClickhouseEventsViewSet
-    from ee.clickhouse.views.experiments import ClickhouseExperimentsView
     from ee.clickhouse.views.groups import ClickhouseGroupsTypesView, ClickhouseGroupsView
     from ee.clickhouse.views.insights import ClickhouseInsightsViewSet, LegacyClickhouseInsightsViewSet
     from ee.clickhouse.views.paths import ClickhousePathsViewSet, LegacyClickhousePathsViewSet
@@ -125,9 +124,11 @@ if is_clickhouse_enabled():
     projects_router.register(r"paths", ClickhousePathsViewSet, "project_paths", ["team_id"])
     projects_router.register(r"elements", ClickhouseElementViewSet, "project_elements", ["team_id"])
     projects_router.register(r"cohorts", ClickhouseCohortViewSet, "project_cohorts", ["team_id"])
-    projects_router.register(r"experiments", ClickhouseExperimentsView, "project_experiments", ["team_id"])
     projects_router.register(
-        r"session_recordings", ClickhouseSessionRecordingViewSet, "project_session_recordings", ["team_id"],
+        r"session_recordings",
+        ClickhouseSessionRecordingViewSet,
+        "project_session_recordings",
+        ["team_id"],
     )
 else:
     # Legacy endpoints PG (to be removed eventually)
