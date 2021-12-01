@@ -62,6 +62,10 @@ export const insightLogic = kea<insightLogicType>({
         setActiveView: (type: InsightType) => ({ type }),
         updateActiveView: (type: InsightType) => ({ type }),
         setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode) => ({ filters, insightMode }),
+        reportInsightViewed: (filters: Partial<FilterType>, previousFilters?: Partial<FilterType>) => ({
+            filters,
+            previousFilters,
+        }),
         startQuery: (queryId: string) => ({ queryId }),
         endQuery: (
             queryId: string,
@@ -420,22 +424,13 @@ export const insightLogic = kea<insightLogicType>({
         ],
     },
     listeners: ({ actions, selectors, values, props }) => ({
-        setFilters: async ({ filters }, breakpoint, _, previousState) => {
-            const { fromDashboard } = router.values.hashParams
+        setFilters: async ({ filters }, _, __, previousState) => {
             const previousFilters = selectors.filters(previousState)
             if (objectsEqual(previousFilters, filters)) {
                 return
             }
 
-            const changedKeysObj: Record<string, any> = extractObjectDiffKeys(previousFilters, filters)
-
-            eventUsageLogic.actions.reportInsightViewed(
-                filters,
-                values.isFirstLoad,
-                Boolean(fromDashboard),
-                0,
-                changedKeysObj
-            )
+            actions.reportInsightViewed(filters, previousFilters)
             actions.setNotFirstLoad()
 
             const filterLength = (filter?: Partial<FilterType>): number =>
@@ -469,11 +464,25 @@ export const insightLogic = kea<insightLogicType>({
             ) {
                 actions.loadResults()
             }
+        },
+        reportInsightViewed: async ({ filters, previousFilters }, breakpoint) => {
+            const { fromDashboard } = router.values.hashParams
+            const changedKeysObj: Record<string, any> | undefined =
+                previousFilters && extractObjectDiffKeys(previousFilters, filters)
 
-            // tests will wait for all breakpoints to finish
-            await breakpoint(IS_TEST_MODE ? 1 : 10000)
             eventUsageLogic.actions.reportInsightViewed(
-                filters,
+                filters || {},
+                values.insightMode,
+                values.isFirstLoad,
+                Boolean(fromDashboard),
+                0,
+                changedKeysObj
+            )
+            await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
+
+            eventUsageLogic.actions.reportInsightViewed(
+                filters || {},
+                values.insightMode,
                 values.isFirstLoad,
                 Boolean(fromDashboard),
                 10,
@@ -607,6 +616,7 @@ export const insightLogic = kea<insightLogicType>({
             }
         },
         loadInsightSuccess: async ({ payload, insight }) => {
+            actions.reportInsightViewed(insight?.filters || {})
             // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query
             if (!insight.result && values.filters && !payload?.doNotLoadResults) {
                 actions.loadResults()
@@ -651,6 +661,7 @@ export const insightLogic = kea<insightLogicType>({
                 newInsight
             )
             breakpoint()
+            eventUsageLogic.actions.reportInsightCreated(filters?.insight || null)
             router.actions.replace(
                 urls.insightEdit(createdInsight.short_id, cleanFilters(createdInsight.filters || filters || {}))
             )
