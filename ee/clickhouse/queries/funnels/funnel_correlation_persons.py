@@ -1,17 +1,14 @@
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from django.db.models.query import QuerySet
 from rest_framework.exceptions import ValidationError
-from rest_framework.utils.serializer_helpers import ReturnDict, ReturnList
 
-from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.property import get_property_string_expr
+from ee.clickhouse.models.property import prop_filter_json_extract
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery, SerializedGroup, SerializedPerson
-from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
+from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
-from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from posthog.constants import FUNNEL_CORRELATION_PERSON_LIMIT, FunnelCorrelationType
 from posthog.models import Person
 from posthog.models.entity import Entity
@@ -119,11 +116,8 @@ class _FunnelPropertyCorrelationActors(ActorBaseQuery):
             else ""
         )
 
-        person_query, person_query_params = ClickhousePersonQuery(
-            self._filter,
-            self._team.pk,
-            entity=Entity({"id": "person", "type": "events", "properties": self._filter.correlation_property_values}),
-        ).get_query()
+        actor_join_subquery, actor_join_subquery_params = self._get_actor_subquery()
+        group_filters, group_filters_params = self._get_group_filters()
 
         query = f"""
             WITH
@@ -132,17 +126,64 @@ class _FunnelPropertyCorrelationActors(ActorBaseQuery):
             SELECT
                 DISTINCT funnel_people.person_id as person_id
             FROM funnel_people
-            JOIN ({person_query}) person
-                ON person.id = funnel_people.person_id
+            {actor_join_subquery}
             WHERE {conversion_filter}
+            {group_filters}
             ORDER BY person_id
             LIMIT {self._filter.correlation_person_limit}
             OFFSET {self._filter.correlation_person_offset}
         """
         params = {
             **funnel_persons_params,
-            **person_query_params,
+            **actor_join_subquery_params,
+            **group_filters_params,
             "target_step": len(self._filter.entities),
         }
 
         return query, params
+
+    def _get_actor_subquery(self) -> Tuple[str, Dict[str, Any]]:
+        if self.is_aggregating_by_groups:
+            actor_join_subquery, actor_join_subquery_params = GroupsJoinQuery(
+                self._filter, self._team.pk, join_key="funnel_people.person_id"
+            ).get_join_query()
+        else:
+            person_query, actor_join_subquery_params = ClickhousePersonQuery(
+                self._filter,
+                self._team.pk,
+                entity=Entity(
+                    {"id": "person", "type": "events", "properties": self._filter.correlation_property_values}
+                ),
+            ).get_query()
+
+            actor_join_subquery = f"""
+                JOIN ({person_query}) person
+                ON person.id = funnel_people.person_id
+            """
+
+        return actor_join_subquery, actor_join_subquery_params
+
+    def _get_group_filters(self):
+        if self.is_aggregating_by_groups:
+            conditions, params = [""], {}
+
+            properties = self._filter.correlation_property_values
+
+            for index, property in enumerate(properties):
+                if property.type != "group":
+                    continue
+
+                expr, prop_params = prop_filter_json_extract(
+                    property,
+                    index,
+                    prepend=f"group_type_{property.group_type_index}",
+                    prop_var=f"group_properties_{property.group_type_index}",
+                    allow_denormalized_props=True,
+                )
+
+                conditions.append(expr)
+                params.update(prop_params)
+
+            return " ".join(conditions), params
+        else:
+            return "", {}
