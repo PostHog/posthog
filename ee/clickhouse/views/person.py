@@ -126,8 +126,10 @@ class ClickhousePersonViewSet(PersonViewSet):
         if not filter.correlation_person_limit:
             filter = filter.with_data({FUNNEL_CORRELATION_PERSON_LIMIT: 100})
         base_uri = request.build_absolute_uri("/")
-        people, _ = FunnelCorrelationActors(filter=filter, team=self.team, base_uri=base_uri).run()
-        _should_paginate = should_paginate(people, filter.correlation_person_limit)
+        actors, serialized_actors = FunnelCorrelationActors(
+            filter=filter, team=self.team, base_uri=base_uri
+        ).get_actors()
+        _should_paginate = should_paginate(actors, filter.correlation_person_limit)
 
         next_url = (
             format_query_params_absolute_url(
@@ -142,7 +144,7 @@ class ClickhousePersonViewSet(PersonViewSet):
         initial_url = format_query_params_absolute_url(request, 0)
 
         # cached_function expects a dict with the key result
-        return {"result": (people, next_url, initial_url)}
+        return {"result": (serialized_actors, next_url, initial_url)}
 
     def get_properties(self, request: Request):
         rows = sync_execute(GET_PERSON_PROPERTIES_COUNT, {"team_id": self.team.pk})

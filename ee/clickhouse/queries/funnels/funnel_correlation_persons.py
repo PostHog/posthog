@@ -50,56 +50,6 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
 
     def actor_query(self, extra_fields: Optional[List[str]] = None):
 
-        if not self._filter.correlation_property_values:
-            raise ValidationError("Property Correlation expects atleast one Property to get persons for")
-
-        funnel_persons_query, funnel_persons_params = self._funnel_correlation.get_funnel_persons_cte()
-
-        conversion_filter = (
-            f'funnel_people.steps {"=" if self._filter.correlation_persons_converted else "<>"} target_step'
-            if self._filter.correlation_persons_converted is not None
-            else ""
-        )
-
-        person_query, person_query_params = ClickhousePersonQuery(
-            self._filter,
-            self._team.pk,
-            entity=Entity({"id": "person", "type": "events", "properties": self._filter.correlation_property_values}),
-        ).get_query()
-
-        query = f"""
-            WITH
-                funnel_people as ({funnel_persons_query}),
-                %(target_step)s AS target_step
-            SELECT
-                DISTINCT funnel_people.person_id as person_id
-            FROM funnel_people
-            JOIN ({person_query}) person
-                ON person.id = funnel_people.person_id
-            WHERE {conversion_filter}
-            ORDER BY person_id
-            LIMIT {self._filter.correlation_person_limit}
-            OFFSET {self._filter.correlation_person_offset}
-        """
-        params = {
-            **funnel_persons_params,
-            **person_query_params,
-            "target_step": len(self._filter.entities),
-        }
-
-        return query, params
-
-
-class _FunnelPropertyCorrelationActors(ActorBaseQuery):
-    def __init__(self, filter: Filter, team: Team, base_uri: str = "/") -> None:
-        self._funnel_correlation = FunnelCorrelation(filter, team, base_uri=base_uri)
-        super().__init__(team, filter)
-
-    @cached_property
-    def is_aggregating_by_groups(self) -> bool:
-        return self._filter.aggregation_group_type_index is not None
-
-    def actor_query(self, extra_fields: Optional[List[str]] = None):
         if not self._filter.correlation_person_entity:
             raise ValidationError("No entity for persons specified")
 
@@ -142,6 +92,56 @@ class _FunnelPropertyCorrelationActors(ActorBaseQuery):
             **prop_params,
             "target_event": self._filter.correlation_person_entity.id,
             "funnel_step_names": [entity.id for entity in self._filter.events],
+            "target_step": len(self._filter.entities),
+        }
+
+        return query, params
+
+
+class _FunnelPropertyCorrelationActors(ActorBaseQuery):
+    def __init__(self, filter: Filter, team: Team, base_uri: str = "/") -> None:
+        self._funnel_correlation = FunnelCorrelation(filter, team, base_uri=base_uri)
+        super().__init__(team, filter)
+
+    @cached_property
+    def is_aggregating_by_groups(self) -> bool:
+        return self._filter.aggregation_group_type_index is not None
+
+    def actor_query(self, extra_fields: Optional[List[str]] = None):
+        if not self._filter.correlation_property_values:
+            raise ValidationError("Property Correlation expects atleast one Property to get persons for")
+
+        funnel_persons_query, funnel_persons_params = self._funnel_correlation.get_funnel_persons_cte()
+
+        conversion_filter = (
+            f'funnel_people.steps {"=" if self._filter.correlation_persons_converted else "<>"} target_step'
+            if self._filter.correlation_persons_converted is not None
+            else ""
+        )
+
+        person_query, person_query_params = ClickhousePersonQuery(
+            self._filter,
+            self._team.pk,
+            entity=Entity({"id": "person", "type": "events", "properties": self._filter.correlation_property_values}),
+        ).get_query()
+
+        query = f"""
+            WITH
+                funnel_people as ({funnel_persons_query}),
+                %(target_step)s AS target_step
+            SELECT
+                DISTINCT funnel_people.person_id as person_id
+            FROM funnel_people
+            JOIN ({person_query}) person
+                ON person.id = funnel_people.person_id
+            WHERE {conversion_filter}
+            ORDER BY person_id
+            LIMIT {self._filter.correlation_person_limit}
+            OFFSET {self._filter.correlation_person_offset}
+        """
+        params = {
+            **funnel_persons_params,
+            **person_query_params,
             "target_step": len(self._filter.entities),
         }
 

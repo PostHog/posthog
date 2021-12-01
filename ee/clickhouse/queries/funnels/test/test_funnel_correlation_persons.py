@@ -100,7 +100,7 @@ class TestClickhouseFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
         )
         _, serialized_actors = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        self.assertCountEqual([val["id"] for val in serialized_actors], success_target_persons)
+        self.assertCountEqual([str(val["id"]) for val in serialized_actors], success_target_persons)
 
         # test negatively_related failures
         filter = filter.with_data(
@@ -112,7 +112,7 @@ class TestClickhouseFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
 
         _, serialized_actors = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        self.assertCountEqual([val["uuid"] for val in serialized_actors], failure_target_persons)
+        self.assertCountEqual([str(val["id"]) for val in serialized_actors], failure_target_persons)
 
         # test positively_related failures
         filter = filter.with_data(
@@ -123,7 +123,7 @@ class TestClickhouseFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
         )
         _, serialized_actors = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        self.assertCountEqual([val["uuid"] for val in serialized_actors], [str(person_fail.uuid)])
+        self.assertCountEqual([str(val["id"]) for val in serialized_actors], [str(person_fail.uuid)])
 
         # test negatively_related successes
         filter = filter.with_data(
@@ -134,7 +134,7 @@ class TestClickhouseFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
         )
         _, serialized_actors = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        self.assertCountEqual([val["id"] for val in serialized_actors], [str(person_succ.uuid)])
+        self.assertCountEqual([str(val["id"]) for val in serialized_actors], [str(person_succ.uuid)])
 
         # test all positively_related
         filter = filter.with_data(
@@ -146,7 +146,7 @@ class TestClickhouseFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
         _, serialized_actors = FunnelCorrelationActors(filter, self.team).get_actors()
 
         self.assertCountEqual(
-            [val["id"] for val in serialized_actors], [*success_target_persons, str(person_fail.uuid)]
+            [str(val["id"]) for val in serialized_actors], [*success_target_persons, str(person_fail.uuid)]
         )
 
         # test all negatively_related
@@ -159,7 +159,7 @@ class TestClickhouseFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
         _, serialized_actors = FunnelCorrelationActors(filter, self.team).get_actors()
 
         self.assertCountEqual(
-            [val["id"] for val in serialized_actors], [*failure_target_persons, str(person_succ.uuid)]
+            [str(val["id"]) for val in serialized_actors], [*failure_target_persons, str(person_succ.uuid)]
         )
 
     def test_people_arent_returned_multiple_times(self):
@@ -191,7 +191,6 @@ class TestClickhouseFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
                 "funnel_correlation_person_converted": "TrUe",
             }
         )
-        results, has_more_results = FunnelCorrelationActors(filter, self.team).run()
+        _, serialized_actors = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        self.assertFalse(has_more_results)
-        self.assertCountEqual([val["uuid"] for val in results], [str(people["user_1"].uuid)])
+        self.assertCountEqual([str(val["id"]) for val in serialized_actors], [str(people["user_1"].uuid)])
