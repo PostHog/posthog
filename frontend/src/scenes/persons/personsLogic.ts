@@ -3,11 +3,12 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { personsLogicType } from './personsLogicType'
-import { CohortType, PersonsTabType, PersonType, AnyPropertyFilter } from '~/types'
+import { CohortType, PersonsTabType, PersonType, AnyPropertyFilter, Breadcrumb } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
 import { toParams } from 'lib/utils'
+import { asDisplay } from 'scenes/persons/PersonHeader'
 
 interface PersonPaginatedResponse {
     next: string | null
@@ -107,6 +108,21 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
                     return PersonsTabType.EVENTS
                 }
                 return activeTab
+            },
+        ],
+        breadcrumbs: [
+            (s) => [s.person, router.selectors.location],
+            (person, location): Breadcrumb[] => {
+                const showPerson = person && location.pathname.match(/\/person\/.+/)
+                return [
+                    {
+                        name: 'Persons',
+                        path: urls.persons(),
+                    },
+                    {
+                        name: showPerson ? asDisplay(person) : null,
+                    },
+                ]
             },
         ],
     },
