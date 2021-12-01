@@ -64,7 +64,7 @@ jobs:
                   echo "Done!"
 
                   echo "## Uploading the extracted static assets to the AWS S3 bucket..."
-                  aws s3 cp "${TMP_FOLDER}" "s3://${S3_BUCKET}/" --recursive
+                  aws s3 cp "${TMP_FOLDER}/dist/" "s3://${S3_BUCKET}/static" --recursive
                   echo "Done!"
 
             - name: Fill in the new image ID in the Amazon ECS task definition
