@@ -100,6 +100,10 @@ class RetentionTests(TestCase):
                 period="Day",
                 retention_type="retention_first_time",
                 breakdowns=[Breakdown(type="person", property="os")],
+                # NOTE: we need to specify breakdown_type as well, as the
+                # breakdown logic currently does not support multiple differing
+                # types
+                breakdown_type="person",
             ),
         )
 
@@ -158,6 +162,10 @@ class RetentionTests(TestCase):
                 period="Day",
                 retention_type="retention_first_time",
                 breakdowns=[Breakdown(type="event", property="os")],
+                # NOTE: we need to specify breakdown_type as well, as the
+                # breakdown logic currently does not support multiple differing
+                # types
+                breakdown_type="event",
             ),
         )
 
@@ -200,6 +208,7 @@ class RetentionRequest:
     retention_type: Literal["retention_first_time"]  # probably not an exhaustive list
 
     breakdowns: Optional[List[Breakdown]] = None
+    breakdown_type: Optional[Literal["person", "events"]] = None
 
 
 class Value(TypedDict):

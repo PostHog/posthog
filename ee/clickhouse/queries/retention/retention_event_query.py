@@ -22,12 +22,16 @@ class RetentionEventsQuery(ClickhouseEventQuery):
     _event_query_type: RetentionQueryType
     _trunc_func: str
 
-    def __init__(self, event_query_type: RetentionQueryType, *args, **kwargs):
+    def __init__(self, filter: RetentionFilter, event_query_type: RetentionQueryType, *args, **kwargs):
         self._event_query_type = event_query_type
         super().__init__(
+            filter=filter,
             *args,
-            should_join_persons=True,
-            extra_person_fields=["person_props"] if event_query_type != RetentionQueryType.RETURNING else [],
+            extra_person_fields=(
+                ["person_props"]
+                if event_query_type != RetentionQueryType.RETURNING and filter.breakdown_type == "person"
+                else []
+            ),
             **kwargs,
         )
 
@@ -37,30 +41,40 @@ class RetentionEventsQuery(ClickhouseEventQuery):
         _fields = [
             self.get_timestamp_field(),
             f"{get_aggregation_target_field(self._filter.aggregation_group_type_index, self.EVENT_TABLE_ALIAS, self.DISTINCT_ID_TABLE_ALIAS)} as target",
-            f"{self.EVENT_TABLE_ALIAS}.uuid AS uuid",
-            f"{self.EVENT_TABLE_ALIAS}.event AS event",
+            (
+                f"argMin(e.uuid, {self._trunc_func}(e.timestamp)) as min_uuid"
+                if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME
+                else f"{self.EVENT_TABLE_ALIAS}.uuid AS uuid"
+            ),
+            (
+                f"argMin(e.event, {self._trunc_func}(e.timestamp)) as min_event"
+                if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME
+                else f"{self.EVENT_TABLE_ALIAS}.event AS event"
+            ),
         ]
 
         if self._event_query_type != RetentionQueryType.RETURNING:
-            if self._filter.breakdowns:
+            if self._filter.breakdowns and self._filter.breakdown_type:
                 # NOTE: `get_single_or_multi_property_string_expr` doesn't
                 # support breakdowns with different types e.g. a person property
                 # then an event property, so for now we just take the type of
-                # the first breakdown.
+                # the self._filter.breakdown_type.
                 # TODO: update 'get_single_or_multi_property_string_expr` to take
                 # `Breakdown` type
-                first_breakdown = self._filter.breakdowns[0]
+                breakdown_type = self._filter.breakdown_type
                 table = "events"
 
-                if first_breakdown["type"] == "person":
+                if breakdown_type == "person":
                     table = "person"
 
+                breakdown_values_expression = get_single_or_multi_property_string_expr(
+                    breakdown=[breakdown["property"] for breakdown in self._filter.breakdowns],
+                    table=table,
+                    query_alias=None,
+                )
+
                 _fields += [
-                    get_single_or_multi_property_string_expr(
-                        breakdown=[breakdown["property"] for breakdown in self._filter.breakdowns],
-                        table=table,
-                        query_alias="breakdown_values",
-                    )
+                    f"argMin({breakdown_values_expression}, {self._trunc_func}(e.timestamp)) AS breakdown_values"
                 ]
 
         date_query, date_params = self._get_date_filter()
@@ -93,8 +107,7 @@ class RetentionEventsQuery(ClickhouseEventQuery):
             {f"AND {entity_query}"}
             {f"AND {date_query}" if self._event_query_type != RetentionQueryType.TARGET_FIRST_TIME else ''}
             {prop_query}
-            ORDER BY event_date, target
-            {f"LIMIT 1 BY target" if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME else ''}
+            {f"GROUP BY target HAVING {date_query}" if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME else ''}
         """
 
         return query, self.params
@@ -103,7 +116,7 @@ class RetentionEventsQuery(ClickhouseEventQuery):
         if self._event_query_type == RetentionQueryType.TARGET:
             return f"DISTINCT {self._trunc_func}({self.EVENT_TABLE_ALIAS}.timestamp) AS event_date"
         elif self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
-            return f"{self._trunc_func}(e.timestamp) as event_date"
+            return f"min({self._trunc_func}(e.timestamp)) as event_date"
         else:
             return f"{self.EVENT_TABLE_ALIAS}.timestamp AS event_date"
 
