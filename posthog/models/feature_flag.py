@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Union
 from django.contrib.auth.models import AnonymousUser
 from django.db import models
 from django.db.models.expressions import ExpressionWrapper, RawSQL, Subquery
+from django.contrib.postgres.fields import ArrayField
 from django.db.models.fields import BooleanField
 from django.db.models.query import QuerySet
 from django.utils import timezone
@@ -37,6 +38,7 @@ class FeatureFlag(models.Model):
     name: models.TextField = models.TextField(
         blank=True,
     )  # contains description for the FF (field name `name` is kept for backwards-compatibility)
+    tags: ArrayField = ArrayField(models.CharField(max_length=32), blank=True, default=list)
 
     filters: models.JSONField = models.JSONField(default=dict)
     rollout_percentage: models.IntegerField = models.IntegerField(null=True, blank=True)
@@ -63,7 +65,8 @@ class FeatureFlag(models.Model):
             "filter_count": filter_count,
             "created_at": self.created_at,
             "aggregating_by_groups": self.aggregation_group_type_index is not None,
-        }
+            "tags_count": len(self.tags),
+         }
 
     @property
     def conditions(self):

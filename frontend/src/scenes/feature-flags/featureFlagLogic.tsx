@@ -5,7 +5,7 @@ import { AnyPropertyFilter, FeatureFlagType, MultivariateFlagOptions, Multivaria
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { router } from 'kea-router'
-import { deleteWithUndo } from 'lib/utils'
+import { deleteWithUndo, errorToast } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { teamLogic } from '../teamLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
@@ -23,6 +23,7 @@ const NEW_FLAG: FeatureFlagType = {
     created_by: null,
     is_simple_flag: false,
     rollout_percentage: null,
+    tags: [],
 }
 const NEW_VARIANT = {
     key: '',
@@ -67,6 +68,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         updateVariant: (index: number, newProperties: Partial<MultivariateFlagVariant>) => ({ index, newProperties }),
         removeVariant: (index: number) => ({ index }),
         distributeVariantsEqually: true,
+        saveNewTag: (tag: string) => ({ tag }),
+        deleteTag: (tag: string) => ({ tag }),
     },
     reducers: {
         featureFlagId: [
@@ -283,6 +286,26 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
             } else {
                 actions.setMultivariateOptions(null)
             }
+        },
+        saveNewTag: ({ tag }) => {
+            if (values.featureFlag.tags?.includes(tag)) {
+                errorToast(undefined, 'Oops! Your feature flag already has that tag.')
+                return
+            }
+
+            const updatedFeatureFlag = {
+                ...values.featureFlag,
+                tags: [...values.featureFlag.tags, tag],
+            }
+
+            actions.setFeatureFlag(updatedFeatureFlag)
+        },
+        deleteTag: async ({ tag }, breakpoint) => {
+            await breakpoint(100)
+            actions.setFeatureFlag({
+                ...values.featureFlag,
+                tags: values.featureFlag.tags?.filter((_tag) => _tag !== tag),
+            })
         },
     }),
     selectors: {

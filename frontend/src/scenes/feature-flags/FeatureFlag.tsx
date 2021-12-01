@@ -37,6 +37,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { APISnippet, JSSnippet, PythonSnippet, UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { LemonSpacer } from 'lib/components/LemonRow'
 import { groupsModel } from '~/models/groupsModel'
+import { ObjectTags } from 'lib/components/ObjectTags'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -78,6 +79,8 @@ export function FeatureFlag(): JSX.Element {
         distributeVariantsEqually,
         setFeatureFlag,
         setAggregationGroupTypeIndex,
+        saveNewTag,
+        deleteTag,
     } = useActions(featureFlagLogic)
     const { featureFlags: enabledFeatureFlags } = useValues(featureFlagClientLogic)
     const { showGroupsOptions } = useValues(groupsModel)
@@ -215,6 +218,16 @@ export function FeatureFlag(): JSX.Element {
                                     className="ph-ignore-input"
                                     data-attr="feature-flag-description"
                                     placeholder="Adding a helpful description can ensure others know what this feature is for."
+                                />
+                            </Form.Item>
+
+                            <Form.Item name="tags" label="Tags">
+                                <ObjectTags
+                                    tags={featureFlag.tags || []}
+                                    onTagSave={saveNewTag}
+                                    onTagDelete={deleteTag}
+                                    saving={false}
+                                    tagsAvailable={[]}
                                 />
                             </Form.Item>
                         </Col>
