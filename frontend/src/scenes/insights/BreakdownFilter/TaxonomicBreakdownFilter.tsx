@@ -5,7 +5,11 @@ import {
     propertyFilterTypeToTaxonomicFilterType,
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
-import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import {
+    TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
+    TaxonomicFilterValue,
+} from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicBreakdownButton } from 'scenes/insights/BreakdownFilter/TaxonomicBreakdownButton'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useValues } from 'kea'
@@ -98,8 +102,8 @@ export function BreakdownFilter({ filters, setFilters, buttonType }: TaxonomicBr
               </Tag>
           ))
 
-    const onChange = (changedBreakdown: TaxonomicFilterValue, groupType: TaxonomicFilterGroupType): void => {
-        const changedBreakdownType = taxonomicFilterTypeToPropertyFilterType(groupType) as BreakdownType
+    const onChange = (changedBreakdown: TaxonomicFilterValue, taxonomicGroup: TaxonomicFilterGroup): void => {
+        const changedBreakdownType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type) as BreakdownType
 
         if (changedBreakdownType) {
             let newFilters: Partial<FilterType>
@@ -109,14 +113,16 @@ export function BreakdownFilter({ filters, setFilters, buttonType }: TaxonomicBr
                         .filter((b): b is string | number => !!b)
                         .map((b) => ({ property: b, type: changedBreakdownType })),
                     breakdown_type: changedBreakdownType,
+                    breakdown_group_type_index: taxonomicGroup.groupTypeIndex,
                 }
             } else {
                 newFilters = {
                     breakdown:
-                        groupType === TaxonomicFilterGroupType.CohortsWithAllUsers
+                        taxonomicGroup.type === TaxonomicFilterGroupType.CohortsWithAllUsers
                             ? [...breakdownParts, changedBreakdown].filter((b): b is string | number => !!b)
                             : changedBreakdown,
                     breakdown_type: changedBreakdownType,
+                    breakdown_group_type_index: taxonomicGroup.groupTypeIndex,
                 }
             }
             setFilters(newFilters)

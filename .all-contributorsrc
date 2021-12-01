@@ -1770,6 +1770,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "shehuphd",
+      "name": "Mohammed Shehu",
+      "avatar_url": "https://avatars.githubusercontent.com/u/40317687?v=4",
+      "profile": "http://mohammedshehu.com",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
