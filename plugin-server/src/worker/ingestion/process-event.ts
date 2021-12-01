@@ -128,7 +128,6 @@ export class EventsProcessor {
                 await this.handleIdentifyOrAlias(data['event'], properties, distinctId, teamId)
             } catch (e) {
                 console.error('handleIdentifyOrAlias failed', e, data)
-                Sentry.captureException(e, { extra: { event: data } })
             } finally {
                 clearTimeout(timeout1)
             }
@@ -446,10 +445,6 @@ export class EventsProcessor {
 
                 kafkaMessages = [...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages]
             } catch (error) {
-                Sentry.captureException(error, {
-                    extra: { mergeInto, mergeIntoDistinctId, otherPerson, otherPersonDistinctId },
-                })
-
                 if (!(error instanceof DatabaseError)) {
                     throw error // Very much not OK, this is some completely unexpected error
                 }

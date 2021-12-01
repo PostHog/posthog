@@ -47,7 +47,7 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=feature-flag-table]').should('contain', name + '-updated')
 
         cy.get(`[data-row-key=${name}-updated] [data-attr=more-button]`).click()
-        cy.contains(`Use in Insights`).click()
+        cy.contains(`Try out in Insights`).click()
         cy.location().should((loc) => {
             expect(loc.pathname.toString()).to.contain('/insight')
         })

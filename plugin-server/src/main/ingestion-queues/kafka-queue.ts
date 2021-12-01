@@ -108,7 +108,13 @@ export class KafkaQueue implements Queue {
                                 "Probably the batch took longer than the session and we couldn't commit the offset"
                             )
                         }
-                        Sentry.captureException(error)
+                        if (
+                            error.message &&
+                            !error.message.includes('The group is rebalancing, so a rejoin is needed') &&
+                            !error.message.includes('Specified group generation id is not valid')
+                        ) {
+                            Sentry.captureException(error)
+                        }
                         throw error
                     }
                 },

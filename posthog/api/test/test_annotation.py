@@ -24,7 +24,7 @@ class TestAnnotation(APIBaseTest):
             content="hello world!",
         )
 
-    @patch("posthoganalytics.capture")
+    @patch("posthog.api.annotation.report_user_action")
     def test_retrieving_annotation(self, mock_capture):
         # Annotation creation is not reported to PostHog because it has no created_by
         mock_capture.assert_not_called()
@@ -33,7 +33,7 @@ class TestAnnotation(APIBaseTest):
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual(response["results"][0]["content"], "hello world!")
 
-    @patch("posthoganalytics.capture")
+    @patch("posthog.api.annotation.report_user_action")
     def test_creating_and_retrieving_annotations_by_dashboard_item(self, mock_capture):
 
         dashboard = Dashboard.objects.create(name="Default", pinned=True, team=self.team,)
@@ -53,7 +53,7 @@ class TestAnnotation(APIBaseTest):
 
         # Assert analytics are sent
         mock_capture.assert_called_once_with(
-            self.user.distinct_id, "annotation created", {"scope": "dashboard_item", "date_marker": None},
+            self.user, "annotation created", {"scope": "dashboard_item", "date_marker": None},
         )
 
     def test_query_annotations_by_datetime(self):
@@ -72,7 +72,7 @@ class TestAnnotation(APIBaseTest):
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual(response["results"][0]["content"], "hello_later")
 
-    @patch("posthoganalytics.capture")
+    @patch("posthog.api.annotation.report_user_action")
     def test_creating_annotation(self, mock_capture):
         team2 = Organization.objects.bootstrap(None)[2]
 
@@ -97,10 +97,10 @@ class TestAnnotation(APIBaseTest):
 
         # Assert analytics are sent
         mock_capture.assert_called_once_with(
-            self.user.distinct_id, "annotation created", {"scope": "organization", "date_marker": date_marker},
+            self.user, "annotation created", {"scope": "organization", "date_marker": date_marker},
         )
 
-    @patch("posthoganalytics.capture")
+    @patch("posthog.api.annotation.report_user_action")
     def test_updating_annotation(self, mock_capture):
         instance = self.annotation
         self.client.force_login(self.user)
@@ -117,7 +117,7 @@ class TestAnnotation(APIBaseTest):
 
         # Assert analytics are sent
         mock_capture.assert_called_once_with(
-            self.user.distinct_id, "annotation updated", {"scope": "organization", "date_marker": None},
+            self.user, "annotation updated", {"scope": "organization", "date_marker": None},
         )
 
     def test_deleting_annotation_of_other_team_prevented(self):
@@ -149,7 +149,7 @@ class TestAnnotation(APIBaseTest):
         instance = Annotation.objects.create(team=self.team, created_by=self.user)
         self.client.force_login(new_user)
 
-        with patch("posthoganalytics.capture") as mock_capture:
+        with patch("posthog.mixins.report_user_action") as mock_capture:
             response = self.client.delete(f"/api/projects/{self.team.id}/annotations/{instance.pk}/")
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
@@ -157,5 +157,5 @@ class TestAnnotation(APIBaseTest):
 
         # Assert analytics are sent (notice the event is sent on the user that executed the deletion, not the creator)
         mock_capture.assert_called_once_with(
-            new_user.distinct_id, "annotation deleted", {"scope": "dashboard_item", "date_marker": None},
+            new_user, "annotation deleted", {"scope": "dashboard_item", "date_marker": None},
         )

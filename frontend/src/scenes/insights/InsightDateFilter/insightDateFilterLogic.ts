@@ -65,7 +65,7 @@ export const insightDateFilterLogic = kea<insightDateFilterLogicType>({
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/insights/': (_: any, { date_from, date_to }: UrlParams) => {
+        '/insights/:shortId(/edit)': (_: any, { date_from, date_to }: UrlParams) => {
             if (!values.initialLoad && !objectsEqual(date_from, values.dates.dateFrom)) {
                 actions.dateAutomaticallyChanged()
             }
