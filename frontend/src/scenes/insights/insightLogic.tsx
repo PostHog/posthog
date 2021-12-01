@@ -418,6 +418,7 @@ export const insightLogic = kea<insightLogicType>({
             () => [(_, props: InsightLogicProps) => props.syncWithUrl, router.selectors.location],
             (syncWithUrl, { pathname }) => syncWithUrl && pathname.startsWith('/insights/'),
         ],
+        isViewedOnDashboard: [() => [router.selectors.location], ({ pathname }) => pathname.startsWith('/dashboard/')],
     },
     listeners: ({ actions, selectors, values, props }) => ({
         setFilters: async ({ filters }, breakpoint, _, previousState) => {

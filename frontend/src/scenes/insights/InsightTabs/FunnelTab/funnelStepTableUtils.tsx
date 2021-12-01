@@ -101,7 +101,8 @@ export const renderGraphAndHeader = (
     defaultElement: JSX.Element,
     headerElement: JSX.Element,
     showLabels: boolean,
-    step?: FunnelStepWithConversionMetrics
+    step?: FunnelStepWithConversionMetrics,
+    isViewedOnDashboard: boolean = false
 ): JSX.Element | RenderedCell<FlattenedFunnelStepByBreakdown> => {
     const stepIndex = step?.order ?? 0
     if (rowIndex === 0 || rowIndex === 1) {
@@ -188,7 +189,7 @@ export const renderGraphAndHeader = (
                         </div>
                     ),
                     props: {
-                        colSpan: 5,
+                        colSpan: isViewedOnDashboard ? 2 : 5,
                         className: 'funnel-table-cell dividing-column funnel-step-title-row',
                     },
                 }
@@ -198,7 +199,7 @@ export const renderGraphAndHeader = (
                     <BreakdownBarGroupWrapper step={step as FunnelStepWithConversionMetrics} showLabels={showLabels} />
                 ),
                 props: {
-                    colSpan: 5,
+                    colSpan: isViewedOnDashboard ? 2 : 5,
                     className: 'funnel-table-cell dividing-column dark-bg',
                 },
             }
