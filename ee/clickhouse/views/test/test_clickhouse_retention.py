@@ -208,7 +208,7 @@ class RetentionRequest:
     retention_type: Literal["retention_first_time"]  # probably not an exhaustive list
 
     breakdowns: Optional[List[Breakdown]] = None
-    breakdown_type: Optional[Literal["person", "events"]] = None
+    breakdown_type: Optional[Literal["person", "event"]] = None
 
 
 class Value(TypedDict):
