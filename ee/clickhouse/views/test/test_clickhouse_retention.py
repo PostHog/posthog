@@ -8,8 +8,6 @@ from django.test.client import Client
 
 from ee.clickhouse.test.test_journeys import _create_all_events, update_or_create_person
 from ee.clickhouse.views.test.funnel.util import EventPattern
-
-# from posthog.api.test.test_event import get_events_ok
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user

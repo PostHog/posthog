@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, NamedTuple, Tuple, Union, cast
+from typing import Any, Dict, List, NamedTuple, Tuple, cast
 
 from django.db.models.query import Prefetch
 
