@@ -24,6 +24,7 @@ import { urls } from 'scenes/urls'
 import { dayjs } from 'lib/dayjs'
 import { STALE_EVENT_SECONDS } from 'lib/constants'
 import { Tooltip } from '../Tooltip'
+import clsx from 'clsx'
 
 enum ListTooltip {
     None = 0,
@@ -44,9 +45,8 @@ export function tooltipDesiredState(element?: Element | null): ListTooltip {
     return desiredState
 }
 
-const staleIndicator = (item: EventDefinition): JSX.Element | null => {
-    const parsedLastSeen = item.last_seen_at ? dayjs(item.last_seen_at) : null
-    return !parsedLastSeen || dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS ? (
+const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
+    return (
         <Tooltip
             title={
                 <>
@@ -57,7 +57,7 @@ const staleIndicator = (item: EventDefinition): JSX.Element | null => {
         >
             <Tag className="lemonade-tag">Stale</Tag>
         </Tooltip>
-    ) : null
+    )
 }
 
 const renderItemContents = ({
@@ -67,14 +67,21 @@ const renderItemContents = ({
     item: EventDefinition | CohortType
     listGroupType: TaxonomicFilterGroupType
 }): JSX.Element | string => {
+    const parsedLastSeen = (item as EventDefinition).last_seen_at ? dayjs((item as EventDefinition).last_seen_at) : null
+    const isStale =
+        (listGroupType === TaxonomicFilterGroupType.Events && !parsedLastSeen) ||
+        dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS
+
     return listGroupType === TaxonomicFilterGroupType.EventProperties ||
         listGroupType === TaxonomicFilterGroupType.PersonProperties ||
         listGroupType === TaxonomicFilterGroupType.Events ||
         listGroupType === TaxonomicFilterGroupType.CustomEvents ||
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <>
-            <PropertyKeyInfo value={item.name ?? ''} disablePopover />
-            {listGroupType === TaxonomicFilterGroupType.Events && staleIndicator(item as EventDefinition)}
+            <div className={clsx(isStale && 'text-muted')}>
+                <PropertyKeyInfo value={item.name ?? ''} disablePopover />
+            </div>
+            {isStale && staleIndicator(parsedLastSeen)}
         </>
     ) : listGroupType === TaxonomicFilterGroupType.Elements ? (
         <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover />
