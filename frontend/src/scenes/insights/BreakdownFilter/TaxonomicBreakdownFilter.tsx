@@ -12,7 +12,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { ButtonType } from 'antd/lib/button'
-import { onFilterChange } from 'scenes/insights/BreakdownFilter/taxonomicBreakdownFilterUtils'
+import { onFilterChange } from './taxonomicBreakdownFilterUtils'
 
 export interface TaxonomicBreakdownFilterProps {
     filters: Partial<FilterType>

@@ -1,6 +1,18 @@
 import { onFilterChange } from 'scenes/insights/BreakdownFilter/taxonomicBreakdownFilterUtils'
 import { FilterType } from '~/types'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
+const taxonomicGroupFor = (
+    type: TaxonomicFilterGroupType,
+    groupTypeIndex: number | undefined = undefined
+): TaxonomicFilterGroup => ({
+    type: type,
+    groupTypeIndex: groupTypeIndex,
+    name: 'unused in these tests',
+    searchPlaceholder: 'unused in these tests',
+    getName: () => 'unused in these tests',
+    getValue: () => 'unused in these tests',
+})
 
 describe('taxonomic breakdown filter utils', () => {
     let setFilters: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
@@ -16,9 +28,9 @@ describe('taxonomic breakdown filter utils', () => {
                 setFilters,
             })
             const changedBreakdown = 'c'
-            const groupType: TaxonomicFilterGroupType = TaxonomicFilterGroupType.EventProperties
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.EventProperties)
 
-            onChange(changedBreakdown, groupType)
+            onChange(changedBreakdown, group)
 
             expect(setFilters).toHaveBeenCalledWith({
                 breakdown_type: 'event',
@@ -39,9 +51,12 @@ describe('taxonomic breakdown filter utils', () => {
                 setFilters,
             })
             const changedBreakdown = 2
-            const groupType: TaxonomicFilterGroupType = TaxonomicFilterGroupType.CohortsWithAllUsers
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(
+                TaxonomicFilterGroupType.CohortsWithAllUsers,
+                undefined
+            )
 
-            onChange(changedBreakdown, groupType)
+            onChange(changedBreakdown, group)
 
             expect(setFilters).toHaveBeenCalledWith({
                 breakdown_type: 'cohort',
@@ -62,9 +77,9 @@ describe('taxonomic breakdown filter utils', () => {
                 setFilters,
             })
             const changedBreakdown = 'height'
-            const groupType: TaxonomicFilterGroupType = TaxonomicFilterGroupType.PersonProperties
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.PersonProperties, undefined)
 
-            onChange(changedBreakdown, groupType)
+            onChange(changedBreakdown, group)
 
             expect(setFilters).toHaveBeenCalledWith({
                 breakdown_type: 'person',
@@ -88,8 +103,8 @@ describe('taxonomic breakdown filter utils', () => {
                 setFilters,
             })
             const changedBreakdown = 'c'
-            const groupType: TaxonomicFilterGroupType = TaxonomicFilterGroupType.EventProperties
-            onChange(changedBreakdown, groupType)
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.EventProperties, undefined)
+            onChange(changedBreakdown, group)
             expect(setFilters).toHaveBeenCalledWith({
                 breakdown_type: 'event',
                 breakdown: 'c',
@@ -105,8 +120,11 @@ describe('taxonomic breakdown filter utils', () => {
                 setFilters,
             })
             const changedBreakdown = 2
-            const groupType: TaxonomicFilterGroupType = TaxonomicFilterGroupType.CohortsWithAllUsers
-            onChange(changedBreakdown, groupType)
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(
+                TaxonomicFilterGroupType.CohortsWithAllUsers,
+                undefined
+            )
+            onChange(changedBreakdown, group)
             expect(setFilters).toHaveBeenCalledWith({
                 breakdown_type: 'cohort',
                 breakdown: ['all', 1, 2],
@@ -122,8 +140,8 @@ describe('taxonomic breakdown filter utils', () => {
                 setFilters,
             })
             const changedBreakdown = 'height'
-            const groupType: TaxonomicFilterGroupType = TaxonomicFilterGroupType.PersonProperties
-            onChange(changedBreakdown, groupType)
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.PersonProperties, undefined)
+            onChange(changedBreakdown, group)
             expect(setFilters).toHaveBeenCalledWith({
                 breakdown_type: 'person',
                 breakdown: 'height',
@@ -139,9 +157,9 @@ describe('taxonomic breakdown filter utils', () => {
                 setFilters,
             })
             const changedBreakdown = '$lib_version'
-            const groupType: TaxonomicFilterGroupType = TaxonomicFilterGroupType.GroupsPrefix
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.GroupsPrefix, 0)
 
-            onChange(changedBreakdown, groupType)
+            onChange(changedBreakdown, group)
 
             expect(setFilters).toHaveBeenCalledWith({
                 breakdown_type: 'group',
