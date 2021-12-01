@@ -2,8 +2,10 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { groupsModel } from '~/models/groupsModel'
-import { Group } from '~/types'
+import { Breadcrumb, Group } from '~/types'
 import { groupLogicType } from './groupLogicType'
+import { urls } from 'scenes/urls'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 export const groupLogic = kea<groupLogicType>({
     path: ['groups', 'groupLogic'],
@@ -40,6 +42,19 @@ export const groupLogic = kea<groupLogicType>({
         groupTypeName: [
             (s) => [s.groupTypes, s.groupTypeIndex],
             (groupTypes, index): string => groupTypes[index]?.group_type || '',
+        ],
+        breadcrumbs: [
+            (s) => [s.groupTypeName, s.groupTypeIndex, s.groupKey],
+            (groupTypeName, groupTypeIndex, groupKey): Breadcrumb[] => [
+                {
+                    name: capitalizeFirstLetter(groupTypeName),
+                    path: urls.groups(String(groupTypeIndex)),
+                },
+                {
+                    name: groupKey,
+                    path: urls.group(String(groupTypeIndex), groupKey),
+                },
+            ],
         ],
     },
     urlToAction: ({ actions }) => ({

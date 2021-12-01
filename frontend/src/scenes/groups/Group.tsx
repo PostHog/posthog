@@ -6,8 +6,15 @@ import { TZLabel } from 'lib/components/TimezoneAware'
 import { groupLogic } from 'scenes/groups/groupLogic'
 import { EventsTable } from 'scenes/events/EventsTable'
 import { urls } from 'scenes/urls'
+import { SceneExport } from 'scenes/sceneTypes'
+import { Groups } from 'scenes/groups/Groups'
 
 const { TabPane } = Tabs
+
+export const scene: SceneExport = {
+    component: Groups,
+    logic: groupLogic,
+}
 
 export function Group(): JSX.Element {
     const { groupData, groupDataLoading, groupTypeName, groupKey, groupTypeIndex } = useValues(groupLogic)
