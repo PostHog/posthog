@@ -98,10 +98,10 @@ export function TaxonomicFilter({
                                 onClose?.()
                             }
                         }}
-                     />
+                    />
                     <span
                         className="text-muted-alt cursor-pointer"
-                        style={{ paddingLeft: 4, fontSize: '1.2em', position: 'absolute', right: 4, top: 4 }}
+                        style={{ paddingLeft: 4, fontSize: '1.2em', position: 'absolute', right: 7, top: 5 }}
                     >
                         <Tooltip
                             title={
