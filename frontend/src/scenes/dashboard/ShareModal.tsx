@@ -3,12 +3,15 @@ import { Modal, Switch, Button } from 'antd'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInput } from 'lib/components/CopyToClipboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 
 export function ShareModal({ visible, onCancel }: { visible: boolean; onCancel: () => void }): JSX.Element {
     const { dashboard } = useValues(dashboardLogic)
     const { setIsSharedDashboard } = useActions(dashboardLogic)
     const [isShared, setIsShared] = useState(dashboard?.is_shared)
-    const url = window.location.origin
+
+    const url = window.location.origin + '/shared_dashboard/' + dashboard?.share_token
+
     return dashboard ? (
         <Modal
             visible={visible}
@@ -33,12 +36,17 @@ export function ShareModal({ visible, onCancel }: { visible: boolean; onCancel: 
                 <span>
                     Your dashboard is visible to everyone with the link.
                     {dashboard.share_token && (
-                        <CopyToClipboardInput
-                            data-attr="share-dashboard-link"
-                            value={url + '/shared_dashboard/' + dashboard.share_token}
-                            description="link"
-                        />
+                        <CopyToClipboardInput data-attr="share-dashboard-link" value={url} description="link" />
                     )}
+                    <br />
+                    <br />
+                    To embed this dashboard into your own website, copy the following snippet:
+                    <CodeSnippet language={Language.HTML}>
+                        {`<iframe width="100%" height="100%" frameborder="0" src="${url}?embed" />`}
+                    </CodeSnippet>
+                    <small>
+                        You may want to hardcode the height in pixels based on your website to avoid the scrollbar.
+                    </small>
                 </span>
             ) : (
                 'Your dashboard is private.'
