@@ -44,7 +44,8 @@ class PostHogConfig(AppConfig):
                         print(f"Unsupported version for service {service_version_requirement.service}, exiting...")
                         exit(1)
 
-        if settings.TEST:
+        # temporary, while we're not referencing the SpecialMigration model from anywhere
+        if settings.TEST or settings.E2E_TESTING:
             from posthog.models.special_migration import SpecialMigration
         else:
             from posthog.special_migrations.manager import init_special_migrations
