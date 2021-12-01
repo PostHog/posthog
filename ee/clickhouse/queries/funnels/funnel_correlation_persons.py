@@ -167,7 +167,7 @@ class _FunnelPropertyCorrelationActors(ActorBaseQuery):
         if self.is_aggregating_by_groups:
             conditions, params = [""], {}
 
-            properties = self._filter.correlation_property_values
+            properties = self._filter.correlation_property_values or []
 
             for index, property in enumerate(properties):
                 if property.type != "group":
