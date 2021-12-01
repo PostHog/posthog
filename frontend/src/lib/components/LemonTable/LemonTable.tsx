@@ -10,8 +10,6 @@ import { TableRow } from './TableRow'
 import './LemonTable.scss'
 import { Sorting, SortingIndicator, getNextSorting } from './sorting'
 import { ExpandableConfig, LemonTableColumn, LemonTableColumns, PaginationAuto, PaginationManual } from './types'
-export { Sorting, SortOrder } from './sorting'
-export { ExpandableConfig, LemonTableColumn, LemonTableColumns, PaginationAuto, PaginationManual } from './types'
 
 /**
  * Determine the column's key, using `dataIndex` as fallback.
@@ -33,7 +31,9 @@ export interface LemonTableProps<T extends Record<string, any>> {
     columns: LemonTableColumns<T>
     dataSource: T[]
     /** Which column to use for the row key, as an alternative to the default row index mechanism. */
-    rowKey?: keyof T
+    rowKey?: keyof T | ((record: T) => string | number)
+    /** Class name to append to each row */
+    rowClassName?: string | ((record: T) => string)
     /** Function that for each row determines what props should its `tr` element have based on the row's record. */
     onRow?: (record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     /** Whether the header should be shown. The default value is `"middle"`. */
@@ -45,7 +45,6 @@ export interface LemonTableProps<T extends Record<string, any>> {
     expandable?: ExpandableConfig<T>
     /** Whether the header should be shown. The default value is `true`. */
     showHeader?: boolean
-    /** */
     /**
      * By default sorting goes: 0. unsorted > 1. ascending > 2. descending > GOTO 0 (loop).
      * With sorting cancellation disabled, GOTO 0 is replaced by GOTO 1. */
@@ -62,8 +61,6 @@ export interface LemonTableProps<T extends Record<string, any>> {
     nouns?: [string, string]
     className?: string
     'data-attr'?: string
-    /** Class name to append to each row */
-    rowClassName?: string
 }
 
 export function LemonTable<T extends Record<string, any>>({
@@ -297,18 +294,27 @@ export function LemonTable<T extends Record<string, any>>({
                         )}
                         <tbody>
                             {currentFrame.length ? (
-                                currentFrame.map((record, rowIndex) => (
-                                    <TableRow
-                                        key={`LemonTable-row-${rowKey ? record[rowKey] : currentStartIndex + rowIndex}`}
-                                        record={record}
-                                        recordIndex={currentStartIndex + rowIndex}
-                                        rowKey={rowKey}
-                                        rowClassName={rowClassName}
-                                        columns={columns}
-                                        onRow={onRow}
-                                        expandable={expandable}
-                                    />
-                                ))
+                                currentFrame.map((record, rowIndex) => {
+                                    const rowKeyDetermined = rowKey
+                                        ? typeof rowKey === 'function'
+                                            ? rowKey(record)
+                                            : record[rowKey]
+                                        : currentStartIndex + rowIndex
+                                    const rowClassNameDetermined =
+                                        typeof rowClassName === 'function' ? rowClassName(record) : rowClassName
+                                    return (
+                                        <TableRow
+                                            key={`LemonTable-row-${rowKeyDetermined}`}
+                                            record={record}
+                                            recordIndex={currentStartIndex + rowIndex}
+                                            rowKeyDetermined={rowKeyDetermined}
+                                            rowClassNameDetermined={rowClassNameDetermined}
+                                            columns={columns}
+                                            onRow={onRow}
+                                            expandable={expandable}
+                                        />
+                                    )
+                                })
                             ) : (
                                 <tr>
                                     <td colSpan={columns.length + Number(!!expandable)}>

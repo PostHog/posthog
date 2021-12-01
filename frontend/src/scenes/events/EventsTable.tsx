@@ -12,7 +12,7 @@ import { eventsTableLogic } from './eventsTableLogic'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { ResizableColumnType, ResizableTable, TableConfig } from 'lib/components/ResizableTable'
+import { TableConfig } from 'lib/components/ResizableTable'
 import {
     ActionType,
     AnyPropertyFilter,
@@ -33,6 +33,9 @@ import { EventsTab } from 'scenes/events/EventsTabs'
 import { urls } from 'scenes/urls'
 import { EventPageHeader } from './EventPageHeader'
 import { Spinner } from 'lib/components/Spinner/Spinner'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
+import { TableCellRepresentation } from 'lib/components/LemonTable/types'
+import { IconSync } from 'lib/components/icons'
 
 export interface FixedFilters {
     action_id?: ActionType['id']
@@ -77,27 +80,27 @@ export function EventsTable({
     const { fetchNextEvents, prependNewEvents, setEventFilter, toggleAutomaticLoad, startDownload } = useActions(logic)
 
     const showLinkToPerson = !fixedFilters?.person_id
-    const newEventsRender = (item: Record<string, any>, colSpan: number): Record<string, any> => {
+    const newEventsRender = (item: Record<string, any>, colSpan: number): TableCellRepresentation => {
         return {
-            children: item.date_break
-                ? item.date_break
-                : newEvents.length === 1
-                ? `There is 1 new event. Click here to load it.`
-                : `There are ${newEvents.length || ''} new events. Click here to load them.`,
+            children: item.date_break ? (
+                item.date_break
+            ) : (
+                <>
+                    <IconSync />
+                    {newEvents.length === 1
+                        ? `There is 1 new event. Click here to load it.`
+                        : `There are ${newEvents.length || ''} new events. Click here to load them.`}
+                </>
+            ),
             props: {
                 colSpan,
-                style: {
-                    cursor: 'pointer',
-                },
             },
         }
     }
-    const personColumn = {
+    const personColumn: LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined> = {
         title: 'Person',
         key: 'person',
-        ellipsis: true,
-        span: 4,
-        render: function renderPerson({ event }: EventsTableRowItem) {
+        render: function renderPerson(_, { event }: EventsTableRowItem) {
             if (!event) {
                 return { props: { colSpan: 0 } }
             }
@@ -111,12 +114,11 @@ export function EventsTable({
         },
     }
 
-    const defaultColumns: ResizableColumnType<EventsTableRowItem>[] = useMemo(() => {
+    const defaultColumns = useMemo<LemonTableColumns<EventsTableRowItem>>(() => {
         const _localColumns = [
             {
                 title: `Event${eventFilter ? ` (${eventFilter})` : ''}`,
                 key: 'event',
-                span: 4,
                 render: function render(item: EventsTableRowItem) {
                     if (!item.event) {
                         return newEventsRender(item, tableWidth)
@@ -129,8 +131,6 @@ export function EventsTable({
             {
                 title: 'URL / Screen',
                 key: 'url',
-                eventProperties: ['$current_url', '$screen_name'],
-                span: 4,
                 render: function renderURL({ event }: EventsTableRowItem) {
                     if (!event) {
                         return { props: { colSpan: 0 } }
@@ -153,8 +153,6 @@ export function EventsTable({
             {
                 title: 'Source',
                 key: 'source',
-                eventProperties: ['$lib'],
-                span: 2,
                 render: function renderSource({ event }: EventsTableRowItem) {
                     if (!event) {
                         return { props: { colSpan: 0 } }
@@ -174,20 +172,17 @@ export function EventsTable({
             {
                 title: 'When',
                 key: 'when',
-                span: 3,
                 render: function renderWhen({ event }: EventsTableRowItem) {
                     if (!event) {
                         return { props: { colSpan: 0 } }
                     }
                     return <TZLabel time={event.timestamp} showSeconds />
                 },
-                ellipsis: true,
             },
             {
                 title: 'Usage',
                 key: 'usage',
-                span: 2,
-                render: function renderWhen({ event }: EventsTableRowItem) {
+                render: function renderUsage({ event }: EventsTableRowItem) {
                     if (!event) {
                         return { props: { colSpan: 0 } }
                     }
@@ -245,7 +240,7 @@ export function EventsTable({
                     )
                 },
             },
-        ] as ResizableColumnType<EventsTableRowItem>[]
+        ] as LemonTableColumns<EventsTableRowItem>
         if (!hidePersonColumn) {
             _localColumns.splice(1, 0, personColumn)
         }
@@ -257,12 +252,14 @@ export function EventsTable({
             selectedColumns === 'DEFAULT'
                 ? defaultColumns
                 : selectedColumns.map(
-                      (e: string, index: number): ResizableColumnType<EventsTableRowItem> =>
+                      (
+                          e: string,
+                          index: number
+                      ): LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined> =>
                           defaultColumns.find((d) => d.key === e) || {
                               title: keyMapping['event'][e] ? keyMapping['event'][e].label : e,
                               key: e,
-                              span: 2,
-                              render: function render(item: EventsTableRowItem) {
+                              render: function render(_, item: EventsTableRowItem) {
                                   const { event } = item
                                   if (!event) {
                                       if (index === 0) {
@@ -283,7 +280,6 @@ export function EventsTable({
                                   }
                                   return <Property value={event.properties[e]} />
                               },
-                              ellipsis: true,
                           }
                   ),
 
@@ -338,68 +334,65 @@ export function EventsTable({
                     </Col>
                 </Row>
 
-                <div>
-                    <ResizableTable
-                        dataSource={eventsFormatted}
-                        loading={isLoading}
-                        columns={columns}
-                        size="small"
-                        key={selectedColumns === 'DEFAULT' ? 'default' : selectedColumns.join('-')}
-                        className="ph-no-capture"
-                        locale={{
-                            emptyText: isLoading ? (
-                                <span>&nbsp;</span>
-                            ) : (
-                                <span>
-                                    You don't have any items here! If you haven't integrated PostHog yet,{' '}
-                                    <Link to="/project/settings">click here to set PostHog up on your app</Link>.
-                                </span>
-                            ),
-                        }}
-                        pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                        rowKey={(row) =>
-                            row.event ? row.event.id + '-' + row.event.event : row.date_break?.toString() || ''
-                        }
-                        rowClassName={(row) => {
-                            return clsx({
-                                'event-row': row.event,
-                                'highlight-new-row': row.event && highlightEvents[(row.event as EventType).id],
-                                'event-row-is-exception': row.event && row.event.event === '$exception',
-                                'event-day-separator': row.date_break,
-                                'event-row-new': row.new_events,
-                            })
-                        }}
-                        expandable={{
-                            expandedRowRender: function renderExpand({ event }) {
-                                return event && <EventDetails event={event} />
-                            },
-                            rowExpandable: ({ event }) => !!event,
-                            expandRowByClick: true,
-                        }}
-                        onRow={(row) => ({
-                            onClick: () => {
-                                if (row.new_events) {
-                                    prependNewEvents(newEvents)
-                                }
-                            },
-                        })}
-                    />
-                    <div
-                        style={{
-                            visibility: hasNext || isLoadingNext ? 'visible' : 'hidden',
-                            margin: '2rem auto 5rem',
-                            textAlign: 'center',
-                        }}
+                <LemonTable
+                    dataSource={eventsFormatted}
+                    loading={isLoading}
+                    columns={columns}
+                    size="small"
+                    key={selectedColumns === 'DEFAULT' ? 'default' : selectedColumns.join('-')}
+                    className="ph-no-capture"
+                    emptyState={
+                        isLoading ? (
+                            <span>&nbsp;</span>
+                        ) : (
+                            <span>
+                                You don't have any items here! If you haven't integrated PostHog yet,{' '}
+                                <Link to="/project/settings">click here to set PostHog up on your app</Link>.
+                            </span>
+                        )
+                    }
+                    rowKey={(row) =>
+                        row.event ? row.event.id + '-' + row.event.event : row.date_break?.toString() || ''
+                    }
+                    rowClassName={(row) => {
+                        return clsx({
+                            'event-row': row.event,
+                            highlighted: row.event && highlightEvents[(row.event as EventType).id],
+                            'event-row-is-exception': row.event && row.event.event === '$exception',
+                            'event-row-date-separator': row.date_break,
+                            'event-row-new': row.new_events,
+                        })
+                    }}
+                    expandable={{
+                        expandedRowRender: function renderExpand({ event }) {
+                            return event && <EventDetails event={event} />
+                        },
+                        rowExpandable: ({ event }) => !!event,
+                    }}
+                    onRow={(row) => ({
+                        onClick: () => {
+                            // "There are new events" row click handling
+                            if (row.new_events) {
+                                prependNewEvents(newEvents)
+                            }
+                        },
+                    })}
+                />
+                <div
+                    style={{
+                        visibility: hasNext || isLoadingNext ? 'visible' : 'hidden',
+                        margin: '2rem auto 5rem',
+                        textAlign: 'center',
+                    }}
+                >
+                    <Button
+                        type="primary"
+                        onClick={fetchNextEvents}
+                        disabled={isLoadingNext}
+                        style={{ display: 'inline-flex', alignItems: 'center' }}
                     >
-                        <Button
-                            type="primary"
-                            onClick={fetchNextEvents}
-                            disabled={isLoadingNext}
-                            style={{ display: 'inline-flex', alignItems: 'center' }}
-                        >
-                            {isLoadingNext ? <Spinner size="sm" /> : 'Load more events'}
-                        </Button>
-                    </div>
+                        {isLoadingNext ? <Spinner size="sm" /> : 'Load more events'}
+                    </Button>
                 </div>
                 <div style={{ marginTop: '5rem' }} />
             </div>

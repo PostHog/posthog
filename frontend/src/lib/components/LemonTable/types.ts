@@ -1,3 +1,5 @@
+import { HTMLProps } from 'react'
+
 export interface PaginationBase {
     /** By default pagination is only shown when there are multiple pages, but will always shown if this is `false`. */
     hideOnSinglePage?: boolean
@@ -23,11 +25,21 @@ export interface PaginationManual extends PaginationBase {
     onBackward?: () => void
 }
 
+export interface TableCellRepresentation {
+    children?: any
+    props?: HTMLProps<HTMLTableCellElement>
+}
+
+export type TableCellRenderResult = TableCellRepresentation | JSX.Element | string | number | false | null | undefined
+
 export interface LemonTableColumn<T extends Record<string, any>, D extends keyof T | undefined> {
     title?: string | React.ReactNode
     key?: string
     dataIndex?: D
-    render?: (dataValue: D extends keyof T ? T[D] : undefined, record: T, recordIndex: number) => any
+    render?:
+        | ((dataValue: D extends keyof T ? T[D] : undefined, record: T, recordIndex: number) => TableCellRenderResult)
+        | ((dataValue: D extends keyof T ? T[D] : undefined, record: T) => TableCellRenderResult)
+        | ((record: T) => TableCellRenderResult)
     /** Sorting function. Set to `true` if using manual pagination, in which case you'll also have to provide `sorting` on the table. */
     sorter?: ((a: T, b: T) => number) | true
     className?: string

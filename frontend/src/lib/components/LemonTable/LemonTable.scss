@@ -7,7 +7,7 @@
     overflow: hidden;
     --row-base-height: 3rem;
     &--small {
-        --row-base-height: 2rem;
+        --row-base-height: 2.5rem;
     }
     &--embedded {
         border: none;
@@ -74,8 +74,8 @@
                 }
             }
             > td {
-                padding-top: 0.5rem;
-                padding-bottom: 0.5rem;
+                padding-top: 0.25rem;
+                padding-bottom: 0.25rem;
             }
         }
     }
@@ -86,6 +86,11 @@
             > th,
             > td {
                 padding-left: 1rem;
+                &[colspan='0'] {
+                    // Hidden cells should not affect the width of the table
+                    padding-left: 0 !important;
+                    padding-right: 0 !important;
+                }
                 &:last-child {
                     padding-right: 1rem;
                 }
@@ -139,7 +144,7 @@
         background: var(--primary);
     }
     .LemonTable--loading & {
-        top: 2.75rem;
+        top: calc(var(--row-base-height) - 0.25rem);
         height: 0.25rem;
     }
 }

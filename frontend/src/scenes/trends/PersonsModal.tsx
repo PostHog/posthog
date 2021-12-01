@@ -13,7 +13,7 @@ import { DateDisplay } from 'lib/components/DateDisplay'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { PersonHeader } from '../persons/PersonHeader'
 import api from '../../lib/api'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
+import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { IconPersonFilled } from 'lib/components/icons'
 
 export interface PersonsModalProps {
@@ -172,7 +172,7 @@ export function PersonsModal({ visible, view, filters, onSaveCohort }: PersonsMo
                                         {
                                             title: 'Person',
                                             key: 'person',
-                                            render: function Render(_, person: PersonType) {
+                                            render: function Render(person: PersonType) {
                                                 return (
                                                     <div className="person-ids">
                                                         <strong>
