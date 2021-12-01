@@ -52,10 +52,18 @@ export function RelatedGroups({ groupTypeIndex, id }: Props): JSX.Element {
                 let url: string
                 if (actor.type == 'group') {
                     url = urls.group(actor.group_type_index, actor.id)
-                    return <Link to={url}>{actor.id}</Link>
+                    return (
+                        <Link to={url} data-attr="related-group-link">
+                            {actor.id}
+                        </Link>
+                    )
                 } else {
                     url = urls.person(actor.person.distinct_ids[0])
-                    return <Link to={url}>{asDisplay(actor.person)}</Link>
+                    return (
+                        <Link to={url} data-attr="related-person-link">
+                            {asDisplay(actor.person)}
+                        </Link>
+                    )
                 }
             },
         },
