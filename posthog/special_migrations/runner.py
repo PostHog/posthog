@@ -3,8 +3,7 @@ from datetime import datetime
 from posthog.celery import app
 from posthog.models.special_migration import MigrationStatus, SpecialMigration
 from posthog.models.utils import UUIDT
-from posthog.special_migrations.manager import ALL_SPECIAL_MIGRATIONS
-from posthog.tasks.special_migrations import run_special_migration
+from posthog.special_migrations.setup import ALL_SPECIAL_MIGRATIONS
 
 
 # select for update?
@@ -136,6 +135,8 @@ def attempt_migration_rollback(migration_instance: SpecialMigration, force: bool
 
 
 def trigger_migration(migration_instance: SpecialMigration):
+    from posthog.tasks.special_migrations import run_special_migration
+
     task = run_special_migration.delay(migration_instance.name)
     migration_instance.celery_task_id = str(task.id)
     migration_instance.save()

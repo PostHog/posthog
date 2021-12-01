@@ -14,8 +14,8 @@ from posthog.settings import (
     CLICKHOUSE_REPLICATION,
     CLICKHOUSE_USER,
 )
-from posthog.special_migrations.manager import ALL_SPECIAL_MIGRATIONS
 from posthog.special_migrations.runner import start_special_migration
+from posthog.special_migrations.setup import ALL_SPECIAL_MIGRATIONS
 
 MIGRATIONS_PACKAGE_NAME = "ee.clickhouse.migrations"
 
