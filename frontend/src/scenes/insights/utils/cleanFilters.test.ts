@@ -1,6 +1,7 @@
 import { cleanFilters } from './cleanFilters'
 import { ChartDisplayType, InsightType } from '~/types'
 import { FEATURE_FLAGS, ShownAsValue } from 'lib/constants'
+import { cleanFilters } from './cleanFilters'
 
 describe('cleanFilters', () => {
     it('switches display to table if moving from TRENDS to RETENTION', () => {
@@ -66,6 +67,25 @@ describe('cleanFilters', () => {
 
         expect(cleanedFilters).toHaveProperty('breakdowns', [{ property: '$browser', type: 'event' }])
         expect(cleanedFilters).toHaveProperty('breakdown_type', 'event')
+    })
+
+    const breakdownIndexTestCases = [
+        { provided: 0, expected: 0 },
+        { provided: 27, expected: 27 },
+        { provided: null, expected: undefined },
+        { provided: undefined, expected: undefined },
+        { provided: 0, breakdown_type: 'event', expected: undefined },
+    ]
+    breakdownIndexTestCases.forEach((testCase) => {
+        testCase.breakdown_type = testCase.breakdown_type || 'group'
+        it(`can add a breakdown_group_type_index of ${testCase.provided} when breakdown type is ${testCase.breakdown_type}`, () => {
+            const cleanedFilters = cleanFilters({
+                breakdown_type: testCase.breakdown_type as BreakdownType,
+                breakdown_group_type_index: testCase.provided,
+                insight: InsightType.TRENDS,
+            })
+            expect(cleanedFilters.breakdown_group_type_index).toEqual(testCase.expected)
+        })
     })
 
     it('removes empty breakdowns array', () => {
