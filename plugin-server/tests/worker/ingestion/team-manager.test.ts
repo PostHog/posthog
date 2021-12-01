@@ -175,7 +175,6 @@ describe('TeamManager()', () => {
         it('only updates last_seen_at if nothing else changes', async () => {
             await teamManager.fetchTeam(2)
             await teamManager.cacheEventNamesAndProperties(2)
-            jest.spyOn(hub.db, 'postgresQuery')
 
             let eventDefinitions = await hub.db.fetchEventDefinitions()
             for (const eventDef of eventDefinitions) {
@@ -183,6 +182,8 @@ describe('TeamManager()', () => {
                     expect(eventDef.last_seen_at).toBe(null)
                 }
             }
+
+            jest.spyOn(hub.db, 'postgresQuery')
 
             await teamManager.updateEventNamesAndProperties(2, '$pageview', {}, DateTime.now())
 
@@ -209,7 +210,7 @@ describe('TeamManager()', () => {
                 2,
                 'another_test_event',
                 {},
-                DateTime.fromISO('2020-01-30 11:10:36Z') // 10 minutes later; threshold is 15 minutes
+                DateTime.fromISO('2020-01-30T11:10:36Z') // 10 minutes later; threshold is 15 minutes
             )
 
             expect(hub.db.postgresQuery).toHaveBeenCalledTimes(0)
@@ -218,7 +219,7 @@ describe('TeamManager()', () => {
             for (const eventDef of eventDefinitions) {
                 if (eventDef.name === 'another_test_event') {
                     const parsedLastSeen = DateTime.fromISO(eventDef.last_seen_at)
-                    expect(parsedLastSeen.diff(DateTime.fromISO('2020-01-30 11:00:36Z')).seconds).toBeCloseTo(0)
+                    expect(parsedLastSeen.diff(DateTime.fromISO('2020-01-30T11:00:36Z')).seconds).toBeCloseTo(0)
                 }
             }
         })

@@ -62,6 +62,7 @@ export class TeamManager {
         await this.cacheEventNamesAndProperties(team.id)
 
         if (!this.eventNamesCache.get(team.id)?.has(event)) {
+            // TODO: cache last seen too
             await this.db.postgresQuery(
                 `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, last_seen_at, created_at) VALUES ($1, $2, NULL, NULL, $3, $4, NOW()) ON CONFLICT DO NOTHING`,
                 [new UUIDT().toString(), event, team.id, eventTimestamp],
@@ -77,7 +78,7 @@ export class TeamManager {
             ) {
                 await this.db.postgresQuery(
                     `UPDATE posthog_eventdefinition SET last_seen_at = GREATEST(last_seen_at, $1) WHERE name = $2 AND team_id = $3`,
-                    [eventTimestamp.toISOTime(), event, team.id],
+                    [eventTimestamp.toUTC().toISO(), event, team.id],
                     'updateEventLastSeen'
                 )
                 this.eventLastSeenCache.set(`${team.id}_${event}`, eventTimestamp)
