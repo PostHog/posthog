@@ -1376,7 +1376,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             },
             breakpoint: BreakPointFunction
         ) => {
-            if (visible && values.shouldReportCorrelationViewed) {
+            if (visible && values.correlationAnalysisAvailable && values.shouldReportCorrelationViewed) {
                 eventUsageLogic.actions.reportCorrelationViewed(values.filters, 0)
                 await breakpoint(10000)
                 eventUsageLogic.actions.reportCorrelationViewed(values.filters, 10)
@@ -1391,7 +1391,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             },
             breakpoint: BreakPointFunction
         ) => {
-            if (visible && values.shouldReportPropertyCorrelationViewed) {
+            if (visible && values.correlationAnalysisAvailable && values.shouldReportPropertyCorrelationViewed) {
                 eventUsageLogic.actions.reportCorrelationViewed(values.filters, 0, true)
                 await breakpoint(10000)
                 eventUsageLogic.actions.reportCorrelationViewed(values.filters, 10, true)

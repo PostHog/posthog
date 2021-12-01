@@ -10,6 +10,7 @@ class SpecialMigrationOperation:
         self.database = database
         self.timeout_seconds = timeout_seconds
         self.resumable = resumable
+        self.rollback = rollback
 
 
 class SpecialMigrationDefinition:
@@ -18,6 +19,7 @@ class SpecialMigrationDefinition:
 
     service_version_requirements: List[ServiceVersionRequirement] = []
     operations: List[SpecialMigrationOperation] = []
+    dependencies: List[str]
 
     def is_required(self) -> bool:
         return True
