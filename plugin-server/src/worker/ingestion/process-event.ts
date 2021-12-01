@@ -267,7 +267,7 @@ export class EventsProcessor {
             return
         }
 
-        await this.db.updatePerson(personFound, { properties: updatedProperties })
+        await this.db.updatePersonDeprecated(personFound, { properties: updatedProperties })
     }
 
     private async setIsIdentified(teamId: number, distinctId: string, isIdentified = true): Promise<void> {
@@ -276,7 +276,7 @@ export class EventsProcessor {
             throw new Error(`Could not find person with distinct id "${distinctId}" in team "${teamId}" to identify`)
         }
         if (personFound && !personFound.is_identified) {
-            await this.db.updatePerson(personFound, { is_identified: isIdentified })
+            await this.db.updatePersonDeprecated(personFound, { is_identified: isIdentified })
         }
     }
 
@@ -420,7 +420,7 @@ export class EventsProcessor {
         // in which case we'll bail and rethrow the error.
         await this.db.postgresTransaction(async (client) => {
             try {
-                const updatePersonMessages = await this.db.updatePerson(
+                const updatePersonMessages = await this.db.updatePersonDeprecated(
                     mergeInto,
                     {
                         created_at: firstSeen,

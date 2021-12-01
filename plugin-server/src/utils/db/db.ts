@@ -545,9 +545,13 @@ export class DB {
         return person
     }
 
-    public async updatePerson(person: Person, update: Partial<Person>, client: PoolClient): Promise<ProducerRecord[]>
-    public async updatePerson(person: Person, update: Partial<Person>): Promise<Person>
-    public async updatePerson(
+    public async updatePersonDeprecated(
+        person: Person,
+        update: Partial<Person>,
+        client: PoolClient
+    ): Promise<ProducerRecord[]>
+    public async updatePersonDeprecated(person: Person, update: Partial<Person>): Promise<Person>
+    public async updatePersonDeprecated(
         person: Person,
         update: Partial<Person>,
         client?: PoolClient
@@ -595,7 +599,7 @@ export class DB {
         return client ? kafkaMessages : updatedPerson
     }
 
-    public async updatePersonProperties(
+    public async updatePerson(
         client: PoolClient,
         personId: number,
         createdAt: DateTime,
@@ -605,7 +609,7 @@ export class DB {
     ): Promise<number> {
         const updateResult: QueryResult = await this.postgresQuery(
             `UPDATE posthog_person SET
-            created_at = $1
+            created_at = $1,
             properties = $2,
             properties_last_updated_at = $3,
             properties_last_operation = $4,
@@ -1499,14 +1503,19 @@ export class DB {
     ): Promise<void> {
         await this.postgresQuery(
             `
-            UPDATE posthog_group
-            SET group_properties = $4, properties_last_updated_at = $5, properties_last_operation = $6, version = $7
+            UPDATE posthog_group SET
+            created_at = $4,
+            group_properties = $5,
+            properties_last_updated_at = $6,
+            properties_last_operation = $7,
+            version = $8,
             WHERE team_id = $1 AND group_key = $2 AND group_type_index = $3
             `,
             [
                 teamId,
                 groupKey,
                 groupTypeIndex,
+                createdAt.toISO(),
                 JSON.stringify(groupProperties),
                 JSON.stringify(propertiesLastUpdatedAt),
                 JSON.stringify(propertiesLastOperation),
