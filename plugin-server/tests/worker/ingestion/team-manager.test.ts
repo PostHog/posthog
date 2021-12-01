@@ -74,7 +74,7 @@ describe('TeamManager()', () => {
             )
             await hub.db.postgresQuery(
                 `INSERT INTO posthog_eventdefinition (id, name, team_id, created_at, last_seen_at) VALUES ($1, $2, $3, NOW(), $4)`,
-                [new UUIDT().toString(), 'another_test_event', 2, '2020-01-30 11:00:36Z'],
+                [new UUIDT().toString(), 'another_test_event', 2, '2020-01-30T11:00:36Z'],
                 'testTag'
             )
             await hub.db.postgresQuery(
@@ -172,6 +172,15 @@ describe('TeamManager()', () => {
             ])
         })
 
+        it('caches last_seen_at properly', async () => {
+            await teamManager.fetchTeam(2)
+            await teamManager.cacheEventNamesAndProperties(2)
+
+            expect(teamManager.eventLastSeenCache.get('2_another_test_event')).toEqual(
+                DateTime.fromISO('2020-01-30T11:00:36Z')
+            )
+        })
+
         it('only updates last_seen_at if nothing else changes', async () => {
             await teamManager.fetchTeam(2)
             await teamManager.cacheEventNamesAndProperties(2)
@@ -224,13 +233,35 @@ describe('TeamManager()', () => {
             }
         })
 
+        it('does not update last seen if it was recently updated (new events)', async () => {
+            await teamManager.fetchTeam(2)
+            await teamManager.cacheEventNamesAndProperties(2)
+
+            // Fill cache first
+            await teamManager.updateEventNamesAndProperties(
+                2,
+                'gamma-event',
+                {},
+                DateTime.fromISO('2020-01-30T11:00:36Z')
+            )
+
+            jest.spyOn(hub.db, 'postgresQuery')
+            await teamManager.updateEventNamesAndProperties(
+                2,
+                'gamma-event',
+                {},
+                DateTime.fromISO('2020-01-30T11:13:36Z') // 13 minutes later; threshold is 15 minutes
+            )
+            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(0)
+        })
+
         it('does not update last seen if it is older', async () => {
             jest.spyOn(hub.db, 'postgresQuery')
             await teamManager.updateEventNamesAndProperties(
                 2,
                 'new-event',
                 {},
-                DateTime.fromISO('2015-01-01T00:01:01Z')
+                DateTime.fromISO('2020-02-26T00:01:01Z')
             )
 
             const eventDefinitions = await hub.db.fetchEventDefinitions()

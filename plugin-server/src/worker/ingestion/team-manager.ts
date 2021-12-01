@@ -62,13 +62,13 @@ export class TeamManager {
         await this.cacheEventNamesAndProperties(team.id)
 
         if (!this.eventNamesCache.get(team.id)?.has(event)) {
-            // TODO: cache last seen too
             await this.db.postgresQuery(
                 `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, last_seen_at, created_at) VALUES ($1, $2, NULL, NULL, $3, $4, NOW()) ON CONFLICT DO NOTHING`,
                 [new UUIDT().toString(), event, team.id, eventTimestamp],
                 'insertEventDefinition'
             )
             this.eventNamesCache.get(team.id)?.add(event)
+            this.eventLastSeenCache.set(`${team.id}_${event}`, eventTimestamp)
         } else {
             if (
                 !this.eventLastSeenCache.get(`${team.id}_${event}`) ||
@@ -129,14 +129,19 @@ export class TeamManager {
     }
 
     public async cacheEventNamesAndProperties(teamId: number): Promise<void> {
-        let eventNamesCache = this.eventNamesCache.get(teamId)
-        if (!eventNamesCache) {
-            const eventNames = await this.db.postgresQuery(
-                'SELECT name FROM posthog_eventdefinition WHERE team_id = $1',
+        if (!this.eventNamesCache.get(teamId)) {
+            const eventData = await this.db.postgresQuery(
+                'SELECT name, last_seen_at FROM posthog_eventdefinition WHERE team_id = $1',
                 [teamId],
                 'fetchEventDefinitions'
             )
-            eventNamesCache = new Set(eventNames.rows.map((r) => r.name))
+            const eventNamesCache = new Set<string>()
+            for (const row of eventData.rows) {
+                eventNamesCache.add(row.name)
+                if (row.last_seen_at) {
+                    this.eventLastSeenCache.set(`${teamId}_${row.name}`, DateTime.fromISO(row.last_seen_at))
+                }
+            }
             this.eventNamesCache.set(teamId, eventNamesCache)
         }
 
