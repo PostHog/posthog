@@ -30,7 +30,6 @@ import clsx from 'clsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { FunnelCorrelation } from './FunnelCorrelation'
-import { SkeletonGraph } from 'lib/components/skeletons/SkeletonGraph'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -68,7 +67,7 @@ export function InsightContainer(): JSX.Element {
         if (activeView !== loadedView || isLoading) {
             return (
                 <>
-                    <SkeletonGraph isLoading={true} />
+                    <div style={{ minHeight: 'min(calc(90vh - 16rem), 36rem)' }} />
                     <Loading />
                 </>
             )
