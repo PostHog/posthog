@@ -4,16 +4,27 @@
     max-width: calc(100vw - 40px);
     background: white;
 
-    .ant-tabs-tab {
-        margin: 0 1rem 0 0;
-        .ant-tag {
-            margin: 0 0 0 0.125rem;
-        }
-    }
-
     &.one-taxonomic-tab {
         .taxonomic-infinite-list {
             margin-top: 10px;
+        }
+    }
+
+    .taxonomic-pills {
+        margin-top: 0.5rem;
+        .ant-tag {
+            margin-bottom: 0.5rem;
+            color: var(--primary);
+            background: var(--bg-side);
+            border-color: var(--bg-side);
+            &.taxonomic-count-zero {
+                color: var(--text-muted);
+            }
+            &.taxonomic-pill-active {
+                color: var(--text-light);
+                background: var(--primary);
+                border-color: var(--primary);
+            }
         }
     }
 }
