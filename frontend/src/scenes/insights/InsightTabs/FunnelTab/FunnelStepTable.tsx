@@ -129,10 +129,8 @@ export function FunnelStepTable(): JSX.Element | null {
                             <InsightLabel
                                 seriesColor={color}
                                 fallbackName={formatBreakdownLabel(
-                                    isOnlySeries
-                                        ? `Unique ${aggregationTargetLabel.plural}`
-                                        : breakdown.breakdown_value,
-                                    cohorts
+                                    cohorts,
+                                    isOnlySeries ? `Unique ${aggregationTargetLabel.plural}` : breakdown.breakdown_value
                                 )}
                                 hasMultipleSeries={steps.length > 1}
                                 breakdownValue={breakdown.breakdown_value}
@@ -427,7 +425,7 @@ export function FunnelStepTable(): JSX.Element | null {
                         seriesColor={color}
                         fallbackName={
                             isBreakdownChild && isBreakdownChildType(step.breakdown)
-                                ? formatBreakdownLabel(step.breakdown, cohorts)
+                                ? formatBreakdownLabel(cohorts, step.breakdown)
                                 : step.name
                         }
                         action={

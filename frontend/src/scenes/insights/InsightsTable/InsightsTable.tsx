@@ -6,7 +6,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { getChartColors } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
-import { CohortType, IntervalType } from '~/types'
+import { BreakdownKeyType, CohortType, IntervalType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { average, median, maybeAddCommasToInteger } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
@@ -116,7 +116,7 @@ export function InsightsTable({
                 <PropertyKeyInfo disableIcon disablePopover value={filters.breakdown.toString() || 'Breakdown Value'} />
             ),
             render: function RenderBreakdownValue({}, item: IndexedTrendResult) {
-                const label = formatBreakdownLabel(item.breakdown_value, cohorts)
+                const label = formatBreakdownLabel(cohorts, item.breakdown_value)
                 return (
                     <SeriesToggleWrapper id={item.id} toggleVisibility={toggleVisibility}>
                         <div title={label}>{label}</div>
@@ -126,8 +126,8 @@ export function InsightsTable({
             fixed: 'left',
             width: 150,
             sorter: (a, b) => {
-                const labelA = formatBreakdownLabel(a.breakdown_value, cohorts)
-                const labelB = formatBreakdownLabel(b.breakdown_value, cohorts)
+                const labelA = formatBreakdownLabel(cohorts, a.breakdown_value)
+                const labelB = formatBreakdownLabel(cohorts, b.breakdown_value)
                 return labelA.localeCompare(labelB)
             },
         })
@@ -254,10 +254,7 @@ export function InsightsTable({
     )
 }
 
-export function formatBreakdownLabel(
-    breakdown_value: string | number | undefined | Array<string | number> | null,
-    cohorts: CohortType[]
-): string {
+export function formatBreakdownLabel(cohorts: CohortType[], breakdown_value?: BreakdownKeyType): string {
     if (breakdown_value && typeof breakdown_value == 'number') {
         return cohorts.filter((c) => c.id == breakdown_value)[0]?.name || breakdown_value.toString()
     } else if (typeof breakdown_value == 'string') {
