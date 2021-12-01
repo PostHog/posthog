@@ -2,13 +2,12 @@ from typing import Dict, Tuple, cast
 
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from ee.clickhouse.queries.paths.paths import ClickhousePaths
-from posthog.models import Person
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 
 
-class ClickhousePathsActors(ClickhousePaths, ActorBaseQuery):
-    """    
+class ClickhousePathsActors(ClickhousePaths, ActorBaseQuery):  # type: ignore
+    """
     `path_start_key`, `path_end_key`, and `path_dropoff_key` are three new params for this class.
     These determine the start and end point of Paths you want. All of these are optional.
 
