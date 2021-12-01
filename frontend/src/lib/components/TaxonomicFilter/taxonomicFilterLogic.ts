@@ -103,8 +103,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     getValue: (action: ActionType): TaxonomicFilterValue => action.id,
                 },
                 {
-                    name: 'Elements',
-                    searchPlaceholder: 'elements',
+                    name: 'Autocapture elements',
+                    searchPlaceholder: 'autocapture elements',
                     type: TaxonomicFilterGroupType.Elements,
                     options: ['tag_name', 'text', 'href', 'selector'].map((option) => ({
                         name: option,
