@@ -3,7 +3,8 @@ import { useValues } from 'kea'
 import { IconArrowDropDown, IconChevronRight } from 'lib/components/icons'
 import { Link } from 'lib/components/Link'
 import './Breadcrumbs.scss'
-import { Breadcrumb as IBreadcrumb, breadcrumbsLogic } from './breadcrumbsLogic'
+import { breadcrumbsLogic } from './breadcrumbsLogic'
+import { Breadcrumb as IBreadcrumb } from '~/types'
 import clsx from 'clsx'
 import { Popup } from 'lib/components/Popup/Popup'
 
@@ -50,10 +51,16 @@ export function Breadcrumbs(): JSX.Element | null {
     return breadcrumbs.length > 0 ? (
         <div className="Breadcrumbs">
             <Breadcrumb breadcrumb={breadcrumbs[0]} />
-            {breadcrumbs.slice(1).map((breadcrumb) => (
+            {breadcrumbs.slice(1).map((breadcrumb, index) => (
                 <React.Fragment key={breadcrumb.name || '…'}>
                     <IconChevronRight className="Breadcrumbs__separator" />
-                    <Breadcrumb breadcrumb={breadcrumb} />
+                    <Breadcrumb
+                        breadcrumb={
+                            index === breadcrumbs.length - 2
+                                ? { ...breadcrumb, path: undefined, here: true }
+                                : breadcrumb
+                        }
+                    />
                 </React.Fragment>
             ))}
         </div>
