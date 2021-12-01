@@ -1,6 +1,5 @@
 import React, { ForwardRefRenderFunction, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import useSize from '@react-hook/size'
 import { capitalizeFirstLetter, humanFriendlyDuration, pluralize } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Button, ButtonProps, Popover } from 'antd'
@@ -16,14 +15,13 @@ import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import {
     formatDisplayPercentage,
     getBreakdownMaxIndex,
-    getBreakdownStepValues,
     getReferenceStep,
     getSeriesColor,
     getSeriesPositionName,
     humanizeOrder,
     humanizeStepCount,
 } from './funnelUtils'
-import { FunnelStepReference, FunnelStepWithConversionMetrics, StepOrderValue } from '~/types'
+import { FunnelStepReference, StepOrderValue } from '~/types'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -68,146 +66,6 @@ function DuplicateStepIndicator(): JSX.Element {
                 <InfoCircleOutlined className="info-indicator" />
             </Tooltip>
         </span>
-    )
-}
-
-interface BreakdownBarGroupProps {
-    currentStep: FunnelStepWithConversionMetrics
-    basisStep: FunnelStepWithConversionMetrics
-    previousStep: FunnelStepWithConversionMetrics
-    showLabels: boolean
-    onBarClick?: (breakdown_value: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>) => void
-    disabled: boolean
-    isSingleSeries?: boolean
-    aggregationTargetLabel: { singular: string; plural: string }
-}
-
-export function BreakdownVerticalBarGroup({
-    currentStep,
-    basisStep,
-    previousStep,
-    showLabels,
-    onBarClick,
-    disabled,
-    isSingleSeries = false,
-    aggregationTargetLabel,
-}: BreakdownBarGroupProps): JSX.Element {
-    const ref = useRef<HTMLDivElement | null>(null)
-    const [, height] = useSize(ref)
-    const barWidth = `calc(${100 / (currentStep?.nested_breakdown?.length ?? 1)}% - 2px)`
-
-    return (
-        <div className="breakdown-bar-group" ref={ref}>
-            {currentStep?.nested_breakdown?.map((breakdown, breakdownIndex) => {
-                const basisBreakdownCount = basisStep?.nested_breakdown?.[breakdownIndex]?.count ?? 1
-                const currentBarHeight = (height * breakdown.count) / basisBreakdownCount
-                const previousBarHeight =
-                    (height * (previousStep?.nested_breakdown?.[breakdownIndex]?.count ?? 0)) / basisBreakdownCount
-                const color = getSeriesColor(breakdown.order, isSingleSeries)
-                const breakdownValues = getBreakdownStepValues(breakdown, breakdownIndex)
-
-                const popoverMetrics = [
-                    {
-                        title: 'Completed step',
-                        value: breakdown.count,
-                    },
-                    {
-                        title: 'Conversion rate (total)',
-                        value: formatDisplayPercentage(breakdown.conversionRates.total) + '%',
-                    },
-                    {
-                        title: `Conversion rate (from step ${humanizeOrder(previousStep.order)})`,
-                        value: formatDisplayPercentage(breakdown.conversionRates.fromPrevious) + '%',
-                        visible: currentStep.order !== 0,
-                    },
-                    {
-                        title: 'Dropped off',
-                        value: breakdown.droppedOffFromPrevious,
-                        visible: currentStep.order !== 0 && breakdown.droppedOffFromPrevious > 0,
-                    },
-                    {
-                        title: `Dropoff rate (from step ${humanizeOrder(previousStep.order)})`,
-                        value: formatDisplayPercentage(1 - breakdown.conversionRates.fromPrevious) + '%',
-                        visible: currentStep.order !== 0 && breakdown.droppedOffFromPrevious > 0,
-                    },
-                    {
-                        title: 'Average time on step',
-                        value: humanFriendlyDuration(breakdown.average_conversion_time),
-                        visible: !!breakdown.average_conversion_time,
-                    },
-                ]
-
-                return (
-                    <div
-                        key={breakdownIndex}
-                        className="breakdown-bar-column"
-                        style={{
-                            width: barWidth,
-                        }}
-                    >
-                        {currentStep.order > 0 && (
-                            <div
-                                className="breakdown-previous-bar"
-                                style={{
-                                    height: previousBarHeight,
-                                    backgroundColor: color,
-                                    width: barWidth,
-                                }}
-                            />
-                        )}
-                        <Popover
-                            trigger="hover"
-                            placement="right"
-                            content={
-                                <InsightTooltip
-                                    altTitle={
-                                        <div style={{ wordWrap: 'break-word' }}>
-                                            <PropertyKeyInfo value={currentStep.name} />
-                                            {breakdownValues.breakdown_value?.[0] === 'Baseline'
-                                                ? ''
-                                                : ` • ${breakdownValues.breakdown.join(',')}`}
-                                        </div>
-                                    }
-                                >
-                                    {popoverMetrics.map(({ title, value, visible }, index) =>
-                                        visible !== false ? <MetricRow key={index} title={title} value={value} /> : null
-                                    )}
-                                </InsightTooltip>
-                            }
-                        >
-                            <div
-                                className="breakdown-current-bar"
-                                style={{
-                                    height: currentBarHeight,
-                                    backgroundColor: color,
-                                    width: barWidth,
-                                    cursor: disabled ? undefined : 'pointer',
-                                }}
-                                onClick={() => onBarClick && onBarClick(breakdown)}
-                            />
-                        </Popover>
-                        {showLabels && (
-                            <div
-                                className="breakdown-label"
-                                style={{
-                                    bottom: currentBarHeight + 4,
-                                    width: barWidth,
-                                }}
-                            >
-                                {breakdown.count > 0
-                                    ? `${humanizeStepCount(breakdown.count)} ${pluralize(
-                                          breakdown.count,
-                                          aggregationTargetLabel.singular,
-                                          aggregationTargetLabel.plural,
-                                          false
-                                      )}`
-                                    : ''}
-                            </div>
-                        )}
-                    </div>
-                )
-            })}
-        </div>
     )
 }
 
@@ -444,7 +302,7 @@ function AverageTimeInspector({
     )
 }
 
-function MetricRow({ title, value }: { title: string; value: string | number }): JSX.Element {
+export function MetricRow({ title, value }: { title: string; value: string | number }): JSX.Element {
     return (
         <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between' }}>
             <div>{title}</div>

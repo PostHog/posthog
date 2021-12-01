@@ -3,20 +3,16 @@ import {
     FlattenedFunnelStep,
     FlattenedFunnelStepByBreakdown,
     FunnelStep,
-    FunnelStepReference,
     FunnelStepWithConversionMetrics,
 } from '~/types'
-import { getReferenceStep, getSeriesColor, humanizeOrder } from 'scenes/funnels/funnelUtils'
+import { getSeriesColor, humanizeOrder } from 'scenes/funnels/funnelUtils'
 import { RenderedCell } from 'rc-table/lib/interface'
 import React from 'react'
-import { BreakdownVerticalBarGroup } from 'scenes/funnels/FunnelBarGraph'
-import { useActions, useValues } from 'kea'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { zeroPad } from 'lib/utils'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { FunnelStepDropdown } from 'scenes/funnels/FunnelStepDropdown'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { BreakdownBarGroupWrapper } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBreakdown'
 
 export function getColor(step: FlattenedFunnelStep, fallbackColor: string, isBreakdown?: boolean): string {
     return getSeriesColor(isBreakdown ? step.breakdownIndex : step.order, false, fallbackColor)
@@ -45,55 +41,6 @@ export const renderSubColumnTitle = (title: string | JSX.Element): JSX.Element =
 export const renderColumnTitle = (title: string): JSX.Element => <span className="column-title">{title}</span>
 
 export const EmptyValue = <span className="text-muted-alt">-</span>
-
-function BreakdownBarGroupWrapper({
-    step,
-    showLabels,
-}: {
-    step: FunnelStepWithConversionMetrics
-    showLabels: boolean
-}): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-    const logic = funnelLogic(insightProps)
-    const {
-        stepReference,
-        visibleStepsWithConversionMetrics: steps,
-        isModalActive,
-        flattenedBreakdowns,
-        aggregationTargetLabel,
-    } = useValues(logic)
-    const { openPersonsModalForStep } = useActions(logic)
-    const basisStep = getReferenceStep(steps, stepReference, step.order)
-    const previousStep = getReferenceStep(steps, FunnelStepReference.previous, step.order)
-
-    return (
-        <div className="funnel-bar-wrapper breakdown vertical">
-            <BreakdownVerticalBarGroup
-                currentStep={step}
-                basisStep={basisStep}
-                previousStep={previousStep}
-                showLabels={showLabels}
-                onBarClick={(breakdown) => {
-                    // Breakdown parameter carries nested breakdown information that should be passed into
-                    // openPersonsModalForStep.
-                    openPersonsModalForStep({ step: breakdown, converted: true })
-                }}
-                disabled={!isModalActive}
-                isSingleSeries={flattenedBreakdowns.length === 1}
-                aggregationTargetLabel={aggregationTargetLabel}
-            />
-            <div className="funnel-bar-empty-space" />
-            <div className="funnel-bar-axis">
-                <div className="axis-tick-line" />
-                <div className="axis-tick-line" />
-                <div className="axis-tick-line" />
-                <div className="axis-tick-line" />
-                <div className="axis-tick-line" />
-                <div className="axis-tick-line" />
-            </div>
-        </div>
-    )
-}
 
 export const renderGraphAndHeader = (
     rowIndex: number,
@@ -225,4 +172,11 @@ export function getActionFilterFromFunnelStep(step: FunnelStep): ActionFilter {
         order: step.order,
         properties: [],
     }
+}
+
+export function getSignificanceFromBreakdownStep(
+    breakdown: FlattenedFunnelStepByBreakdown,
+    stepOrder: number
+): FunnelStepWithConversionMetrics['significant'] {
+    return breakdown.steps?.[stepOrder].significant
 }

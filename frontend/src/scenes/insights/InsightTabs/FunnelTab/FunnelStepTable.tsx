@@ -13,11 +13,12 @@ import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { formatDisplayPercentage, getSeriesColor, getVisibilityIndex, humanizeOrder } from 'scenes/funnels/funnelUtils'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 import { colonDelimitedDuration, humanFriendlyDuration } from 'lib/utils'
-import { FlattenedFunnelStep, FlattenedFunnelStepByBreakdown, FunnelStepWithConversionMetrics } from '~/types'
+import { FlattenedFunnelStep, FlattenedFunnelStepByBreakdown } from '~/types'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import {
     EmptyValue,
     getActionFilterFromFunnelStep,
+    getSignificanceFromBreakdownStep,
     getStepColor,
     isBreakdownChildType,
     renderColumnTitle,
@@ -28,13 +29,6 @@ import './FunnelStepTable.scss'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { Tooltip } from 'lib/components/Tooltip'
-
-function getSignificanceFromBreakdownStep(
-    breakdown: FlattenedFunnelStepByBreakdown,
-    stepOrder: number
-): FunnelStepWithConversionMetrics['significant'] {
-    return breakdown.steps?.[stepOrder].significant
-}
 
 export function FunnelStepTable(): JSX.Element | null {
     const { insightProps, isViewedOnDashboard } = useValues(insightLogic)
