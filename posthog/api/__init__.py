@@ -124,12 +124,7 @@ if is_clickhouse_enabled():
     projects_router.register(r"paths", ClickhousePathsViewSet, "project_paths", ["team_id"])
     projects_router.register(r"elements", ClickhouseElementViewSet, "project_elements", ["team_id"])
     projects_router.register(r"cohorts", ClickhouseCohortViewSet, "project_cohorts", ["team_id"])
-    projects_router.register(
-        r"session_recordings",
-        ClickhouseSessionRecordingViewSet,
-        "project_session_recordings",
-        ["team_id"],
-    )
+    projects_router.register(r"session_recordings", ClickhouseSessionRecordingViewSet, "project_session_recordings", ["team_id"])
 else:
     # Legacy endpoints PG (to be removed eventually)
     router.register(r"insight", insight.LegacyInsightViewSet)  # Should be completely unused now
@@ -149,4 +144,4 @@ else:
     projects_router.register(r"cohorts", cohort.LegacyCohortViewSet, "project_cohorts", ["team_id"])
     projects_router.register(
         r"session_recordings", session_recording.SessionRecordingViewSet, "project_session_recordings", ["team_id"],
-    )
+g    )
