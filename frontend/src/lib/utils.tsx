@@ -1221,5 +1221,5 @@ export function isEllipsisActive(e: HTMLElement | null): boolean {
 }
 
 export function isGroupType(actor: PersonType | GroupActorType): actor is GroupActorType {
-    return (actor as GroupActorType).group_key !== undefined
+    return actor.type === 'group'
 }

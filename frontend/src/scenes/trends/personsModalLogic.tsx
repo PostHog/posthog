@@ -3,7 +3,7 @@ import { Link } from 'lib/components/Link'
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
-import { errorToast, toParams } from 'lib/utils'
+import { errorToast, isGroupType, toParams } from 'lib/utils'
 import {
     ActionFilter,
     FilterType,
@@ -25,6 +25,7 @@ import { ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
 import { toast } from 'react-toastify'
 import { cohortsModel } from '~/models/cohortsModel'
 import { dayjs } from 'lib/dayjs'
+import { groupsModel } from '~/models/groupsModel'
 
 export interface PersonsModalParams {
     action: ActionFilter | 'session' // todo, refactor this session string param out
@@ -128,10 +129,12 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             people,
             filters,
         }),
-        saveFirstLoadedPeople: (people: TrendActors) => ({ people }),
-        setFirstLoadedPeople: (firstLoadedPeople: TrendActors | null) => ({ firstLoadedPeople }),
-        savePeopleParams: (peopleParams: PersonsModalParams) => ({ peopleParams }),
+        saveFirstLoadedActors: (people: TrendActors) => ({ people }),
+        setFirstLoadedActors: (firstLoadedPeople: TrendActors | null) => ({ firstLoadedPeople }),
     }),
+    connect: {
+        values: [groupsModel, ['groupTypes']],
+    },
     reducers: () => ({
         searchTerm: [
             '',
@@ -166,13 +169,13 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     breakdown_value,
                 }),
                 setFilters: () => null,
-                setFirstLoadedPeople: (_, { firstLoadedPeople }) => firstLoadedPeople,
+                setFirstLoadedActors: (_, { firstLoadedPeople }) => firstLoadedPeople,
             },
         ],
         firstLoadedPeople: [
             null as TrendActors | null,
             {
-                saveFirstLoadedPeople: (_, { people }) => people,
+                saveFirstLoadedActors: (_, { people }) => people,
             },
         ],
         loadingMorePeople: [
@@ -206,6 +209,19 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         clickhouseFeaturesEnabled: [
             () => [preflightLogic.selectors.preflight],
             (preflight) => !!preflight?.is_clickhouse_enabled,
+        ],
+        isGroupType: [(s) => [s.people], (people) => people?.people?.[0] && isGroupType(people.people[0])],
+        actorLabel: [
+            (s) => [s.people, s.isGroupType, s.groupTypes],
+            (result, _isGroupType, groupTypes) => {
+                if (_isGroupType) {
+                    return result?.action !== 'session' && result?.action.math_group_type_index != undefined
+                        ? groupTypes[result.action.math_group_type_index].group_type
+                        : 'group'
+                } else {
+                    return 'user'
+                }
+            },
         ],
     },
     loaders: ({ actions, values }) => ({
@@ -297,7 +313,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                 eventUsageLogic.actions.reportPersonsModalViewed(peopleParams, peopleResult.count, !!actors?.next)
 
                 if (saveOriginal) {
-                    actions.saveFirstLoadedPeople(peopleResult)
+                    actions.saveFirstLoadedActors(peopleResult)
                 }
 
                 return peopleResult

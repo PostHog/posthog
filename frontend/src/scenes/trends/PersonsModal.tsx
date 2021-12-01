@@ -40,11 +40,11 @@ export function PersonsModal({
         isInitialLoad,
         clickhouseFeaturesEnabled,
         peopleParams,
+        actorLabel,
     } = useValues(personsModalLogic)
-    const { hidePeople, loadMorePeople, setFirstLoadedPeople, setPersonsModalFilters, setSearchTerm } =
+    const { hidePeople, loadMorePeople, setFirstLoadedActors, setPersonsModalFilters, setSearchTerm } =
         useActions(personsModalLogic)
     const { preflight } = useValues(preflightLogic)
-    const _isGroupType = people?.people?.[0] && isGroupType(people.people[0])
 
     const title = useMemo(
         () =>
@@ -143,14 +143,14 @@ export function PersonsModal({
                                 onChange={(e) => {
                                     setSearchTerm(e.target.value)
                                     if (!e.target.value) {
-                                        setFirstLoadedPeople(firstLoadedPeople)
+                                        setFirstLoadedActors(firstLoadedPeople)
                                     }
                                 }}
                                 value={searchTerm}
                                 onSearch={(term) =>
                                     term
                                         ? setPersonsModalFilters(term, people, filters)
-                                        : setFirstLoadedPeople(firstLoadedPeople)
+                                        : setFirstLoadedActors(firstLoadedPeople)
                                 }
                             />
                         )}
@@ -159,8 +159,7 @@ export function PersonsModal({
                             <span>
                                 This list contains{' '}
                                 <b>
-                                    {people.count} unique{' '}
-                                    {pluralize(people.count, _isGroupType ? 'group' : 'user', undefined, false)}
+                                    {people.count} unique {pluralize(people.count, actorLabel, undefined, false)}
                                 </b>
                                 {peopleParams?.pointValue !== undefined &&
                                     peopleParams.action !== 'session' &&
@@ -245,7 +244,7 @@ export function ActorRow({ actor }: ActorRowProps): JSX.Element {
             <div key={actor.id} className="person-row">
                 <div className="person-ids">
                     <strong>
-                        <GroupActorHeader actor={actor} withIcon={false} />
+                        <GroupActorHeader actor={actor} />
                     </strong>
                 </div>
             </div>

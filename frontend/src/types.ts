@@ -449,22 +449,26 @@ export interface FunnelStepRangeEntityFilter extends EntityFilter {
 }
 
 export type EntityFilterTypes = EntityFilter | ActionFilter | FunnelStepRangeEntityFilter | null
-
-export interface ActorType {
+export interface PersonType {
+    type: 'person'
     id?: string | number
     properties: Record<string, any>
     created_at?: string
-}
-export interface PersonType extends ActorType {
     uuid?: string
     name?: string
     distinct_ids: string[]
     is_identified: boolean
 }
 
-export interface GroupActorType extends ActorType {
+export interface GroupActorType {
+    type: 'group'
+    id?: string | number
+    properties: Record<string, any>
+    created_at?: string
     group_key: string
 }
+
+export type ActorType = PersonType | GroupActorType
 export interface CohortGroupType {
     id: string
     days?: string
