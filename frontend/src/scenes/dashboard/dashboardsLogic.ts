@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 export enum DashboardsTab {
     All = 'all',
     Pinned = 'pinned',
+    Shared = 'shared',
 }
 
 export const dashboardsLogic = kea<dashboardsLogicType<DashboardsTab>>({
@@ -46,6 +47,9 @@ export const dashboardsLogic = kea<dashboardsLogicType<DashboardsTab>>({
                     .sort((a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'))
                 if (currentTab === DashboardsTab.Pinned) {
                     dashboards = dashboards.filter((d) => d.pinned)
+                }
+                if (currentTab === DashboardsTab.Shared) {
+                    dashboards = dashboards.filter((d) => d.is_shared)
                 }
                 if (!searchTerm) {
                     return dashboards

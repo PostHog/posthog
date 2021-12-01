@@ -177,3 +177,29 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
         events = query_action(action1)
         self.assertEqual(len(events), 1)  # type: ignore
+
+    def test_properties_one(self):
+        # Tests a regression where the second step properties would override those of the first step, causing issues
+        _create_event(
+            event="insight viewed", team=self.team, distinct_id="whatever", properties={"filters_count": 2},
+        )
+
+        action1 = Action.objects.create(team=self.team, name="action1")
+        step1 = ActionStep.objects.create(
+            event="insight viewed",
+            action=action1,
+            properties=[
+                {"key": "insight", "type": "event", "value": ["RETENTION"], "operator": "exact"},
+                {"key": "insight", "type": "event", "value": ["RETENTION2"], "operator": "not_icontains"},
+                {"key": "insight", "type": "event", "value": ["RETENTION3"], "operator": "not_icontains"},
+                {"key": "insight", "type": "event", "value": ["RETENTION4"], "operator": "not_icontains"},
+                {"key": "insight", "type": "event", "value": ["RETENTION5"], "operator": "not_icontains"},
+            ],
+        )
+
+        formatted_query, params = format_action_filter(action1, "")
+        import ipdb
+
+        ipdb.set_trace()
+        events = query_action(action1)
+        self.assertEqual(len(events), 1)  # type: ignore
