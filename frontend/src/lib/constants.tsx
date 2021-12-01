@@ -41,6 +41,7 @@ export const PERSON_DISTINCT_ID_MAX_SIZE = 3
 // Event constants
 export const ACTION_TYPE = 'action_type'
 export const EVENT_TYPE = 'event_type'
+export const STALE_EVENT_SECONDS = 30 * 24 * 60 * 60 // 30 days
 
 // TODO: Deprecated; should be removed once backend is updated
 export enum ShownAsValue {

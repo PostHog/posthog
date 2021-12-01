@@ -1,7 +1,7 @@
 import './InfiniteList.scss'
 import '../Popup/Popup.scss'
 import React, { useState } from 'react'
-import { Empty, Skeleton } from 'antd'
+import { Empty, Skeleton, Tag } from 'antd'
 import { AutoSizer } from 'react-virtualized/dist/commonjs/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/commonjs/List'
 import {
@@ -16,11 +16,14 @@ import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFi
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import ReactDOM from 'react-dom'
 import { usePopper } from 'react-popper'
-import { ActionType, CohortType, KeyMapping, PropertyDefinition } from '~/types'
+import { ActionType, CohortType, EventDefinition, KeyMapping, PropertyDefinition } from '~/types'
 import { AimOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { ActionSelectInfo } from 'scenes/insights/ActionSelectInfo'
 import { urls } from 'scenes/urls'
+import { dayjs } from 'lib/dayjs'
+import { STALE_EVENT_SECONDS } from 'lib/constants'
+import { Tooltip } from '../Tooltip'
 
 enum ListTooltip {
     None = 0,
@@ -41,11 +44,27 @@ export function tooltipDesiredState(element?: Element | null): ListTooltip {
     return desiredState
 }
 
+const staleIndicator = (item: EventDefinition): JSX.Element | null => {
+    const parsedLastSeen = item.last_seen_at ? dayjs(item.last_seen_at) : null
+    return !parsedLastSeen || dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS ? (
+        <Tooltip
+            title={
+                <>
+                    This event was last seen <b>{parsedLastSeen ? parsedLastSeen.fromNow() : 'a while ago'}</b> and
+                    looks like is no longer used.
+                </>
+            }
+        >
+            <Tag className="lemonade-tag">Stale</Tag>
+        </Tooltip>
+    ) : null
+}
+
 const renderItemContents = ({
     item,
     listGroupType,
 }: {
-    item: PropertyDefinition | CohortType
+    item: EventDefinition | CohortType
     listGroupType: TaxonomicFilterGroupType
 }): JSX.Element | string => {
     return listGroupType === TaxonomicFilterGroupType.EventProperties ||
@@ -53,7 +72,10 @@ const renderItemContents = ({
         listGroupType === TaxonomicFilterGroupType.Events ||
         listGroupType === TaxonomicFilterGroupType.CustomEvents ||
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
-        <PropertyKeyInfo value={item.name ?? ''} disablePopover />
+        <>
+            <PropertyKeyInfo value={item.name ?? ''} disablePopover />
+            {listGroupType === TaxonomicFilterGroupType.Events && staleIndicator(item as EventDefinition)}
+        </>
     ) : listGroupType === TaxonomicFilterGroupType.Elements ? (
         <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover />
     ) : (
