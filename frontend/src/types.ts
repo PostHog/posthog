@@ -1305,6 +1305,14 @@ export interface Group {
     group_properties: Record<string, any>
 }
 
+export interface Experiment {
+    id: string
+    name: string
+    description: string
+    feature_flags: string[]
+    filters: Partial<FilterType>
+}
+
 export interface SelectOption {
     value: string
     label?: string
