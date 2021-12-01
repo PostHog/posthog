@@ -1,8 +1,7 @@
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
-from typing_extensions import Literal
 
 from posthog.constants import (
     GROUP_TYPES_LIMIT,
