@@ -6,6 +6,10 @@ ALL_SPECIAL_MIGRATIONS = {}
 
 
 def setup_special_migrations():
-    for name, module in import_submodules("posthog.special_migrations.migrations").items():
-        if name != "example" or DEBUG:
-            ALL_SPECIAL_MIGRATIONS[name] = module.Migration()
+    all_migrations = import_submodules("posthog.special_migrations.migrations")
+
+    if DEBUG:
+        all_migrations["example"] = import_submodules("posthog.special_migrations.examples")["example"]
+
+    for name, module in all_migrations.items():
+        ALL_SPECIAL_MIGRATIONS[name] = module.Migration()
