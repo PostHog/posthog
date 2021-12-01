@@ -14,10 +14,10 @@ from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from posthog.constants import FUNNEL_CORRELATION_PERSON_LIMIT, FunnelCorrelationType
 from posthog.models import Person
-from posthog.models.cohort import Group
 from posthog.models.entity import Entity
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.group import Group
 from posthog.models.team import Team
 
 
