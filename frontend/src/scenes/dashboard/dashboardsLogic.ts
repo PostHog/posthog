@@ -47,8 +47,7 @@ export const dashboardsLogic = kea<dashboardsLogicType<DashboardsTab>>({
                     .sort((a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'))
                 if (currentTab === DashboardsTab.Pinned) {
                     dashboards = dashboards.filter((d) => d.pinned)
-                }
-                if (currentTab === DashboardsTab.Shared) {
+                } else if (currentTab === DashboardsTab.Shared) {
                     dashboards = dashboards.filter((d) => d.is_shared)
                 }
                 if (!searchTerm) {
