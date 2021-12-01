@@ -312,7 +312,7 @@ class TestUpdateCache(APIBaseTest):
         )
 
     @patch("posthog.tasks.update_cache._calculate_by_filter")
-    def test_errors_refreshing(self, patch_calculate_by_filter) -> None:
+    def test_errors_refreshing(self, patch_calculate_by_filter: MagicMock) -> None:
         dashboard_to_cache = Dashboard.objects.create(team=self.team, is_shared=True, last_accessed_at=now())
         item_to_cache = Insight.objects.create(
             dashboard=dashboard_to_cache,
@@ -324,7 +324,7 @@ class TestUpdateCache(APIBaseTest):
 
         patch_calculate_by_filter.side_effect = Exception()
 
-        def _update_cached_items():
+        def _update_cached_items() -> None:
             # This function will throw an exception every time which is what we want in production
             try:
                 update_cached_items()
