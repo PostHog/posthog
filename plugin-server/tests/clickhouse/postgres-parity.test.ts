@@ -64,8 +64,9 @@ describe('postgres parity', () => {
         const uuid = new UUIDT().toString()
         const person = await hub.db.createPerson(
             DateTime.utc(),
-            { userProp: 'propValue' },
-            { userPropOnce: 'propOnceValue' },
+            { userPropOnce: 'propOnceValue', userProp: 'propValue' },
+            { userProp: DateTime.now().toString(), userPropOnce: DateTime.now().toString() },
+            { userProp: PropertyUpdateOperation.Set, userPropOnce: PropertyUpdateOperation.SetOnce },
             team.id,
             null,
             true,
@@ -155,11 +156,12 @@ describe('postgres parity', () => {
         expect(person).toEqual(postgresPersons[0])
     })
 
-    test('updatePerson', async () => {
+    test('updatePersonDeprecated', async () => {
         const uuid = new UUIDT().toString()
         const person = await hub.db.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
+            { userProp: PropertyUpdateOperation.Set },
             {},
             team.id,
             null,
@@ -171,7 +173,10 @@ describe('postgres parity', () => {
         await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(person, Database.ClickHouse), 2)
 
         // update properties and set is_identified to true
-        await hub.db.updatePerson(person, { properties: { replacedUserProp: 'propValue' }, is_identified: true })
+        await hub.db.updatePersonDeprecated(person, {
+            properties: { replacedUserProp: 'propValue' },
+            is_identified: true,
+        })
 
         await delayUntilEventIngested(async () =>
             (await hub.db.fetchPersons(Database.ClickHouse)).filter((p) => p.is_identified)
@@ -194,7 +199,10 @@ describe('postgres parity', () => {
         // update date and boolean to false
 
         const randomDate = DateTime.utc().minus(100000).setZone('UTC')
-        const updatedPerson = await hub.db.updatePerson(person, { created_at: randomDate, is_identified: false })
+        const updatedPerson = await hub.db.updatePersonDeprecated(person, {
+            created_at: randomDate,
+            is_identified: false,
+        })
 
         expect(updatedPerson.version).toEqual(2)
 
@@ -224,6 +232,7 @@ describe('postgres parity', () => {
         const person = await hub.db.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
+            { userProp: PropertyUpdateOperation.Set },
             {},
             team.id,
             null,
@@ -234,6 +243,7 @@ describe('postgres parity', () => {
         const anotherPerson = await hub.db.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
+            { userProp: PropertyUpdateOperation.Set },
             {},
             team.id,
             null,
@@ -323,6 +333,7 @@ describe('postgres parity', () => {
         const person = await hub.db.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
+            { userProp: PropertyUpdateOperation.Set },
             {},
             team.id,
             null,
@@ -333,6 +344,7 @@ describe('postgres parity', () => {
         const anotherPerson = await hub.db.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
+            { userProp: PropertyUpdateOperation.Set },
             {},
             team.id,
             null,
