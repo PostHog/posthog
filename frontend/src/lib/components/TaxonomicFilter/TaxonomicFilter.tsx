@@ -68,6 +68,14 @@ export function TaxonomicFilter({
                             e.preventDefault()
                             moveDown()
                         }
+                        if (e.key === 'ArrowLeft') {
+                            e.preventDefault()
+                            tabLeft()
+                        }
+                        if (e.key === 'ArrowRight') {
+                            e.preventDefault()
+                            tabRight()
+                        }
                         if (e.key === 'Tab') {
                             e.preventDefault()
                             if (e.shiftKey) {
@@ -76,6 +84,7 @@ export function TaxonomicFilter({
                                 tabRight()
                             }
                         }
+
                         if (e.key === 'Enter') {
                             e.preventDefault()
                             selectSelected()
