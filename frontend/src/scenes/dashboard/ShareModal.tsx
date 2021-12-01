@@ -40,13 +40,11 @@ export function ShareModal({ visible, onCancel }: { visible: boolean; onCancel: 
                     )}
                     <br />
                     <br />
-                    To embed this dashboard into your own website, copy the following snippet:
+                    To embed this dashboard on your own website, copy the snippet:
                     <CodeSnippet language={Language.HTML}>
                         {`<iframe width="100%" height="100%" frameborder="0" src="${url}?embed" />`}
                     </CodeSnippet>
-                    <small>
-                        You may want to hardcode the height in pixels based on your website to avoid the scrollbar.
-                    </small>
+                    <small>You can hardcode the height in pixels based on your website to avoid the scrollbar.</small>
                 </span>
             ) : (
                 'Your dashboard is private.'
