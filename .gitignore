@@ -35,3 +35,4 @@ build-storybook.log
 storybook-static
 ee/benchmarks/results
 plugin-server/src/config/idl/protos.*
+
