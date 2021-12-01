@@ -544,6 +544,8 @@ export const createProcessEventTests = (
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
+                created_at: expect.any(String),
+                last_seen_at: expect.any(String),
             },
         ])
         expect(await hub.db.fetchPropertyDefinitions()).toEqual([
@@ -1922,6 +1924,8 @@ export const createProcessEventTests = (
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
+                created_at: expect.any(String),
+                last_seen_at: expect.any(String),
             },
         ])
         expect(await hub.db.fetchPropertyDefinitions()).toEqual([
