@@ -4,7 +4,7 @@ from rest_framework.decorators import action
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models.special_migration import MigrationStatus, SpecialMigration, get_all_running_special_migrations
 from posthog.permissions import StaffUser
-from posthog.special_migrations.runner import MAX_CONCURRENT_SPECIAL_MIGRATIONS
+from posthog.special_migrations.runner import MAX_CONCURRENT_SPECIAL_MIGRATIONS, is_migration_in_range
 from posthog.special_migrations.utils import force_rollback_migration, force_stop_migration, trigger_migration
 
 
@@ -52,7 +52,18 @@ class SpecialMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
                 },
                 status=400,
             )
+
         migration_instance = self.get_object()
+
+        if not is_migration_in_range(migration_instance.posthog_min_version, migration_instance.posthog_max_version):
+            return response.Response(
+                {
+                    "success": False,
+                    "error": f"Can't run migration. Minimum PostHog version: {migration_instance.posthog_min_version}. Maximum PostHog version: {migration_instance.posthog_max_version}",
+                },
+                status=400,
+            )
+
         trigger_migration(migration_instance)
         return response.Response({"success": True}, status=200)
 
