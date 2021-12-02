@@ -2,7 +2,7 @@ from django.core.exceptions import ImproperlyConfigured
 from infi.clickhouse_orm.utils import import_submodules
 from semantic_version.base import SimpleSpec, Version
 
-from posthog.settings import DEBUG, E2E_TESTING, TEST
+from posthog.settings import DEBUG, E2E_TESTING, SKIP_SERVICE_VERSION_REQUIREMENTS, TEST
 from posthog.version import VERSION
 
 ALL_SPECIAL_MIGRATIONS = {}
@@ -13,7 +13,7 @@ POSTHOG_VERSION = Version(VERSION)
 def setup_special_migrations():
     from posthog.models.special_migration import SpecialMigration, get_all_completed_special_migrations
 
-    if TEST or E2E_TESTING:
+    if TEST or E2E_TESTING or SKIP_SERVICE_VERSION_REQUIREMENTS:
         return
 
     all_migrations = import_submodules("posthog.special_migrations.migrations")
@@ -27,7 +27,6 @@ def setup_special_migrations():
     applied_migrations = set(instance.name for instance in get_all_completed_special_migrations())
     unapplied_migrations = set(ALL_SPECIAL_MIGRATIONS.keys()) - applied_migrations
 
-    print(unapplied_migrations)
     for migration_name in sorted(unapplied_migrations):
         migration = ALL_SPECIAL_MIGRATIONS[migration_name]
         if POSTHOG_VERSION > Version(migration.posthog_max_version):
