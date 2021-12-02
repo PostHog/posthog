@@ -8,22 +8,32 @@ import { relatedGroupsLogicType } from './relatedGroupsLogicType'
 export const relatedGroupsLogic = kea<relatedGroupsLogicType>({
     path: ['scenes', 'groups', 'relatedGroupsLogic'],
     connect: { values: [teamLogic, ['currentTeamId']] },
+
+    props: {} as {
+        groupTypeIndex: number | null
+        id: string
+    },
+    key: (props) => `${props.groupTypeIndex}-${props.id}`,
+
     actions: () => ({
-        loadRelatedActors: (groupTypeIndex: number | null, id: string) => ({ groupTypeIndex, id }),
+        loadRelatedActors: true,
     }),
-    loaders: ({ values }) => ({
+    loaders: ({ values, props }) => ({
         relatedActors: [
             [] as RelatedActor[],
             {
-                loadRelatedActors: async ({ groupTypeIndex, id }) => {
+                loadRelatedActors: async () => {
                     const url = `api/projects/${values.currentTeamId}/groups/related?${toParams({
-                        group_type_index: groupTypeIndex,
-                        id,
+                        group_type_index: props.groupTypeIndex,
+                        id: props.id,
                     })}`
                     return await api.get(url)
                 },
                 setGroup: () => [],
             },
         ],
+    }),
+    events: ({ actions }) => ({
+        afterMount: actions.loadRelatedActors,
     }),
 })

@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react'
-import { useActions, useValues } from 'kea'
+import React from 'react'
+import { useValues } from 'kea'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
 import { RelatedActor } from '~/types'
 import { Skeleton } from 'antd'
@@ -17,13 +17,8 @@ interface Props {
 }
 
 export function RelatedGroups({ groupTypeIndex, id }: Props): JSX.Element {
-    const { relatedActors, relatedActorsLoading } = useValues(relatedGroupsLogic)
-    const { loadRelatedActors } = useActions(relatedGroupsLogic)
+    const { relatedActors, relatedActorsLoading } = useValues(relatedGroupsLogic({ groupTypeIndex, id }))
     const { groupTypes } = useValues(groupsModel)
-
-    useEffect(() => {
-        loadRelatedActors(groupTypeIndex, id)
-    }, [groupTypeIndex, id])
 
     if (relatedActorsLoading) {
         return <Skeleton paragraph={{ rows: 2 }} active />
