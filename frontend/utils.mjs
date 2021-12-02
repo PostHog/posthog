@@ -12,11 +12,10 @@ import chokidar from 'chokidar'
 const defaultHost = process.argv.includes('--host') && process.argv.includes('0.0.0.0') ? '0.0.0.0' : 'localhost'
 const defaultPort = 8234
 
-
 export const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
 export const isDev = process.argv.includes('--dev')
 
-const useJsURL = process.env.JS_URL ? true : false || isDev 
+const useJsURL = process.env.JS_URL ? true : false || isDev
 const jsURL = process.env.JS_URL || `http://${defaultHost}:${defaultPort}`
 
 export const sassPlugin = _sassPlugin({
@@ -111,8 +110,8 @@ function getInputFiles(result) {
     return new Set(
         result?.metafile
             ? Object.keys(result.metafile.inputs)
-                  .map((key) => (key.includes(':') ? key.split(':')[1] : key))
-                  .map((key) => (key.startsWith('/') ? key : path.resolve(process.cwd(), key)))
+                .map((key) => (key.includes(':') ? key.split(':')[1] : key))
+                .map((key) => (key.startsWith('/') ? key : path.resolve(process.cwd(), key)))
             : []
     )
 }
