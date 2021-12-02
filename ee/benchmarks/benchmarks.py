@@ -369,6 +369,28 @@ class QuerySuite:
         ClickhouseRetention().run(filter, self.team)
 
     @benchmark_clickhouse
+    def track_retention_with_person_breakdown(self):
+        filter = RetentionFilter(
+            data={
+                "insight": "RETENTION",
+                "target_event": {"id": "$pageview"},
+                "returning_event": {"id": "$pageview"},
+                "total_intervals": 14,
+                "retention_type": "retention_first_time",
+                "breakdown_type": "person",
+                "breakdowns": [
+                    {"type": "person", "property": "$browser"},
+                    {"type": "person", "property": "$browser_version"},
+                ],
+                "period": "Week",
+                **DATE_RANGE,
+            },
+            team=self.team,
+        )
+
+        ClickhouseRetention().run(filter, self.team)
+
+    @benchmark_clickhouse
     def track_retention_filter_by_person_property(self):
         filter = RetentionFilter(
             data={
