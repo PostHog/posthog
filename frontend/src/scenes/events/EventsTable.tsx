@@ -83,7 +83,7 @@ export function EventsTable({
                     <LemonButton
                         icon={<IconSync />}
                         style={{ borderRadius: 0 }}
-                        onClick={() => prependNewEvents(newEvents)}
+                        onClick={() => prependNewEvents()}
                         center
                         fullWidth
                     >
