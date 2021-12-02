@@ -13,9 +13,10 @@ const defaultHost = process.argv.includes('--host') && process.argv.includes('0.
 const defaultPort = 8234
 
 export const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
-const jsURL = `http://${defaultHost}:${defaultPort}`
-
 export const isDev = process.argv.includes('--dev')
+
+const useJsURL = process.env.JS_URL ? true : false || isDev
+const jsURL = process.env.JS_URL || `http://${defaultHost}:${defaultPort}`
 
 export const sassPlugin = _sassPlugin({
     importer: [
@@ -60,7 +61,7 @@ export function copyIndexHtml(from = 'src/index.html', to = 'dist/index.html', e
                     window.ESBUILD_LOADED_CHUNKS = new Set(); 
                     window.ESBUILD_LOAD_SCRIPT = async function (file) {
                         try {
-                            await import('${isDev ? jsURL : ''}/static/' + file)
+                            await import('${useJsURL ? jsURL : ''}/static/' + file)
                         } catch (e) {
                             console.error('Error loading chunk: "' + file + '"')
                         }
@@ -77,7 +78,7 @@ export function copyIndexHtml(from = 'src/index.html', to = 'dist/index.html', e
                     window.ESBUILD_LOAD_SCRIPT("${entry}.js?t=" + new Date().valueOf())
                     window.ESBUILD_LOAD_CHUNKS('index');
                 </script>
-                <link rel="stylesheet" href='${isDev ? jsURL : ''}/static/${entry}.css?_=${buildId}'>
+                <link rel="stylesheet" href='${useJsURL ? jsURL : ''}/static/${entry}.css?_=${buildId}'>
             </head>`
         )
     )
@@ -244,7 +245,7 @@ export function startServer(opts = {}) {
         process.exit(1)
     })
     app.use(cors())
-    app.get('/_reload', (request, response, next) => {
+    app.get('/_reload', (request, response) => {
         response.writeHead(200, {
             'Content-Type': 'text/event-stream',
             Connection: 'keep-alive',
@@ -253,7 +254,7 @@ export function startServer(opts = {}) {
         clients.add(response)
         request.on('close', () => clients.delete(response))
     })
-    app.get('*', async (req, res, next) => {
+    app.get('*', async (req, res) => {
         if (req.url.startsWith('/static/')) {
             if (ifPaused) {
                 if (!ifPaused.logged) {

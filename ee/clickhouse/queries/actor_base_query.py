@@ -34,6 +34,7 @@ class SerializedPerson(SerializedActor):
 
 class SerializedGroup(SerializedActor):
     group_key: str
+    group_type_index: int
 
 
 class ActorBaseQuery:
@@ -43,7 +44,7 @@ class ActorBaseQuery:
     def __init__(self, team: Team, filter: Filter, entity: Optional[Entity] = None):
         self._team = team
         self.entity = entity
-        self.filter = filter
+        self._filter = filter
 
     def actor_query(self) -> Tuple[str, Dict]:
         """ Implemented by subclasses. Must provide query and params. The query must return list of uuids. Can be group uuids (group_key) or person uuids """
@@ -99,6 +100,7 @@ class ActorBaseQuery:
             SerializedGroup(
                 id=group.group_key,
                 type="group",
+                group_type_index=group.group_type_index,
                 group_key=group.group_key,
                 created_at=group.created_at,
                 properties=group.group_properties,

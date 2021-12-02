@@ -1,5 +1,5 @@
 import { cleanFilters } from './cleanFilters'
-import { ChartDisplayType, InsightType } from '~/types'
+import { ChartDisplayType, FilterType, InsightType } from '~/types'
 import { FEATURE_FLAGS, ShownAsValue } from 'lib/constants'
 
 describe('cleanFilters', () => {
@@ -66,6 +66,35 @@ describe('cleanFilters', () => {
 
         expect(cleanedFilters).toHaveProperty('breakdowns', [{ property: '$browser', type: 'event' }])
         expect(cleanedFilters).toHaveProperty('breakdown_type', 'event')
+    })
+
+    const breakdownIndexTestCases = [
+        {
+            filters: { breakdown_type: 'group', breakdown_group_type_index: 0, insight: InsightType.TRENDS },
+            expected: 0,
+        },
+        {
+            filters: { breakdown_type: 'group', breakdown_group_type_index: 3, insight: InsightType.TRENDS },
+            expected: 3,
+        },
+        {
+            filters: { breakdown_type: 'group', breakdown_group_type_index: null, insight: InsightType.TRENDS },
+            expected: undefined,
+        },
+        {
+            filters: { breakdown_type: 'group', breakdown_group_type_index: undefined, insight: InsightType.TRENDS },
+            expected: undefined,
+        },
+        {
+            filters: { breakdown_type: 'event', breakdown_group_type_index: 0, insight: InsightType.TRENDS },
+            expected: undefined,
+        },
+    ]
+    breakdownIndexTestCases.forEach((testCase) => {
+        it(`can add a breakdown_group_type_index of ${testCase.filters.breakdown_group_type_index} when breakdown type is ${testCase.filters.breakdown_type}`, () => {
+            const cleanedFilters = cleanFilters(testCase.filters as Partial<FilterType>)
+            expect(cleanedFilters.breakdown_group_type_index).toEqual(testCase.expected)
+        })
     })
 
     it('removes empty breakdowns array', () => {

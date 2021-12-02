@@ -8,7 +8,7 @@ from django.test.client import RequestFactory
 from rest_framework import status
 
 from posthog.api.test.test_capture import mocked_get_team_from_token
-from posthog.api.utils import PaginationMode, format_paginated_url, get_data, get_team
+from posthog.api.utils import PaginationMode, format_paginated_url, get_data, get_target_entity, get_team
 from posthog.test.base import BaseTest
 
 
@@ -94,3 +94,23 @@ class TestUtils(BaseTest):
             ),
             "api/some_url?offset=0",
         )
+
+    def test_get_target_entity(self):
+        request = lambda url: cast(Any, RequestFactory().get(url))
+        first_request = request(
+            f"/api/?entity_id=$pageview&entity_type=events&events={json.dumps([{'id': '$pageview', 'type': 'events'}])}"
+        )
+        entity = get_target_entity(first_request)
+
+        assert entity.id == "$pageview"
+        assert entity.type == "events"
+        assert entity.math == None
+
+        second_request = request(
+            f"/api/?entity_id=$pageview&entity_type=events&entity_math=unique_group&events={json.dumps([{'id': '$pageview', 'type': 'events', 'math': 'unique_group'}, {'id': '$pageview', 'type': 'events'}])}"
+        )
+        entity = get_target_entity(second_request)
+
+        assert entity.id == "$pageview"
+        assert entity.type == "events"
+        assert entity.math == "unique_group"

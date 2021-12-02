@@ -1,15 +1,14 @@
 from celery.result import AsyncResult
 
 from posthog.celery import app
-from posthog.models.special_migration import MigrationStatus, SpecialMigration
 from posthog.special_migrations.runner import (
-    force_stop_migration,
-    process_error,
+    is_current_operation_resumable,
     run_migration_healthcheck,
     run_special_migration_next_op,
     start_special_migration,
     update_migration_progress,
 )
+from posthog.special_migrations.utils import force_stop_migration, process_error, trigger_migration
 
 
 class CeleryTaskState:
@@ -25,8 +24,8 @@ class CeleryTaskState:
 # 2. suggesting users scale celery when running special migrations
 # 3. ...
 @app.task(ignore_result=False, max_retries=0)
-def run_special_migration(migration_name: str, start=True) -> None:
-    if start:
+def run_special_migration(migration_name: str, fresh_start: bool = True) -> None:
+    if fresh_start:
         start_special_migration(migration_name)
         return
 
@@ -36,7 +35,9 @@ def run_special_migration(migration_name: str, start=True) -> None:
 
 @app.task(ignore_result=False, track_started=True, max_retries=0)
 def check_special_migration_health() -> None:
-    migration_instance = SpecialMigration.objects.get(status=MigrationStatus.Running)
+    from posthog.models.special_migration import MigrationStatus, SpecialMigration
+
+    migration_instance: SpecialMigration = SpecialMigration.objects.get(status=MigrationStatus.Running)
     if not migration_instance:
         return
 
@@ -59,7 +60,10 @@ def check_special_migration_health() -> None:
 
     # the worker crashed - this is how we find out and process the error
     if migration_instance.celery_task_id not in active_task_ids:
-        process_error(migration_instance, "Celery worker crashed while running migration.")
+        if is_current_operation_resumable(migration_instance):
+            trigger_migration(migration_instance.name, fresh_start=False)
+        else:
+            process_error(migration_instance, "Celery worker crashed while running migration.")
         return
 
     ok, error = run_migration_healthcheck(migration_instance)

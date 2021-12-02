@@ -453,9 +453,9 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Tag Name',
             description: (
                 <span>
-                    Tag name of the element you want to filter on.
+                    HTML tag name of the element which you want to filter.
                     <br />
-                    <i>Note: filtering on element properties only works with $autocapture</i>
+                    <span className="text-muted mt-05">Note: Only works with the "Autocapture" event.</span>
                 </span>
             ),
             examples: ['a', 'button', 'input'],
@@ -464,30 +464,30 @@ export const keyMapping: KeyMappingInterface = {
             label: 'CSS Selector',
             description: (
                 <span>
-                    Select any element by css selector
+                    Select any element by CSS selector.
                     <br />
-                    <i>Note: filtering on element properties only works with $autocapture</i>
+                    <span className="text-muted mt-05">Note: Only works with the "Autocapture" event.</span>
                 </span>
             ),
-            examples: ['div > a', 'table td:nth-child(2)'],
+            examples: ['div > a', 'table td:nth-child(2)', '.my-class'],
         },
         text: {
             label: 'Text',
             description: (
                 <span>
-                    The inner text of the element.
+                    Filter on the inner text of the HTML element.
                     <br />
-                    <i>Note: filtering on element properties only works with $autocapture</i>
+                    <span className="text-muted mt-05">Note: Only works with the "Autocapture" event.</span>
                 </span>
             ),
         },
         href: {
-            label: 'href',
+            label: 'Target (href)',
             description: (
                 <span>
-                    The href attribute of the element.
+                    Filter on the <code>href</code> attribute of the element.
                     <br />
-                    <i>Note: filtering on element properties only works with $autocapture</i>
+                    <span className="text-muted mt-05">Note: Only works with the "Autocapture" event.</span>
                 </span>
             ),
             examples: ['https://posthog.com/about'],

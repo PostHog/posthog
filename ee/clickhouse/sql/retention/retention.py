@@ -15,6 +15,34 @@ GROUP BY base_interval, intervals_from_base
 ORDER BY base_interval, intervals_from_base
 """
 
+RETENTION_BREAKDOWN_SQL = """
+    SELECT
+        target_event.breakdown_values AS breakdown_values,
+        datediff(
+            %(period)s, 
+            target_event.event_date, 
+            dateTrunc(%(period)s, toDateTime(returning_event.event_date))
+        ) AS intervals_from_base,
+        COUNT(DISTINCT returning_event.target) AS count
+
+    FROM
+        ({returning_event_query}) AS returning_event
+        JOIN ({target_event_query}) target_event
+            ON returning_event.target = target_event.target
+
+    WHERE 
+        dateTrunc(%(period)s, returning_event.event_date) >
+        dateTrunc(%(period)s, target_event.event_date)
+
+    GROUP BY 
+        breakdown_values, 
+        intervals_from_base
+
+    ORDER BY 
+        breakdown_values, 
+        intervals_from_base
+"""
+
 REFERENCE_EVENT_SQL = """
 SELECT DISTINCT
 {trunc_func}(e.timestamp) as event_date,
@@ -54,4 +82,13 @@ SELECT datediff(%(period)s, {trunc_func}(toDateTime(%(start_date)s)), event_date
        count(DISTINCT target) FROM (
     {reference_event_sql}
 ) GROUP BY event_date ORDER BY event_date
+"""
+
+
+INITIAL_BREAKDOWN_INTERVAL_SQL = """
+    SELECT 
+        target_event.breakdown_values AS breakdown_values,
+        count(DISTINCT target_event.target)
+    FROM ({reference_event_sql}) AS target_event
+    GROUP BY breakdown_values ORDER BY breakdown_values
 """

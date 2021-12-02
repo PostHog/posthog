@@ -1,19 +1,39 @@
 from datetime import datetime
+from typing import Optional
+
+from semantic_version.base import SimpleSpec
 
 from posthog.celery import app
-from posthog.models.special_migration import MigrationStatus, SpecialMigration
+from posthog.models.special_migration import MigrationStatus, SpecialMigration, get_all_running_special_migrations
 from posthog.models.utils import UUIDT
-from posthog.special_migrations.manager import ALL_SPECIAL_MIGRATIONS
-from posthog.tasks.special_migrations import run_special_migration
+from posthog.special_migrations.setup import (
+    ALL_SPECIAL_MIGRATIONS,
+    DEPENDENCY_TO_SPECIAL_MIGRATION,
+    POSTHOG_VERSION,
+    SPECIAL_MIGRATION_TO_DEPENDENCY,
+)
+from posthog.special_migrations.utils import execute_op, mark_migration_as_successful, process_error, trigger_migration
 
+# important to prevent us taking up too many celery workers
+# and running migrations sequentially
+MAX_CONCURRENT_SPECIAL_MIGRATIONS = 1
 
 # select for update?
 def start_special_migration(migration_name: str) -> bool:
     migration_instance = SpecialMigration.objects.get(name=migration_name)
-    if not migration_instance or migration_instance.status == MigrationStatus.Running:
+    over_concurrent_migrations_limit = len(get_all_running_special_migrations()) >= MAX_CONCURRENT_SPECIAL_MIGRATIONS
+    if (
+        over_concurrent_migrations_limit
+        or not migration_instance
+        or migration_instance.status == MigrationStatus.Running
+    ):
         return False
 
     migration_definition = ALL_SPECIAL_MIGRATIONS[migration_name]
+
+    if not migration_definition.is_required():
+        mark_migration_as_successful(migration_instance)
+        return False
 
     for service_version_requirement in migration_definition.service_version_requirements:
         [in_range, version] = service_version_requirement.is_service_in_accepted_version()
@@ -26,7 +46,7 @@ def start_special_migration(migration_name: str) -> bool:
     ok, error = migration_definition.healthcheck()
     if not ok:
         process_error(migration_instance, error)
-        return
+        return False
 
     migration_instance.status = MigrationStatus.Running
     migration_instance.started_at = datetime.now()
@@ -34,7 +54,7 @@ def start_special_migration(migration_name: str) -> bool:
     return run_special_migration_next_op(migration_name, migration_instance)
 
 
-def run_special_migration_next_op(migration_name: str, migration_instance: SpecialMigration = None):
+def run_special_migration_next_op(migration_name: str, migration_instance: Optional[SpecialMigration] = None):
     migration_instance = migration_instance or SpecialMigration.objects.get(
         name=migration_name, status=MigrationStatus.Running
     )
@@ -44,10 +64,7 @@ def run_special_migration_next_op(migration_name: str, migration_instance: Speci
 
     migration_definition = ALL_SPECIAL_MIGRATIONS[migration_name]
     if migration_instance.current_operation_index > len(migration_definition.operations) - 1:
-        migration_instance.status = MigrationStatus.CompletedSuccessfully
-        migration_instance.finished_at = datetime.now()
-        migration_instance.progress = 100
-        migration_instance.save()
+        mark_migration_as_successful(migration_instance)
         return True
 
     op = migration_definition.operations[migration_instance.current_operation_index]
@@ -68,40 +85,9 @@ def run_special_migration_next_op(migration_name: str, migration_instance: Speci
     if error:
         return False
 
-    update_migration_progress(migration_name)
+    update_migration_progress(migration_instance)
 
     return run_special_migration_next_op(migration_name, migration_instance)
-
-
-def execute_op(database: str, sql: str, timeout_seconds: int, query_id: str):
-    if database == "clickhouse":
-        execute_op_clickhouse(sql, query_id, timeout_seconds)
-        return
-
-    execute_op_postgres(sql, query_id)
-
-
-def execute_op_clickhouse(sql: str, query_id: str, timeout_seconds: int):
-    from ee.clickhouse.client import sync_execute
-
-    sync_execute(f"/* {query_id} */" + sql, settings={"max_execution_time": timeout_seconds})
-
-
-def execute_op_postgres(sql: str, query_id: str):
-    from django.db import connection
-
-    with connection.cursor() as cursor:
-        cursor.execute(f"/* {query_id} */" + sql)
-
-
-def process_error(migration_instance: SpecialMigration, error: str):
-    migration_instance.status = MigrationStatus.Errored
-    migration_instance.error = error
-    migration_instance.finished_at = datetime.now()
-
-    attempt_migration_rollback(migration_instance)
-
-    migration_instance.save()
 
 
 def run_migration_healthcheck(migration_instance: SpecialMigration):
@@ -110,7 +96,7 @@ def run_migration_healthcheck(migration_instance: SpecialMigration):
 
 def update_migration_progress(migration_instance: SpecialMigration):
     try:
-        migration_instance.progress = ALL_SPECIAL_MIGRATIONS[migration_instance.name].progress(migration_instance)
+        migration_instance.progress = ALL_SPECIAL_MIGRATIONS[migration_instance.name].progress(migration_instance)  # type: ignore
         migration_instance.save()
     except:
         pass
@@ -120,7 +106,7 @@ def attempt_migration_rollback(migration_instance: SpecialMigration, force: bool
     error = None
     try:
         rollback = ALL_SPECIAL_MIGRATIONS[migration_instance.name].rollback
-        ok, error = rollback(migration_instance)
+        ok, error = rollback(migration_instance)  # type: ignore
         if ok:
             migration_instance.status = MigrationStatus.RolledBack
             migration_instance.save()
@@ -131,21 +117,29 @@ def attempt_migration_rollback(migration_instance: SpecialMigration, force: bool
 
     if error and force:
         migration_instance.status = MigrationStatus.Errored
-        migration_instance.error = f"Force rollback failed with error: {error}"
+        migration_instance.last_error = f"Force rollback failed with error: {error}"
         migration_instance.save()
 
 
-def trigger_migration(migration_instance: SpecialMigration):
-    task = run_special_migration.delay(migration_instance.name)
-    migration_instance.celery_task_id = str(task.id)
-    migration_instance.save()
+def is_current_operation_resumable(migration_instance: SpecialMigration):
+    return (
+        ALL_SPECIAL_MIGRATIONS[migration_instance.name].operations[migration_instance.current_operation_index].resumbale
+    )
 
 
-# DANGEROUS! Can cause another task to be lost
-def force_stop_migration(migration_instance: SpecialMigration, error: str = "Force stopped by user"):
-    app.control.revoke(migration_instance.celery_task_id, terminate=True)
-    process_error(migration_instance, error)
+def run_next_migration(candidate: str) -> bool:
+    migration_instance = SpecialMigration.objects.get(name=candidate)
+    migration_in_range = POSTHOG_VERSION in SimpleSpec(
+        f">={migration_instance.posthog_min_version},<={migration_instance.posthog_max_version}"
+    )
+    dependency = SPECIAL_MIGRATION_TO_DEPENDENCY[candidate]
 
+    if not dependency or (
+        migration_in_range
+        and migration_instance.status == MigrationStatus.NotStarted
+        and SpecialMigration.objects.get(name=dependency).status == MigrationStatus.CompletedSuccessfully
+    ):
+        trigger_migration(migration_instance)
+        return True
 
-def force_rollback_migration(migration_instance: SpecialMigration):
-    attempt_migration_rollback(migration_instance, force=True)
+    return False

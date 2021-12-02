@@ -66,6 +66,7 @@ import {
     chainToElements,
     generateKafkaPersonUpdateMessage,
     generatePostgresValuesString,
+    getFinalPostgresQuery,
     hashElements,
     timeoutGuard,
     unparsePersonPartial,
@@ -153,18 +154,29 @@ export class DB {
     // Postgres
 
     public postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
-        queryTextOrConfig: string | QueryConfig<I>,
+        queryString: string,
         values: I | undefined,
         tag: string,
         client?: PoolClient
     ): Promise<QueryResult<R>> {
         return instrumentQuery(this.statsd, 'query.postgres', tag, async () => {
-            const timeout = timeoutGuard('Postgres slow query warning after 30 sec', { queryTextOrConfig, values })
+            let fullQuery = ''
+            try {
+                fullQuery = getFinalPostgresQuery(queryString, values as any[])
+            } catch {}
+            const timeout = timeoutGuard('Postgres slow query warning after 30 sec', {
+                queryString,
+                values,
+                fullQuery,
+            })
+
+            // Annotate query string to give context when looking at DB logs
+            queryString = `/* plugin-server:${tag} */ ${queryString}`
             try {
                 if (client) {
-                    return await client.query(queryTextOrConfig, values)
+                    return await client.query(queryString, values)
                 } else {
-                    return await this.postgres.query(queryTextOrConfig, values)
+                    return await this.postgres.query(queryString, values)
                 }
             } finally {
                 clearTimeout(timeout)

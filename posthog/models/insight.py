@@ -51,6 +51,7 @@ class Insight(models.Model):
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     tags: ArrayField = ArrayField(models.CharField(max_length=32), blank=True, default=list)
     favorited: models.BooleanField = models.BooleanField(default=False)
+    refresh_attempt: models.IntegerField = models.IntegerField(null=True, blank=True)
 
     # ----- DEPRECATED ATTRIBUTES BELOW
 

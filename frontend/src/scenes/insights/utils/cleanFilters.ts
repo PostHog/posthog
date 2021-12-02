@@ -58,7 +58,7 @@ const cleanBreakdownParams = (
             cleanedParams['breakdown'] = filters.breakdown
         }
 
-        if (filters.breakdown_group_type_index) {
+        if (filters.breakdown_type === 'group' && filters.breakdown_group_type_index != undefined) {
             cleanedParams['breakdown_group_type_index'] = filters.breakdown_group_type_index
         }
     }
