@@ -216,7 +216,6 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
             filters, filter_params = parse_prop_clauses(
                 entity.properties,
                 prepend=prepend,
-                team_id=self._team_id,
                 allow_denormalized_props=True,
                 has_person_id_joined=True,
                 person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,

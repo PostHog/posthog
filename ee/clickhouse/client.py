@@ -3,13 +3,12 @@ import hashlib
 import json
 import types
 from time import perf_counter
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 import sqlparse
 from aioch import Client
 from asgiref.sync import async_to_sync
 from clickhouse_driver import Client as SyncClient
-from clickhouse_driver.util.escape import escape_params
 from clickhouse_pool import ChPool
 from django.conf import settings as app_settings
 from django.core.cache import cache
@@ -21,6 +20,7 @@ from ee.clickhouse.timer import get_timer_thread
 from posthog import redis
 from posthog.constants import AnalyticsDBMS
 from posthog.internal_metrics import incr, timing
+from posthog.management import query_logging
 from posthog.settings import (
     CLICKHOUSE_ASYNC,
     CLICKHOUSE_CA,
@@ -44,8 +44,6 @@ QueryArgs = Optional[Union[InsertParams, NonInsertParams]]
 CACHE_TTL = 60  # seconds
 SLOW_QUERY_THRESHOLD_MS = 15000
 QUERY_TIMEOUT_THREAD = get_timer_thread("ee.clickhouse.client", SLOW_QUERY_THRESHOLD_MS)
-
-_request_information: Optional[Dict] = None
 
 
 def make_ch_pool(**overrides) -> ChPool:
@@ -162,9 +160,28 @@ else:
 
                 if app_settings.SHELL_PLUS_PRINT_SQL:
                     print("Execution time: %.6fs" % (execution_time,))
-                if _request_information is not None and _request_information.get("save", False):
+                if query_logging.request_information is not None and query_logging.request_information.get(
+                    "save", False
+                ):
                     save_query(prepared_sql, execution_time)
         return result
+
+    def substitute_params(query, params):
+        """
+        Helper method to ease rendering of sql clickhouse queries progressively.
+        For example, there are many places where we construct queries to be used
+        as subqueries of others. Each time we generate a subquery we also pass
+        up the "bound" parameters to be used to render the query, which
+        otherwise only happens at the point of calling clickhouse via the
+        clickhouse_driver `Client`.
+
+        This results in sometimes large lists of parameters with no relevance to
+        the containing query being passed up. Rather than do this, we can
+        instead "render" the subqueries prior to using as a subquery, so our
+        containing code is only responsible for it's parameters, and we can
+        avoid any potential param collisions.
+        """
+        return cast(SyncClient, ch_client).substitute_params(query, params)
 
 
 def _prepare_query(client: SyncClient, query: str, args: QueryArgs):
@@ -189,10 +206,10 @@ def _prepare_query(client: SyncClient, query: str, args: QueryArgs):
     clickhouse_driver at this moment in time decides based on the
     below predicate.
     """
-    if isinstance(args, (list, tuple, types.GeneratorType)):
+    if args is None or isinstance(args, (list, tuple, types.GeneratorType)):
         rendered_sql = query
     else:
-        rendered_sql = client.substitute_params(query, args or {})
+        rendered_sql = client.substitute_params(query, args)
         args = None
 
     formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)
@@ -226,12 +243,14 @@ def _annotate_tagged_query(query, args):
     Adds in a /* */ so we can look in clickhouses `system.query_log`
     to easily marry up to the generating code.
     """
-    tags = {"kind": (_request_information or {}).get("kind"), "id": (_request_information or {}).get("id")}
+    tags = {
+        "kind": (query_logging.request_information or {}).get("kind"),
+        "id": (query_logging.request_information or {}).get("id"),
+    }
     if isinstance(args, dict) and "team_id" in args:
         tags["team_id"] = args["team_id"]
     # Annotate the query with information on the request/task
-    if _request_information is not None:
-        query = f"/* {_request_information['kind']}:{_request_information['id'].replace('/', '_')} */ {query}"
+    query = f"{query_logging.sql_comment()}{query}"
 
     return query, tags
 
@@ -262,11 +281,11 @@ def save_query(sql: str, execution_time: float) -> None:
     """
     Save query for debugging purposes
     """
-    if _request_information is None:
+    if query_logging.request_information is None:
         return
 
     try:
-        key = "save_query_{}".format(_request_information["user_id"])
+        key = "save_query_{}".format(query_logging.request_information["user_id"])
         queries = json.loads(get_safe_cache(key) or "[]")
 
         queries.insert(

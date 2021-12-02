@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, TypeVar, cast
 
+from posthog.models.property import GroupTypeIndex
 from posthog.utils import is_clickhouse_enabled
 
 if TYPE_CHECKING:  # Avoid circular import
@@ -51,7 +52,7 @@ class SimplifyFilterMixin:
         entity = EntityClass(entity_params)
         properties = self._simplify_properties(team, entity.properties, **kwargs)
         if entity.math == "unique_group":
-            properties.append(self._group_set_property(cast(int, entity.math_group_type_index)))
+            properties.append(self._group_set_property(cast(GroupTypeIndex, entity.math_group_type_index)))
 
         return EntityClass({**entity_params, "properties": properties}).to_dict()
 
@@ -78,7 +79,7 @@ class SimplifyFilterMixin:
 
         return [property]
 
-    def _group_set_property(self, group_type_index: int) -> "Property":
+    def _group_set_property(self, group_type_index: GroupTypeIndex) -> "Property":
         from posthog.models.property import Property
 
         return Property(key=f"$group_{group_type_index}", value="", operator="is_not",)

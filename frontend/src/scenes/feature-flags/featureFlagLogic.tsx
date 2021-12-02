@@ -1,7 +1,13 @@
 import { kea } from 'kea'
 import React from 'react'
 import { featureFlagLogicType } from './featureFlagLogicType'
-import { AnyPropertyFilter, FeatureFlagType, MultivariateFlagOptions, MultivariateFlagVariant } from '~/types'
+import {
+    AnyPropertyFilter,
+    Breadcrumb,
+    FeatureFlagType,
+    MultivariateFlagOptions,
+    MultivariateFlagVariant,
+} from '~/types'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { router } from 'kea-router'
@@ -322,6 +328,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
 
                 return [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]
             },
+        ],
+        breadcrumbs: [
+            (s) => [s.featureFlag],
+            (featureFlag): Breadcrumb[] => [
+                {
+                    name: 'Feature flags',
+                    path: urls.featureFlags(),
+                },
+                ...(featureFlag ? [{ name: featureFlag.key || 'Unnamed' }] : []),
+            ],
         ],
     },
     actionToUrl: () => ({

@@ -21,7 +21,6 @@ from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, Insight, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.tasks.update_cache import update_dashboard_items_cache
 from posthog.utils import render_template
 
 
@@ -136,10 +135,6 @@ class DashboardSerializer(serializers.ModelSerializer):
     def get_items(self, dashboard: Dashboard):
         if self.context["view"].action == "list":
             return None
-
-        if self.context["request"].GET.get("refresh"):
-            update_dashboard_items_cache(dashboard)
-            dashboard.refresh_from_db()
 
         items = dashboard.items.filter(deleted=False).order_by("order").all()
         self.context.update({"dashboard": dashboard})

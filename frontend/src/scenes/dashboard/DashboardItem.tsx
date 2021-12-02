@@ -51,6 +51,7 @@ import { urls } from 'scenes/urls'
 interface DashboardItemProps {
     item: DashboardItemType
     dashboardId?: number
+    receivedErrorFromAPI?: boolean
     updateItemColor?: (insightId: number, itemClassName: string) => void
     setDiveDashboard?: (insightId: number, diveDashboard: number | null) => void
     loadDashboardItems?: () => void
@@ -148,6 +149,7 @@ const dashboardDiveLink = (dive_dashboard: number, dive_source_id: InsightShortI
 export function DashboardItem({
     item,
     dashboardId,
+    receivedErrorFromAPI,
     updateItemColor,
     setDiveDashboard,
     loadDashboardItems,
@@ -246,8 +248,8 @@ export function DashboardItem({
         }
 
         // Insight agnostic empty states
-        if (showErrorMessage) {
-            return <InsightErrorState />
+        if (showErrorMessage || receivedErrorFromAPI) {
+            return <InsightErrorState excludeDetail={true} />
         }
         if (showTimeoutMessage) {
             return <InsightTimeoutState isLoading={isLoading} />
@@ -258,7 +260,7 @@ export function DashboardItem({
 
     // Empty states that can coexist with the graph (e.g. Loading)
     const CoexistingEmptyState = (() => {
-        if (isLoading || insightLoading) {
+        if (isLoading || insightLoading || isReloading) {
             return <Loading />
         }
         return null
@@ -272,8 +274,9 @@ export function DashboardItem({
             } ph-no-capture`}
             {...longPressProps}
             data-attr={'dashboard-item-' + index}
-            style={{ border: isHighlighted ? '1px solid var(--primary)' : undefined, opacity: isReloading ? 0.5 : 1 }}
+            style={{ border: isHighlighted ? '1px solid var(--primary)' : undefined }}
         >
+            {!BlockingEmptyState && CoexistingEmptyState}
             <div className={`dashboard-item-container ${className}`}>
                 <div className="dashboard-item-header" style={{ cursor: isOnEditMode ? 'move' : 'inherit' }}>
                     <div className="dashboard-item-title" data-attr="dashboard-item-title">
@@ -570,7 +573,6 @@ export function DashboardItem({
                 )}
 
                 <div className={`dashboard-item-content ${_type}`} onClickCapture={onClick}>
-                    {!BlockingEmptyState && CoexistingEmptyState}
                     {!!BlockingEmptyState ? (
                         BlockingEmptyState
                     ) : (
