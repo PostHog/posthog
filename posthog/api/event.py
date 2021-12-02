@@ -190,8 +190,8 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
         is_csv_request = self.request.accepted_renderer.format == "csv"
         monday = now() + timedelta(days=-now().weekday())
         # Don't allow events too far into the future
-        queryset = self.get_queryset().filter(timestamp__lte=now() + timedelta(seconds=5))
         next_url: Optional[str] = None
+        queryset = self.get_queryset().filter(timestamp__lte=now() + timedelta(seconds=5))
 
         if self.request.GET.get("limit", None):
             limit = int(self.request.GET.get("limit"))  # type: ignore
