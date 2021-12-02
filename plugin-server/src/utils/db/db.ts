@@ -1508,7 +1508,7 @@ export class DB {
             group_properties = $5,
             properties_last_updated_at = $6,
             properties_last_operation = $7,
-            version = $8,
+            version = $8
             WHERE team_id = $1 AND group_key = $2 AND group_type_index = $3
             `,
             [
