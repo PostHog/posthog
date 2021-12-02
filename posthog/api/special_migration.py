@@ -18,6 +18,7 @@ class SpecialMigrationSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "description",
             "progress",
             "status",
             "current_operation_index",
@@ -25,11 +26,14 @@ class SpecialMigrationSerializer(serializers.ModelSerializer):
             "celery_task_id",
             "started_at",
             "finished_at",
-            "error",
+            "last_error",
+            "posthog_max_version",
+            "posthog_min_version",
         ]
         read_only_fields = [
             "id",
             "name",
+            "description",
             "progress",
             "status",
             "current_operation_index",
@@ -37,7 +41,9 @@ class SpecialMigrationSerializer(serializers.ModelSerializer):
             "celery_task_id",
             "started_at",
             "finished_at",
-            "error",
+            "last_error",
+            "posthog_max_version",
+            "posthog_min_version",
         ]
 
 
