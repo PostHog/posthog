@@ -9,6 +9,7 @@ import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { ACTIONS_LINE_GRAPH_LINEAR, PATHS_VIZ } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
+    Breadcrumb,
     DashboardItemType,
     DashboardLayoutSize,
     DashboardMode,
@@ -446,6 +447,18 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     total,
                 }
             },
+        ],
+        breadcrumbs: [
+            (s) => [s.allItems],
+            (allItems): Breadcrumb[] => [
+                {
+                    name: 'Dashboards',
+                    path: urls.dashboards(),
+                },
+                {
+                    name: allItems?.id ? allItems.name || 'Unnamed' : null,
+                },
+            ],
         ],
     }),
     events: ({ actions, cache, props }) => ({
