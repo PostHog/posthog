@@ -171,6 +171,9 @@ export class DB {
                 values,
                 fullQuery,
             })
+
+            // Annotate query string to give context when looking at DB logs
+            queryString = `/* plugin-server:${tag} */ ${queryString}`
             try {
                 if (client) {
                     return await client.query(queryString, values)
