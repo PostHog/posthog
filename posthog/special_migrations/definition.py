@@ -26,9 +26,9 @@ class SpecialMigrationOperation:
     def __init__(
         self,
         sql="",
-        database: AnalyticsDBMS = "clickhouse",
+        database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE,
         timeout_seconds: int = 60,
-        rollback: Callable[..., SpecialMigrationType] = None,
+        rollback="",
         resumable=False,
     ):
         self.sql = sql
