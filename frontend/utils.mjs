@@ -60,38 +60,49 @@ export function copyIndexHtml(
 ) {
     const buildId = new Date().valueOf()
 
+    const jsEntrypoint =
+        entrypoints.length > 0 ? `"${entrypoints.find((e) => e.endsWith('.js'))}"` : `"${entry}.js?t=${buildId}"`
+    const cssEntrypoint =
+        entrypoints.length > 0 ? `${entrypoints.find((e) => e.endsWith('.css'))}` : `${entry}.css?t=${buildId}`
+
+    const scriptCode = `
+        window.ESBUILD_LOAD_SCRIPT = async function (file) {
+            try {
+                await import('${useJsURL ? jsURL : ''}/static/' + file)
+            } catch (e) {
+                console.error('Error loading chunk: "' + file + '"')
+            }
+        }
+        window.ESBUILD_LOAD_SCRIPT(${jsEntrypoint})
+    `
+
+    const chunkCode = `
+        window.ESBUILD_LOADED_CHUNKS = new Set(); 
+        window.ESBUILD_LOAD_CHUNKS = function(name) { 
+            const chunks = ${JSON.stringify(chunks)}[name] || [];
+            for (const chunk of chunks) { 
+                if (!window.ESBUILD_LOADED_CHUNKS.has(chunk)) { 
+                    window.ESBUILD_LOAD_SCRIPT('chunk-'+chunk+'.js'); 
+                    window.ESBUILD_LOADED_CHUNKS.add(chunk);
+                } 
+            } 
+        }
+        window.ESBUILD_LOAD_CHUNKS('index');
+    `
+
+    const cssLinkTag = cssEntrypoint
+        ? `<link rel="stylesheet" href='${useJsURL ? jsURL : ''}/static/${cssEntrypoint}'>`
+        : ''
+
     fse.writeFileSync(
         path.resolve(__dirname, to),
         fse.readFileSync(path.resolve(__dirname, from), { encoding: 'utf-8' }).replace(
             '</head>',
             `   <script type="application/javascript">
-                    window.ESBUILD_LOADED_CHUNKS = new Set(); 
-                    window.ESBUILD_LOAD_SCRIPT = async function (file) {
-                        try {
-                            await import('${useJsURL ? jsURL : ''}/static/' + file)
-                        } catch (e) {
-                            console.error('Error loading chunk: "' + file + '"')
-                        }
-                    }
-                    window.ESBUILD_LOAD_CHUNKS = function(name) { 
-                        const chunks = ${JSON.stringify(chunks)}[name] || [];
-                        for (const chunk of chunks) { 
-                            if (!window.ESBUILD_LOADED_CHUNKS.has(chunk)) { 
-                                window.ESBUILD_LOAD_SCRIPT('chunk-'+chunk+'.js'); 
-                                window.ESBUILD_LOADED_CHUNKS.add(chunk);
-                            } 
-                        } 
-                    }
-                    window.ESBUILD_LOAD_SCRIPT(${
-                        entrypoints.length > 0
-                            ? `"${entrypoints.find((e) => e.endsWith('.js'))}"`
-                            : `"${entry}.js?t=${buildId}"`
-                    })
-                    window.ESBUILD_LOAD_CHUNKS('index');
+                    ${scriptCode}
+                    ${chunks.length > 0 ? chunkCode : ''}
                 </script>
-                <link rel="stylesheet" href='${useJsURL ? jsURL : ''}/static/${
-                entrypoints.length > 0 ? `${entrypoints.find((e) => e.endsWith('.css'))}` : `${entry}.css?t=${buildId}`
-            }'>
+                ${cssLinkTag}
             </head>`
         )
     )
