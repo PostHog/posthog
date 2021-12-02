@@ -38,7 +38,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def _run_query(self, filter: Filter) -> List:
-        query, params = parse_prop_clauses(filter.properties, self.team.pk, allow_denormalized_props=True)
+        query, params = parse_prop_clauses(filter.properties, allow_denormalized_props=True)
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         return sync_execute(final_query, {**params, "team_id": self.team.pk})
 
@@ -338,10 +338,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
 
     def _run_query(self, filter: Filter, join_person_tables=False) -> List:
         query, params = parse_prop_clauses(
-            filter.properties,
-            self.team.pk,
-            allow_denormalized_props=True,
-            person_properties_mode=PersonPropertiesMode.EXCLUDE,
+            filter.properties, allow_denormalized_props=True, person_properties_mode=PersonPropertiesMode.EXCLUDE,
         )
         joins = ""
         if join_person_tables:
@@ -436,14 +433,14 @@ def test_parse_prop_clauses_defaults(snapshot):
         }
     )
 
-    assert parse_prop_clauses(filter.properties, None) == snapshot
+    assert parse_prop_clauses(filter.properties) == snapshot
     assert (
         parse_prop_clauses(
-            filter.properties, None, person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
+            filter.properties, person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
         )
         == snapshot
     )
-    assert parse_prop_clauses(filter.properties, None, person_properties_mode=PersonPropertiesMode.EXCLUDE) == snapshot
+    assert parse_prop_clauses(filter.properties, person_properties_mode=PersonPropertiesMode.EXCLUDE) == snapshot
 
 
 TEST_BREAKDOWN_PROCESSING = [

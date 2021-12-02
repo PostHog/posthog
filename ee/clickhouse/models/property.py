@@ -35,7 +35,6 @@ from posthog.utils import is_valid_regex, relative_date_parse
 
 def parse_prop_clauses(
     filters: List[Property],
-    team_id: Optional[int],
     prepend: str = "global",
     table_name: str = "",
     allow_denormalized_props: bool = True,
@@ -46,15 +45,13 @@ def parse_prop_clauses(
 ) -> Tuple[str, Dict]:
     final = []
     params: Dict[str, Any] = {}
-    if team_id is not None:
-        params["team_id"] = team_id
     if table_name != "":
         table_name += "."
 
     for idx, prop in enumerate(filters):
         if prop.type == "cohort":
             try:
-                cohort = Cohort.objects.get(pk=prop.value, team_id=team_id)
+                cohort = Cohort.objects.get(pk=prop.value)
             except Cohort.DoesNotExist:
                 final.append("AND 0 = 13")  # If cohort doesn't exist, nothing can match
             else:
@@ -102,7 +99,7 @@ def parse_prop_clauses(
                 allow_denormalized_props=allow_denormalized_props,
             )
 
-            final.append(f"{filter_query} AND {table_name}team_id = %(team_id)s" if team_id else filter_query)
+            final.append(f" {filter_query}")
             params.update(filter_params)
         elif prop.type == "group":
             if group_properties_joined:
@@ -268,7 +265,7 @@ def property_table(property: Property) -> TableWithProperties:
 
 
 def get_single_or_multi_property_string_expr(
-    breakdown, table: TableWithProperties, query_alias: Literal["prop", "value"]
+    breakdown, table: TableWithProperties, query_alias: Literal["prop", "value", None]
 ):
     """
     When querying for breakdown properties:
@@ -276,6 +273,12 @@ def get_single_or_multi_property_string_expr(
      * If it is an array of strings, we extract each of those properties and concatenate them into a single value
     clickhouse parameterizes into a query template from a flat list using % string formatting
     values are escaped and inserted in the query here instead of adding new items to the flat list of values
+
+    :param query_alias:
+
+        Specifies the SQL query alias to add to the expression e.g. `AS prop`. If this is specified as None, then
+        no alias will be appended.
+
     """
 
     column = "properties" if table == "events" else "person_props"
@@ -289,6 +292,9 @@ def get_single_or_multi_property_string_expr(
             expressions.append(expr)
 
         expression = f"array({','.join(expressions)})"
+
+    if query_alias is None:
+        return expression
 
     return f"{expression} AS {query_alias}"
 
