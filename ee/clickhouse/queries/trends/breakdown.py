@@ -64,7 +64,7 @@ class ClickhouseTrendsBreakdown:
 
         props_to_filter = [*self.filter.properties, *self.entity.properties]
         prop_filters, prop_filter_params = parse_prop_clauses(
-            props_to_filter, self.team_id, table_name="e", person_properties_mode=PersonPropertiesMode.EXCLUDE,
+            props_to_filter, table_name="e", person_properties_mode=PersonPropertiesMode.EXCLUDE,
         )
         aggregate_operation, _, math_params = process_math(self.entity)
 
@@ -283,6 +283,7 @@ class ClickhouseTrendsBreakdown:
             extra_params = {
                 "entity_id": entity.id,
                 "entity_type": entity.type,
+                "entity_math": entity.math,
                 "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else date,
                 "date_to": date,
                 "breakdown_value": breakdown_value,

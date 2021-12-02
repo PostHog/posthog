@@ -25,6 +25,7 @@ export function DashboardItems(): JSX.Element {
         dashboardMode,
         isRefreshing,
         highlightedInsightId,
+        refreshStatus,
     } = useValues(dashboardLogic)
     const {
         loadDashboardItems,
@@ -108,6 +109,7 @@ export function DashboardItems(): JSX.Element {
                     <DashboardItem
                         key={item.short_id}
                         doNotLoad
+                        receivedErrorFromAPI={refreshStatus[item.short_id]?.error || false}
                         dashboardId={dashboard?.id}
                         item={item}
                         layout={resizingItem?.i === item.short_id ? resizingItem : layoutForItem[item.short_id]}

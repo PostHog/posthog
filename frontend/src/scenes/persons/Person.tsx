@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { Row, Tabs, Col, Card, Skeleton, Tag, Dropdown, Menu, Button, Popconfirm } from 'antd'
+import { InfoCircleOutlined } from '@ant-design/icons'
 import { EventsTable } from 'scenes/events'
 import { SessionRecordingsTable } from 'scenes/session-recordings/SessionRecordingsTable'
 import { useActions, useValues, BindLogic } from 'kea'
@@ -14,10 +15,13 @@ import { PersonCohorts } from './PersonCohorts'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { NewPropertyComponent } from './NewPropertyComponent'
 import { TZLabel } from 'lib/components/TimezoneAware'
+import { Tooltip } from 'lib/components/Tooltip'
 import { PersonsTabType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { groupsModel } from '~/models/groupsModel'
+import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 
 const { TabPane } = Tabs
 
@@ -42,6 +46,7 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element {
     const { deletePerson, editProperty, navigateToTab, setSplitMergeModalShown } = useActions(
         personsLogic(personsLogicProps)
     )
+    const { showGroupsOptions } = useValues(groupsModel)
 
     const ids = (
         <Menu>
@@ -181,8 +186,25 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element {
                                     key="cohorts"
                                     disabled={personLoading}
                                 />
+                                {showGroupsOptions && (
+                                    <TabPane
+                                        tab={
+                                            <span data-attr="persons-related-tab">
+                                                Related groups
+                                                <Tooltip
+                                                    title={`Shows people and groups which have shared events with this person in the last 90 days.`}
+                                                >
+                                                    <InfoCircleOutlined style={{ marginLeft: 4 }} />
+                                                </Tooltip>
+                                            </span>
+                                        }
+                                        key="related"
+                                        disabled={personLoading}
+                                    />
+                                )}
                             </Tabs>
                             {person &&
+                                person.uuid &&
                                 (activeCardTab == 'properties' ? (
                                     <div style={{ maxWidth: '100%', overflow: 'hidden' }}>
                                         <NewPropertyComponent />
@@ -195,8 +217,10 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element {
                                             className="persons-page-props-table"
                                         />
                                     </div>
-                                ) : (
+                                ) : activeCardTab == 'cohorts' ? (
                                     <PersonCohorts />
+                                ) : (
+                                    <RelatedGroups id={person.uuid} groupTypeIndex={null} />
                                 ))}
                             {!person && personLoading && <Skeleton paragraph={{ rows: 6 }} active />}
                         </Card>

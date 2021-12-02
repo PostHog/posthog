@@ -1,15 +1,8 @@
 import React from 'react'
 import { Space, Tag } from 'antd'
-import { Breakdown, BreakdownType, FilterType, InsightType } from '~/types'
-import {
-    propertyFilterTypeToTaxonomicFilterType,
-    taxonomicFilterTypeToPropertyFilterType,
-} from 'lib/components/PropertyFilters/utils'
-import {
-    TaxonomicFilterGroup,
-    TaxonomicFilterGroupType,
-    TaxonomicFilterValue,
-} from 'lib/components/TaxonomicFilter/types'
+import { Breakdown, FilterType, InsightType } from '~/types'
+import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicBreakdownButton } from 'scenes/insights/BreakdownFilter/TaxonomicBreakdownButton'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useValues } from 'kea'
@@ -19,6 +12,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { ButtonType } from 'antd/lib/button'
+import { onFilterChange } from './taxonomicBreakdownFilterUtils'
 
 export interface TaxonomicBreakdownFilterProps {
     filters: Partial<FilterType>
@@ -102,32 +96,7 @@ export function BreakdownFilter({ filters, setFilters, buttonType }: TaxonomicBr
               </Tag>
           ))
 
-    const onChange = (changedBreakdown: TaxonomicFilterValue, taxonomicGroup: TaxonomicFilterGroup): void => {
-        const changedBreakdownType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type) as BreakdownType
-
-        if (changedBreakdownType) {
-            let newFilters: Partial<FilterType>
-            if (multiPropertyBreakdownIsEnabled) {
-                newFilters = {
-                    breakdowns: [...breakdownParts, changedBreakdown]
-                        .filter((b): b is string | number => !!b)
-                        .map((b) => ({ property: b, type: changedBreakdownType })),
-                    breakdown_type: changedBreakdownType,
-                    breakdown_group_type_index: taxonomicGroup.groupTypeIndex,
-                }
-            } else {
-                newFilters = {
-                    breakdown:
-                        taxonomicGroup.type === TaxonomicFilterGroupType.CohortsWithAllUsers
-                            ? [...breakdownParts, changedBreakdown].filter((b): b is string | number => !!b)
-                            : changedBreakdown,
-                    breakdown_type: changedBreakdownType,
-                    breakdown_group_type_index: taxonomicGroup.groupTypeIndex,
-                }
-            }
-            setFilters(newFilters)
-        }
-    }
+    const onChange = onFilterChange({ multiPropertyBreakdownIsEnabled, breakdownParts, setFilters })
     return (
         <>
             <Space direction={'horizontal'} wrap={true}>

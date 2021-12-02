@@ -357,6 +357,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-08",
                     "entity_id": watched_movie.id,
+                    "entity_type": "actions",
                     "actions": [{"id": watched_movie.id, "type": "actions"}],
                 },
             )
