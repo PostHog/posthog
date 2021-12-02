@@ -4,7 +4,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { Experiment } from '~/types'
 import { experimentsLogicType } from './experimentsLogicType'
 
-import { experimentsLogicType } from './experimentsLogicType'
 export const experimentsLogic = kea<experimentsLogicType>({
     path: ['scenes', 'experiments', 'experimentsLogic'],
     connect: { values: [teamLogic, ['currentTeamId']] },
