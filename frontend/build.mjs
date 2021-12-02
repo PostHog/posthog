@@ -6,7 +6,10 @@ import fse from 'fs-extra'
 function writeIndexHtml(chunks = {}, entrypoints = []) {
     copyIndexHtml('src/index.html', 'dist/index.html', 'index', chunks, entrypoints)
     copyIndexHtml('src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints)
-    copyIndexHtml('src/shared_dashboard.html', 'dist/shared_dashboard.html', 'shared_dashboard', chunks, [])
+}
+
+function writeSharedDashboardHtml(chunks = {}, entrypoints = []) {
+    copyIndexHtml('src/shared_dashboard.html', 'dist/shared_dashboard.html', 'shared_dashboard', chunks, entrypoints)
 }
 
 let pauseServer = () => {}
@@ -39,6 +42,10 @@ function onBuildComplete(config, buildResponse) {
         writeIndexHtml(chunks, entrypoints)
     }
 
+    if (config.name === 'Shared Dashboard') {
+        writeSharedDashboardHtml(chunks, entrypoints)
+    }
+
     // copy "index-TMOJQ3VI.js" -> "index.js"
     for (const entrypoint of entrypoints) {
         const withoutHash = entrypoint.replace(/-([A-Z0-9]+).(js|css)$/, '.$2')
@@ -55,7 +62,8 @@ function onBuildComplete(config, buildResponse) {
 }
 
 copyPublicFolder()
-writeIndexHtml({}, [])
+writeIndexHtml()
+writeSharedDashboardHtml()
 
 await Promise.all([
     buildOrWatch({
