@@ -265,7 +265,7 @@ def property_table(property: Property) -> TableWithProperties:
 
 
 def get_single_or_multi_property_string_expr(
-    breakdown, table: TableWithProperties, query_alias: Literal["prop", "value"]
+    breakdown, table: TableWithProperties, query_alias: Literal["prop", "value", None]
 ):
     """
     When querying for breakdown properties:
@@ -273,6 +273,12 @@ def get_single_or_multi_property_string_expr(
      * If it is an array of strings, we extract each of those properties and concatenate them into a single value
     clickhouse parameterizes into a query template from a flat list using % string formatting
     values are escaped and inserted in the query here instead of adding new items to the flat list of values
+
+    :param query_alias:
+
+        Specifies the SQL query alias to add to the expression e.g. `AS prop`. If this is specified as None, then
+        no alias will be appended.
+
     """
 
     column = "properties" if table == "events" else "person_props"
@@ -286,6 +292,9 @@ def get_single_or_multi_property_string_expr(
             expressions.append(expr)
 
         expression = f"array({','.join(expressions)})"
+
+    if query_alias is None:
+        return expression
 
     return f"{expression} AS {query_alias}"
 

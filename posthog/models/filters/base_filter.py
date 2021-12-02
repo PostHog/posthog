@@ -8,7 +8,7 @@ from rest_framework import request
 
 from posthog.models.filters.mixins.common import BaseParamMixin
 from posthog.models.utils import sane_repr
-from posthog.utils import json_encode_request_params
+from posthog.utils import encode_get_request_params
 
 
 class BaseFilter(BaseParamMixin):
@@ -40,7 +40,7 @@ class BaseFilter(BaseParamMixin):
         return ret
 
     def to_params(self) -> Dict[str, str]:
-        return json_encode_request_params(data=self.to_dict())
+        return encode_get_request_params(data=self.to_dict())
 
     def toJSON(self):
         return json.dumps(self.to_dict(), default=lambda o: o.__dict__, sort_keys=True, indent=4)

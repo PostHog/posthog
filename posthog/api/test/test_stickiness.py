@@ -15,7 +15,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.queries.abstract_test.test_compare import AbstractCompareTest
 from posthog.queries.stickiness import Stickiness
 from posthog.test.base import APIBaseTest
-from posthog.utils import json_encode_request_params
+from posthog.utils import encode_get_request_params
 
 
 def get_stickiness(client: Client, team_id: int, request: Dict[str, Any]):
@@ -23,7 +23,7 @@ def get_stickiness(client: Client, team_id: int, request: Dict[str, Any]):
 
 
 def get_stickiness_ok(client: Client, team_id: int, request: Dict[str, Any]):
-    response = get_stickiness(client=client, team_id=team_id, request=json_encode_request_params(data=request))
+    response = get_stickiness(client=client, team_id=team_id, request=encode_get_request_params(data=request))
     assert response.status_code == 200
     return response.json()
 
@@ -33,7 +33,7 @@ def get_stickiness_people(client: Client, team_id: int, request: Dict[str, Any])
 
 
 def get_stickiness_people_ok(client: Client, team_id: int, request: Dict[str, Any]):
-    response = get_stickiness_people(client=client, team_id=team_id, request=json_encode_request_params(data=request))
+    response = get_stickiness_people(client=client, team_id=team_id, request=encode_get_request_params(data=request))
     assert response.status_code == 200
     return response.json()
 
