@@ -1,5 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
+import { toParams } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { Breadcrumb, Group } from '~/types'
@@ -18,7 +19,8 @@ export const groupLogic = kea<groupLogicType>({
             null as Group | null,
             {
                 loadGroup: async () => {
-                    const url = `api/projects/${values.currentTeamId}/groups/${values.groupKey}?group_type_index=${values.groupTypeIndex}`
+                    const params = { group_type_index: values.groupTypeIndex, group_key: values.groupKey }
+                    const url = `api/projects/${values.currentTeamId}/groups/find?${toParams(params)}`
                     return await api.get(url)
                 },
             },
@@ -60,7 +62,7 @@ export const groupLogic = kea<groupLogicType>({
     urlToAction: ({ actions }) => ({
         '/groups/:groupTypeIndex/:groupKey': ({ groupTypeIndex, groupKey }) => {
             if (groupTypeIndex && groupKey) {
-                actions.setGroup(+groupTypeIndex, groupKey)
+                actions.setGroup(+groupTypeIndex, decodeURIComponent(groupKey))
                 actions.loadGroup()
             }
         },

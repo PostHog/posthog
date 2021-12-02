@@ -1,11 +1,14 @@
 import React, { useState } from 'react'
 import { Row, Tabs, Col, Card, Skeleton } from 'antd'
+import { InfoCircleOutlined } from '@ant-design/icons'
 import { useValues } from 'kea'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { groupLogic } from 'scenes/groups/groupLogic'
 import { EventsTable } from 'scenes/events/EventsTable'
 import { urls } from 'scenes/urls'
+import { RelatedGroups } from 'scenes/groups/RelatedGroups'
+import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { Groups } from 'scenes/groups/Groups'
 
@@ -68,7 +71,16 @@ export function Group(): JSX.Element {
                                     disabled={groupDataLoading}
                                 />
                                 <TabPane
-                                    tab={<span data-attr="group-related-tab">Related groups</span>}
+                                    tab={
+                                        <span data-attr="group-related-tab">
+                                            Related people & groups
+                                            <Tooltip
+                                                title={`Shows people and groups which have shared events with this ${groupTypeName} in the last 90 days.`}
+                                            >
+                                                <InfoCircleOutlined style={{ marginLeft: 4 }} />
+                                            </Tooltip>
+                                        </span>
+                                    }
                                     key="related"
                                     disabled={groupDataLoading}
                                 />
@@ -82,7 +94,9 @@ export function Group(): JSX.Element {
                                             className="persons-page-props-table"
                                         />
                                     </div>
-                                ) : null)}
+                                ) : (
+                                    <RelatedGroups id={groupKey} groupTypeIndex={groupTypeIndex} />
+                                ))}
                             {groupDataLoading && <Skeleton paragraph={{ rows: 6 }} active />}
                         </Card>
                     </Col>

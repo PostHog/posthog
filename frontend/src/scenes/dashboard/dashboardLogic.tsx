@@ -46,6 +46,9 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
     key: (props) => props.id || 'dashboardLogic',
 
     actions: {
+        setReceivedErrorsFromAPI: (receivedErrors: boolean) => ({
+            receivedErrors,
+        }),
         addNewDashboard: true,
         loadDashboardItems: ({
             refresh,
@@ -91,6 +94,8 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             null as DashboardType | null,
             {
                 loadDashboardItems: async ({ refresh, dive_source_id }) => {
+                    actions.setReceivedErrorsFromAPI(false)
+
                     if (!props.id) {
                         console.warn('Called `loadDashboardItems` but ID is not set.')
                         return
@@ -112,6 +117,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         if (error.status === 404) {
                             return []
                         }
+                        actions.setReceivedErrorsFromAPI(true)
                         throw error
                     }
                 },
@@ -124,6 +130,13 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         ],
     }),
     reducers: ({ props }) => ({
+        receivedErrorsFromAPI: [
+            false,
+            {
+                setReceivedErrorsFromAPI: (_: boolean, { receivedErrors }: { receivedErrors: boolean }) =>
+                    receivedErrors,
+            },
+        ],
         filters: [
             { date_from: null, date_to: null } as FilterType,
             {
