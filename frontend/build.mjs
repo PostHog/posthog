@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 import * as path from 'path'
 import { __dirname, copyIndexHtml, copyPublicFolder, buildOrWatch, isDev, startServer } from './utils.mjs'
+import fse from 'fs-extra'
 
-function writeIndexHtml(chunks = {}) {
-    copyIndexHtml('src/index.html', 'dist/index.html', 'index', chunks)
-    copyIndexHtml('src/layout.html', 'dist/layout.html', 'index', chunks)
-    copyIndexHtml('src/shared_dashboard.html', 'dist/shared_dashboard.html', 'shared_dashboard', chunks)
+function writeIndexHtml(chunks = {}, entrypoints = []) {
+    copyIndexHtml('src/index.html', 'dist/index.html', 'index', chunks, entrypoints)
+    copyIndexHtml('src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints)
+    copyIndexHtml('src/shared_dashboard.html', 'dist/shared_dashboard.html', 'shared_dashboard', chunks, [])
 }
 
 let pauseServer = () => {}
@@ -25,16 +26,36 @@ function onBuildStart() {
     }
     buildsInProgress++
 }
-function onBuildComplete(chunks) {
+function onBuildComplete(config, buildResponse) {
+    const { chunks, entrypoints } = buildResponse
+
+    if (config.name === 'PostHog App') {
+        if (Object.keys(chunks).length === 0) {
+            throw new Error('Could not get chunk metadata for bundle "PostHog App."')
+        }
+        if (Object.keys(entrypoints).length === 0) {
+            throw new Error('Could not get entrypoint for bundle "PostHog App."')
+        }
+        writeIndexHtml(chunks, entrypoints)
+    }
+
+    // copy "index-TMOJQ3VI.js" -> "index.js"
+    for (const entrypoint of entrypoints) {
+        const withoutHash = entrypoint.replace(/-([A-Z0-9]+).(js|css)$/, '.$2')
+        fse.writeFileSync(
+            path.resolve(__dirname, 'dist', withoutHash),
+            fse.readFileSync(path.resolve(__dirname, 'dist', entrypoint))
+        )
+    }
+
     buildsInProgress--
     if (buildsInProgress === 0) {
         resumeServer()
-        writeIndexHtml(chunks)
     }
 }
 
 copyPublicFolder()
-writeIndexHtml({})
+writeIndexHtml({}, [])
 
 await Promise.all([
     buildOrWatch({

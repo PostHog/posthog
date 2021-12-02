@@ -50,7 +50,13 @@ export function copyPublicFolder() {
         }
     })
 }
-export function copyIndexHtml(from = 'src/index.html', to = 'dist/index.html', entry = 'index', chunks = {}) {
+export function copyIndexHtml(
+    from = 'src/index.html',
+    to = 'dist/index.html',
+    entry = 'index',
+    chunks = {},
+    entrypoints = []
+) {
     const buildId = new Date().valueOf()
 
     fse.writeFileSync(
@@ -75,10 +81,16 @@ export function copyIndexHtml(from = 'src/index.html', to = 'dist/index.html', e
                             } 
                         } 
                     }
-                    window.ESBUILD_LOAD_SCRIPT("${entry}.js?t=" + new Date().valueOf())
+                    window.ESBUILD_LOAD_SCRIPT(${
+                        entrypoints.length > 0
+                            ? `"${entrypoints.find((e) => e.endsWith('.js'))}"`
+                            : `"${entry}.js?t=${buildId}"`
+                    })
                     window.ESBUILD_LOAD_CHUNKS('index');
                 </script>
-                <link rel="stylesheet" href='${useJsURL ? jsURL : ''}/static/${entry}.css?_=${buildId}'>
+                <link rel="stylesheet" href='${useJsURL ? jsURL : ''}/static/${
+                entrypoints.length > 0 ? `${entrypoints.find((e) => e.endsWith('.css'))}` : `${entry}.css?t=${buildId}`
+            }'>
             </head>`
         )
     )
@@ -91,6 +103,8 @@ export const commonConfig = {
     resolveExtensions: ['.ts', '.tsx', '.js', '.jsx', '.scss', '.css', '.less'],
     publicPath: '/static',
     assetNames: 'assets/[name]-[hash]',
+    chunkNames: '[name]-[hash]',
+    entryNames: '[dir]/[name]-[hash]',
     plugins: [sassPlugin, lessPlugin],
     define: {
         global: 'globalThis',
@@ -156,9 +170,9 @@ export async function buildOrWatch(config) {
         onBuildStart?.()
         reloadLiveServer()
         buildPromise = runBuild()
-        const chunks = await buildPromise
+        const buildResponse = await buildPromise
         buildPromise = null
-        onBuildComplete?.(chunks)
+        onBuildComplete?.(config, buildResponse)
         if (isDev && buildAgain) {
             void debouncedBuild()
         }
@@ -188,7 +202,31 @@ export async function buildOrWatch(config) {
             }
         }
         inputFiles = getInputFiles(result)
-        return getChunks(result)
+
+        const entrypoints = []
+
+        if (config.outdir) {
+            for (const entrypoint of config.entryPoints) {
+                const searchString = entrypoint.replace(/\.[^/]+$/, '').replace(/^src\//, 'frontend/dist/')
+                for (const file of Object.keys(result.metafile.outputs)) {
+                    if (file.startsWith(`${searchString}-`) && (file.endsWith('.js') || file.endsWith('.css'))) {
+                        entrypoints.push(file.replace(/^frontend\/dist\//, ''))
+                    }
+                }
+            }
+        } else if (config.outfile) {
+            const searchString = path.relative(path.resolve(__dirname, 'dist'), config.outfile).replace(/\.[^/]+$/, '')
+
+            for (const file of Object.keys(result.metafile.outputs)) {
+                const filename = file.replace(/^frontend\/dist\//, '')
+                if (filename.startsWith(`${searchString}-`) && (file.endsWith('.js') || file.endsWith('.css'))) {
+                    entrypoints.push(file.replace(/^frontend\/dist\//, ''))
+                }
+            }
+        }
+
+        const chunks = getChunks(result)
+        return { chunks, entrypoints }
     }
 
     if (isDev) {
@@ -245,7 +283,7 @@ export function startServer(opts = {}) {
         process.exit(1)
     })
     app.use(cors())
-    app.get('/_reload', (request, response, next) => {
+    app.get('/_reload', (request, response) => {
         response.writeHead(200, {
             'Content-Type': 'text/event-stream',
             Connection: 'keep-alive',
@@ -254,7 +292,7 @@ export function startServer(opts = {}) {
         clients.add(response)
         request.on('close', () => clients.delete(response))
     })
-    app.get('*', async (req, res, next) => {
+    app.get('*', async (req, res) => {
         if (req.url.startsWith('/static/')) {
             if (ifPaused) {
                 if (!ifPaused.logged) {
