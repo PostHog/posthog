@@ -161,11 +161,9 @@ export class DB {
     ): Promise<QueryResult<R>> {
         return instrumentQuery(this.statsd, 'query.postgres', tag, async () => {
             let fullQuery = ''
-            if (typeof queryString === 'string') {
-                try {
-                    fullQuery = getFinalPostgresQuery(queryString, values as any[])
-                } catch {}
-            }
+            try {
+                fullQuery = getFinalPostgresQuery(queryString, values as any[])
+            } catch {}
             const timeout = timeoutGuard('Postgres slow query warning after 30 sec', {
                 queryString,
                 values,
