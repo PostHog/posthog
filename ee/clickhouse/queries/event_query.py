@@ -159,7 +159,6 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
             else:
                 filter_query, filter_params = parse_prop_clauses(
                     [prop],
-                    self._team_id,
                     prepend=f"global_{idx}",
                     allow_denormalized_props=True,
                     person_properties_mode=PersonPropertiesMode.EXCLUDE,
