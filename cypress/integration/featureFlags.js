@@ -65,4 +65,58 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=delete-flag]').click()
         cy.contains('Click to undo').should('exist')
     })
+
+    it('Tag feature flag', () => {
+        // ensure unique names to avoid clashes
+        const name = 'beta-feature' + Math.floor(Math.random() * 10000000)
+        cy.get('h1').should('contain', 'Feature Flags')
+        cy.get('[data-attr=new-feature-flag]').click()
+        cy.get('[data-attr=feature-flag-key]').type(name).should('have.value', name)
+        cy.get('[data-attr=feature-flag-description]')
+            .type('This is a new feature.')
+            .should('have.value', 'This is a new feature.')
+
+        const newTag = `test-${Math.floor(Math.random() * 10000)}`
+        cy.get('[data-attr=button-add-tag]').click()
+        cy.focused().type(newTag)
+        cy.get('[data-attr=new-tag-option]').click()
+        cy.get('.ant-tag').should('contain', newTag)
+
+        cy.wait(300)
+        cy.get('.new-tag-input').should('not.exist') // Input should disappear
+
+        // save the feature flag
+        cy.get('[data-attr=feature-flag-submit]').click()
+
+        // make sure the data is there as expected after a page reload!
+        cy.reload()
+
+        // make sure tag exists after saving
+        cy.get('.feature-flag').find('.ant-tag').should('contain', newTag)
+    })
+
+    it('Cannot add duplicate tags', () => {
+        // ensure unique names to avoid clashes
+        const name = 'beta-feature' + Math.floor(Math.random() * 10000000)
+        cy.get('h1').should('contain', 'Feature Flags')
+        cy.get('[data-attr=new-feature-flag]').click()
+        cy.get('[data-attr=feature-flag-key]').type(name).should('have.value', name)
+        cy.get('[data-attr=feature-flag-description]')
+            .type('This is a new feature.')
+            .should('have.value', 'This is a new feature.')
+
+        const newTag = `test2-${Math.floor(Math.random() * 10000)}`
+        cy.get('[data-attr=button-add-tag]').click()
+        cy.focused().type(newTag)
+        cy.get('[data-attr=new-tag-option]').click()
+        cy.get('.ant-tag').should('contain', newTag)
+
+        cy.wait(300)
+        cy.get('[data-attr=button-add-tag]').click()
+        cy.focused().type(newTag)
+        cy.get('[data-attr=new-tag-option]').click()
+        cy.get('.Toastify__toast--error').should('be.visible')
+
+        cy.get('.feature-flag').find('.ant-tag').contains(newTag).should('have.length', 1)
+    })
 })
