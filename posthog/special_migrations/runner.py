@@ -103,3 +103,9 @@ def attempt_migration_rollback(migration_instance: SpecialMigration, force: bool
         migration_instance.status = MigrationStatus.Errored
         migration_instance.error = f"Force rollback failed with error: {error}"
         migration_instance.save()
+
+
+def is_current_operation_resumable(migration_instance: SpecialMigration):
+    return (
+        ALL_SPECIAL_MIGRATIONS[migration_instance.name].operations[migration_instance.current_operation_index].resumbale
+    )
