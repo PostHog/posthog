@@ -46,21 +46,15 @@ function Breadcrumb({ breadcrumb }: { breadcrumb: IBreadcrumb }): JSX.Element {
 }
 
 export function Breadcrumbs(): JSX.Element | null {
-    const { breadcrumbs } = useValues(breadcrumbsLogic)
+    const { firstBreadcrumb, lastBreadcrumbs } = useValues(breadcrumbsLogic)
 
-    return breadcrumbs.length > 0 ? (
+    return firstBreadcrumb ? (
         <div className="Breadcrumbs">
-            <Breadcrumb breadcrumb={breadcrumbs[0]} />
-            {breadcrumbs.slice(1).map((breadcrumb, index) => (
+            <Breadcrumb breadcrumb={firstBreadcrumb} />
+            {lastBreadcrumbs.map((breadcrumb) => (
                 <React.Fragment key={breadcrumb.name || '…'}>
                     <IconChevronRight className="Breadcrumbs__separator" />
-                    <Breadcrumb
-                        breadcrumb={
-                            index === breadcrumbs.length - 2
-                                ? { ...breadcrumb, path: undefined, here: true }
-                                : breadcrumb
-                        }
-                    />
+                    <Breadcrumb breadcrumb={breadcrumb} />
                 </React.Fragment>
             ))}
         </div>

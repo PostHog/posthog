@@ -53,7 +53,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>({
             ],
             (crumbs): Breadcrumb[] => crumbs,
         ],
-        breadcrumbs: [
+        appBreadcrumbs: [
             (s) => [
                 s.preflight,
                 s.sceneConfig,
@@ -62,18 +62,8 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>({
                 s.currentOrganization,
                 s.currentTeam,
                 s.otherOrganizations,
-                s.sceneBreadcrumbs,
             ],
-            (
-                preflight,
-                sceneConfig,
-                activeScene,
-                user,
-                currentOrganization,
-                currentTeam,
-                otherOrganizations,
-                sceneBreadcrumbs
-            ) => {
+            (preflight, sceneConfig, activeScene, user, currentOrganization, currentTeam, otherOrganizations) => {
                 const breadcrumbs: Breadcrumb[] = []
                 if (!activeScene || !sceneConfig) {
                     return breadcrumbs
@@ -129,16 +119,34 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>({
                     })
                 }
 
-                if (sceneBreadcrumbs && sceneBreadcrumbs.length > 0) {
-                    return [...breadcrumbs, ...sceneBreadcrumbs]
-                }
-
-                // Current place
-                breadcrumbs.push({
-                    name: sceneConfig.name || identifierToHuman(activeScene),
-                })
                 return breadcrumbs
             },
+        ],
+        breadcrumbs: [
+            (s) => [s.activeScene, s.sceneConfig, s.appBreadcrumbs, s.sceneBreadcrumbs],
+            (activeScene, sceneConfig, appBreadcrumbs, sceneBreadcrumbs) => {
+                if (sceneBreadcrumbs && sceneBreadcrumbs.length > 0) {
+                    return [...appBreadcrumbs, ...sceneBreadcrumbs]
+                } else if (sceneConfig) {
+                    return [...appBreadcrumbs, { name: sceneConfig.name }]
+                } else if (activeScene) {
+                    return [...appBreadcrumbs, { name: identifierToHuman(activeScene) }]
+                } else {
+                    return appBreadcrumbs
+                }
+            },
+        ],
+        firstBreadcrumb: [(s) => [s.breadcrumbs], (breadcrumbs) => breadcrumbs[0]],
+        lastBreadcrumbs: [
+            (s) => [s.breadcrumbs],
+            (breadcrumbs) =>
+                breadcrumbs.slice(1).map((breadcrumb, index) => {
+                    // remove "path" from the last item in the list to make it unclickable
+                    if (index === breadcrumbs.length - 2) {
+                        return { ...breadcrumb, path: undefined, here: true } as Breadcrumb
+                    }
+                    return breadcrumb
+                }),
         ],
     }),
 })
