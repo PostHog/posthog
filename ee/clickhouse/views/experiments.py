@@ -7,10 +7,10 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from ee.clickhouse.queries import experiments
 from ee.clickhouse.queries.experiments.funnel_experiment_result import ClickhouseFunnelExperimentResult
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models.experiment import Experiment
+from posthog.models.filters.filter import Filter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
 
@@ -44,6 +44,10 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
             raise ValidationError("Experiment has no target metric")
 
         result = ClickhouseFunnelExperimentResult(
-            experiment.filters, self.team, experiment.feature_flag, experiment.start_date, experiment.end_date
+            Filter(experiment.filters),
+            self.team,
+            experiment.feature_flag.key,
+            experiment.start_date,
+            experiment.end_date,
         ).get_results()
         return Response(result)

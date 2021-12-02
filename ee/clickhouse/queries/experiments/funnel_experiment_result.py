@@ -5,7 +5,7 @@ from typing import List, Optional, Tuple
 from numpy.random import default_rng
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.queries.funnels import ClickhouseFunnel
+from ee.clickhouse.queries.funnels import ClickhouseFunnel, funnel
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 
@@ -37,7 +37,7 @@ class ClickhouseFunnelExperimentResult(ClickhouseFunnel):
                 "breakdown": f"$feature/{feature_flag}",
             }
         )
-        super.__init__(query_filter, team)
+        super().__init__(query_filter, team)
 
     def get_results(self):
         funnel_results = self.run()
@@ -52,10 +52,10 @@ class ClickhouseFunnelExperimentResult(ClickhouseFunnel):
 
         variants = []
         for result in funnel_results:
-            total = sum([step.count for step in result])
-            success = result[-1].count
+            total = sum([step["count"] for step in result])
+            success = result[-1]["count"]
             failure = total - success
-            variants.append(Variant(result[0].breakdown_value[0], success, failure))
+            variants.append(Variant(result[0]["breakdown_value"][0], success, failure))
 
         return variants
 
