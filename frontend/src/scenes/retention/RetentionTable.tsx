@@ -27,7 +27,7 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
         peopleLoading,
         people: _people,
         loadingMore,
-        filters: { period, date_to, aggregation_group_type_index },
+        filters: { period, date_to, aggregation_group_type_index, breakdowns },
     } = useValues(logic)
     const results = _results as RetentionTablePayload[]
     const people = _people as RetentionTablePeoplePayload
@@ -45,7 +45,16 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
         {
             title: 'Cohort',
             key: 'cohort',
-            render: (row) => row.label,
+            render: (row: RetentionTablePayload) =>
+                // If we have breakdowns, then use the returned label attribute
+                // as the cohort name, otherwise we construct one ourselves
+                // based on the returned date. It might be nice to just unify to
+                // have label computed as such from the API.
+                breakdowns?.length
+                    ? row.label
+                    : period === 'Hour'
+                    ? dayjs(row.date).format('MMM D, h A')
+                    : dayjs.utc(row.date).format('MMM D'),
             align: 'center',
         },
         {
