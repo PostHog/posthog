@@ -1,7 +1,7 @@
 import React, { HTMLProps, useState } from 'react'
 import { IconUnfoldLess, IconUnfoldMore } from '../icons'
 import { LemonButton } from '../LemonButton'
-import { ExpandableConfig, LemonTableColumns, TableCellRenderResult, TableCellRepresentation } from './types'
+import { ExpandableConfig, LemonTableColumns, TableCellRepresentation } from './types'
 
 export interface TableRowProps<T extends Record<string, any>> {
     record: T
@@ -47,11 +47,7 @@ export function TableRow<T extends Record<string, any>>({
                     const columnKeyRaw = column.key || column.dataIndex
                     const columnKeyOrIndex = columnKeyRaw ? String(columnKeyRaw) : columnIndex
                     const value = column.dataIndex ? record[column.dataIndex] : undefined
-                    const contents = column.render
-                        ? column.render.length === 1
-                            ? (column.render as (record: T) => TableCellRenderResult)(record)
-                            : column.render(value as T[keyof T], record, recordIndex)
-                        : value
+                    const contents = column.render ? column.render(value as T[keyof T], record, recordIndex) : value
                     const areContentsCellRepresentations: boolean =
                         !!contents && typeof contents === 'object' && !React.isValidElement(contents)
                     return (

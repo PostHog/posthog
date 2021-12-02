@@ -183,7 +183,7 @@ export function PersonsModal({
                                         {
                                             title: 'Person',
                                             key: 'person',
-                                            render: function Render(actor: PersonType | GroupActorType) {
+                                            render: function Render(_, actor: PersonType | GroupActorType) {
                                                 return <ActorRow actor={actor} />
                                             },
                                         },

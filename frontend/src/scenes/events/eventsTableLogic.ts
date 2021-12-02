@@ -92,8 +92,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         flipSort: true,
         pollEvents: true,
         pollEventsSuccess: (events: EventType[]) => ({ events }),
-        prependNewEvents: true,
-        prependEvents: (events: EventType[]) => ({ events }),
+        prependNewEvents: (events: EventType[]) => ({ events }),
         setSelectedEvent: (selectedEvent: EventType) => ({ selectedEvent }),
         setPollTimeout: (pollTimeout: number) => ({ pollTimeout }),
         setDelayedLoading: true,
@@ -138,7 +137,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             {
                 fetchEventsSuccess: (state, { events, isNext }: OnFetchEventsSuccess) =>
                     isNext ? [...state, ...events] : events,
-                prependEvents: (state, { events }) => [...events, ...state],
+                prependNewEvents: (state, { events }) => [...events, ...state],
             },
         ],
 
@@ -162,18 +161,17 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             {
                 setProperties: () => [],
                 pollEventsSuccess: (_, { events }) => events || [],
-                prependEvents: () => [],
+                prependNewEvents: () => [],
             },
         ],
         highlightEvents: [
-            {} as Record<EventType['id'], boolean>,
+            {} as Record<string, boolean>,
             {
-                prependEvents: (previousState: Record<EventType['id'], boolean>, { events }) => {
-                    const newState = { ...previousState }
-                    for (const event of events) {
-                        newState[event.id] = true
-                    }
-                    return newState
+                prependNewEvents: (_: Record<string, boolean>, { events }) => {
+                    return events.reduce((highlightEvents, event) => {
+                        highlightEvents[event.id] = true
+                        return highlightEvents
+                    }, {} as Record<string, boolean>)
                 },
             },
         ],
@@ -249,7 +247,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             actions.setProperties(searchParams.properties || values.properties || {})
 
             if (searchParams.autoload) {
-                actions.toggleAutomaticLoad(!!searchParams.autoload)
+                actions.toggleAutomaticLoad(searchParams.autoload)
             }
 
             if (searchParams.eventFilter) {
@@ -357,7 +355,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             breakpoint()
 
             if (values.automaticLoadEnabled) {
-                actions.prependEvents(apiResponse.results)
+                actions.prependNewEvents(apiResponse.results)
             } else {
                 actions.pollEventsSuccess(apiResponse.results)
             }
@@ -365,9 +363,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             // uses window setTimeout because typegen had a hard time with NodeJS.Timeout
             const timeout = window.setTimeout(actions.pollEvents, POLL_TIMEOUT)
             actions.setPollTimeout(timeout)
-        },
-        prependNewEvents: () => {
-            actions.prependEvents(values.newEvents)
         },
         fetchOrPollFailure: ({ error }: { error: ApiError }) => {
             errorToast(
@@ -378,8 +373,8 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             )
         },
         toggleAutomaticLoad: ({ automaticLoadEnabled }) => {
-            if (automaticLoadEnabled) {
-                actions.prependNewEvents()
+            if (automaticLoadEnabled && values.newEvents.length > 0) {
+                actions.prependNewEvents(values.newEvents)
             }
         },
     }),

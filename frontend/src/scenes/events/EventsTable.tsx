@@ -83,7 +83,7 @@ export function EventsTable({
                     <LemonButton
                         icon={<IconSync />}
                         style={{ borderRadius: 0 }}
-                        onClick={() => prependNewEvents()}
+                        onClick={() => prependNewEvents(newEvents)}
                         center
                         fullWidth
                     >
@@ -103,7 +103,7 @@ export function EventsTable({
     const personColumn: LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined> = {
         title: 'Person',
         key: 'person',
-        render: function renderPerson({ event }: EventsTableRowItem) {
+        render: function renderPerson(_, { event }: EventsTableRowItem) {
             if (!event) {
                 return { props: { colSpan: 0 } }
             }
@@ -123,7 +123,7 @@ export function EventsTable({
                 title: 'Event',
                 key: 'event',
                 width: '16rem',
-                render: function render(item: EventsTableRowItem) {
+                render: function render(_, item: EventsTableRowItem) {
                     if (!item.event) {
                         return newEventsRender(item, tableWidth)
                     }
@@ -135,7 +135,7 @@ export function EventsTable({
             {
                 title: 'URL / Screen',
                 key: 'url',
-                render: function renderURL({ event }: EventsTableRowItem) {
+                render: function renderURL(_, { event }: EventsTableRowItem) {
                     if (!event) {
                         return { props: { colSpan: 0 } }
                     }
@@ -157,7 +157,7 @@ export function EventsTable({
             {
                 title: 'Source',
                 key: 'source',
-                render: function renderSource({ event }: EventsTableRowItem) {
+                render: function renderSource(_, { event }: EventsTableRowItem) {
                     if (!event) {
                         return { props: { colSpan: 0 } }
                     }
@@ -189,7 +189,7 @@ export function EventsTable({
                           defaultColumns.find((d) => d.key === e) || {
                               title: keyMapping['event'][e] ? keyMapping['event'][e].label : e,
                               key: e,
-                              render: function render(item: EventsTableRowItem) {
+                              render: function render(_, item: EventsTableRowItem) {
                                   const { event } = item
                                   if (!event) {
                                       if (index === 0) {
@@ -215,7 +215,7 @@ export function EventsTable({
         columnsSoFar.push({
             title: 'When',
             key: 'when',
-            render: function renderWhen({ event }: EventsTableRowItem) {
+            render: function renderWhen(_, { event }: EventsTableRowItem) {
                 if (!event) {
                     return { props: { colSpan: 0 } }
                 }
@@ -225,7 +225,7 @@ export function EventsTable({
         columnsSoFar.push({
             key: 'actions',
             width: 0,
-            render: function renderActions({ event }: EventsTableRowItem) {
+            render: function renderActions(_, { event }: EventsTableRowItem) {
                 if (!event) {
                     return { props: { colSpan: 0 } }
                 }

@@ -36,10 +36,7 @@ export interface LemonTableColumn<T extends Record<string, any>, D extends keyof
     title?: string | React.ReactNode
     key?: string
     dataIndex?: D
-    render?:
-        | ((dataValue: D extends keyof T ? T[D] : undefined, record: T, recordIndex: number) => TableCellRenderResult)
-        | ((dataValue: D extends keyof T ? T[D] : undefined, record: T) => TableCellRenderResult)
-        | ((record: T) => TableCellRenderResult)
+    render?: (dataValue: D extends keyof T ? T[D] : undefined, record: T, recordIndex: number) => TableCellRenderResult
     /** Sorting function. Set to `true` if using manual pagination, in which case you'll also have to provide `sorting` on the table. */
     sorter?: ((a: T, b: T) => number) | true
     className?: string
