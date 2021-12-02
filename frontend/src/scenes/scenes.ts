@@ -163,6 +163,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Licenses]: {
         instanceLevel: true,
     },
+    [Scene.SpecialMigrations]: {
+        instanceLevel: true,
+    },
     // Personal routes
     [Scene.MySettings]: {
         personal: true,
@@ -222,6 +225,7 @@ export const routes: Record<string, Scene> = {
     [urls.instanceLicenses()]: Scene.Licenses,
     [urls.systemStatus()]: Scene.SystemStatus,
     [urls.systemStatusPage(':id')]: Scene.SystemStatus,
+    [urls.specialMigrations()]: Scene.SpecialMigrations,
     [urls.mySettings()]: Scene.MySettings,
     // Onboarding / setup routes
     [urls.login()]: Scene.Login,
