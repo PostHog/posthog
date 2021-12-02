@@ -69,7 +69,7 @@ def run_special_migration_next_op(migration_name: str, migration_instance: Optio
     if error:
         return False
 
-    update_migration_progress(migration_name)
+    update_migration_progress(migration_instance)
 
     return run_special_migration_next_op(migration_name, migration_instance)
 
@@ -101,7 +101,7 @@ def attempt_migration_rollback(migration_instance: SpecialMigration, force: bool
 
     if error and force:
         migration_instance.status = MigrationStatus.Errored
-        migration_instance.error = f"Force rollback failed with error: {error}"
+        migration_instance.last_error = f"Force rollback failed with error: {error}"
         migration_instance.save()
 
 
