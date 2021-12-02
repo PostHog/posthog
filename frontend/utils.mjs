@@ -96,6 +96,17 @@ export function copyIndexHtml(
     )
 }
 
+/** Makes copies: "index-TMOJQ3VI.js" -> "index.js" */
+export function createHashlessEntrypoints(entrypoints) {
+    for (const entrypoint of entrypoints) {
+        const withoutHash = entrypoint.replace(/-([A-Z0-9]+).(js|css)$/, '.$2')
+        fse.writeFileSync(
+            path.resolve(__dirname, 'dist', withoutHash),
+            fse.readFileSync(path.resolve(__dirname, 'dist', entrypoint))
+        )
+    }
+}
+
 export const commonConfig = {
     sourcemap: true,
     incremental: isDev,

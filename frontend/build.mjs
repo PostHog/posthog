@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 import * as path from 'path'
-import { __dirname, copyIndexHtml, copyPublicFolder, buildOrWatch, isDev, startServer } from './utils.mjs'
-import fse from 'fs-extra'
+import {
+    __dirname,
+    copyIndexHtml,
+    copyPublicFolder,
+    buildOrWatch,
+    isDev,
+    startServer,
+    createHashlessEntrypoints,
+} from './utils.mjs'
 
 function writeIndexHtml(chunks = {}, entrypoints = []) {
     copyIndexHtml('src/index.html', 'dist/index.html', 'index', chunks, entrypoints)
@@ -46,14 +53,7 @@ function onBuildComplete(config, buildResponse) {
         writeSharedDashboardHtml(chunks, entrypoints)
     }
 
-    // copy "index-TMOJQ3VI.js" -> "index.js"
-    for (const entrypoint of entrypoints) {
-        const withoutHash = entrypoint.replace(/-([A-Z0-9]+).(js|css)$/, '.$2')
-        fse.writeFileSync(
-            path.resolve(__dirname, 'dist', withoutHash),
-            fse.readFileSync(path.resolve(__dirname, 'dist', entrypoint))
-        )
-    }
+    createHashlessEntrypoints(entrypoints)
 
     buildsInProgress--
     if (buildsInProgress === 0) {
