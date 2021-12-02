@@ -57,7 +57,7 @@ jobs:
                   S3_BUCKET="posthog-app-static"
 
                   echo "## Extracting static assets from the container..."
-                  docker rm -f $CONTAINER_NAME || echo "Container does not exist"
+                  docker rm -f $CONTAINER_NAME
                   docker create --name $CONTAINER_NAME $IMAGE_NAME
                   docker cp "${CONTAINER_NAME}:/home/posthog/code/deploy/frontend/dist/" "${TMP_FOLDER}"
                   docker rm -f $CONTAINER_NAME
