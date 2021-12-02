@@ -67,4 +67,6 @@ def mark_migration_as_successful(migration_instance: SpecialMigration):
 
     from posthog.special_migrations.runner import run_next_migration
 
-    run_next_migration(DEPENDENCY_TO_SPECIAL_MIGRATION[migration_instance.name])
+    next_migration = DEPENDENCY_TO_SPECIAL_MIGRATION.get(migration_instance.name)
+    if next_migration:
+        run_next_migration(next_migration)

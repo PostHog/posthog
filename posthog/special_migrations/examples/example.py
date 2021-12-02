@@ -76,7 +76,7 @@ class Migration(SpecialMigrationDefinition):
         result = sync_execute("SELECT total_space, free_space FROM system.disks")
         total_space = result[0][0]
         free_space = result[0][1]
-        if free_space > total_space / 2:
+        if free_space > total_space / 3:
             return (True, None)
         else:
             return (False, "Upgrade your ClickHouse storage.")
