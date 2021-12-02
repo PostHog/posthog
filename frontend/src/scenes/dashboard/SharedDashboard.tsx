@@ -28,7 +28,7 @@ ReactDOM.render(
                     </Col>
                     <Col sm={10} xs={24} style={{ textAlign: 'center' }}>
                         <>
-                            <h1 style={{ marginBottom: '0.25rem' }} data-attr="dashboard-item-title">
+                            <h1 style={{ marginBottom: '0.25rem', fontWeight: 600 }} data-attr="dashboard-item-title">
                                 {dashboard.name}
                             </h1>
                             <span>{dashboard.description}</span>
@@ -43,7 +43,7 @@ ReactDOM.render(
                     href="https://posthog.com"
                     target="_blank"
                     rel="noopener noreferrer"
-                    style={{ display: 'block', marginBottom: '-4rem' }}
+                    style={{ display: 'block', marginBottom: '-3rem' }}
                 >
                     <FriendlyLogo style={{ fontSize: '1.125rem' }} />
                 </a>
@@ -51,7 +51,7 @@ ReactDOM.render(
 
             <Dashboard id={dashboard.id} shareToken={dashboard.share_token} />
 
-            <div style={{ textAlign: 'center', paddingBottom: '2rem' }}>
+            <div style={{ textAlign: 'center', paddingBottom: '1rem' }}>
                 Made with{' '}
                 <a
                     href="https://posthog.com?utm_medium=in-product&utm_campaign=shared-dashboard"

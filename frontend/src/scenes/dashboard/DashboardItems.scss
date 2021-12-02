@@ -171,7 +171,7 @@
 .react-grid-layout {
     position: relative;
     transition: height 200ms ease;
-    margin-bottom: 50px;
+    margin-bottom: 2rem;
 
     /* remove initial loading animation, animations are only needed in edit mode */
     &.dashboard-view-mode .react-grid-item {
