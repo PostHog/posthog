@@ -88,7 +88,12 @@ class Stickiness(BaseQuery):
         persons_url = []
         for interval_idx in range(1, filter.total_intervals):
             filter_params = filter.to_params()
-            extra_params = {"stickiness_days": interval_idx, "entity_id": entity.id}
+            extra_params = {
+                "stickiness_days": interval_idx,
+                "entity_id": entity.id,
+                "entity_type": entity.type,
+                "entity_math": entity.math,
+            }
             parsed_params: Dict[str, Union[Any, int, str]] = {**filter_params, **extra_params}
             persons_url.append(
                 {"filter": extra_params, "url": f"api/person/stickiness/?{urllib.parse.urlencode(parsed_params)}",}
