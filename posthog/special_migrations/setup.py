@@ -1,12 +1,15 @@
+from typing import Dict
+
 from django.core.exceptions import ImproperlyConfigured
 from infi.clickhouse_orm.utils import import_submodules
 from semantic_version.base import SimpleSpec, Version
 
 from posthog.settings import DEBUG, E2E_TESTING, SKIP_SERVICE_VERSION_REQUIREMENTS, TEST
+from posthog.special_migrations.definition import SpecialMigrationDefinition
 from posthog.utils import print_warning
 from posthog.version import VERSION
 
-ALL_SPECIAL_MIGRATIONS = {}
+ALL_SPECIAL_MIGRATIONS: Dict[str, SpecialMigrationDefinition] = {}
 
 POSTHOG_VERSION = Version(VERSION)
 

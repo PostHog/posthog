@@ -5,7 +5,7 @@ from posthog.celery import app
 from posthog.models.special_migration import MigrationStatus, SpecialMigration
 from posthog.models.utils import UUIDT
 from posthog.special_migrations.setup import ALL_SPECIAL_MIGRATIONS
-from posthog.special_migrations.utils import execute_op, process_error
+from posthog.special_migrations.utils import execute_op, mark_migration_as_successful, process_error
 
 
 # select for update?
@@ -15,6 +15,10 @@ def start_special_migration(migration_name: str) -> bool:
         return False
 
     migration_definition = ALL_SPECIAL_MIGRATIONS[migration_name]
+
+    if not migration_definition.is_required():
+        mark_migration_as_successful(migration_instance)
+        return
 
     for service_version_requirement in migration_definition.service_version_requirements:
         [in_range, version] = service_version_requirement.is_service_in_accepted_version()
@@ -45,10 +49,7 @@ def run_special_migration_next_op(migration_name: str, migration_instance: Optio
 
     migration_definition = ALL_SPECIAL_MIGRATIONS[migration_name]
     if migration_instance.current_operation_index > len(migration_definition.operations) - 1:
-        migration_instance.status = MigrationStatus.CompletedSuccessfully
-        migration_instance.finished_at = datetime.now()
-        migration_instance.progress = 100
-        migration_instance.save()
+        mark_migration_as_successful(migration_instance)
         return True
 
     op = migration_definition.operations[migration_instance.current_operation_index]

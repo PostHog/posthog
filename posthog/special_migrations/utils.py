@@ -55,3 +55,10 @@ def force_rollback_migration(migration_instance: SpecialMigration):
     from posthog.special_migrations.runner import attempt_migration_rollback
 
     attempt_migration_rollback(migration_instance, force=True)
+
+
+def mark_migration_as_successful(migration_instance: SpecialMigration):
+    migration_instance.status = MigrationStatus.CompletedSuccessfully
+    migration_instance.finished_at = datetime.now()
+    migration_instance.progress = 100
+    migration_instance.save()
