@@ -154,28 +154,28 @@ export class DB {
     // Postgres
 
     public postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
-        queryTextOrConfig: string | QueryConfig<I>,
+        queryString: string,
         values: I | undefined,
         tag: string,
         client?: PoolClient
     ): Promise<QueryResult<R>> {
         return instrumentQuery(this.statsd, 'query.postgres', tag, async () => {
             let fullQuery = ''
-            if (typeof queryTextOrConfig === 'string') {
+            if (typeof queryString === 'string') {
                 try {
-                    fullQuery = getFinalPostgresQuery(queryTextOrConfig, values as any[])
+                    fullQuery = getFinalPostgresQuery(queryString, values as any[])
                 } catch {}
             }
             const timeout = timeoutGuard('Postgres slow query warning after 30 sec', {
-                queryTextOrConfig,
+                queryString,
                 values,
                 fullQuery,
             })
             try {
                 if (client) {
-                    return await client.query(queryTextOrConfig, values)
+                    return await client.query(queryString, values)
                 } else {
-                    return await this.postgres.query(queryTextOrConfig, values)
+                    return await this.postgres.query(queryString, values)
                 }
             } finally {
                 clearTimeout(timeout)
