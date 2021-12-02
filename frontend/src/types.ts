@@ -19,6 +19,8 @@ import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { UploadFile } from 'antd/lib/upload/interface'
 import { eventWithTime } from 'rrweb/typings/types'
 import { PostHog } from 'posthog-js'
+import React from 'react'
+import { PopupProps } from 'lib/components/Popup/Popup'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -1431,4 +1433,15 @@ export interface VersionType {
 export interface dateMappingOption {
     inactive?: boolean // Options removed due to low usage (see relevant PR); will not show up for new insights but will be kept for existing
     values: string[]
+}
+
+export interface Breadcrumb {
+    /** Name to display. */
+    name: string | null | undefined
+    /** Symbol, e.g. a lettermark or a profile picture. */
+    symbol?: React.ReactNode
+    /** Path to link to. */
+    path?: string
+    /** Whether to show a custom popup */
+    popup?: Pick<PopupProps, 'overlay' | 'sameWidth' | 'actionable'>
 }
