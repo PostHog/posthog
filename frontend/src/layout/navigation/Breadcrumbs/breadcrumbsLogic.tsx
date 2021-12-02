@@ -130,7 +130,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>({
                 }
 
                 if (sceneBreadcrumbs && sceneBreadcrumbs.length > 0) {
-                    return [...breadcrumbs, ...sceneBreadcrumbs.filter((b) => !!b.name)]
+                    return [...breadcrumbs, ...sceneBreadcrumbs]
                 }
 
                 // Current place

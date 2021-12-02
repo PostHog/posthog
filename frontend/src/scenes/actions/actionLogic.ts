@@ -42,7 +42,7 @@ export const actionLogic = kea<actionLogicType<ActionLogicProps>>({
                     path: urls.actions(),
                 },
                 {
-                    name: action?.name || 'Action',
+                    name: action?.name || 'Unnamed',
                     path: action ? urls.action(action.id) : undefined,
                 },
             ],

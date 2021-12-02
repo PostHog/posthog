@@ -431,7 +431,7 @@ export const insightLogic = kea<insightLogicType>({
                     path: urls.savedInsights(),
                 },
                 {
-                    name: insight?.id ? insight.name || 'New Insight' : null,
+                    name: insight?.id ? insight.name || 'Unnamed' : null,
                 },
             ],
         ],

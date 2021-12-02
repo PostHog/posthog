@@ -443,7 +443,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     path: urls.dashboards(),
                 },
                 {
-                    name: allItems?.id ? allItems.name || 'Untitled Dashboard' : null,
+                    name: allItems?.id ? allItems.name || 'Unnamed' : null,
                 },
             ],
         ],

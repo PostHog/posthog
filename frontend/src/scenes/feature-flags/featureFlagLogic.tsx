@@ -336,9 +336,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                     name: 'Feature flags',
                     path: urls.featureFlags(),
                 },
-                {
-                    name: featureFlag ? featureFlag.key || 'New feature flag' : null,
-                },
+                ...(featureFlag ? [{ name: featureFlag.key || 'Unnamed' }] : []),
             ],
         ],
     },
