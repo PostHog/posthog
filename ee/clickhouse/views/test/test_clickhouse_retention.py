@@ -11,7 +11,7 @@ from ee.clickhouse.views.test.funnel.util import EventPattern
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.utils import json_encode_request_params
+from posthog.utils import encode_get_request_params
 
 
 class RetentionTests(TestCase):
@@ -236,7 +236,7 @@ def get_retention(client: Client, team_id: int, request: RetentionRequest):
     return client.get(
         f"/api/projects/{team_id}/insights/retention/",
         # NOTE: for get requests we need to JSON encode non-scalars
-        data=json_encode_request_params(asdict(request)),
+        data=encode_get_request_params(asdict(request)),
     )
 
 
