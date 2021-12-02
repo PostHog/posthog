@@ -15,7 +15,6 @@ function Breadcrumb({ breadcrumb }: { breadcrumb: IBreadcrumb }): JSX.Element {
         <div
             className={clsx(
                 'Breadcrumbs__breadcrumb',
-                breadcrumb.here && 'Breadcrumbs__breadcrumb--current',
                 (breadcrumb.path || breadcrumb.popup) && 'Breadcrumbs__breadcrumb--actionable'
             )}
             onClick={() => breadcrumb.popup && setPopoverShown(!popoverShown)}
@@ -46,12 +45,12 @@ function Breadcrumb({ breadcrumb }: { breadcrumb: IBreadcrumb }): JSX.Element {
 }
 
 export function Breadcrumbs(): JSX.Element | null {
-    const { firstBreadcrumb, lastBreadcrumbs } = useValues(breadcrumbsLogic)
+    const { firstBreadcrumb, tailBreadcrumbs } = useValues(breadcrumbsLogic)
 
     return firstBreadcrumb ? (
         <div className="Breadcrumbs">
             <Breadcrumb breadcrumb={firstBreadcrumb} />
-            {lastBreadcrumbs.map((breadcrumb) => (
+            {tailBreadcrumbs.map((breadcrumb) => (
                 <React.Fragment key={breadcrumb.name || '…'}>
                     <IconChevronRight className="Breadcrumbs__separator" />
                     <Breadcrumb breadcrumb={breadcrumb} />

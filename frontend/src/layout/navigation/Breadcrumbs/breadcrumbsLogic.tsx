@@ -137,16 +137,16 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>({
             },
         ],
         firstBreadcrumb: [(s) => [s.breadcrumbs], (breadcrumbs) => breadcrumbs[0]],
-        lastBreadcrumbs: [
+        tailBreadcrumbs: [
             (s) => [s.breadcrumbs],
-            (breadcrumbs) =>
-                breadcrumbs.slice(1).map((breadcrumb, index) => {
-                    // remove "path" from the last item in the list to make it unclickable
-                    if (index === breadcrumbs.length - 2) {
-                        return { ...breadcrumb, path: undefined, here: true } as Breadcrumb
-                    }
-                    return breadcrumb
-                }),
+            (breadcrumbs) => {
+                const tailBreadcrumbs = breadcrumbs.slice(1)
+                // Remove "path" from the last breadcrumb to disable its link
+                if (tailBreadcrumbs.length > 0) {
+                    delete tailBreadcrumbs[tailBreadcrumbs.length - 1].path
+                }
+                return tailBreadcrumbs
+            },
         ],
     }),
 })

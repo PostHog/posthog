@@ -50,7 +50,6 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                 {
                     name: 'Feature flags',
                     path: urls.featureFlags(),
-                    here: true,
                 },
             ],
         ],

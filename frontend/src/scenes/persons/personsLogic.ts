@@ -114,15 +114,18 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
             (s) => [s.person, router.selectors.location],
             (person, location): Breadcrumb[] => {
                 const showPerson = person && location.pathname.match(/\/person\/.+/)
-                return [
+                const breadcrumbs: Breadcrumb[] = [
                     {
                         name: 'Persons',
                         path: urls.persons(),
                     },
-                    {
-                        name: showPerson ? asDisplay(person) : null,
-                    },
                 ]
+                if (showPerson) {
+                    breadcrumbs.push({
+                        name: asDisplay(person),
+                    })
+                }
+                return breadcrumbs
             },
         ],
     },
