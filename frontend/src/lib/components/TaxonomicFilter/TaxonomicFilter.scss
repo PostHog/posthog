@@ -10,10 +10,30 @@
         }
     }
 
+    .taxonomic-group-title {
+        display: flex;
+        width: 100%;
+        align-items: stretch;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        font-size: 12px;
+        line-height: 12px;
+        padding-top: 16px;
+        margin-bottom: 12px;
+        font-weight: 600;
+        &.with-border {
+            border-top: 1px solid var(--border-light);
+        }
+    }
+
     .taxonomic-pills {
-        margin-top: 0.5rem;
+        margin-top: 8px;
+        margin-bottom: 8px;
         .ant-tag {
-            margin-bottom: 0.5rem;
+            transition: none;
+            margin-right: 2px;
+            margin-bottom: 2px;
+            cursor: pointer;
             color: var(--primary);
             background: var(--bg-side);
             border-color: var(--bg-side);
