@@ -117,7 +117,6 @@ export function Annotations(): JSX.Element {
                 <LemonTable
                     data-attr="annotations-table"
                     rowKey="id"
-                    pagination={{ pageSize: 100 }}
                     rowClassName="cursor-pointer"
                     dataSource={annotations}
                     columns={columns}

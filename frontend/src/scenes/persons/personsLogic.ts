@@ -3,13 +3,12 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { personsLogicType } from './personsLogicType'
-import { CohortType, PersonsTabType, PersonType, AnyPropertyFilter } from '~/types'
+import { CohortType, PersonsTabType, PersonType, AnyPropertyFilter, Breadcrumb } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 import { toParams } from 'lib/utils'
+import { asDisplay } from 'scenes/persons/PersonHeader'
 
 interface PersonPaginatedResponse {
     next: string | null
@@ -26,6 +25,7 @@ interface Filters {
 export interface PersonLogicProps {
     cohort?: number | 'new' | 'personsModalNew'
     syncWithUrl?: boolean
+    urlId?: string
 }
 
 export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, PersonPaginatedResponse>>({
@@ -39,7 +39,7 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
     path: (key) => ['scenes', 'persons', 'personsLogic', key],
     connect: {
         actions: [eventUsageLogic, ['reportPersonDetailViewed']],
-        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeam']],
+        values: [teamLogic, ['currentTeam']],
     },
     actions: {
         setPerson: (person: PersonType) => ({ person }),
@@ -92,33 +92,40 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
     },
     selectors: {
         showSessionRecordings: [
-            (s) => [s.featureFlags, s.currentTeam],
-            (featureFlags, currentTeam) => {
-                return !!featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS] && currentTeam?.session_recording_opt_in
-            },
-        ],
-        showTabs: [
-            (s) => [s.featureFlags, s.showSessionRecordings],
-            (featureFlags, showSessionRecordings) => {
-                return !featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS] || showSessionRecordings
+            (s) => [s.currentTeam],
+            (currentTeam): boolean => {
+                return !!currentTeam?.session_recording_opt_in
             },
         ],
         currentTab: [
-            (s) => [s.activeTab, s.showSessionRecordings, s.featureFlags],
-            (activeTab, showSessionRecordings, featureFlags) => {
+            (s) => [s.activeTab, s.showSessionRecordings],
+            (activeTab, showSessionRecordings) => {
                 // Ensure the activeTab reflects a valid tab given the available tabs
-                if (
-                    !activeTab ||
-                    (activeTab === PersonsTabType.SESSIONS && !!featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS])
-                ) {
+                if (!activeTab) {
                     return showSessionRecordings ? PersonsTabType.SESSION_RECORDINGS : PersonsTabType.EVENTS
                 }
                 if (activeTab === PersonsTabType.SESSION_RECORDINGS && !showSessionRecordings) {
-                    return !featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS]
-                        ? PersonsTabType.SESSIONS
-                        : PersonsTabType.EVENTS
+                    return PersonsTabType.EVENTS
                 }
                 return activeTab
+            },
+        ],
+        breadcrumbs: [
+            (s) => [s.person, router.selectors.location],
+            (person, location): Breadcrumb[] => {
+                const showPerson = person && location.pathname.match(/\/person\/.+/)
+                const breadcrumbs: Breadcrumb[] = [
+                    {
+                        name: 'Persons',
+                        path: urls.persons(),
+                    },
+                ]
+                if (showPerson) {
+                    breadcrumbs.push({
+                        name: asDisplay(person),
+                    })
+                }
+                return breadcrumbs
             },
         ],
     },
@@ -264,7 +271,7 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
                     if (values.showSessionRecordings) {
                         actions.navigateToTab(PersonsTabType.SESSION_RECORDINGS)
                     } else {
-                        actions.navigateToTab(PersonsTabType.SESSIONS)
+                        actions.navigateToTab(PersonsTabType.EVENTS)
                     }
                 } else if (activeTab && values.activeTab !== activeTab) {
                     actions.navigateToTab(activeTab as PersonsTabType)

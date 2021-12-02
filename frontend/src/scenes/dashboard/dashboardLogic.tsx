@@ -9,6 +9,7 @@ import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { ACTIONS_LINE_GRAPH_LINEAR, PATHS_VIZ } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
+    Breadcrumb,
     DashboardItemType,
     DashboardLayoutSize,
     DashboardMode,
@@ -45,6 +46,9 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
     key: (props) => props.id || 'dashboardLogic',
 
     actions: {
+        setReceivedErrorsFromAPI: (receivedErrors: boolean) => ({
+            receivedErrors,
+        }),
         addNewDashboard: true,
         loadDashboardItems: ({
             refresh,
@@ -90,6 +94,8 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             null as DashboardType | null,
             {
                 loadDashboardItems: async ({ refresh, dive_source_id }) => {
+                    actions.setReceivedErrorsFromAPI(false)
+
                     if (!props.id) {
                         console.warn('Called `loadDashboardItems` but ID is not set.')
                         return
@@ -111,6 +117,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         if (error.status === 404) {
                             return []
                         }
+                        actions.setReceivedErrorsFromAPI(true)
                         throw error
                     }
                 },
@@ -123,6 +130,13 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         ],
     }),
     reducers: ({ props }) => ({
+        receivedErrorsFromAPI: [
+            false,
+            {
+                setReceivedErrorsFromAPI: (_: boolean, { receivedErrors }: { receivedErrors: boolean }) =>
+                    receivedErrors,
+            },
+        ],
         filters: [
             { date_from: null, date_to: null } as FilterType,
             {
@@ -433,6 +447,18 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     total,
                 }
             },
+        ],
+        breadcrumbs: [
+            (s) => [s.allItems],
+            (allItems): Breadcrumb[] => [
+                {
+                    name: 'Dashboards',
+                    path: urls.dashboards(),
+                },
+                {
+                    name: allItems?.id ? allItems.name || 'Unnamed' : null,
+                },
+            ],
         ],
     }),
     events: ({ actions, cache, props }) => ({

@@ -1,30 +1,26 @@
 import secrets
-from typing import Any, Dict, Optional, Sequence, Type, Union
+from typing import Any, Dict, Sequence, Type, Union
 
-import posthoganalytics
-from django.db.models import Model, Prefetch, QuerySet
-from django.db.models.query_utils import Q
+from django.db.models import Prefetch, QuerySet
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 from rest_framework import mixins, response, serializers, viewsets
 from rest_framework.authentication import BaseAuthentication, BasicAuthentication, SessionAuthentication
-from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated, OperandHolder, SingleOperandHolder
 from rest_framework.request import Request
-from sentry_sdk.api import capture_exception
 
 from posthog.api.insight import InsightSerializer, InsightViewSet
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import INSIGHT_TRENDS
+from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, Insight, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.tasks.update_cache import update_dashboard_item_cache, update_dashboard_items_cache
-from posthog.utils import get_safe_cache, render_template, str_to_bool
+from posthog.utils import render_template
 
 
 class DashboardSerializer(serializers.ModelSerializer):
@@ -102,8 +98,8 @@ class DashboardSerializer(serializers.ModelSerializer):
                     team=team,
                 )
 
-        posthoganalytics.capture(
-            request.user.distinct_id,
+        report_user_action(
+            request.user,
             "dashboard created",
             {
                 **dashboard.get_analytics_metadata(),
@@ -124,9 +120,7 @@ class DashboardSerializer(serializers.ModelSerializer):
         instance = super().update(instance, validated_data)
 
         if "request" in self.context:
-            posthoganalytics.capture(
-                self.context["request"].user.distinct_id, "dashboard updated", instance.get_analytics_metadata()
-            )
+            report_user_action(self.context["request"].user, "dashboard updated", instance.get_analytics_metadata())
 
         return instance
 
@@ -140,10 +134,6 @@ class DashboardSerializer(serializers.ModelSerializer):
     def get_items(self, dashboard: Dashboard):
         if self.context["view"].action == "list":
             return None
-
-        if self.context["request"].GET.get("refresh"):
-            update_dashboard_items_cache(dashboard)
-            dashboard.refresh_from_db()
 
         items = dashboard.items.filter(deleted=False).order_by("order").all()
         self.context.update({"dashboard": dashboard})

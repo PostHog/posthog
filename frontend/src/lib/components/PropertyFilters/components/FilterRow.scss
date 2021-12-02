@@ -19,8 +19,8 @@
 
     .property-filter-grey {
         color: #2d2d2d;
-        border-color: $grey;
-        background: $grey;
+        border-color: $dark-grey;
+        background: $dark-grey;
 
         text-shadow: none;
         box-shadow: none;
@@ -31,5 +31,5 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.25rem;
-    margin: 0.25rem 0 0.5rem;
+    margin: 0.25rem 0 1rem;
 }

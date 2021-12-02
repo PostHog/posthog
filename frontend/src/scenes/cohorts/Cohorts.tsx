@@ -26,7 +26,7 @@ import { userLogic } from 'scenes/userLogic'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonSpacer } from 'lib/components/LemonRow'
-import { combineUrl } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 const NEW_COHORT: CohortType = {
     id: 'new',
@@ -59,7 +59,11 @@ const cohortsUrlLogic = kea<cohortsUrlLogicType>({
         },
     },
     actionToUrl: ({ values }) => ({
-        setOpenCohort: () => '/cohorts' + (values.openCohort ? '/' + (values.openCohort.id || 'new') : ''),
+        setOpenCohort: () =>
+            combineUrl(
+                values.openCohort ? urls.cohort(values.openCohort.id || 'new') : urls.cohorts(),
+                router.values.searchParams
+            ).url,
     }),
     urlToAction: ({ actions, values }) => ({
         '/cohorts(/:cohortId)': async ({ cohortId }) => {
@@ -95,6 +99,7 @@ export function Cohorts(): JSX.Element {
     const { openCohort } = useValues(cohortsUrlLogic)
     const { setOpenCohort, exportCohortPersons } = useActions(cohortsUrlLogic)
     const { hasAvailableFeature } = useValues(userLogic)
+    const { searchParams } = useValues(router)
     const [searchTerm, setSearchTerm] = useState(false as string | false)
 
     const columns: LemonTableColumns<CohortType> = [
@@ -107,7 +112,7 @@ export function Cohorts(): JSX.Element {
             render: function Render(name, { id, description }) {
                 return (
                     <>
-                        <Link data-attr="dashboard-name" to={urls.cohort(id)}>
+                        <Link to={combineUrl(urls.cohort(id), searchParams).url}>
                             <h4 className="row-name">{name || 'Untitled'}</h4>
                         </Link>
                         {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && description && (
@@ -193,6 +198,7 @@ export function Cohorts(): JSX.Element {
                                     style={{ color: 'var(--danger)' }}
                                     onClick={() =>
                                         deleteWithUndo({
+                                            endpoint: api.cohorts.determineDeleteEndpoint(),
                                             object: { name, id },
                                             callback: loadCohorts,
                                         })
@@ -240,8 +246,9 @@ export function Cohorts(): JSX.Element {
                     columns={columns}
                     loading={cohortsLoading}
                     rowKey="id"
-                    pagination={{ pageSize: 20 }}
+                    pagination={{ pageSize: 30 }}
                     dataSource={searchTerm ? searchCohorts(cohorts, searchTerm) : cohorts}
+                    nouns={['cohort', 'cohorts']}
                 />
                 <Drawer
                     title={openCohort?.id === 'new' ? 'New cohort' : openCohort?.name}

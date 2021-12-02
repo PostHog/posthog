@@ -112,7 +112,7 @@ export function FeatureFlags(): JSX.Element {
                                     data-attr="usage"
                                     fullWidth
                                 >
-                                    Use in Insights
+                                    Try out in Insights
                                 </LemonButton>
                                 <LemonSpacer />
                                 {featureFlag.id && (

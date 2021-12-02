@@ -17,6 +17,11 @@ describe('the person header', () => {
                 expectedLink: undefined,
                 name: 'with no ids',
             },
+            {
+                distinctIds: ['a+dicey/@!'],
+                expectedLink: urls.person('a+dicey/@!'),
+                name: 'with no ids',
+            },
         ]
 
         personLinksTestCases.forEach((testCase) => {

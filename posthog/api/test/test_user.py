@@ -1,5 +1,5 @@
 import uuid
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from django.utils.text import slugify
 from rest_framework import status
@@ -173,6 +173,7 @@ class TestUserAPI(APIBaseTest):
             properties={
                 "updated_attrs": ["anonymize_data", "email", "email_opt_in", "events_column_config", "first_name"],
             },
+            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid),},
         )
 
     @patch("posthoganalytics.capture")
@@ -195,6 +196,7 @@ class TestUserAPI(APIBaseTest):
             self.user.distinct_id,
             "user updated",
             properties={"updated_attrs": ["current_organization", "current_team"]},
+            groups={"instance": ANY, "organization": str(self.new_org.id), "project": str(self.new_project.uuid),},
         )
 
     @patch("posthoganalytics.capture")
@@ -217,6 +219,7 @@ class TestUserAPI(APIBaseTest):
             self.user.distinct_id,
             "user updated",
             properties={"updated_attrs": ["current_organization", "current_team"]},
+            groups={"instance": ANY, "organization": str(self.new_org.id), "project": str(team.uuid),},
         )
 
     def test_cannot_set_mismatching_org_and_team(self):
@@ -328,7 +331,10 @@ class TestUserAPI(APIBaseTest):
         self.assertTrue(user.check_password("a_new_password"))
 
         mock_capture.assert_called_once_with(
-            user.distinct_id, "user updated", properties={"updated_attrs": ["password"]},
+            user.distinct_id,
+            "user updated",
+            properties={"updated_attrs": ["password"]},
+            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid),},
         )
 
         # User can log in with new password
@@ -358,7 +364,10 @@ class TestUserAPI(APIBaseTest):
         self.assertTrue(user.check_password("a_new_password"))
 
         mock_capture.assert_called_once_with(
-            user.distinct_id, "user updated", properties={"updated_attrs": ["password"]},
+            user.distinct_id,
+            "user updated",
+            properties={"updated_attrs": ["password"]},
+            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid),},
         )
 
         # User can log in with new password

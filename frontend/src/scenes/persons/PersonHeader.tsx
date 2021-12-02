@@ -6,7 +6,7 @@ import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 
 export interface PersonHeaderProps {
-    person?: Partial<PersonType> | null
+    person?: Partial<Pick<PersonType, 'properties' | 'distinct_ids'>> | null
     withIcon?: boolean
 }
 

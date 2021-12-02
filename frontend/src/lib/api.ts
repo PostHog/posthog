@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 import { parsePeopleParams, PeopleParamType } from '../scenes/trends/personsModalLogic'
-import { ActionType, CohortType, FilterType, PersonType, PluginLogEntry, TeamType } from '../types'
+import { ActionType, ActorType, CohortType, FilterType, PluginLogEntry, TeamType } from '../types'
 import { getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 import { LOGS_PORTION_LIMIT } from 'scenes/plugins/plugin/pluginLogsLogic'
@@ -166,7 +166,7 @@ const api = {
             peopleParams: PeopleParamType,
             filters: Partial<FilterType>,
             searchTerm?: string
-        ): Promise<PaginatedResponse<{ people: PersonType[]; count: number }>> {
+        ): Promise<PaginatedResponse<{ people: ActorType[]; count: number }>> {
             return await new ApiRequest()
                 .actions()
                 .withAction('people')

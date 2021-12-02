@@ -4,6 +4,7 @@ import { posthogEvents } from 'lib/utils'
 import { EventDefinition, SelectOption } from '~/types'
 import { eventDefinitionsModelType } from './eventDefinitionsModelType'
 import { propertyDefinitionsModel } from './propertyDefinitionsModel'
+import { teamLogic } from 'scenes/teamLogic'
 
 export interface EventDefinitionStorage {
     count: number
@@ -28,7 +29,7 @@ export const eventDefinitionsModel = kea<eventDefinitionsModelType<EventDefiniti
             {
                 loadEventDefinitions: async (initial?: boolean) => {
                     const url = initial
-                        ? 'api/projects/@current/event_definitions/?limit=5000'
+                        ? `api/projects/${teamLogic.values.currentTeamId}/event_definitions/?limit=5000`
                         : values.eventStorage.next
                     if (!url) {
                         throw new Error('Incorrect call to eventDefinitionsModel.loadEventDefinitions')

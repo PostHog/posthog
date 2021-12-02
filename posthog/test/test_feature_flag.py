@@ -30,6 +30,10 @@ class TestFeatureFlagMatcher(BaseTest):
         feature_flag = self.create_feature_flag(filters={"groups": [{"properties": [], "rollout_percentage": None}]})
         self.assertEqual(FeatureFlagMatcher(feature_flag, "example_id").get_match(), FeatureFlagMatch())
 
+    def test_zero_rollout_percentage(self):
+        feature_flag = self.create_feature_flag(filters={"groups": [{"properties": [], "rollout_percentage": 0}]})
+        self.assertEqual(FeatureFlagMatcher(feature_flag, "example_id").get_match(), None)
+
     def test_complicated_flag(self):
         Person.objects.create(
             team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"},

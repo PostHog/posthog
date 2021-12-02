@@ -77,7 +77,6 @@
     AND timestamp <= '2021-01-21 23:59:59'
     AND has(['Jane'], trim(BOTH '"'
                            FROM JSONExtractRaw(properties, 'name')))
-    AND team_id = 2
   '
 ---
 # name: TestEventQuery.test_basic_event_filter
@@ -151,9 +150,7 @@
     AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
     AND timestamp <= '2020-01-14 23:59:59'
     AND has(['hi'], mat_test_prop)
-    AND team_id = 2
     AND has(['hi'], mat_test_prop)
-    AND team_id = 2
   '
 ---
 # name: TestEventQuery.test_element
@@ -241,7 +238,6 @@
     AND timestamp <= '2021-05-07 23:59:59'
     AND has(['test_val'], trim(BOTH '"'
                                FROM JSONExtractRaw(properties, 'some_key')))
-    AND team_id = 2
   '
 ---
 # name: TestEventQuery.test_event_properties_filter.1
@@ -255,7 +251,6 @@
     AND timestamp <= '2021-05-07 23:59:59'
     AND has(['test_val'], trim(BOTH '"'
                                FROM JSONExtractRaw(properties, 'some_key')))
-    AND team_id = 2
   '
 ---
 # name: TestEventQuery.test_groups_filters

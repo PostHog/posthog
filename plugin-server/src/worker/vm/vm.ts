@@ -225,7 +225,7 @@ export async function createPluginConfigVM(
 
     if (exportEventsExists) {
         upgradeExportEvents(hub, pluginConfig, vmResponse)
-        addHistoricalEventsExportCapability(hub, pluginConfig, vmResponse)
+        await addHistoricalEventsExportCapability(hub, pluginConfig, vmResponse)
     }
 
     setupMetrics(hub, pluginConfig, metrics, exportEventsExists)

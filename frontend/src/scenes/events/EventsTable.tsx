@@ -13,7 +13,15 @@ import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { ResizableColumnType, ResizableTable, TableConfig } from 'lib/components/ResizableTable'
-import { ActionType, ChartDisplayType, EventsTableRowItem, EventType, FilterType, InsightType } from '~/types'
+import {
+    ActionType,
+    AnyPropertyFilter,
+    ChartDisplayType,
+    EventsTableRowItem,
+    EventType,
+    FilterType,
+    InsightType,
+} from '~/types'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { EventName } from 'scenes/actions/EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
@@ -30,6 +38,7 @@ export interface FixedFilters {
     action_id?: ActionType['id']
     person_id?: string | number
     distinct_ids?: string[]
+    properties?: AnyPropertyFilter[]
 }
 
 interface EventsTable {
@@ -65,7 +74,7 @@ export function EventsTable({
     const { tableWidth, selectedColumns } = useValues(tableConfigLogic)
 
     const { propertyNames } = useValues(propertyDefinitionsModel)
-    const { fetchNextEvents, prependNewEvents, setEventFilter, toggleAutomaticLoad } = useActions(logic)
+    const { fetchNextEvents, prependNewEvents, setEventFilter, toggleAutomaticLoad, startDownload } = useActions(logic)
 
     const showLinkToPerson = !fixedFilters?.person_id
     const newEventsRender = (item: Record<string, any>, colSpan: number): Record<string, any> => {
@@ -93,7 +102,7 @@ export function EventsTable({
                 return { props: { colSpan: 0 } }
             }
             return showLinkToPerson && event.person?.distinct_ids?.length ? (
-                <Link to={`/person/${encodeURIComponent(event.person.distinct_ids[0])}`}>
+                <Link to={urls.person(event.person.distinct_ids[0])}>
                     <PersonHeader withIcon person={event.person} />
                 </Link>
             ) : (
@@ -314,7 +323,7 @@ export function EventsTable({
                     <Col flex="0">
                         {exportUrl && (
                             <Tooltip title="Export up to 10,000 latest events." placement="left">
-                                <Button icon={<DownloadOutlined />} href={exportUrl}>
+                                <Button icon={<DownloadOutlined />} onClick={startDownload}>
                                     Export events
                                 </Button>
                             </Tooltip>

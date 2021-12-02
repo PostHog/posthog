@@ -23,6 +23,7 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.EventPropertyStats]: Scene.Events,
     [Scene.Person]: Scene.Persons,
     [Scene.Groups]: Scene.Persons,
+    [Scene.Group]: Scene.Persons,
     [Scene.Dashboard]: Scene.Dashboards,
     [Scene.FeatureFlag]: Scene.FeatureFlags,
 }
@@ -134,6 +135,13 @@ export const sceneLogic = kea<sceneLogicType>({
             (s) => [s.activeLoadedScene],
             (activeLoadedScene): SceneParams =>
                 activeLoadedScene?.sceneParams || { params: {}, searchParams: {}, hashParams: {} },
+        ],
+        activeSceneLogic: [
+            (s) => [s.activeLoadedScene, s.sceneParams],
+            (activeLoadedScene, sceneParams) =>
+                activeLoadedScene?.logic
+                    ? activeLoadedScene.logic.build(activeLoadedScene.paramsToProps?.(sceneParams) || {}, false)
+                    : null,
         ],
         params: [(s) => [s.sceneParams], (sceneParams): Record<string, string> => sceneParams.params || {}],
         searchParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.searchParams || {}],

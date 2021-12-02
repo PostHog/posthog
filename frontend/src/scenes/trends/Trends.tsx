@@ -1,6 +1,6 @@
 import React from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
-import { PersonModal } from './PersonModal'
+import { PersonsModal } from './PersonsModal'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
@@ -31,12 +31,12 @@ export function TrendInsight({ view }: Props): JSX.Element {
         filters: _filters,
         loadMoreBreakdownUrl,
         breakdownValuesLoading,
-        showPersonsModal,
+        showModalActions,
     } = useValues(trendsLogic(insightProps))
     const { loadMoreBreakdownValues } = useActions(trendsLogic(insightProps))
     const { showingPeople } = useValues(personsModalLogic)
     const { saveCohortWithFilters } = useActions(personsModalLogic)
-    const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
+    const { reportCohortCreatedFromPersonsModal } = useActions(eventUsageLogic)
 
     const renderViz = (): JSX.Element | undefined => {
         if (
@@ -45,7 +45,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
             _filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
             _filters.display === ACTIONS_BAR_CHART
         ) {
-            return <ActionsLineGraph filters={_filters} showPersonsModal={showPersonsModal} />
+            return <ActionsLineGraph filters={_filters} />
         }
         if (_filters.display === ACTIONS_TABLE) {
             if (view === InsightType.SESSIONS && _filters.session === 'dist') {
@@ -63,10 +63,10 @@ export function TrendInsight({ view }: Props): JSX.Element {
             )
         }
         if (_filters.display === ACTIONS_PIE_CHART) {
-            return <ActionsPie filters={_filters} showPersonsModal={showPersonsModal} />
+            return <ActionsPie filters={_filters} />
         }
         if (_filters.display === ACTIONS_BAR_CHART_VALUE) {
-            return <ActionsBarValueGraph filters={_filters} showPersonsModal={showPersonsModal} />
+            return <ActionsBarValueGraph filters={_filters} />
         }
     }
 
@@ -100,20 +100,21 @@ export function TrendInsight({ view }: Props): JSX.Element {
                     )}
                 </div>
             )}
-            <PersonModal
+            <PersonsModal
                 visible={showingPeople && !cohortModalVisible}
                 view={view}
                 filters={_filters}
                 onSaveCohort={() => {
                     setCohortModalVisible(true)
                 }}
+                showModalActions={showModalActions}
             />
             <SaveCohortModal
                 visible={cohortModalVisible}
                 onOk={(title: string) => {
                     saveCohortWithFilters(title, _filters)
                     setCohortModalVisible(false)
-                    reportCohortCreatedFromPersonModal(_filters)
+                    reportCohortCreatedFromPersonsModal(_filters)
                 }}
                 onCancel={() => setCohortModalVisible(false)}
             />

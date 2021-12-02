@@ -4,7 +4,6 @@ import { keyMappingKeys, PropertyKeyInfo } from './PropertyKeyInfo'
 import { Dropdown, Input, Menu, Popconfirm } from 'antd'
 import { NumberOutlined, BulbOutlined, StopOutlined, DeleteOutlined } from '@ant-design/icons'
 import { isURL } from 'lib/utils'
-import stringWithWBR from 'lib/utils/stringWithWBR'
 import { IconExternalLink, IconText } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import './PropertiesTable.scss'
@@ -94,7 +93,7 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
             className={canEdit ? 'editable ph-no-capture' : 'ph-no-capture'}
             onClick={() => canEdit && textBasedTypes.includes(valueType) && setEditing(true)}
         >
-            {stringWithWBR(String(value))}
+            {value}
         </span>
     )
 
@@ -188,6 +187,7 @@ export function PropertiesTable({
     const columns: LemonTableColumns<Record<string, any>> = [
         {
             title: 'key',
+            width: '15rem',
             render: function Key(_, item: any): JSX.Element {
                 return (
                     <div className="properties-table-key">

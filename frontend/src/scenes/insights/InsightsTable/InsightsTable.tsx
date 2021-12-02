@@ -254,11 +254,16 @@ export function InsightsTable({
     )
 }
 
-export function formatBreakdownLabel(breakdown_value: string | number | undefined, cohorts: CohortType[]): string {
+export function formatBreakdownLabel(
+    breakdown_value: string | number | undefined | Array<string | number>,
+    cohorts: CohortType[]
+): string {
     if (breakdown_value && typeof breakdown_value == 'number') {
         return cohorts.filter((c) => c.id == breakdown_value)[0]?.name || breakdown_value.toString()
     } else if (typeof breakdown_value == 'string') {
         return breakdown_value === 'nan' ? 'Other' : breakdown_value === '' ? 'None' : breakdown_value
+    } else if (Array.isArray(breakdown_value)) {
+        return breakdown_value.join('::')
     } else {
         return ''
     }

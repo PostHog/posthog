@@ -1,27 +1,31 @@
 import React, { useState } from 'react'
 import './Actions.scss'
 import { Link } from 'lib/components/Link'
-import { Input, Radio, Table } from 'antd'
-import { CheckOutlined, DeleteOutlined, EditOutlined, ExportOutlined } from '@ant-design/icons'
-import { DeleteWithUndo, stripHTTP, toParams } from 'lib/utils'
+import { Input, Radio } from 'antd'
+import { CheckOutlined } from '@ant-design/icons'
+import { deleteWithUndo, stripHTTP } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { NewActionButton } from './NewActionButton'
 import imgGrouping from 'public/actions-tutorial-grouping.svg'
 import imgStandardized from 'public/actions-tutorial-standardized.svg'
 import imgRetroactive from 'public/actions-tutorial-retroactive.svg'
-import { ActionType, ChartDisplayType, FilterType, InsightType } from '~/types'
+import { ActionType, ChartDisplayType, InsightType } from '~/types'
 import Fuse from 'fuse.js'
 import { userLogic } from 'scenes/userLogic'
-import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
-import { getBreakpoint } from 'lib/utils/responsiveUtils'
-import { ColumnType } from 'antd/lib/table'
 import { teamLogic } from '../teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { EventsTab } from 'scenes/events'
-import api from '../../lib/api'
+import api from 'lib/api'
 import { urls } from '../urls'
 import { EventPageHeader } from 'scenes/events/EventPageHeader'
+import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
+import { LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable/types'
+import { LemonTable } from 'lib/components/LemonTable/LemonTable'
+import { LemonButton } from 'lib/components/LemonButton'
+import { LemonSpacer } from 'lib/components/LemonRow'
+import { More } from 'lib/components/LemonButton/More'
+import { combineUrl } from 'kea-router'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -34,8 +38,6 @@ const searchActions = (sources: ActionType[], search: string): ActionType[] => {
 
 export const scene: SceneExport = {
     component: ActionsTable,
-    logic: actionsModel,
-    paramsToProps: () => ({ params: 'include_count=1' }),
 }
 
 export function ActionsTable(): JSX.Element {
@@ -45,131 +47,139 @@ export function ActionsTable(): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
     const [filterByMe, setFilterByMe] = useState(false)
     const { user } = useValues(userLogic)
-    const tableScrollBreakpoint = getBreakpoint('lg')
 
-    const columns: ColumnType<ActionType>[] = [
+    const columns: LemonTableColumns<ActionType> = [
         {
             title: 'Name',
-            key: 'name',
+            dataIndex: 'name',
+            width: '30%',
             sorter: (a: ActionType, b: ActionType) => ('' + a.name).localeCompare(b.name),
-            render: function RenderName(_: any, action: ActionType, index: number): JSX.Element {
+            render: function RenderName(name, action: ActionType, index: number): JSX.Element {
                 return (
                     <Link data-attr={'action-link-' + index} to={urls.action(action.id)}>
-                        {action.name}
+                        <h4 className="row-name">{name || <i>Unnnamed action</i>}</h4>
                     </Link>
                 )
             },
         },
-        ...(actions[0]?.count !== null
-            ? [
-                  {
-                      title: 'Volume',
-                      render: function RenderVolume(action: ActionType): JSX.Element {
-                          return <span>{action.count}</span>
-                      },
-                      sorter: (a: ActionType, b: ActionType) => (a.count || 0) - (b.count || 0),
-                  },
-              ]
-            : []),
         {
             title: 'Type',
-            render: function RenderType(action: ActionType): JSX.Element {
+            key: 'type',
+            render: function RenderType(_, action: ActionType): JSX.Element {
                 return (
                     <span>
-                        {action.steps?.map((step) => (
-                            <div key={step.id}>
-                                {(() => {
-                                    let url = stripHTTP(step.url || '')
-                                    url = url.slice(0, 40) + (url.length > 40 ? '...' : '')
-                                    switch (step.event) {
-                                        case '$autocapture':
-                                            return 'Autocapture'
-                                        case '$pageview':
-                                            switch (step.url_matching) {
-                                                case 'regex':
-                                                    return (
-                                                        <>
-                                                            Page view URL matches regex <strong>{url}</strong>
-                                                        </>
-                                                    )
-                                                case 'exact':
-                                                    return (
-                                                        <>
-                                                            Page view URL matches exactly <strong>{url}</strong>
-                                                        </>
-                                                    )
-                                                default:
-                                                    return (
-                                                        <>
-                                                            Page view URL contains <strong>{url}</strong>
-                                                        </>
-                                                    )
-                                            }
-                                        default:
-                                            return (
-                                                <>
-                                                    Event: <strong>{step.event}</strong>
-                                                </>
-                                            )
-                                    }
-                                })()}
-                            </div>
-                        ))}
+                        {action.steps?.length ? (
+                            action.steps.map((step) => (
+                                <div key={step.id}>
+                                    {(() => {
+                                        let url = stripHTTP(step.url || '')
+                                        url = url.slice(0, 40) + (url.length > 40 ? '...' : '')
+                                        switch (step.event) {
+                                            case '$autocapture':
+                                                return 'Autocapture'
+                                            case '$pageview':
+                                                switch (step.url_matching) {
+                                                    case 'regex':
+                                                        return (
+                                                            <>
+                                                                Page view URL matches regex <strong>{url}</strong>
+                                                            </>
+                                                        )
+                                                    case 'exact':
+                                                        return (
+                                                            <>
+                                                                Page view URL matches exactly <strong>{url}</strong>
+                                                            </>
+                                                        )
+                                                    default:
+                                                        return (
+                                                            <>
+                                                                Page view URL contains <strong>{url}</strong>
+                                                            </>
+                                                        )
+                                                }
+                                            default:
+                                                return (
+                                                    <>
+                                                        Event: <strong>{step.event}</strong>
+                                                    </>
+                                                )
+                                        }
+                                    })()}
+                                </div>
+                            ))
+                        ) : (
+                            <i>Empty – set this action up</i>
+                        )}
                     </span>
                 )
             },
         },
-        createdAtColumn(),
-        createdByColumn(actions),
+        createdByColumn() as LemonTableColumn<ActionType, keyof ActionType | undefined>,
+        createdAtColumn() as LemonTableColumn<ActionType, keyof ActionType | undefined>,
         ...(currentTeam?.slack_incoming_webhook
             ? [
                   {
                       title: 'Webhook',
-                      key: 'post_to_slack',
+                      dataIndex: 'post_to_slack',
                       sorter: (a: ActionType, b: ActionType) => Number(a.post_to_slack) - Number(b.post_to_slack),
-                      render: function RenderActions(action: ActionType): JSX.Element | null {
-                          return action.post_to_slack ? <CheckOutlined /> : null
+                      render: function RenderActions(post_to_slack): JSX.Element | null {
+                          return post_to_slack ? <CheckOutlined /> : null
                       },
-                  },
+                  } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
               ]
             : []),
         {
-            title: '',
-            render: function RenderActions(action: ActionType): JSX.Element {
-                const params: Partial<FilterType> = {
-                    insight: InsightType.TRENDS,
-                    interval: 'day',
-                    display: ChartDisplayType.ActionsLineGraphLinear,
-                    actions: [
-                        {
-                            id: action.id,
-                            name: action.name,
-                            type: 'actions',
-                            order: 0,
-                        },
-                    ],
-                }
-
-                const actionsLink = `/insights?${toParams(params)}`
-
+            width: 0,
+            render: function RenderActions(_, action) {
                 return (
-                    <span>
-                        <Link to={urls.action(action.id)}>
-                            <EditOutlined />
-                        </Link>
-                        <DeleteWithUndo
-                            endpoint={api.actions.determineDeleteEndpoint()}
-                            object={action}
-                            className="text-danger"
-                            style={{ marginLeft: 8, marginRight: 8 }}
-                            callback={loadActions}
-                        >
-                            <DeleteOutlined />
-                        </DeleteWithUndo>
-                        <Link to={actionsLink} data-attr="actions-table-usage">
-                            Insights <ExportOutlined />
-                        </Link>
-                    </span>
+                    <More
+                        overlay={
+                            <>
+                                <LemonButton type="stealth" to={urls.action(action.id)} fullWidth>
+                                    Edit
+                                </LemonButton>
+                                <LemonButton
+                                    type="stealth"
+                                    to={
+                                        combineUrl(
+                                            urls.insightNew({
+                                                insight: InsightType.TRENDS,
+                                                interval: 'day',
+                                                display: ChartDisplayType.ActionsLineGraphLinear,
+                                                actions: [
+                                                    {
+                                                        id: action.id,
+                                                        name: action.name,
+                                                        type: 'actions',
+                                                        order: 0,
+                                                    },
+                                                ],
+                                            })
+                                        ).url
+                                    }
+                                    fullWidth
+                                >
+                                    Try out in Insights
+                                </LemonButton>
+                                <LemonSpacer />
+                                <LemonButton
+                                    type="stealth"
+                                    style={{ color: 'var(--danger)' }}
+                                    onClick={() =>
+                                        deleteWithUndo({
+                                            endpoint: api.actions.determineDeleteEndpoint(),
+                                            object: action,
+                                            callback: loadActions,
+                                        })
+                                    }
+                                    fullWidth
+                                >
+                                    Delete action
+                                </LemonButton>
+                            </>
+                        }
+                    />
                 )
             },
         },
@@ -221,11 +231,10 @@ export function ActionsTable(): JSX.Element {
                     </div>
                 </div>
             </div>
-
             <Input.Search
+                placeholder="Search for actions"
                 allowClear
                 enterButton
-                autoFocus
                 style={{ maxWidth: 600, width: 'initial', flexGrow: 1, marginRight: 12 }}
                 onChange={(e) => {
                     setSearchTerm(e.target.value)
@@ -235,21 +244,21 @@ export function ActionsTable(): JSX.Element {
                 <Radio.Button value={false}>All actions</Radio.Button>
                 <Radio.Button value={true}>My actions</Radio.Button>
             </Radio.Group>
-
             <div className="mb float-right">
                 <NewActionButton />
             </div>
-            <br />
-            <Table
-                size="small"
+            <LemonTable
                 columns={columns}
                 loading={actionsLoading}
                 rowKey="id"
-                pagination={{ pageSize: 100, hideOnSinglePage: true }}
+                pagination={{ pageSize: 30 }}
                 data-attr="actions-table"
                 dataSource={data}
-                locale={{ emptyText: 'The first step to standardized analytics is creating your first action.' }}
-                scroll={{ x: `${tableScrollBreakpoint}px` }}
+                defaultSorting={{
+                    columnKey: 'created_by',
+                    order: -1,
+                }}
+                emptyState="The first step to standardized analytics is creating your first action."
             />
         </div>
     )

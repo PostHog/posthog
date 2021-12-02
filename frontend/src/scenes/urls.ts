@@ -20,13 +20,15 @@ export const urls = {
     insightView: (id: InsightShortId, filters?: Partial<FilterType>) =>
         `/insights/${id}${filters ? combineUrl('', filters).search : ''}`,
     savedInsights: () => '/insights',
-    sessions: () => '/sessions',
     sessionRecordings: () => '/recordings',
-    person: (id: string) => `/person/${id}`,
+    person: (id: string, encode: boolean = true) => (encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`),
     persons: () => '/persons',
     groups: (groupTypeIndex: string) => `/groups/${groupTypeIndex}`,
+    group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true) =>
+        `/groups/${groupTypeIndex}/${encode ? encodeURIComponent(groupKey) : groupKey}`,
     cohort: (id: string | number) => `/cohorts/${id}`,
     cohorts: () => '/cohorts',
+    experiments: () => '/experiments',
     featureFlags: () => '/feature_flags',
     featureFlag: (id: string | number) => `/feature_flags/${id}`,
     annotations: () => '/annotations',

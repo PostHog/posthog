@@ -9,7 +9,7 @@ from rest_framework.request import Request
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
-from posthog.event_usage import report_onboarding_completed
+from posthog.event_usage import report_onboarding_completed, report_organization_deleted
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Organization, User
 from posthog.models.organization import OrganizationMembership
@@ -133,7 +133,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
         }
 
 
-class OrganizationViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
+class OrganizationViewSet(viewsets.ModelViewSet):
     serializer_class = OrganizationSerializer
     permission_classes = [
         permissions.IsAuthenticated,
@@ -166,6 +166,11 @@ class OrganizationViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
             organization = get_object_or_404(queryset, **filter_kwargs)
         self.check_object_permissions(self.request, organization)
         return organization
+
+    def perform_destroy(self, organization: Organization):
+        user = cast(User, self.request.user)
+        report_organization_deleted(user, organization)
+        return super().perform_destroy(organization)
 
 
 class OrganizationOnboardingViewset(StructuredViewSetMixin, viewsets.GenericViewSet):

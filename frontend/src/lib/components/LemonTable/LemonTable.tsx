@@ -28,8 +28,8 @@ function determineColumnKey(column: LemonTableColumn<any, any>, obligation?: str
 }
 
 export interface LemonTableProps<T extends Record<string, any>> {
-    /** Element key that will also be used in pagination to improve search param uniqueness. */
-    key?: string
+    /** Table ID that will also be used in pagination to add uniqueness to search params (page + order). */
+    id?: string
     columns: LemonTableColumns<T>
     dataSource: T[]
     /** Which column to use for the row key, as an alternative to the default row index mechanism. */
@@ -56,7 +56,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
     sorting?: Sorting | null
     /** Sorting change handler for controlled sort order. */
     onSort?: (newSorting: Sorting | null) => void
-    /** What to show when there's no data. The default value is generic `'No data'`. */
+    /** What to show when there's no data. */
     emptyState?: React.ReactNode
     /** What to describe the entries as, singular and plural. The default value is `['entry', 'entries']`. */
     nouns?: [string, string]
@@ -67,7 +67,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
 }
 
 export function LemonTable<T extends Record<string, any>>({
-    key,
+    id,
     columns,
     dataSource,
     rowKey,
@@ -83,31 +83,59 @@ export function LemonTable<T extends Record<string, any>>({
     defaultSorting = null,
     sorting,
     onSort,
-    emptyState = 'No data',
+    emptyState,
     nouns = ['entry', 'entries'],
     className,
     'data-attr': dataAttr,
 }: LemonTableProps<T>): JSX.Element {
     /** Search param that will be used for storing and syncing the current page */
-    const currentPageParam = key ? `${key}_page` : 'page'
+    const currentPageParam = id ? `${id}_page` : 'page'
+    /** Search param that will be used for storing and syncing sorting */
+    const currentSortingParam = id ? `${id}_order` : 'order'
 
     const { location, searchParams, hashParams } = useValues(router)
     const { push } = useActions(router)
 
     // A tuple signaling scrollability, on the left and on the right respectively
     const [isScrollable, setIsScrollable] = useState([false, false])
-    // Sorting state machine
-    const [sortingState, setSortingState] = useState<Sorting | null>(defaultSorting)
-    const currentSorting = sorting !== undefined ? sorting : sortingState
 
-    // Push a new browing history item to keep track of the current page
+    /** Push a new browing history item to keep track of the current page */
     const setLocalCurrentPage = useCallback(
         (newPage: number) => push(location.pathname, { ...searchParams, [currentPageParam]: newPage }, hashParams),
+        [location, searchParams, hashParams, push]
+    )
+    /** Replace the current browsing history item to change sorting */
+    const setLocalSorting = useCallback(
+        (newSorting: Sorting | null) =>
+            push(
+                location.pathname,
+                {
+                    ...searchParams,
+                    [currentSortingParam]: newSorting
+                        ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                        : undefined,
+                },
+                hashParams
+            ),
         [location, searchParams, hashParams, push]
     )
 
     const scrollRef = useRef<HTMLDivElement>(null)
 
+    /** Sorting. */
+    const currentSorting =
+        sorting ||
+        (searchParams[currentSortingParam]
+            ? searchParams[currentSortingParam].startsWith('-')
+                ? {
+                      columnKey: searchParams[currentSortingParam].substr(1),
+                      order: -1,
+                  }
+                : {
+                      columnKey: searchParams[currentSortingParam],
+                      order: 1,
+                  }
+            : defaultSorting)
     /** Number of entries in total. */
     const entryCount: number | null = pagination?.controlled ? pagination.entryCount || null : dataSource.length
     /** Number of pages. */
@@ -181,6 +209,7 @@ export function LemonTable<T extends Record<string, any>>({
 
     return (
         <div
+            id={id}
             className={clsx(
                 'LemonTable',
                 size && size !== 'middle' && `LemonTable--${size}`,
@@ -222,7 +251,7 @@ export function LemonTable<T extends Record<string, any>>({
                                                               determineColumnKey(column, 'sorting'),
                                                               disableSortingCancellation
                                                           )
-                                                          setSortingState(nextSorting)
+                                                          setLocalSorting(nextSorting)
                                                           onSort?.(nextSorting)
                                                       }
                                                     : undefined
@@ -282,7 +311,9 @@ export function LemonTable<T extends Record<string, any>>({
                                 ))
                             ) : (
                                 <tr>
-                                    <td colSpan={columns.length + Number(!!expandable)}>{emptyState}</td>
+                                    <td colSpan={columns.length + Number(!!expandable)}>
+                                        {emptyState || `No ${nouns[1]}`}
+                                    </td>
                                 </tr>
                             )}
                         </tbody>
