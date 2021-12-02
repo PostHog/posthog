@@ -221,7 +221,7 @@ export function DashboardItem({
     const { loadResults } = useActions(insightLogic(logicProps))
 
     const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
-    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
+
     const previousLoading = usePrevious(insightLoading)
     const diveDashboard = item.dive_dashboard ? getDashboard(item.dive_dashboard) : null
 
@@ -236,6 +236,9 @@ export function DashboardItem({
     const BlockingEmptyState = (() => {
         // Insight specific empty states - note order is important here
         if (item.filters.insight === InsightType.FUNNELS) {
+            // only mount the funnel logic if this dashboard item is a funnel
+            const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
+
             if (!areFiltersValid) {
                 return <FunnelSingleStepState />
             }
