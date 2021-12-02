@@ -39,7 +39,7 @@ describe('getBreakdownStepValues()', () => {
             breakdown_value: ['Baseline'],
         })
     })
-    it('breakdowns are happy arrays', () => {
+    it('breakdowns are well formed arrays', () => {
         expect(
             getBreakdownStepValues({ breakdown: ['blah', 'woof'], breakdown_value: ['Blah', 'Woof'] }, 21)
         ).toStrictEqual({
