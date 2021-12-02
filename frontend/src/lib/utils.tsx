@@ -10,8 +10,8 @@ import {
     ItemMode,
     DashboardMode,
     dateMappingOption,
-    PersonType,
     GroupActorType,
+    ActorType,
 } from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
@@ -1220,6 +1220,6 @@ export function isEllipsisActive(e: HTMLElement | null): boolean {
     return !!e && e.offsetWidth < e.scrollWidth
 }
 
-export function isGroupType(actor: PersonType | GroupActorType): actor is GroupActorType {
+export function isGroupType(actor: ActorType): actor is GroupActorType {
     return actor.type === 'group'
 }

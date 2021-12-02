@@ -449,9 +449,19 @@ export interface FunnelStepRangeEntityFilter extends EntityFilter {
 }
 
 export type EntityFilterTypes = EntityFilter | ActionFilter | FunnelStepRangeEntityFilter | null
+
 export interface PersonType {
+    id?: number
+    uuid?: string
+    name?: string
+    distinct_ids: string[]
+    properties: Record<string, any>
+    created_at?: string
+}
+
+export interface PersonActorType {
     type: 'person'
-    id?: string | number
+    id?: string
     properties: Record<string, any>
     created_at?: string
     uuid?: string
@@ -460,7 +470,6 @@ export interface PersonType {
     is_identified: boolean
 }
 
-// TODO: reconcile with "Group". This pattern is meant to mirror returned persons but overlaps with the already existing group type
 export interface GroupActorType {
     type: 'group'
     id?: string | number
@@ -470,7 +479,8 @@ export interface GroupActorType {
     group_type_index: number
 }
 
-export type ActorType = PersonType | GroupActorType
+export type ActorType = PersonActorType | GroupActorType
+
 export interface CohortGroupType {
     id: string
     days?: string

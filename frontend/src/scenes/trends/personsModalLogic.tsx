@@ -10,9 +10,8 @@ import {
     InsightType,
     FunnelVizType,
     PropertyFilter,
-    PersonType,
     FunnelCorrelationResultsType,
-    GroupActorType,
+    ActorType,
 } from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -228,7 +227,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         people: {
             loadPeople: async ({ peopleParams }, breakpoint) => {
                 let actors: PaginatedResponse<{
-                    people: PersonType[] | GroupActorType[]
+                    people: ActorType[]
                     count: number
                 }> | null = null
                 const {

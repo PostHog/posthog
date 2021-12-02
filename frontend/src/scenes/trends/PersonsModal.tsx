@@ -2,7 +2,7 @@ import React, { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
 import { Modal, Button, Input, Skeleton } from 'antd'
-import { FilterType, PersonType, InsightType, GroupActorType } from '~/types'
+import { FilterType, InsightType, ActorType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { isGroupType, midEllipsis, pluralize } from 'lib/utils'
@@ -183,11 +183,11 @@ export function PersonsModal({
                                         {
                                             title: 'Person',
                                             key: 'person',
-                                            render: function Render(_, actor: PersonType | GroupActorType) {
+                                            render: function Render(_, actor: ActorType) {
                                                 return <ActorRow actor={actor} />
                                             },
                                         },
-                                    ] as LemonTableColumns<PersonType | GroupActorType>
+                                    ] as LemonTableColumns<ActorType>
                                 }
                                 className="persons-table"
                                 rowKey="id"
@@ -235,7 +235,7 @@ export function PersonsModal({
 }
 
 interface ActorRowProps {
-    actor: PersonType | GroupActorType
+    actor: ActorType
 }
 
 export function ActorRow({ actor }: ActorRowProps): JSX.Element {
