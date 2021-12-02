@@ -2,6 +2,8 @@
 
 from typing import Dict, Optional
 
+import psycopg2.sql
+
 request_information: Optional[Dict] = None
 
 
@@ -11,6 +13,9 @@ def execute_pg_query_with_logging(execute, sql, *args, **kwargs):
 
     Install this via connection.execute_wrappers.append
     """
+
+    if isinstance(sql, psycopg2.sql.SQL):
+        sql = sql.string
 
     return execute(f"{sql_comment()}{sql}", *args, **kwargs)
 
