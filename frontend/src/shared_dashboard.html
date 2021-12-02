@@ -3,13 +3,7 @@
   <head>
     <meta name="robots" content="noindex">
     <script>
-      window.__SHARED_DASHBOARD__ = {
-        id: {{dashboard.id}},
-        share_token: '{{dashboard.share_token}}',
-        name: `{{dashboard.name}}`,
-        description: `{{dashboard.description}}`,
-        team_name: `{{team_name}}`
-      }
+      window.__SHARED_DASHBOARD__ = {{shared_dashboard_serialized|safe}}
     </script>
     {% include "head.html" %}
   </head>

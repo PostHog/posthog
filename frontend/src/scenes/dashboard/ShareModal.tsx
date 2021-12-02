@@ -20,32 +20,36 @@ export function ShareModal({ visible, onCancel }: { visible: boolean; onCancel: 
             title="Share your dashboard with people outside of PostHog."
             destroyOnClose
         >
-            <Switch
-                onClick={(_, e) => e.stopPropagation()}
-                checked={isShared}
-                data-attr="share-dashboard-switch"
-                onChange={(active) => {
-                    setIsShared(active)
-                    setIsSharedDashboard(dashboard.id, active)
-                }}
-            />{' '}
-            Share your dashboard
-            <br />
-            <br />
+            <p>
+                <Switch
+                    onClick={(_, e) => e.stopPropagation()}
+                    checked={isShared}
+                    data-attr="share-dashboard-switch"
+                    onChange={(active) => {
+                        setIsShared(active)
+                        setIsSharedDashboard(dashboard.id, active)
+                    }}
+                    style={{ marginRight: 8 }}
+                />
+                Share your dashboard
+            </p>
             {isShared ? (
-                <span>
-                    Your dashboard is visible to everyone with the link.
-                    {dashboard.share_token && (
-                        <CopyToClipboardInput data-attr="share-dashboard-link" value={url} description="link" />
-                    )}
-                    <br />
-                    <br />
-                    To embed this dashboard on your own website, copy the snippet:
+                <>
+                    <p>
+                        Your dashboard is visible to everyone with the link:
+                        {dashboard.share_token && (
+                            <CopyToClipboardInput data-attr="share-dashboard-link" value={url} description="link" />
+                        )}
+                    </p>
+                    To embed this dashboard on your own website, copy this snippet:
                     <CodeSnippet language={Language.HTML}>
-                        {`<iframe width="100%" height="100%" frameborder="0" src="${url}?embed" />`}
+                        {`<iframe width="100%" height="100%" frameborder="0" src="${url}?embedded" />`}
                     </CodeSnippet>
-                    <small>You can hardcode the height in pixels based on your website to avoid the scrollbar.</small>
-                </span>
+                    <small>
+                        Modify attributes <code>width</code> and <code>height</code> to optimize the embed's size for
+                        your website.
+                    </small>
+                </>
             ) : (
                 'Your dashboard is private.'
             )}

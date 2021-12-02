@@ -1,68 +1,64 @@
-import '~/styles'
-import './DashboardItems.scss'
-
 import React from 'react'
 import ReactDOM from 'react-dom'
 import { Provider } from 'react-redux'
 import { getContext } from 'kea'
-
 import { initKea } from '~/initKea'
 import { Dashboard } from './Dashboard'
-
-import PostHogLogo from 'public/posthog-logo.svg'
 import { Col, Row } from 'antd'
 import { loadPostHogJS } from '~/loadPostHogJS'
+import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
+import '~/styles'
+import './DashboardItems.scss'
 
 loadPostHogJS()
 initKea()
 
 const dashboard = (window as any).__SHARED_DASHBOARD__
-const isEmbedded = window.location.search.indexOf('embed') > -1
+const isEmbedded = window.location.search.includes('embedded')
+
 ReactDOM.render(
     <Provider store={getContext().store}>
-        <div style={{ minHeight: '100vh', top: 0, margin: '0 1rem' }}>
+        <div style={{ minHeight: '100vh', top: 0, padding: '1rem' }}>
             {!isEmbedded ? (
-                <div>
-                    <Row>
-                        <Col sm={7} xs={24} style={{ padding: '1rem' }}>
-                            <a href="https://posthog.com" target="_blank" rel="noopener noreferrer">
-                                <img src={PostHogLogo} style={{ height: '2rem', marginTop: 4 }} />
-                            </a>
-                        </Col>
-                        <Col sm={10} xs={24} style={{ padding: '1rem' }}>
-                            <h1 style={{ textAlign: 'center' }} data-attr="dashboard-item-title">
+                <Row align="middle">
+                    <Col sm={7} xs={24}>
+                        <a href="https://posthog.com" target="_blank" rel="noopener noreferrer">
+                            <FriendlyLogo style={{ fontSize: '1.125rem' }} />
+                        </a>
+                    </Col>
+                    <Col sm={10} xs={24} style={{ textAlign: 'center' }}>
+                        <>
+                            <h1 style={{ marginBottom: '0.25rem' }} data-attr="dashboard-item-title">
                                 {dashboard.name}
                             </h1>
-                        </Col>
-                        <Col sm={7} xs={0} style={{ padding: '1rem', textAlign: 'right' }}>
-                            <span style={{ paddingTop: 15, display: 'inline-block' }}>{dashboard.team_name}</span>
-                        </Col>
-                    </Row>
-                    <p style={{ textAlign: 'center', marginBottom: '1rem' }}>{dashboard.description}</p>
-                </div>
+                            <span>{dashboard.description}</span>
+                        </>
+                    </Col>
+                    <Col sm={7} xs={0} style={{ textAlign: 'right' }}>
+                        <span style={{ display: 'inline-block' }}>{dashboard.team_name}</span>
+                    </Col>
+                </Row>
             ) : (
-                <div className="float-right">
-                    Dashboard made with
-                    <a href="https://posthog.com" target="_blank" rel="noopener noreferrer">
-                        <img
-                            src={PostHogLogo}
-                            style={{ height: '2rem', marginTop: -2, marginLeft: 8 }}
-                            title="PostHog - Open Source Product Analytics"
-                        />
-                    </a>
-                </div>
+                <a
+                    href="https://posthog.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ display: 'block', marginBottom: '-4rem' }}
+                >
+                    <FriendlyLogo style={{ fontSize: '1.125rem' }} />
+                </a>
             )}
 
             <Dashboard id={dashboard.id} shareToken={dashboard.share_token} />
 
-            <div style={{ textAlign: 'center', paddingBottom: '4rem', marginTop: '1rem' }}>
+            <div style={{ textAlign: 'center', paddingBottom: '2rem' }}>
                 Made with{' '}
                 <a
                     href="https://posthog.com?utm_medium=in-product&utm_campaign=shared-dashboard"
                     target="_blank"
                     rel="noopener"
                 >
-                    PostHog - Open Source Product Analytics
+                    PostHog – open-source product analytics
                 </a>
             </div>
         </div>
