@@ -65,7 +65,7 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
             ...Array.from(Array(maxIntervalsCount).keys()).map((index: number) => ({
                 key: `period::${index}`,
                 title: `${period} ${index}`,
-                render: (row) => {
+                render: (row: RetentionTablePayload) => {
                     if (index >= row.values.length) {
                         return ''
                     }
