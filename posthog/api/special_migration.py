@@ -5,12 +5,8 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.celery import app
 from posthog.models.special_migration import MigrationStatus, SpecialMigration, get_all_running_special_migrations
 from posthog.permissions import StaffUser
-from posthog.special_migrations.runner import (
-    force_rollback_migration,
-    force_stop_migration,
-    is_migration_in_range,
-    trigger_migration,
-)
+from posthog.special_migrations.runner import is_migration_in_range, trigger_migration
+from posthog.special_migrations.utils import force_rollback_migration, force_stop_migration
 
 # important to prevent us taking up too many celery workers
 # and running migrations sequentially
