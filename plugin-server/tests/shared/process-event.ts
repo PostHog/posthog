@@ -355,8 +355,8 @@ export const createProcessEventTests = (
                 },
             } as any as PluginEvent,
             team.id,
-            DateTime.now(),
-            DateTime.now(),
+            now,
+            now,
             new UUIDT().toString()
         )
 
@@ -364,6 +364,7 @@ export const createProcessEventTests = (
         let persons = await hub.db.fetchPersons()
         let events = await hub.db.fetchEvents()
         expect(persons[0].version).toEqual(0)
+        expect(persons[0].created_at).toEqual(now)
         let expectedProps = {
             $initial_browser: 'Chrome',
             $initial_browser_version: false,
@@ -380,6 +381,7 @@ export const createProcessEventTests = (
             const chPeople = await hub.db.fetchPersons(Database.ClickHouse)
             expect(chPeople.length).toEqual(1)
             expect(JSON.parse(chPeople[0].properties)).toEqual(expectedProps)
+            expect(chPeople[0].created_at).toEqual(now.toFormat('yyyy-MM-dd HH:mm:ss.000'))
         }
         expect(events[0].properties).toEqual({
             $ip: '127.0.0.1',
