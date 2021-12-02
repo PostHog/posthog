@@ -74,7 +74,7 @@ export function InsightsNav(): JSX.Element {
                 <TabPane
                     tab={
                         <Tooltip placement="top" title={INSIGHT_TYPES_METADATA[InsightType.PATHS].description}>
-                            <span data-attr="insight-paths-tab">
+                            <span data-attr="insight-path-tab">
                                 User Paths
                                 <InsightHotkey hotkey="p" />
                             </span>
