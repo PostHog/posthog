@@ -6,12 +6,7 @@ from semantic_version.base import SimpleSpec
 from posthog.celery import app
 from posthog.models.special_migration import MigrationStatus, SpecialMigration, get_all_running_special_migrations
 from posthog.models.utils import UUIDT
-from posthog.special_migrations.setup import (
-    ALL_SPECIAL_MIGRATIONS,
-    DEPENDENCY_TO_SPECIAL_MIGRATION,
-    POSTHOG_VERSION,
-    SPECIAL_MIGRATION_TO_DEPENDENCY,
-)
+from posthog.special_migrations.setup import ALL_SPECIAL_MIGRATIONS, POSTHOG_VERSION, SPECIAL_MIGRATION_TO_DEPENDENCY
 from posthog.special_migrations.utils import execute_op, mark_migration_as_successful, process_error, trigger_migration
 
 # important to prevent us taking up too many celery workers
@@ -23,8 +18,9 @@ def start_special_migration(migration_name: str) -> bool:
     migration_instance = SpecialMigration.objects.get(name=migration_name)
     over_concurrent_migrations_limit = len(get_all_running_special_migrations()) >= MAX_CONCURRENT_SPECIAL_MIGRATIONS
     if (
-        over_concurrent_migrations_limit
-        or not migration_instance
+        not migration_instance
+        or over_concurrent_migrations_limit
+        or not is_migration_in_range(migration_instance.posthog_min_version, migration_instance.posthog_max_version)
         or migration_instance.status == MigrationStatus.Running
     ):
         return False
@@ -127,10 +123,14 @@ def is_current_operation_resumable(migration_instance: SpecialMigration):
     )
 
 
+def is_migration_in_range(posthog_min_version, posthog_max_version):
+    return POSTHOG_VERSION in SimpleSpec(f">={posthog_min_version},<={posthog_max_version}")
+
+
 def run_next_migration(candidate: str) -> bool:
     migration_instance = SpecialMigration.objects.get(name=candidate)
-    migration_in_range = POSTHOG_VERSION in SimpleSpec(
-        f">={migration_instance.posthog_min_version},<={migration_instance.posthog_max_version}"
+    migration_in_range = is_migration_in_range(
+        migration_instance.posthog_min_version, migration_instance.posthog_max_version
     )
     dependency = SPECIAL_MIGRATION_TO_DEPENDENCY[candidate]
 
