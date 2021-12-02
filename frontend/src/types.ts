@@ -1325,6 +1325,20 @@ export interface Experiment {
     filters: Partial<FilterType>
 }
 
+interface RelatedPerson {
+    type: 'person'
+    id: string
+    person: Pick<PersonType, 'distinct_ids' | 'properties'>
+}
+
+interface RelatedGroup {
+    type: 'group'
+    group_type_index: number
+    id: string
+}
+
+export type RelatedActor = RelatedPerson | RelatedGroup
+
 export interface SelectOption {
     value: string
     label?: string
