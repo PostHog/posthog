@@ -50,6 +50,7 @@ export function copyPublicFolder() {
         }
     })
 }
+
 export function copyIndexHtml(
     from = 'src/index.html',
     to = 'dist/index.html',
@@ -160,6 +161,18 @@ function getChunks(result) {
     return chunks
 }
 
+export async function buildInParallel(configs, { onBuildStart, onBuildComplete }) {
+    await Promise.all(
+        configs.map((config) =>
+            buildOrWatch({
+                ...config,
+                onBuildStart,
+                onBuildComplete,
+            })
+        )
+    )
+}
+
 export async function buildOrWatch(config) {
     const { name, onBuildStart, onBuildComplete, ..._config } = config
 
@@ -178,7 +191,7 @@ export async function buildOrWatch(config) {
             return
         }
         buildAgain = false
-        onBuildStart?.()
+        onBuildStart?.(config)
         reloadLiveServer()
         buildPromise = runBuild()
         const buildResponse = await buildPromise
