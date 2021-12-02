@@ -25,6 +25,7 @@ frontend/tmp
 celerybeat-schedule
 celerybeat.pid
 yarn-error.log
+.yarn*
 .yalc
 yalc.lock
 cypress/screenshots/
