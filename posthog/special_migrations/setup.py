@@ -11,8 +11,8 @@ from posthog.version import VERSION
 
 ALL_SPECIAL_MIGRATIONS: Dict[str, SpecialMigrationDefinition] = {}
 
-SPECIAL_MIGRATION_TO_DEPENDENCY: Dict[str, str] = {}
-DEPENDENCY_TO_SPECIAL_MIGRATION: Dict[str, str] = {}
+SPECIAL_MIGRATION_TO_DEPENDENCY: Dict[str, Optional[str]] = {}
+DEPENDENCY_TO_SPECIAL_MIGRATION: Dict[Optional[str], str] = {}
 
 
 POSTHOG_VERSION = Version(VERSION)
