@@ -37,13 +37,13 @@ def setup_special_migrations():
     unapplied_migrations = set(ALL_SPECIAL_MIGRATIONS.keys()) - applied_migrations
 
     first_migration = None
-    for migration_name, migration in ALL_SPECIAL_MIGRATIONS:
+    for migration_name, migration in ALL_SPECIAL_MIGRATIONS.items():
 
         SpecialMigration.objects.get_or_create(
             name=migration_name,
             description=migration.description,
             posthog_max_version=migration.posthog_max_version,
-            posthog_max_version=migration.posthog_min_version,
+            posthog_min_version=migration.posthog_min_version,
         )
 
         dependency = migration.depends_on
