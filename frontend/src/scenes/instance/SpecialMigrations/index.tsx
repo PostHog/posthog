@@ -68,22 +68,25 @@ export function SpecialMigrations(): JSX.Element {
         {
             title: 'Description',
             render: function RenderError(specialMigration: SpecialMigration): JSX.Element {
+                const description = specialMigration.description
                 return (
                     <small>
-                        <span>{specialMigration.description.slice(0, 40)}</span>
-                        <a
-                            onClick={() => {
-                                Modal.info({
-                                    title: `'${specialMigration.name}' description`,
-                                    content: <pre>{specialMigration.description}</pre>,
-                                    icon: <InfoCircleOutlined />,
-                                    okText: 'Close',
-                                    width: '80%',
-                                })
-                            }}
-                        >
-                            {` [...]`}
-                        </a>
+                        <span>{description.slice(0, 40)}</span>
+                        {description.length > 40 ? (
+                            <a
+                                onClick={() => {
+                                    Modal.info({
+                                        title: `'${specialMigration.name}' description`,
+                                        content: <pre>{description}</pre>,
+                                        icon: <InfoCircleOutlined />,
+                                        okText: 'Close',
+                                        width: '80%',
+                                    })
+                                }}
+                            >
+                                {` [...]`}
+                            </a>
+                        ) : null}
                     </small>
                 )
             },
@@ -109,22 +112,25 @@ export function SpecialMigrations(): JSX.Element {
         {
             title: 'Error',
             render: function RenderError(specialMigration: SpecialMigration): JSX.Element {
+                const error = specialMigration.last_error || ''
                 return (
                     <small>
-                        <span>{specialMigration.last_error.slice(0, 40)}</span>
-                        <a
-                            onClick={() => {
-                                Modal.info({
-                                    title: `Error on migration '${specialMigration.name}'`,
-                                    content: <pre>{specialMigration.last_error}</pre>,
-                                    icon: <InfoCircleOutlined />,
-                                    okText: 'Close',
-                                    width: '80%',
-                                })
-                            }}
-                        >
-                            {` [...]`}
-                        </a>
+                        <span>{error.slice(0, 40)}</span>
+                        {error.length > 40 ? (
+                            <a
+                                onClick={() => {
+                                    Modal.info({
+                                        title: `Error on migration '${specialMigration.name}'`,
+                                        content: <pre>{error}</pre>,
+                                        icon: <InfoCircleOutlined />,
+                                        okText: 'Close',
+                                        width: '80%',
+                                    })
+                                }}
+                            >
+                                {` [...]`}
+                            </a>
+                        ) : null}
                     </small>
                 )
             },
