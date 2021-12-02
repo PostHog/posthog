@@ -18,7 +18,7 @@ const isEmbedded = window.location.search.includes('embedded')
 
 ReactDOM.render(
     <Provider store={getContext().store}>
-        <div style={{ minHeight: '100vh', top: 0, padding: '1rem' }}>
+        <div style={{ minHeight: '100vh', top: 0, padding: !isEmbedded ? '1rem' : '0.5rem 1rem' }}>
             {!isEmbedded ? (
                 <Row align="middle">
                     <Col sm={7} xs={24}>
