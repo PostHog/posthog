@@ -159,7 +159,7 @@ export function PersonsModal({
                             <span>
                                 This list contains{' '}
                                 <b>
-                                    {people.count} unique {pluralize(people.count, actorLabel, undefined, false)}
+                                    {people.count} unique {actorLabel}
                                 </b>
                                 {peopleParams?.pointValue !== undefined &&
                                     peopleParams.action !== 'session' &&
