@@ -23,7 +23,7 @@
             "essential": true,
             "environment": [
                 {
-                    "name": "STATIC_HOST",
+                    "name": "JS_URL",
                     "value": "https://d1l1qibt80hm9p.cloudfront.net"
                 },
                 {

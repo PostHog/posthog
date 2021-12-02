@@ -580,8 +580,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/2.2/howto/static-files/
 
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
-STATIC_HOST = os.environ.get('STATIC_HOST', '') # optional: used to configure a custom hostname where to serve static assets from
-STATIC_URL = STATIC_HOST + '/static/'
+STATIC_URL = "/static/"
 STATICFILES_DIRS = [
     os.path.join(BASE_DIR, "frontend/dist"),
 ]
