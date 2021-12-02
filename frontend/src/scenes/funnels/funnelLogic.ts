@@ -1128,10 +1128,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         ],
         isModalActive: [
             (s) => [s.insightMode, s.clickhouseFeaturesEnabled, s.filters],
-            (insightMode, clickhouseFeaturesEnabled, filters) =>
-                clickhouseFeaturesEnabled &&
-                insightMode === ItemMode.Edit &&
-                filters.aggregation_group_type_index === undefined,
+            (insightMode, clickhouseFeaturesEnabled) => clickhouseFeaturesEnabled && insightMode === ItemMode.Edit,
         ],
     }),
 
@@ -1228,7 +1225,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             })
         },
         openPersonsModalForStep: ({ step, converted }) => {
-            // :TODO: Support 'person' modal for groups
             if (!values.isModalActive) {
                 return
             }

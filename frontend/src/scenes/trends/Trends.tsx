@@ -31,7 +31,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
         filters: _filters,
         loadMoreBreakdownUrl,
         breakdownValuesLoading,
-        showPersonsModal,
+        showModalActions,
     } = useValues(trendsLogic(insightProps))
     const { loadMoreBreakdownValues } = useActions(trendsLogic(insightProps))
     const { showingPeople } = useValues(personsModalLogic)
@@ -45,7 +45,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
             _filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
             _filters.display === ACTIONS_BAR_CHART
         ) {
-            return <ActionsLineGraph filters={_filters} showPersonsModal={showPersonsModal} />
+            return <ActionsLineGraph filters={_filters} />
         }
         if (_filters.display === ACTIONS_TABLE) {
             if (view === InsightType.SESSIONS && _filters.session === 'dist') {
@@ -63,10 +63,10 @@ export function TrendInsight({ view }: Props): JSX.Element {
             )
         }
         if (_filters.display === ACTIONS_PIE_CHART) {
-            return <ActionsPie filters={_filters} showPersonsModal={showPersonsModal} />
+            return <ActionsPie filters={_filters} />
         }
         if (_filters.display === ACTIONS_BAR_CHART_VALUE) {
-            return <ActionsBarValueGraph filters={_filters} showPersonsModal={showPersonsModal} />
+            return <ActionsBarValueGraph filters={_filters} />
         }
     }
 
@@ -107,6 +107,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
                 onSaveCohort={() => {
                     setCohortModalVisible(true)
                 }}
+                showModalActions={showModalActions}
             />
             <SaveCohortModal
                 visible={cohortModalVisible}

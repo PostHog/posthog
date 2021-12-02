@@ -19,6 +19,8 @@ import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { UploadFile } from 'antd/lib/upload/interface'
 import { eventWithTime } from 'rrweb/typings/types'
 import { PostHog } from 'posthog-js'
+import React from 'react'
+import { PopupProps } from 'lib/components/Popup/Popup'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -458,6 +460,28 @@ export interface PersonType {
     properties: Record<string, any>
     created_at?: string
 }
+
+export interface PersonActorType {
+    type: 'person'
+    id?: string
+    properties: Record<string, any>
+    created_at?: string
+    uuid?: string
+    name?: string
+    distinct_ids: string[]
+    is_identified: boolean
+}
+
+export interface GroupActorType {
+    type: 'group'
+    id?: string | number
+    properties: Record<string, any>
+    created_at?: string
+    group_key: string
+    group_type_index: number
+}
+
+export type ActorType = PersonActorType | GroupActorType
 
 export interface CohortGroupType {
     id: string
@@ -1313,6 +1337,20 @@ export interface Experiment {
     filters: Partial<FilterType>
 }
 
+interface RelatedPerson {
+    type: 'person'
+    id: string
+    person: Pick<PersonType, 'distinct_ids' | 'properties'>
+}
+
+interface RelatedGroup {
+    type: 'group'
+    group_type_index: number
+    id: string
+}
+
+export type RelatedActor = RelatedPerson | RelatedGroup
+
 export interface SelectOption {
     value: string
     label?: string
@@ -1405,4 +1443,15 @@ export interface VersionType {
 export interface dateMappingOption {
     inactive?: boolean // Options removed due to low usage (see relevant PR); will not show up for new insights but will be kept for existing
     values: string[]
+}
+
+export interface Breadcrumb {
+    /** Name to display. */
+    name: string | null | undefined
+    /** Symbol, e.g. a lettermark or a profile picture. */
+    symbol?: React.ReactNode
+    /** Path to link to. */
+    path?: string
+    /** Whether to show a custom popup */
+    popup?: Pick<PopupProps, 'overlay' | 'sameWidth' | 'actionable'>
 }

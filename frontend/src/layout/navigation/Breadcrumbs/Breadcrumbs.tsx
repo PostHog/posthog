@@ -3,7 +3,8 @@ import { useValues } from 'kea'
 import { IconArrowDropDown, IconChevronRight } from 'lib/components/icons'
 import { Link } from 'lib/components/Link'
 import './Breadcrumbs.scss'
-import { Breadcrumb as IBreadcrumb, breadcrumbsLogic } from './breadcrumbsLogic'
+import { breadcrumbsLogic } from './breadcrumbsLogic'
+import { Breadcrumb as IBreadcrumb } from '~/types'
 import clsx from 'clsx'
 import { Popup } from 'lib/components/Popup/Popup'
 
@@ -14,7 +15,6 @@ function Breadcrumb({ breadcrumb }: { breadcrumb: IBreadcrumb }): JSX.Element {
         <div
             className={clsx(
                 'Breadcrumbs__breadcrumb',
-                breadcrumb.here && 'Breadcrumbs__breadcrumb--current',
                 (breadcrumb.path || breadcrumb.popup) && 'Breadcrumbs__breadcrumb--actionable'
             )}
             onClick={() => breadcrumb.popup && setPopoverShown(!popoverShown)}
@@ -45,12 +45,12 @@ function Breadcrumb({ breadcrumb }: { breadcrumb: IBreadcrumb }): JSX.Element {
 }
 
 export function Breadcrumbs(): JSX.Element | null {
-    const { breadcrumbs } = useValues(breadcrumbsLogic)
+    const { firstBreadcrumb, tailBreadcrumbs } = useValues(breadcrumbsLogic)
 
-    return breadcrumbs.length > 0 ? (
+    return firstBreadcrumb ? (
         <div className="Breadcrumbs">
-            <Breadcrumb breadcrumb={breadcrumbs[0]} />
-            {breadcrumbs.slice(1).map((breadcrumb) => (
+            <Breadcrumb breadcrumb={firstBreadcrumb} />
+            {tailBreadcrumbs.map((breadcrumb) => (
                 <React.Fragment key={breadcrumb.name || '…'}>
                     <IconChevronRight className="Breadcrumbs__separator" />
                     <Breadcrumb breadcrumb={breadcrumb} />

@@ -867,8 +867,13 @@ def get_milliseconds_between_dates(d1: dt.datetime, d2: dt.datetime) -> int:
     return abs(int((d1 - d2).total_seconds() * 1000))
 
 
-def json_encode_request_params(data: Dict[str, Any]) -> Dict[str, str]:
-    return {key: encode_value_as_param(value=value) for key, value in data.items()}
+def encode_get_request_params(data: Dict[str, Any]) -> Dict[str, str]:
+    return {
+        key: encode_value_as_param(value=value)
+        for key, value in data.items()
+        # NOTE: we cannot encode `None` as a GET parameter, so we simply omit it
+        if value is not None
+    }
 
 
 class DataclassJSONEncoder(json.JSONEncoder):

@@ -55,7 +55,6 @@ export function InsightContainer(): JSX.Element {
         insightMode,
         showTimeoutMessage,
         showErrorMessage,
-        insightLoading,
     } = useValues(insightLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
         funnelLogic(insightProps)
@@ -65,8 +64,13 @@ export function InsightContainer(): JSX.Element {
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (activeView !== loadedView) {
-            return <Loading />
+        if (activeView !== loadedView || isLoading) {
+            return (
+                <>
+                    <div style={{ minHeight: 'min(calc(90vh - 16rem), 36rem)' }} />
+                    <Loading />
+                </>
+            )
         }
         // Insight specific empty states - note order is important here
         if (loadedView === InsightType.FUNNELS) {
@@ -76,7 +80,7 @@ export function InsightContainer(): JSX.Element {
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionState />
             }
-            if (!isValidFunnel && !(insightLoading || isLoading)) {
+            if (!isValidFunnel && !isLoading) {
                 return <InsightEmptyState />
             }
         }
@@ -89,14 +93,6 @@ export function InsightContainer(): JSX.Element {
             return <InsightTimeoutState isLoading={isLoading} />
         }
 
-        return null
-    })()
-
-    // Empty states that can coexist with the graph (e.g. Loading)
-    const CoexistingEmptyState = (() => {
-        if (isLoading || insightLoading) {
-            return <Loading />
-        }
         return null
     })()
 
@@ -185,7 +181,6 @@ export function InsightContainer(): JSX.Element {
                         </Col>
                         {lastRefresh && <ComputationTimeWithRefresh />}
                     </Row>
-                    {!BlockingEmptyState && CoexistingEmptyState}
                     {!!BlockingEmptyState ? BlockingEmptyState : VIEW_MAP[activeView]}
                 </div>
             </Card>
