@@ -388,7 +388,8 @@ class QuerySuite:
             team=self.team,
         )
 
-        ClickhouseRetention().run(filter, self.team)
+        with no_materialized_columns():
+            ClickhouseRetention().run(filter, self.team)
 
     @benchmark_clickhouse
     def track_retention_filter_by_person_property(self):
