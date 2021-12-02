@@ -3,16 +3,15 @@ import { Link } from 'lib/components/Link'
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
-import { errorToast, isGroupType, toParams } from 'lib/utils'
+import { errorToast, isGroupType, pluralize, toParams } from 'lib/utils'
 import {
     ActionFilter,
     FilterType,
     InsightType,
     FunnelVizType,
     PropertyFilter,
-    PersonType,
     FunnelCorrelationResultsType,
-    GroupActorType,
+    ActorType,
 } from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -214,12 +213,13 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         actorLabel: [
             (s) => [s.people, s.isGroupType, s.groupTypes],
             (result, _isGroupType, groupTypes) => {
-                if (_isGroupType) {
-                    return result?.action !== 'session' && result?.action.math_group_type_index != undefined
-                        ? groupTypes[result.action.math_group_type_index].group_type
-                        : 'group'
+                if (_isGroupType && result?.action !== 'session') {
+                    return result?.action.math_group_type_index != undefined &&
+                        groupTypes.length > result?.action.math_group_type_index
+                        ? `${groupTypes[result?.action.math_group_type_index].group_type}(s)`
+                        : ''
                 } else {
-                    return 'user'
+                    return pluralize(result?.count || 0, 'user', undefined, false)
                 }
             },
         ],
@@ -228,7 +228,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         people: {
             loadPeople: async ({ peopleParams }, breakpoint) => {
                 let actors: PaginatedResponse<{
-                    people: PersonType[] | GroupActorType[]
+                    people: ActorType[]
                     count: number
                 }> | null = null
                 const {
