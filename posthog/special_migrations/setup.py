@@ -3,6 +3,7 @@ from infi.clickhouse_orm.utils import import_submodules
 from semantic_version.base import SimpleSpec, Version
 
 from posthog.settings import DEBUG, E2E_TESTING, SKIP_SERVICE_VERSION_REQUIREMENTS, TEST
+from posthog.utils import print_warning
 from posthog.version import VERSION
 
 ALL_SPECIAL_MIGRATIONS = {}
@@ -14,6 +15,7 @@ def setup_special_migrations():
     from posthog.models.special_migration import SpecialMigration, get_all_completed_special_migrations
 
     if TEST or E2E_TESTING or SKIP_SERVICE_VERSION_REQUIREMENTS:
+        print_warning(["Skipping special migrations setup. This is unsafe in production!"])
         return
 
     all_migrations = import_submodules("posthog.special_migrations.migrations")
