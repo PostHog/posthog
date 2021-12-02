@@ -15,7 +15,7 @@ const defaultPort = 8234
 export const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
 export const isDev = process.argv.includes('--dev')
 
-const useJsURL = process.env.JS_URL ? true : false || isDev
+const useJsURL = Boolean(process.env.JS_URL) || isDev
 const jsURL = process.env.JS_URL || `http://${defaultHost}:${defaultPort}`
 
 export const sassPlugin = _sassPlugin({
@@ -60,10 +60,11 @@ export function copyIndexHtml(
 ) {
     const buildId = new Date().valueOf()
 
-    const jsEntrypoint =
-        entrypoints.length > 0 ? `"${entrypoints.find((e) => e.endsWith('.js'))}"` : `"${entry}.js?t=${buildId}"`
-    const cssEntrypoint =
-        entrypoints.length > 0 ? `${entrypoints.find((e) => e.endsWith('.css'))}` : `${entry}.css?t=${buildId}`
+    const relativeFiles = entrypoints.map((e) => path.relative(path.resolve(__dirname, 'dist'), e))
+    const jsFile =
+        relativeFiles.length > 0 ? `"${relativeFiles.find((e) => e.endsWith('.js'))}"` : `"${entry}.js?t=${buildId}"`
+    const cssFile =
+        relativeFiles.length > 0 ? `${relativeFiles.find((e) => e.endsWith('.css'))}` : `${entry}.css?t=${buildId}`
 
     const scriptCode = `
         window.ESBUILD_LOAD_SCRIPT = async function (file) {
@@ -73,7 +74,7 @@ export function copyIndexHtml(
                 console.error('Error loading chunk: "' + file + '"')
             }
         }
-        window.ESBUILD_LOAD_SCRIPT(${jsEntrypoint})
+        window.ESBUILD_LOAD_SCRIPT(${jsFile})
     `
 
     const chunkCode = `
@@ -90,9 +91,7 @@ export function copyIndexHtml(
         window.ESBUILD_LOAD_CHUNKS('index');
     `
 
-    const cssLinkTag = cssEntrypoint
-        ? `<link rel="stylesheet" href='${useJsURL ? jsURL : ''}/static/${cssEntrypoint}'>`
-        : ''
+    const cssLinkTag = cssFile ? `<link rel="stylesheet" href='${useJsURL ? jsURL : ''}/static/${cssFile}'>` : ''
 
     fse.writeFileSync(
         path.resolve(__dirname, to),
@@ -100,7 +99,7 @@ export function copyIndexHtml(
             '</head>',
             `   <script type="application/javascript">
                     ${scriptCode}
-                    ${chunks.length > 0 ? chunkCode : ''}
+                    ${Object.keys(chunks).length > 0 ? chunkCode : ''}
                 </script>
                 ${cssLinkTag}
             </head>`
@@ -112,10 +111,7 @@ export function copyIndexHtml(
 export function createHashlessEntrypoints(entrypoints) {
     for (const entrypoint of entrypoints) {
         const withoutHash = entrypoint.replace(/-([A-Z0-9]+).(js|css)$/, '.$2')
-        fse.writeFileSync(
-            path.resolve(__dirname, 'dist', withoutHash),
-            fse.readFileSync(path.resolve(__dirname, 'dist', entrypoint))
-        )
+        fse.writeFileSync(path.resolve(withoutHash), fse.readFileSync(path.resolve(entrypoint)))
     }
 }
 
@@ -184,6 +180,37 @@ export async function buildInParallel(configs, { onBuildStart, onBuildComplete }
     )
 }
 
+/** Get the main ".js" and ".css" files for a build */
+function getBuiltEntryPoints(config, result) {
+    let outfiles = []
+    if (config.outdir) {
+        // convert "src/index.tsx" --> /a/posthog/frontend/dist/index.js
+        outfiles = config.entryPoints.map((file) =>
+            path
+                .resolve(__dirname, file)
+                .replace('/src/', '/dist/')
+                .replace(/\.[^\.]+$/, '.js')
+        )
+    } else if (config.outfile) {
+        outfiles = [config.outfile]
+    }
+
+    const builtFiles = []
+    for (const outfile of outfiles) {
+        // convert "/a/something.tsx" --> "/a/something-"
+        const searchString = `${outfile.replace(/\.[^/]+$/, '')}-`
+        // find if we built a .js or .css file that matches
+        for (const file of Object.keys(result.metafile.outputs)) {
+            const absoluteFile = path.resolve(process.cwd(), file)
+            if (absoluteFile.startsWith(searchString) && (file.endsWith('.js') || file.endsWith('.css'))) {
+                builtFiles.push(absoluteFile)
+            }
+        }
+    }
+
+    return builtFiles
+}
+
 export async function buildOrWatch(config) {
     const { name, onBuildStart, onBuildComplete, ..._config } = config
 
@@ -238,30 +265,10 @@ export async function buildOrWatch(config) {
         }
         inputFiles = getInputFiles(result)
 
-        const entrypoints = []
-
-        if (config.outdir) {
-            for (const entrypoint of config.entryPoints) {
-                const searchString = entrypoint.replace(/\.[^/]+$/, '').replace(/^src\//, 'frontend/dist/')
-                for (const file of Object.keys(result.metafile.outputs)) {
-                    if (file.startsWith(`${searchString}-`) && (file.endsWith('.js') || file.endsWith('.css'))) {
-                        entrypoints.push(file.replace(/^frontend\/dist\//, ''))
-                    }
-                }
-            }
-        } else if (config.outfile) {
-            const searchString = path.relative(path.resolve(__dirname, 'dist'), config.outfile).replace(/\.[^/]+$/, '')
-
-            for (const file of Object.keys(result.metafile.outputs)) {
-                const filename = file.replace(/^frontend\/dist\//, '')
-                if (filename.startsWith(`${searchString}-`) && (file.endsWith('.js') || file.endsWith('.css'))) {
-                    entrypoints.push(file.replace(/^frontend\/dist\//, ''))
-                }
-            }
+        return {
+            chunks: getChunks(result),
+            entrypoints: getBuiltEntryPoints(config, result),
         }
-
-        const chunks = getChunks(result)
-        return { chunks, entrypoints }
     }
 
     if (isDev) {
