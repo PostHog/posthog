@@ -25,7 +25,6 @@ frontend/tmp
 celerybeat-schedule
 celerybeat.pid
 yarn-error.log
-.yarn*
 .yalc
 yalc.lock
 cypress/screenshots/
@@ -36,4 +35,10 @@ build-storybook.log
 storybook-static
 ee/benchmarks/results
 plugin-server/src/config/idl/protos.*
-
+.yarn/*
+!.yarn/cache
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
