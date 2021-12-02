@@ -68,7 +68,7 @@ def setup_special_migrations():
         kickstart_migration_if_possible(first_migration, applied_migrations)
 
 
-def kickstart_migration_if_possible(migration_name: Optional[str], applied_migrations: set):
+def kickstart_migration_if_possible(migration_name: str, applied_migrations: set):
     # look for an unapplied migration an try to run it
     while migration_name in applied_migrations:
         migration_name = DEPENDENCY_TO_SPECIAL_MIGRATION.get(migration_name)
