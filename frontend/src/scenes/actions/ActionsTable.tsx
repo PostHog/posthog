@@ -16,7 +16,7 @@ import { userLogic } from 'scenes/userLogic'
 import { teamLogic } from '../teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { EventsTab } from 'scenes/events'
-import api from '../../lib/api'
+import api from 'lib/api'
 import { urls } from '../urls'
 import { EventPageHeader } from 'scenes/events/EventPageHeader'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
@@ -38,8 +38,6 @@ const searchActions = (sources: ActionType[], search: string): ActionType[] => {
 
 export const scene: SceneExport = {
     component: ActionsTable,
-    logic: actionsModel,
-    paramsToProps: () => ({ params: 'include_count=1' }),
 }
 
 export function ActionsTable(): JSX.Element {

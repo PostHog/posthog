@@ -2,7 +2,7 @@ import React, { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
 import { Modal, Button, Input, Skeleton } from 'antd'
-import { FilterType, PersonType, InsightType, GroupActorType } from '~/types'
+import { FilterType, InsightType, ActorType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { isGroupType, midEllipsis, pluralize } from 'lib/utils'
@@ -59,9 +59,8 @@ export function PersonsModal({
             ) : filters.insight === InsightType.FUNNELS ? (
                 <>
                     {(people?.funnelStep ?? 0) >= 0 ? 'Completed' : 'Dropped off at'} step{' '}
-                    {Math.abs(people?.funnelStep ?? 0)} - <PropertyKeyInfo value={people?.label || ''} disablePopover />{' '}
-                    {people?.breakdown_value !== undefined &&
-                        `- ${people.breakdown_value ? people.breakdown_value : 'None'}`}
+                    {Math.abs(people?.funnelStep ?? 0)} • <PropertyKeyInfo value={people?.label || ''} disablePopover />{' '}
+                    {!!people?.breakdown_value ? `• ${people.breakdown_value}` : ''}
                 </>
             ) : filters.insight === InsightType.PATHS ? (
                 <>
@@ -159,7 +158,7 @@ export function PersonsModal({
                             <span>
                                 This list contains{' '}
                                 <b>
-                                    {people.count} unique {pluralize(people.count, actorLabel, undefined, false)}
+                                    {people.count} unique {actorLabel}
                                 </b>
                                 {peopleParams?.pointValue !== undefined &&
                                     peopleParams.action !== 'session' &&
@@ -183,11 +182,11 @@ export function PersonsModal({
                                         {
                                             title: 'Person',
                                             key: 'person',
-                                            render: function Render(_, actor: PersonType | GroupActorType) {
+                                            render: function Render(_, actor: ActorType) {
                                                 return <ActorRow actor={actor} />
                                             },
                                         },
-                                    ] as LemonTableColumns<PersonType | GroupActorType>
+                                    ] as LemonTableColumns<ActorType>
                                 }
                                 className="persons-table"
                                 rowKey="id"
@@ -235,7 +234,7 @@ export function PersonsModal({
 }
 
 interface ActorRowProps {
-    actor: PersonType | GroupActorType
+    actor: ActorType
 }
 
 export function ActorRow({ actor }: ActorRowProps): JSX.Element {

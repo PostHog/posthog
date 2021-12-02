@@ -10,8 +10,7 @@ import './FunnelHistogram.scss'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function FunnelHistogram(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-    const { dashboardItemId } = insightProps
+    const { insightProps, isViewedOnDashboard } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
     const { histogramGraphData } = useValues(logic)
     const ref = useRef(null)
@@ -19,21 +18,21 @@ export function FunnelHistogram(): JSX.Element {
 
     // Must reload the entire graph on a dashboard when values change, otherwise will run into random d3 bugs
     // See: https://github.com/PostHog/posthog/pull/5259
-    const key = dashboardItemId ? hashCodeForString(JSON.stringify(histogramGraphData)) : 'staticGraph'
+    const key = isViewedOnDashboard ? hashCodeForString(JSON.stringify(histogramGraphData)) : 'staticGraph'
 
     return (
         <div
-            className={clsx('funnel-histogram-outer-container', { scrollable: !dashboardItemId })}
+            className={clsx('funnel-histogram-outer-container', { scrollable: !isViewedOnDashboard })}
             ref={ref}
             data-attr="funnel-histogram"
         >
-            {!dashboardItemId || width ? (
+            {!isViewedOnDashboard || width ? (
                 <Histogram
                     key={key}
                     data={histogramGraphData}
                     width={width}
-                    isDashboardItem={!!dashboardItemId}
-                    height={dashboardItemId ? height : undefined}
+                    isDashboardItem={isViewedOnDashboard}
+                    height={isViewedOnDashboard ? height : undefined}
                     formatXTickLabel={(v) => humanFriendlyDuration(v, 2)}
                 />
             ) : null}

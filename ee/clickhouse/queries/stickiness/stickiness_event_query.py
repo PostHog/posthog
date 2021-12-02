@@ -1,5 +1,6 @@
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
+from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.group import get_aggregation_target_field
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
@@ -12,7 +13,6 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 class StickinessEventsQuery(ClickhouseEventQuery):
     _entity: Entity
     _filter: StickinessFilter
-    _trunc_func: str
 
     def __init__(self, entity: Entity, *args, **kwargs):
         self._entity = entity
