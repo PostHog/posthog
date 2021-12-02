@@ -300,7 +300,13 @@ export function EventsTable({
                 <EventPageHeader activeTab={EventsTab.Events} hideTabs={!sceneIsEventsPage} />
                 <div
                     className="mb"
-                    style={{ display: 'flex', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'start' }}
+                    style={{
+                        display: 'flex',
+                        gap: '0.75rem',
+                        flexWrap: 'wrap',
+                        justifyContent: 'space-between',
+                        alignItems: 'start',
+                    }}
                 >
                     <div style={{ display: 'flex', gap: '0.75rem', flexDirection: 'column', flexGrow: 1 }}>
                         <EventName
@@ -312,7 +318,7 @@ export function EventsTable({
                         {filtersEnabled && <PropertyFilters pageKey="EventsTable" style={{ marginBottom: 0 }} />}
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexShrink: 0 }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.75rem' }}>
                         <LemonSwitch
                             id="autoload-switch"
                             label="Automatically load new events"

@@ -17,6 +17,7 @@
     &::before,
     &::after {
         transition: opacity 200ms ease;
+        opacity: 0;
         content: '';
         position: absolute;
         top: 0;
@@ -27,11 +28,9 @@
     }
     &::before {
         box-shadow: 16px 0 16px -16px rgba(0, 0, 0, 0.25) inset;
-        opacity: 0;
     }
     &::after {
         box-shadow: -16px 0 16px -16px rgba(0, 0, 0, 0.25) inset;
-        opacity: 0;
     }
     &.LemonTable--scrollable-right::after,
     &.LemonTable--scrollable-left::before {
