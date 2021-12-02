@@ -86,6 +86,8 @@
             > th,
             > td {
                 padding-left: 1rem;
+                overflow: hidden;
+                text-overflow: ellipsis;
                 &[colspan='0'] {
                     // Hidden cells should not affect the width of the table
                     padding-left: 0 !important;
