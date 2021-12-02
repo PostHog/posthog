@@ -264,8 +264,8 @@ export const createProcessEventTests = (
             // try to merge and see if we queue any messages
             jest.spyOn(hub!.db.kafkaProducer!, 'queueMessage')
 
-            jest.spyOn(hub!.db, 'updatePerson').mockImplementationOnce(() => {
-                throw new Error('updatePerson error')
+            jest.spyOn(hub!.db, 'updatePersonDeprecated').mockImplementationOnce(() => {
+                throw new Error('updatePersonDeprecated error')
             })
 
             await expect(async () => {
