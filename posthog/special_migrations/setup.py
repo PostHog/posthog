@@ -2,7 +2,7 @@ from typing import Dict
 
 from django.core.exceptions import ImproperlyConfigured
 from infi.clickhouse_orm.utils import import_submodules
-from semantic_version.base import Version
+from semantic_version.base import SimpleSpec, Version
 
 from posthog.settings import DEBUG, E2E_TESTING, SKIP_SERVICE_VERSION_REQUIREMENTS, TEST
 from posthog.special_migrations.definition import SpecialMigrationDefinition
@@ -11,7 +11,9 @@ from posthog.version import VERSION
 
 ALL_SPECIAL_MIGRATIONS: Dict[str, SpecialMigrationDefinition] = {}
 
-SPECIAL_MIGRATIONS_DEPENDENCY_MAP: Dict[str, str] = {}
+SPECIAL_MIGRATION_TO_DEPENDENCY: Dict[str, str] = {}
+DEPENDENCY_TO_SPECIAL_MIGRATION: Dict[str, str] = {}
+
 
 POSTHOG_VERSION = Version(VERSION)
 
@@ -54,7 +56,25 @@ def setup_special_migrations():
 
             first_migration = migration_name
 
-        SPECIAL_MIGRATIONS_DEPENDENCY_MAP[migration_name] = dependency
+        SPECIAL_MIGRATION_TO_DEPENDENCY[migration_name] = dependency
+
+        for key, val in SPECIAL_MIGRATION_TO_DEPENDENCY.items():
+            DEPENDENCY_TO_SPECIAL_MIGRATION[val] = key
 
         if migration_name in unapplied_migrations and POSTHOG_VERSION > Version(migration.posthog_max_version):
             raise ImproperlyConfigured(f"Migration {migration_name} is required for PostHog versions above {VERSION}.")
+
+    if first_migration:
+        kickstart_migration_if_possible(first_migration)
+
+
+def kickstart_migration_if_possible(migration_name: str, applied_migrations: set):
+    # look for an unapplied migration an try to run it
+    while migration_name in applied_migrations:
+        migration_name = DEPENDENCY_TO_SPECIAL_MIGRATION.get(migration_name)
+        if not migration_name:
+            return
+
+    from posthog.special_migrations.runner import run_next_migration
+
+    run_next_migration(migration_name)

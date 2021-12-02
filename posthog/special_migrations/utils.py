@@ -2,6 +2,7 @@ from datetime import datetime
 
 from posthog.celery import app
 from posthog.models.special_migration import MigrationStatus, SpecialMigration
+from posthog.special_migrations.setup import DEPENDENCY_TO_SPECIAL_MIGRATION
 
 
 def execute_op(database: str, sql: str, timeout_seconds: int, query_id: str):
@@ -62,3 +63,7 @@ def mark_migration_as_successful(migration_instance: SpecialMigration):
     migration_instance.finished_at = datetime.now()
     migration_instance.progress = 100
     migration_instance.save()
+
+    from posthog.special_migrations.runner import run_next_migration
+
+    run_next_migration(DEPENDENCY_TO_SPECIAL_MIGRATION[migration_instance.name])

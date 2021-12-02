@@ -5,11 +5,8 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.celery import app
 from posthog.models.special_migration import MigrationStatus, SpecialMigration, get_all_running_special_migrations
 from posthog.permissions import StaffUser
+from posthog.special_migrations.runner import MAX_CONCURRENT_SPECIAL_MIGRATIONS
 from posthog.special_migrations.utils import force_rollback_migration, force_stop_migration, trigger_migration
-
-# important to prevent us taking up too many celery workers
-# and running migrations sequentially
-MAX_CONCURRENT_SPECIAL_MIGRATIONS = 1
 
 
 class SpecialMigrationSerializer(serializers.ModelSerializer):

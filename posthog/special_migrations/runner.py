@@ -1,17 +1,32 @@
 from datetime import datetime
 from typing import Optional
 
-from posthog.celery import app
-from posthog.models.special_migration import MigrationStatus, SpecialMigration
-from posthog.models.utils import UUIDT
-from posthog.special_migrations.setup import ALL_SPECIAL_MIGRATIONS
-from posthog.special_migrations.utils import execute_op, mark_migration_as_successful, process_error
+from semantic_version.base import SimpleSpec
 
+from posthog.celery import app
+from posthog.models.special_migration import MigrationStatus, SpecialMigration, get_all_running_special_migrations
+from posthog.models.utils import UUIDT
+from posthog.special_migrations.setup import (
+    ALL_SPECIAL_MIGRATIONS,
+    DEPENDENCY_TO_SPECIAL_MIGRATION,
+    POSTHOG_VERSION,
+    SPECIAL_MIGRATION_TO_DEPENDENCY,
+)
+from posthog.special_migrations.utils import execute_op, mark_migration_as_successful, process_error, trigger_migration
+
+# important to prevent us taking up too many celery workers
+# and running migrations sequentially
+MAX_CONCURRENT_SPECIAL_MIGRATIONS = 1
 
 # select for update?
 def start_special_migration(migration_name: str) -> bool:
     migration_instance = SpecialMigration.objects.get(name=migration_name)
-    if not migration_instance or migration_instance.status == MigrationStatus.Running:
+    over_concurrent_migrations_limit = len(get_all_running_special_migrations()) >= MAX_CONCURRENT_SPECIAL_MIGRATIONS
+    if (
+        over_concurrent_migrations_limit
+        or not migration_instance
+        or migration_instance.status == MigrationStatus.Running
+    ):
         return False
 
     migration_definition = ALL_SPECIAL_MIGRATIONS[migration_name]
@@ -110,3 +125,21 @@ def is_current_operation_resumable(migration_instance: SpecialMigration):
     return (
         ALL_SPECIAL_MIGRATIONS[migration_instance.name].operations[migration_instance.current_operation_index].resumbale
     )
+
+
+def run_next_migration(candidate: str) -> bool:
+    migration_instance = SpecialMigration.objects.get(name=candidate)
+    migration_in_range = POSTHOG_VERSION in SimpleSpec(
+        f">={migration_instance.posthog_min_version},<={migration_instance.posthog_max_version}"
+    )
+    dependency = SpecialMigration.objects.get(name=SPECIAL_MIGRATION_TO_DEPENDENCY[candidate])
+
+    if (
+        migration_in_range
+        and migration_instance.status == MigrationStatus.NotStarted
+        and dependency.status == MigrationStatus.CompletedSuccessfully
+    ):
+        trigger_migration(migration_instance)
+        return True
+
+    return False
