@@ -314,10 +314,10 @@ export const createProcessEventTests = (
         // Based on gating only one function should be used
         const personUpdateFnSpy = includeNewPropertiesUpdatesTests
             ? updatePersonProperties
-            : jest.spyOn(hub.db, 'updatePerson')
+            : jest.spyOn(hub.db, 'updatePersonDeprecated')
         const personUpdateFnShouldntbeUsedSpy = !includeNewPropertiesUpdatesTests
             ? updatePersonProperties
-            : jest.spyOn(hub.db, 'updatePerson')
+            : jest.spyOn(hub.db, 'updatePersonDeprecated')
 
         await hub.db.postgresQuery(
             `UPDATE posthog_team
