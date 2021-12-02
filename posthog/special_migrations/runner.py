@@ -33,7 +33,7 @@ def start_special_migration(migration_name: str) -> bool:
 
     if not migration_definition.is_required():
         mark_migration_as_successful(migration_instance)
-        return
+        return False
 
     for service_version_requirement in migration_definition.service_version_requirements:
         [in_range, version] = service_version_requirement.is_service_in_accepted_version()
@@ -96,7 +96,7 @@ def run_migration_healthcheck(migration_instance: SpecialMigration):
 
 def update_migration_progress(migration_instance: SpecialMigration):
     try:
-        migration_instance.progress = ALL_SPECIAL_MIGRATIONS[migration_instance.name].progress(migration_instance)
+        migration_instance.progress = ALL_SPECIAL_MIGRATIONS[migration_instance.name].progress(migration_instance)  # type: ignore
         migration_instance.save()
     except:
         pass
@@ -106,7 +106,7 @@ def attempt_migration_rollback(migration_instance: SpecialMigration, force: bool
     error = None
     try:
         rollback = ALL_SPECIAL_MIGRATIONS[migration_instance.name].rollback
-        ok, error = rollback(migration_instance)
+        ok, error = rollback(migration_instance)  # type: ignore
         if ok:
             migration_instance.status = MigrationStatus.RolledBack
             migration_instance.save()

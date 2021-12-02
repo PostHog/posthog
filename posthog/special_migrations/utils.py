@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 
 from posthog.celery import app
 from posthog.models.special_migration import MigrationStatus, SpecialMigration
@@ -26,9 +27,9 @@ def execute_op_postgres(sql: str, query_id: str):
         cursor.execute(f"/* {query_id} */" + sql)
 
 
-def process_error(migration_instance: SpecialMigration, error: str):
+def process_error(migration_instance: SpecialMigration, error: Optional[str]):
     migration_instance.status = MigrationStatus.Errored
-    migration_instance.last_error = error
+    migration_instance.last_error = error or ""
     migration_instance.finished_at = datetime.now()
 
     from posthog.special_migrations.runner import attempt_migration_rollback

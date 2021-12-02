@@ -64,7 +64,7 @@ class SpecialMigrationDefinition:
     operations: List[SpecialMigrationOperation] = []
 
     # name of special migration this migration depends on
-    depends_on = None
+    depends_on: Optional[str] = None
 
     # will be run before starting the migration, return a boolean specifying if the instance needs this migration
     # e.g. instances with CLICKHOUSE_REPLICATION == True might need different migrations
