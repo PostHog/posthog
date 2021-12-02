@@ -132,12 +132,12 @@ def run_next_migration(candidate: str) -> bool:
     migration_in_range = POSTHOG_VERSION in SimpleSpec(
         f">={migration_instance.posthog_min_version},<={migration_instance.posthog_max_version}"
     )
-    dependency = SpecialMigration.objects.get(name=SPECIAL_MIGRATION_TO_DEPENDENCY[candidate])
+    dependency = SPECIAL_MIGRATION_TO_DEPENDENCY[candidate]
 
-    if (
+    if not dependency or (
         migration_in_range
         and migration_instance.status == MigrationStatus.NotStarted
-        and dependency.status == MigrationStatus.CompletedSuccessfully
+        and SpecialMigration.objects.get(name=dependency).status == MigrationStatus.CompletedSuccessfully
     ):
         trigger_migration(migration_instance)
         return True

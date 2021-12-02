@@ -65,7 +65,7 @@ def setup_special_migrations():
             raise ImproperlyConfigured(f"Migration {migration_name} is required for PostHog versions above {VERSION}.")
 
     if first_migration:
-        kickstart_migration_if_possible(first_migration)
+        kickstart_migration_if_possible(first_migration, applied_migrations)
 
 
 def kickstart_migration_if_possible(migration_name: str, applied_migrations: set):
