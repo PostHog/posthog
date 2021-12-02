@@ -3,7 +3,6 @@ import { kea, useMountedLogic, useValues } from 'kea'
 import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 import { preflightLogic } from './PreflightCheck/logic'
-import { BillingAlerts } from 'lib/components/BillingAlerts'
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
@@ -11,14 +10,10 @@ import { UpgradeModal } from './UpgradeModal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { appLogicType } from './AppType'
 import { models } from '~/models'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from './teamLogic'
 import { LoadedScene } from 'scenes/sceneTypes'
-import { SideBar } from '../layout/navigation/SideBar/SideBar'
 import { appScenes } from 'scenes/appScenes'
-import { Breadcrumbs } from '../layout/navigation/Breadcrumbs/Breadcrumbs'
-import { TopBar } from '../layout/navigation/TopBar'
-import { DemoWarnings } from '../layout/navigation/DemoWarnings/DemoWarnings'
+import { Navigation } from '~/layout/navigation/Navigation'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],
@@ -65,14 +60,13 @@ export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
     const { user } = useValues(userLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     useMountedLogic(sceneLogic({ scenes: appScenes }))
 
     if (showApp) {
         return (
             <>
                 {user && currentTeamId ? <Models /> : null}
-                {featureFlags[FEATURE_FLAGS.TURBO_MODE] ? <LoadedSceneLogics /> : null}
+                <LoadedSceneLogics />
                 <AppScene />
             </>
         )
@@ -128,31 +122,11 @@ function AppScene(): JSX.Element | null {
         ) : null
     }
 
-    if (sceneConfig?.plain) {
-        return (
-            <Layout style={{ minHeight: '100vh' }}>
-                {!sceneConfig.hideTopNav && <TopBar />}
-                <SceneComponent user={user} {...params} />
-                {toastContainer}
-            </Layout>
-        )
-    }
-
-    const layoutContent = activeScene ? (
-        <Layout.Content className="main-app-content" data-attr="layout-content">
-            {!sceneConfig?.hideDemoWarnings && <DemoWarnings />}
-            <Breadcrumbs />
-            <BillingAlerts />
-            <SceneComponent user={user} {...params} />
-        </Layout.Content>
-    ) : null
-
     return (
         <>
-            <Layout style={{ minHeight: '100vh' }}>
-                {!sceneConfig?.hideTopNav && <TopBar />}
-                <SideBar>{layoutContent}</SideBar>
-            </Layout>
+            <Navigation>
+                <SceneComponent user={user} {...params} />
+            </Navigation>
             {toastContainer}
             <UpgradeModal />
         </>

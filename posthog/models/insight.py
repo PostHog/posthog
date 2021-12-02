@@ -1,4 +1,5 @@
 import secrets
+import string
 from typing import Optional
 
 from django.contrib.postgres.fields.array import ArrayField
@@ -13,7 +14,8 @@ from posthog.utils import generate_cache_key
 
 
 def generate_short_id():
-    return secrets.token_urlsafe(6)  # will result in 8-char strings (after encoding)
+    """Generate securely random 8 characters long alphanumeric ID."""
+    return "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(8))
 
 
 class Insight(models.Model):
@@ -49,6 +51,7 @@ class Insight(models.Model):
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     tags: ArrayField = ArrayField(models.CharField(max_length=32), blank=True, default=list)
     favorited: models.BooleanField = models.BooleanField(default=False)
+    refresh_attempt: models.IntegerField = models.IntegerField(null=True, blank=True)
 
     # ----- DEPRECATED ATTRIBUTES BELOW
 

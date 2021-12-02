@@ -25,6 +25,7 @@ export function DashboardItems(): JSX.Element {
         dashboardMode,
         isRefreshing,
         highlightedInsightId,
+        refreshStatus,
     } = useValues(dashboardLogic)
     const {
         loadDashboardItems,
@@ -104,16 +105,15 @@ export function DashboardItems(): JSX.Element {
             draggableCancel=".anticon,.ant-dropdown,table,.ant-popover-content"
         >
             {items?.map((item: DashboardItemType, index: number) => (
-                <div key={item.id} className="dashboard-item-wrapper">
+                <div key={item.short_id} className="dashboard-item-wrapper">
                     <DashboardItem
-                        key={item.id}
+                        key={item.short_id}
                         doNotLoad
+                        receivedErrorFromAPI={refreshStatus[item.short_id]?.error || false}
                         dashboardId={dashboard?.id}
                         item={item}
-                        layout={
-                            resizingItem?.i?.toString() === item.id.toString() ? resizingItem : layoutForItem[item.id]
-                        }
-                        isReloading={isRefreshing(item.id)}
+                        layout={resizingItem?.i === item.short_id ? resizingItem : layoutForItem[item.short_id]}
+                        isReloading={isRefreshing(item.short_id)}
                         reload={() => refreshAllDashboardItems([item])}
                         loadDashboardItems={loadDashboardItems}
                         setDiveDashboard={setDiveDashboard}
@@ -124,7 +124,7 @@ export function DashboardItems(): JSX.Element {
                         updateItemColor={updateItemColor}
                         isDraggingRef={isDragging}
                         dashboardMode={dashboardMode}
-                        isHighlighted={highlightedInsightId && item.id === highlightedInsightId}
+                        isHighlighted={highlightedInsightId && item.short_id === highlightedInsightId}
                         isOnEditMode={dashboardMode === DashboardMode.Edit}
                         setEditMode={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.LongPress)}
                         index={index}

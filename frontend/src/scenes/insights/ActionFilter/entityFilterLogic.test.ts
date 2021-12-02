@@ -26,7 +26,7 @@ describe('entityFilterLogic', () => {
             return {
                 results: filtersJson.actions,
             }
-        } else if (pathname === 'api/projects/@current/event_definitions/') {
+        } else if (pathname.endsWith('/event_definitions/')) {
             return eventDefinitionsJson
         }
         return defaultAPIMocks(url)

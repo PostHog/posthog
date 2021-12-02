@@ -66,6 +66,7 @@ import {
     chainToElements,
     generateKafkaPersonUpdateMessage,
     generatePostgresValuesString,
+    getFinalPostgresQuery,
     hashElements,
     timeoutGuard,
     unparsePersonPartial,
@@ -159,7 +160,17 @@ export class DB {
         client?: PoolClient
     ): Promise<QueryResult<R>> {
         return instrumentQuery(this.statsd, 'query.postgres', tag, async () => {
-            const timeout = timeoutGuard('Postgres slow query warning after 30 sec', { queryTextOrConfig, values })
+            let fullQuery = ''
+            if (typeof queryTextOrConfig === 'string') {
+                try {
+                    fullQuery = getFinalPostgresQuery(queryTextOrConfig, values as any[])
+                } catch {}
+            }
+            const timeout = timeoutGuard('Postgres slow query warning after 30 sec', {
+                queryTextOrConfig,
+                values,
+                fullQuery,
+            })
             try {
                 if (client) {
                     return await client.query(queryTextOrConfig, values)
@@ -562,7 +573,9 @@ export class DB {
         RETURNING version`
 
         const updateResult: QueryResult = await this.postgresQuery(queryString, values, 'updatePerson', client)
-
+        if (updateResult.rows.length == 0) {
+            throw new Error(`Person with team_id="${person.team_id}" and uuid="${person.uuid} couldn't be updated`)
+        }
         const updatedPersonVersion: Person['version'] = Number(updateResult.rows[0].version)
         const updatedPerson: Person = { ...person, ...update, version: updatedPersonVersion }
 
@@ -867,6 +880,36 @@ export class DB {
         } else {
             return (await this.postgresQuery('SELECT * FROM posthog_element', undefined, 'fetchAllElements')).rows
         }
+    }
+
+    public async fetchPostgresElementsByHash(teamId: number, elementsHash: string): Promise<Record<string, any>[]> {
+        const cachedResult = await this.redisGet(elementsHash, null)
+
+        let result: Record<string, any>[]
+
+        if (cachedResult) {
+            result = JSON.parse(String(cachedResult))
+        } else {
+            result = (
+                await this.postgresQuery(
+                    `
+                SELECT text, tag_name, href, attr_id, nth_child, nth_of_type, attributes, attr_class 
+                FROM posthog_element
+                LEFT JOIN posthog_elementgroup on posthog_element.group_id = posthog_elementgroup.id
+                WHERE 
+                    posthog_elementgroup.team_id=$1 AND
+                    posthog_elementgroup.hash=$2
+                ORDER BY posthog_element.order
+                `,
+                    [teamId, elementsHash],
+                    'fetchPostgresElementsByHash'
+                )
+            ).rows
+
+            await this.redisSet(elementsHash, JSON.stringify(result), 60 * 2) // 2 hour TTL
+        }
+
+        return result
     }
 
     public async createElementGroup(elements: Element[], teamId: number): Promise<string> {

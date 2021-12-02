@@ -20,7 +20,7 @@ export function EventsVolumeTable(): JSX.Element | null {
     const { eventDefinitions, loaded } = useValues(eventDefinitionsModel)
 
     return (
-        <div data-attr="manage-events-table" style={{ paddingTop: 16 }}>
+        <div data-attr="manage-events-table">
             <EventPageHeader activeTab={EventsTab.EventStats} />
             {loaded ? (
                 <>

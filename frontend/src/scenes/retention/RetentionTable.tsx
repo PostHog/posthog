@@ -10,14 +10,13 @@ import {
     RetentionTablePeoplePayload,
     RetentionTableAppearanceType,
 } from 'scenes/retention/types'
-
-import './RetentionTable.scss'
-
 import { ColumnsType } from 'antd/lib/table'
 import clsx from 'clsx'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/components/Spinner/Spinner'
+import './RetentionTable.scss'
+import { urls } from 'scenes/urls'
 
 export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: number | null }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -158,9 +157,9 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
                                                     <tr key={personAppearances.person.id}>
                                                         <td className="text-overflow" style={{ minWidth: 200 }}>
                                                             <Link
-                                                                to={`/person/${encodeURIComponent(
+                                                                to={urls.person(
                                                                     personAppearances.person.distinct_ids[0]
-                                                                )}`}
+                                                                )}
                                                                 data-attr="retention-person-link"
                                                             >
                                                                 {personAppearances.person.name}

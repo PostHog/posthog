@@ -23,6 +23,10 @@
             "essential": true,
             "environment": [
                 {
+                    "name": "JS_URL",
+                    "value": "https://d1l1qibt80hm9p.cloudfront.net"
+                },
+                {
                     "name": "USING_PGBOUNCER",
                     "value": "True"
                 },

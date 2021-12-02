@@ -100,7 +100,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
         # Once multi property breakdown is implemented in Trends this becomes unnecessary
 
         if isinstance(self._filter.breakdowns, List) and self._filter.breakdown_type in ["person", "event", None]:
-            data.update({"breakdown": [b.property for b in self._filter.breakdowns]})
+            data.update({"breakdown": [b.get("property") for b in self._filter.breakdowns]})
 
         if isinstance(self._filter.breakdown, str) and self._filter.breakdown_type in ["person", "event", None]:
             boxed_breakdown: List[Union[str, int]] = box_value(self._filter.breakdown)
@@ -411,9 +411,9 @@ class ClickhouseFunnelBase(ABC, Funnel):
     def _build_filters(self, entity: Entity, index: int) -> str:
         prop_filters, prop_filter_params = parse_prop_clauses(
             entity.properties,
-            self._team.pk,
             prepend=str(index),
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_id_joined_alias="aggregation_target",
         )
         self.params.update(prop_filter_params)
         if entity.properties:

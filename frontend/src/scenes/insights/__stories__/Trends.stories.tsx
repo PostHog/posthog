@@ -6,7 +6,7 @@ import { rest } from 'msw'
 import React from 'react'
 import { initKea } from '~/initKea'
 import { worker } from '~/mocks/browser'
-import { Insights } from '../Insights'
+import { Insight } from '../Insight'
 
 export default {
     title: 'PostHog/Scenes/Insights/Trends',

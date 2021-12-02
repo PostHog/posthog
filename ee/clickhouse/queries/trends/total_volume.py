@@ -107,10 +107,7 @@ class ClickhouseTrendsTotalVolume:
             )
             time_range = enumerate_time_range(filter, seconds_in_interval)
             filter_params = filter.to_params()
-            extra_params = {
-                "entity_id": entity.id,
-                "entity_type": entity.type,
-            }
+            extra_params = {"entity_id": entity.id, "entity_type": entity.type, "entity_math": entity.math}
             parsed_params: Dict[str, Union[Any, int, str]] = {**filter_params, **extra_params}
 
             return [
@@ -134,6 +131,7 @@ class ClickhouseTrendsTotalVolume:
             extra_params = {
                 "entity_id": entity.id,
                 "entity_type": entity.type,
+                "entity_math": entity.math,
                 "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else date,
                 "date_to": date,
             }

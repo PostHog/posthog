@@ -171,6 +171,7 @@ export async function createPluginConfigVM(
                 teardownPlugin: __asyncFunctionGuard(__bindMeta('teardownPlugin'), 'teardownPlugin'),
                 exportEvents: __asyncFunctionGuard(__bindMeta('exportEvents'), 'exportEvents'),
                 onEvent: __asyncFunctionGuard(__bindMeta('onEvent'), 'onEvent'),
+                onAction: __asyncFunctionGuard(__bindMeta('onAction'), 'onAction'),
                 onSnapshot: __asyncFunctionGuard(__bindMeta('onSnapshot'), 'onSnapshot'),
                 processEvent: __asyncFunctionGuard(__bindMeta('processEvent'), 'processEvent'),
             };
@@ -224,7 +225,7 @@ export async function createPluginConfigVM(
 
     if (exportEventsExists) {
         upgradeExportEvents(hub, pluginConfig, vmResponse)
-        addHistoricalEventsExportCapability(hub, pluginConfig, vmResponse)
+        await addHistoricalEventsExportCapability(hub, pluginConfig, vmResponse)
     }
 
     setupMetrics(hub, pluginConfig, metrics, exportEventsExists)

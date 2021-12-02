@@ -13,96 +13,34 @@ import {
     InputNumber,
     Popconfirm,
     Tag,
+    Select,
 } from 'antd'
 import { useActions, useValues } from 'kea'
-import { SceneLoading } from 'lib/utils'
+import { capitalizeFirstLetter, SceneLoading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { DeleteOutlined, SaveOutlined, PlusOutlined, ApiFilled, MergeCellsOutlined } from '@ant-design/icons'
-import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
+import {
+    DeleteOutlined,
+    CopyOutlined,
+    SaveOutlined,
+    PlusOutlined,
+    ApiFilled,
+    MergeCellsOutlined,
+} from '@ant-design/icons'
 import { featureFlagLogic } from './featureFlagLogic'
 import { featureFlagLogic as featureFlagClientLogic } from 'lib/logic/featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
-import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { IconExternalLink, IconJavascript, IconPython } from 'lib/components/icons'
-import { teamLogic } from 'scenes/teamLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SceneExport } from 'scenes/sceneTypes'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { APISnippet, JSSnippet, PythonSnippet, UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
+import { LemonSpacer } from 'lib/components/LemonRow'
+import { groupsModel } from '~/models/groupsModel'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
     logic: featureFlagLogic,
-}
-
-const UTM_TAGS = '?utm_medium=in-product&utm_campaign=feature-flag'
-
-function JSSnippet({ flagKey }: { flagKey: string }): JSX.Element {
-    return (
-        <>
-            <CodeSnippet language={Language.JavaScript} wrap>
-                {`if (posthog.isFeatureEnabled('${flagKey ?? ''}')) {
-    // run your activation code here
-}`}
-            </CodeSnippet>
-            <div className="mt">
-                Need more information?{' '}
-                <a
-                    target="_blank"
-                    rel="noopener"
-                    href={`https://posthog.com/docs/integrations/js-integration${UTM_TAGS}#feature-flags`}
-                >
-                    Check the docs <IconExternalLink />
-                </a>
-            </div>
-        </>
-    )
-}
-
-function PythonSnippet({ flagKey }: { flagKey: string }): JSX.Element {
-    return (
-        <>
-            <CodeSnippet language={Language.Python} wrap>
-                {`if posthog.feature_enabled("${flagKey}", "user_distinct_id"):
-    runAwesomeFeature()
-`}
-            </CodeSnippet>
-            <div className="mt">
-                Need more information?{' '}
-                <a
-                    target="_blank"
-                    rel="noopener"
-                    href={`https://posthog.com/docs/integrations/python-integration${UTM_TAGS}#feature-flags`}
-                >
-                    Check the docs <IconExternalLink />
-                </a>
-            </div>
-        </>
-    )
-}
-
-function APISnippet(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-    return (
-        <>
-            <CodeSnippet language={Language.Bash} wrap>
-                {`curl ${window.location.origin}/decide/ \\
--X POST -H 'Content-Type: application/json' \\
--d '{
-    "api_key": "${currentTeam ? currentTeam.api_token : '[project_api_key]'}",
-    "distinct_id": "[user distinct id]"
-}'
-                `}
-            </CodeSnippet>
-            <div className="mt">
-                Need more information?{' '}
-                <a target="_blank" rel="noopener" href={`https://posthog.com/docs/api/feature-flags${UTM_TAGS}`}>
-                    Check the docs <IconExternalLink />
-                </a>
-            </div>
-        </>
-    )
 }
 
 function focusVariantKeyField(index: number): void {
@@ -122,11 +60,15 @@ export function FeatureFlag(): JSX.Element {
         nonEmptyVariants,
         areVariantRolloutsValid,
         variantRolloutSum,
+        groupTypes,
+        aggregationTargetName,
+        taxonomicGroupTypes,
     } = useValues(featureFlagLogic)
     const {
-        addMatchGroup,
-        updateMatchGroup,
-        removeMatchGroup,
+        addConditionSet,
+        updateConditionSet,
+        removeConditionSet,
+        duplicateConditionSet,
         saveFeatureFlag,
         deleteFeatureFlag,
         setMultivariateEnabled,
@@ -135,8 +77,10 @@ export function FeatureFlag(): JSX.Element {
         removeVariant,
         distributeVariantsEqually,
         setFeatureFlag,
+        setAggregationGroupTypeIndex,
     } = useActions(featureFlagLogic)
     const { featureFlags: enabledFeatureFlags } = useValues(featureFlagClientLogic)
+    const { showGroupsOptions } = useValues(groupsModel)
 
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
@@ -381,7 +325,7 @@ export function FeatureFlag(): JSX.Element {
                                 </Popconfirm>
                             </div>
                             <div className="text-muted mb">
-                                Users will be served{' '}
+                                {capitalizeFirstLetter(aggregationTargetName)} will be served{' '}
                                 {multivariateEnabled ? (
                                     <>
                                         <strong>a variant key</strong> according to the below distribution
@@ -523,111 +467,133 @@ export function FeatureFlag(): JSX.Element {
                         </div>
                     )}
 
-                    <h3 className="l3">Release condition groups ({featureFlag.filters.groups.length})</h3>
-                    <div className="text-muted mb">
-                        Specify which users or groups of users to which you want to release this flag.
+                    <div className="feature-flag-form-row">
+                        <div>
+                            <h3 className="l3">Release conditions</h3>
+                            <div className="text-muted mb">
+                                Specify the {aggregationTargetName} to which you want to release this flag. Note that
+                                condition sets are rolled out independently of each other.
+                            </div>
+                        </div>
+                        {showGroupsOptions && (
+                            <div className="centered">
+                                Match by
+                                <Select
+                                    value={
+                                        featureFlag.filters.aggregation_group_type_index != null
+                                            ? featureFlag.filters.aggregation_group_type_index
+                                            : -1
+                                    }
+                                    onChange={(value) => {
+                                        const groupTypeIndex = value !== -1 ? value : null
+                                        setAggregationGroupTypeIndex(groupTypeIndex)
+                                    }}
+                                    style={{ marginLeft: 8 }}
+                                    data-attr="feature-flag-aggregation-filter"
+                                    dropdownMatchSelectWidth={false}
+                                >
+                                    <Select.Option key={-1} value={-1}>
+                                        Users
+                                    </Select.Option>
+                                    {groupTypes.map((groupType) => (
+                                        <Select.Option
+                                            key={groupType.group_type_index}
+                                            value={groupType.group_type_index}
+                                        >
+                                            {capitalizeFirstLetter(groupType.group_type)}(s)
+                                        </Select.Option>
+                                    ))}
+                                </Select>
+                            </div>
+                        )}
                     </div>
-                    <Button
-                        type="dashed"
-                        block
-                        icon={<PlusOutlined />}
-                        onClick={addMatchGroup}
-                        style={{ marginBottom: 16 }}
-                    >
-                        Add Group
-                    </Button>
                     <Row gutter={16}>
                         {featureFlag.filters.groups.map((group, index) => (
-                            <Col span={24} md={12} key={`${index}-${featureFlag.filters.groups.length}`}>
-                                <Card style={{ position: 'relative', marginBottom: 32, paddingBottom: 16 }}>
-                                    {index > 0 && <div className="stateful-badge pos-center-end or">OR</div>}
-                                    {featureFlag.filters.groups.length > 1 && (
-                                        <>
-                                            <span style={{ position: 'absolute', top: 0, right: 0, margin: 4 }}>
-                                                <Tooltip title="Delete this match group" placement="bottomLeft">
+                            <Col span={24} md={24} key={`${index}-${featureFlag.filters.groups.length}`}>
+                                {index > 0 && (
+                                    <div style={{ display: 'flex', marginLeft: 16 }}>
+                                        <div className="stateful-badge or-light-grey mb">OR</div>
+                                    </div>
+                                )}
+                                <Card style={{ marginBottom: 16 }}>
+                                    <div className="feature-flag-form-row" style={{ height: 24 }}>
+                                        <div>
+                                            <span className="simple-tag tag-light-blue" style={{ marginRight: 8 }}>
+                                                Set {index + 1}
+                                            </span>
+                                            {group.properties?.length ? (
+                                                <>
+                                                    Matching <b>{aggregationTargetName}</b> with filters
+                                                </>
+                                            ) : (
+                                                <>
+                                                    Condition set will match <b>all {aggregationTargetName}</b>
+                                                </>
+                                            )}
+                                        </div>
+                                        <div>
+                                            <Tooltip title="Duplicate this condition set" placement="bottomLeft">
+                                                <Button
+                                                    type="link"
+                                                    icon={<CopyOutlined />}
+                                                    style={{ width: 24, height: 24 }}
+                                                    onClick={() => duplicateConditionSet(index)}
+                                                />
+                                            </Tooltip>
+                                            {featureFlag.filters.groups.length > 1 && (
+                                                <Tooltip title="Delete this condition set" placement="bottomLeft">
                                                     <Button
                                                         type="link"
                                                         icon={<DeleteOutlined />}
-                                                        onClick={() => removeMatchGroup(index)}
-                                                        style={{ color: 'var(--danger)' }}
+                                                        style={{ width: 24, height: 24 }}
+                                                        onClick={() => removeConditionSet(index)}
                                                     />
                                                 </Tooltip>
-                                            </span>
-
-                                            <div className="mb">
-                                                <b>
-                                                    Group
-                                                    <span
-                                                        className="simple-tag tag-light-lilac"
-                                                        style={{ marginLeft: 8 }}
-                                                    >
-                                                        {index + 1}
-                                                    </span>
-                                                </b>
-                                            </div>
-                                        </>
-                                    )}
-
-                                    <Form.Item style={{ position: 'relative', marginBottom: 16 }}>
-                                        {group.properties?.length ? (
-                                            <b>Matching users with filters</b>
-                                        ) : (
-                                            <b>
-                                                {featureFlag.filters.groups.length > 1 ? 'Group will match ' : 'Match '}
-                                                <span style={{ color: 'var(--warning)' }}>all users</span>
-                                            </b>
-                                        )}
-                                        <PropertyFilters
-                                            pageKey={`feature-flag-${featureFlag.id}-${index}-${featureFlag.filters.groups.length}`}
-                                            propertyFilters={group?.properties}
-                                            onChange={(properties) => updateMatchGroup(index, undefined, properties)}
-                                            endpoint="person"
-                                            taxonomicGroupTypes={[
-                                                TaxonomicFilterGroupType.PersonProperties,
-                                                TaxonomicFilterGroupType.Cohorts,
-                                            ]}
-                                            showConditionBadge
-                                        />
-                                    </Form.Item>
-
-                                    <Form.Item style={{ marginBottom: 0 }}>
-                                        <>
-                                            <Checkbox
-                                                checked={!!group.rollout_percentage}
-                                                onChange={(e) =>
-                                                    e.target.checked
-                                                        ? updateMatchGroup(index, 30)
-                                                        : updateMatchGroup(index, null)
-                                                }
-                                                data-attr="feature-flag-switch"
-                                            >
-                                                <b>
-                                                    Roll out to only a percentage of users
-                                                    {featureFlag.filters.groups.length > 1 && ' in this group'}
-                                                </b>
-                                            </Checkbox>
-                                            {group.rollout_percentage === null ? (
-                                                <div className="mt">
-                                                    Rolling out to <b>100%</b> of users
-                                                    {featureFlag.filters.groups.length > 1 && ' in this group'}
-                                                </div>
-                                            ) : (
-                                                <Slider
-                                                    tooltipPlacement="top"
-                                                    tipFormatter={(value) => value + '%'}
-                                                    tooltipVisible
-                                                    value={group.rollout_percentage}
-                                                    onChange={(value: number) => {
-                                                        updateMatchGroup(index, value)
-                                                    }}
-                                                />
                                             )}
-                                        </>
-                                    </Form.Item>
+                                        </div>
+                                    </div>
+
+                                    <LemonSpacer large />
+                                    <PropertyFilters
+                                        style={{ marginLeft: 15 }}
+                                        pageKey={`feature-flag-${featureFlag.id}-${index}-${
+                                            featureFlag.filters.groups.length
+                                        }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
+                                        propertyFilters={group?.properties}
+                                        onChange={(properties) => updateConditionSet(index, undefined, properties)}
+                                        taxonomicGroupTypes={taxonomicGroupTypes}
+                                        showConditionBadge
+                                        greyBadges
+                                    />
+                                    <LemonSpacer large />
+
+                                    <div className="feature-flag-form-row">
+                                        <div className="centered">
+                                            Roll out to{' '}
+                                            <InputNumber
+                                                style={{ width: 100, marginLeft: 8, marginRight: 8 }}
+                                                onChange={(value): void => {
+                                                    updateConditionSet(index, value as number)
+                                                }}
+                                                value={
+                                                    group.rollout_percentage != null ? group.rollout_percentage : 100
+                                                }
+                                                min={0}
+                                                max={100}
+                                                addonAfter="%"
+                                            />{' '}
+                                            of <b>{aggregationTargetName}</b> in this set
+                                        </div>
+                                    </div>
                                 </Card>
                             </Col>
                         ))}
                     </Row>
+                    <Card size="small" style={{ marginBottom: 16 }}>
+                        <Button type="link" onClick={addConditionSet} style={{ marginLeft: 5 }}>
+                            <PlusOutlined style={{ marginRight: 15 }} /> Add condition set
+                        </Button>
+                    </Card>
                     <Form.Item className="text-right">
                         <Button
                             icon={<SaveOutlined />}

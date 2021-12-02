@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { errorToast, toParams } from 'lib/utils'
+import { errorToast, successToast, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { eventsTableLogicType } from './eventsTableLogicType'
@@ -99,6 +99,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         setEventFilter: (event: string) => ({ event }),
         toggleAutomaticLoad: (automaticLoadEnabled: boolean) => ({ automaticLoadEnabled }),
         noop: (s) => s,
+        startDownload: true,
     },
 
     reducers: ({ props }) => ({
@@ -197,8 +198,8 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             () => [selectors.currentTeamId, selectors.eventFilter, selectors.orderBy, selectors.properties],
             (teamId, eventFilter, orderBy, properties) =>
                 `/api/projects/${teamId}/events.csv?${toParams({
-                    properties,
                     ...(props.fixedFilters || {}),
+                    properties: [...properties, ...(props.fixedFilters?.properties || [])],
                     ...(eventFilter ? { event: eventFilter } : {}),
                     orderBy: [orderBy],
                 })}`,
@@ -260,6 +261,10 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
     }),
 
     listeners: ({ actions, values, props }) => ({
+        startDownload: () => {
+            successToast('The export is starting', 'It should finish soon.')
+            window.location.href = values.exportUrl
+        },
         setProperties: () => actions.fetchEvents(),
         flipSort: () => actions.fetchEvents(),
         setEventFilter: () => actions.fetchEvents(),
@@ -287,13 +292,12 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 clearTimeout(values.pollTimeout)
 
                 const urlParams = toParams({
-                    properties: values.properties,
                     ...(props.fixedFilters || {}),
+                    properties: [...values.properties, ...(props.fixedFilters?.properties || [])],
                     ...(nextParams || {}),
                     ...(values.eventFilter ? { event: values.eventFilter } : {}),
                     orderBy: [values.orderBy],
                 })
-
                 let apiResponse = null
 
                 try {
@@ -326,8 +330,8 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             }
 
             const params: Record<string, unknown> = {
-                properties: values.properties,
                 ...(props.fixedFilters || {}),
+                properties: [...values.properties, ...(props.fixedFilters?.properties || [])],
                 ...(values.eventFilter ? { event: values.eventFilter } : {}),
                 orderBy: [values.orderBy],
             }

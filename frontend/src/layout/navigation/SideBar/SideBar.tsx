@@ -23,17 +23,19 @@ import {
 import { LemonButton, LemonButtonProps, LemonButtonWithSideAction, SideAction } from 'lib/components/LemonButton'
 import { LemonSpacer } from 'lib/components/LemonRow'
 import { Lettermark } from 'lib/components/Lettermark/Lettermark'
-import { dashboardsModel } from '../../../models/dashboardsModel'
-import { organizationLogic } from '../../../scenes/organizationLogic'
-import { canViewPlugins } from '../../../scenes/plugins/access'
-import { sceneLogic } from '../../../scenes/sceneLogic'
-import { Scene } from '../../../scenes/sceneTypes'
-import { teamLogic } from '../../../scenes/teamLogic'
-import { urls } from '../../../scenes/urls'
-import { InsightType } from '../../../types'
-import { ToolbarModal } from '../../ToolbarModal/ToolbarModal'
-import { navigationLogic } from '../navigationLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { organizationLogic } from '~/scenes/organizationLogic'
+import { canViewPlugins } from '~/scenes/plugins/access'
+import { sceneLogic } from '~/scenes/sceneLogic'
+import { Scene } from '~/scenes/sceneTypes'
+import { teamLogic } from '~/scenes/teamLogic'
+import { urls } from '~/scenes/urls'
+import { InsightType } from '~/types'
 import './SideBar.scss'
+import { navigationLogic } from '../navigationLogic'
+import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 function ProjectSwitcherInternal(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -110,6 +112,7 @@ function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { showToolbarModal } = useActions(navigationLogic)
     const { pinnedDashboards } = useValues(dashboardsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const [arePinnedDashboardsShown, setArePinnedDashboardsShown] = useState(false)
 
@@ -172,13 +175,16 @@ function Pages(): JSX.Element {
                 to={urls.savedInsights()}
                 sideAction={{
                     icon: <IconPlus />,
-                    to: urls.newInsight(InsightType.TRENDS),
+                    to: urls.insightNew({ insight: InsightType.TRENDS }),
                     tooltip: 'New insight',
-                    identifier: Scene.Insights,
+                    identifier: Scene.Insight,
                 }}
             />
             <PageButton icon={<IconRecording />} identifier={Scene.SessionRecordings} to={urls.sessionRecordings()} />
             <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
+            {featureFlags[FEATURE_FLAGS.EXPERIMENTATION] && (
+                <PageButton icon={<IconFlag />} identifier={Scene.Experiments} to={urls.experiments()} />
+            )}
             <LemonSpacer />
             <PageButton icon={<IconGroupedEvents />} identifier={Scene.Events} to={urls.events()} />
             <PageButton icon={<IconPerson />} identifier={Scene.Persons} to={urls.persons()} />

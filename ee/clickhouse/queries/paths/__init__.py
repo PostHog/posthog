@@ -1,2 +1,2 @@
 from .paths import ClickhousePaths
-from .paths_persons import ClickhousePathsPersons
+from .paths_actors import ClickhousePathsActors
