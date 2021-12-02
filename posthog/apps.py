@@ -47,6 +47,7 @@ class PostHogConfig(AppConfig):
                         exit(1)
 
         from posthog.special_migrations.setup import setup_special_migrations
+
         setup_special_migrations()
 
 
