@@ -1,9 +1,8 @@
-from typing import Dict, Optional, Tuple
+from typing import Dict, Tuple
 
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from ee.clickhouse.queries.stickiness.stickiness_event_query import StickinessEventsQuery
 from posthog.models.entity import Entity
-from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.team import Team
@@ -13,10 +12,7 @@ class ClickhouseStickinessActors(ActorBaseQuery):
     entity: Entity
     _filter: StickinessFilter
 
-    def __init__(self, team: Team, entity: Optional[Entity], filter: StickinessFilter):
-        if not entity:
-            raise ValueError("Entity is required")
-
+    def __init__(self, team: Team, entity: Entity, filter: StickinessFilter):
         super().__init__(team, filter, entity)
 
     @cached_property
