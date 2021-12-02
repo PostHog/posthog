@@ -53,6 +53,13 @@ export interface LemonTableColumn<T extends Record<string, any>, D extends keyof
 export type LemonTableColumns<T extends Record<string, any>> = LemonTableColumn<T, keyof T | undefined>[]
 
 export interface ExpandableConfig<T extends Record<string, any>> {
+    /** Row expansion render function. */
     expandedRowRender: (record: T, recordIndex: number) => any
-    rowExpandable?: (record: T) => boolean
+    /**
+     * Function determining whether the row should be expandable:
+     * A positive value (like true or 1) means that the row is expandable.
+     * A zero (like 0 or false) means that the row isn't expandable.
+     * A negative value (like -1) means that the row isn't expandable and that also the expand button cell is skipped.
+     */
+    rowExpandable?: (record: T) => boolean | number
 }

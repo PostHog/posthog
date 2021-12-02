@@ -9,23 +9,6 @@
         height: 2rem;
         text-align: center;
     }
-    .event-row-new {
-        transition: background-color 200ms ease;
-        height: 2.5rem;
-        color: var(--primary);
-        font-weight: 600;
-        cursor: pointer;
-        text-align: center;
-        &:hover {
-            background-color: var(--bg-shaded);
-        }
-        > td > svg {
-            // Sync icon
-            font-size: 1.5rem;
-            margin-right: 0.75rem;
-            vertical-align: middle;
-        }
-    }
     .event-row-is-exception {
         background-color: lighten($danger, 40%);
     }

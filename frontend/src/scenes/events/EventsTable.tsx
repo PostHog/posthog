@@ -36,6 +36,7 @@ import { Spinner } from 'lib/components/Spinner/Spinner'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { TableCellRepresentation } from 'lib/components/LemonTable/types'
 import { IconSync } from 'lib/components/icons'
+import { LemonButton } from 'lib/components/LemonButton'
 
 export interface FixedFilters {
     action_id?: ActionType['id']
@@ -80,20 +81,31 @@ export function EventsTable({
     const { fetchNextEvents, prependNewEvents, setEventFilter, toggleAutomaticLoad, startDownload } = useActions(logic)
 
     const showLinkToPerson = !fixedFilters?.person_id
-    const newEventsRender = (item: Record<string, any>, colSpan: number): TableCellRepresentation => {
+    const newEventsRender = (
+        { date_break, new_events }: EventsTableRowItem,
+        colSpan: number
+    ): TableCellRepresentation => {
         return {
-            children: item.date_break ? (
-                item.date_break
-            ) : (
-                <>
-                    <IconSync />
-                    {newEvents.length === 1
-                        ? `There is 1 new event. Click here to load it.`
-                        : `There are ${newEvents.length || ''} new events. Click here to load them.`}
-                </>
-            ),
+            children:
+                date_break ||
+                (new_events ? (
+                    <LemonButton
+                        icon={<IconSync />}
+                        style={{ borderRadius: 0 }}
+                        onClick={() => prependNewEvents(newEvents)}
+                        center
+                        fullWidth
+                    >
+                        {newEvents.length === 1
+                            ? `There is 1 new event. Click here to load it`
+                            : `There are ${newEvents.length || ''} new events. Click here to load them`}
+                    </LemonButton>
+                ) : (
+                    '???'
+                )),
             props: {
-                colSpan,
+                colSpan: colSpan + 1,
+                style: new_events ? { padding: 0 } : undefined,
             },
         }
     }
@@ -367,16 +379,8 @@ export function EventsTable({
                         expandedRowRender: function renderExpand({ event }) {
                             return event && <EventDetails event={event} />
                         },
-                        rowExpandable: ({ event }) => !!event,
+                        rowExpandable: ({ event, date_break, new_events }) => (date_break || new_events ? -1 : !!event),
                     }}
-                    onRow={(row) => ({
-                        onClick: () => {
-                            // "There are new events" row click handling
-                            if (row.new_events) {
-                                prependNewEvents(newEvents)
-                            }
-                        },
-                    })}
                 />
                 <div
                     style={{

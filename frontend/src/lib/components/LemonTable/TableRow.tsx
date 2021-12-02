@@ -23,12 +23,14 @@ export function TableRow<T extends Record<string, any>>({
     expandable,
 }: TableRowProps<T>): JSX.Element {
     const [isRowExpanded, setIsRowExpanded] = useState(false)
-    const rowExpandable: boolean = !!expandable && (!expandable.rowExpandable || expandable.rowExpandable(record))
+    const rowExpandable: number = Number(
+        !!expandable && (!expandable.rowExpandable || expandable.rowExpandable(record))
+    )
 
     return (
         <>
             <tr data-row-key={rowKeyDetermined} {...onRow?.(record)} className={rowClassNameDetermined}>
-                {expandable && (
+                {!!expandable && rowExpandable >= 0 && (
                     <td>
                         {rowExpandable && (
                             <LemonButton
