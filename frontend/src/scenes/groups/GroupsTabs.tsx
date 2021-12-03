@@ -1,14 +1,16 @@
 import { Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
+import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import React from 'react'
-import { GroupsAccessStatus, groupsModel } from '~/models/groupsModel'
+import { groupsModel } from '~/models/groupsModel'
 import { groupsListLogic } from './groupsListLogic'
 
 export function GroupsTabs(): JSX.Element {
     const { setTab } = useActions(groupsListLogic)
     const { currentTab } = useValues(groupsListLogic)
-    const { groupTypes, groupsAccessStatus } = useValues(groupsModel)
+    const { groupTypes } = useValues(groupsModel)
+    const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
     const showGroupsIntroductionPage = [
         GroupsAccessStatus.HasAccess,

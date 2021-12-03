@@ -3,7 +3,7 @@ import { IconExternalLink } from 'lib/components/icons'
 import { LinkButton } from 'lib/components/LinkButton'
 import React from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { GroupsAccessStatus } from '~/models/groupsModel'
+import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import './GroupsIntroduction.scss'
 
 interface Props {
@@ -30,7 +30,7 @@ export function GroupsIntroduction({ access }: Props): JSX.Element {
     const learnMoreButton = (
         <LinkButton
             type={access === GroupsAccessStatus.HasAccess ? 'primary' : undefined}
-            to="https://posthog.com/docs/user-guides/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-introduction"
+            to="https://posthog.com/docs/user-guides/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-learn-more"
             target="_blank"
             data-attr="group-analytics-learn-more"
             className="groups-introduction__action-button"
