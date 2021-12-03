@@ -17,6 +17,7 @@ import { PluginMetricsManager } from './utils/plugin-metrics'
 import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
+import { EventPropertyCounter } from './worker/ingestion/event-property-counter'
 import { HookCommander } from './worker/ingestion/hooks'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
@@ -130,6 +131,7 @@ export interface Hub extends PluginsServerConfig {
     pluginConfigSecretLookup: Map<string, PluginConfigId>
     // tools
     teamManager: TeamManager
+    eventPropertyCounter: EventPropertyCounter
     organizationManager: OrganizationManager
     pluginsApiKeyManager: PluginsApiKeyManager
     actionManager: ActionManager
