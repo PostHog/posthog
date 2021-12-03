@@ -30,6 +30,7 @@ class Migration(migrations.Migration):
                         ],
                         default="STRING",
                         max_length=20,
+                        null=True,
                     ),
                 ),
                 ("property_type_format", models.CharField(max_length=100, null=True)),

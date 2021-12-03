@@ -24,7 +24,7 @@ class EventProperty(models.Model):
 
     # contains e.g. the date format
     property_type: models.CharField = models.CharField(
-        max_length=20, choices=PropertyType.choices, default=PropertyType.STRING
+        max_length=20, choices=PropertyType.choices, default=PropertyType.STRING, null=True
     )
     property_type_format: models.CharField = models.CharField(max_length=100, null=True)
 
