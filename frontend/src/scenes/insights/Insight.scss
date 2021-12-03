@@ -115,7 +115,10 @@ $funnel_canvas_background: #fafafa;
 
                 span.filter {
                     font-size: 14px;
-                    margin-right: $default_spacing / 2;
+
+                    &:not(:last-child) {
+                        margin-right: $default_spacing / 2;
+                    }
 
                     span.head-title-item {
                         margin-right: $default_spacing / 2;
@@ -127,10 +130,7 @@ $funnel_canvas_background: #fafafa;
             display: flex;
             align-items: center;
             justify-content: space-between;
-
-            @media screen and (max-width: $md) {
-                overflow-x: auto;
-            }
+            overflow-x: auto;
         }
 
         .ant-card-body {

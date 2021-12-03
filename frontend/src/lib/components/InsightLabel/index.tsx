@@ -97,6 +97,8 @@ export function InsightLabel({
     const eventName = seriesStatus ? capitalizeFirstLetter(seriesStatus) : action?.name || fallbackName || ''
     const iconSizePx = iconSize === IconSize.Large ? 14 : iconSize === IconSize.Medium ? 12 : 10
 
+    console.log('INSIGHT LABEl', showEventName, breakdownValue, useCustomName && action, !hideSeriesSubtitle)
+
     return (
         <Row className={clsx('insights-label', className)} wrap={false}>
             <Col style={{ display: 'flex', alignItems: 'center' }} flex="auto">
@@ -125,7 +127,11 @@ export function InsightLabel({
                     {showEventName && (
                         <>
                             {useCustomName && action ? (
-                                <EntityFilterInfo filter={action} showSubTitle={!hideSeriesSubtitle} />
+                                <EntityFilterInfo
+                                    filter={action}
+                                    showSubTitle={!hideSeriesSubtitle}
+                                    subTitle={breakdownValue?.toString() || undefined}
+                                />
                             ) : (
                                 <PropertyKeyInfo disableIcon disablePopover value={eventName} ellipsis={!allowWrap} />
                             )}

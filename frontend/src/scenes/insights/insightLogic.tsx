@@ -468,11 +468,13 @@ export const insightLogic = kea<insightLogicType>({
                     layout: undefined,
                     hiddenLegendKeys: undefined,
                     funnel_advanced: undefined,
+                    legend_visible: undefined,
                 }),
                 Object.assign({}, values.loadedFilters, {
                     layout: undefined,
                     hiddenLegendKeys: undefined,
                     funnel_advanced: undefined,
+                    legend_visible: undefined,
                 })
             )
 

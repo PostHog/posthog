@@ -86,6 +86,7 @@ export const FEATURE_FLAGS = {
     FUNNEL_SIMPLE_MODE: 'funnel-simple-mode', // owner: @paolodamico
     EXPERIMENTATION: 'experimentation', // owner: @neilkakkar
     RETENTION_BREAKDOWN: 'retention-breakdown', // owner: @hazzadous
+    INSIGHT_LEGENDS: 'insight-legends', // owner @alexkim205
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

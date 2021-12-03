@@ -8,6 +8,7 @@ import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 interface Props {
     filter: EntityFilter | ActionFilter | FunnelStepRangeEntityFilter
     showSubTitle?: boolean
+    subTitle?: string
 }
 
 function TextWrapper(props: TextProps): JSX.Element {
@@ -18,13 +19,15 @@ function TextWrapper(props: TextProps): JSX.Element {
     )
 }
 
-export function EntityFilterInfo({ filter, showSubTitle = true }: Props): JSX.Element {
+export function EntityFilterInfo({ filter, showSubTitle = true, subTitle }: Props): JSX.Element {
     const title = getDisplayNameFromEntityFilter(filter)
-    const subtitle = getDisplayNameFromEntityFilter(filter, false)
+    const subtitle = subTitle ?? getDisplayNameFromEntityFilter(filter, false)
 
     if (filter.type === EntityTypes.NEW_ENTITY || (!title && !subtitle)) {
         return <TextWrapper title="Select filter">Select filter</TextWrapper>
     }
+
+    console.log('TITLE', title, subtitle, filter)
 
     const titleToDisplay = getKeyMapping(title, 'event')?.label ?? title ?? undefined
     const subTitleToDisplay = getKeyMapping(subtitle, 'event')?.label ?? subtitle ?? undefined

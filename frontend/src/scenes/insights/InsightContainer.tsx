@@ -30,6 +30,7 @@ import clsx from 'clsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { FunnelCorrelation } from './FunnelCorrelation'
+import { InsightLegend, InsightLegendButton } from 'lib/components/InsightLegend/InsightLegend'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -182,13 +183,33 @@ export function InsightContainer(): JSX.Element {
                                     <PathCanvasLabel />
                                 </Col>
                             ))}
-                        {lastRefresh && <ComputationTimeWithRefresh />}
+                        {lastRefresh && (
+                            <Col>
+                                <ComputationTimeWithRefresh />
+                            </Col>
+                        )}
+                        {(activeView === InsightType.TRENDS || activeView === InsightType.STICKINESS) &&
+                            featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS] && (
+                                <Col>
+                                    <InsightLegendButton />
+                                </Col>
+                            )}
                     </Row>
-                    {!!BlockingEmptyState ? BlockingEmptyState : VIEW_MAP[activeView]}
+                    {!!BlockingEmptyState ? (
+                        BlockingEmptyState
+                    ) : featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS] && filters.legend_visible ? (
+                        <Row wrap={false}>
+                            <Col style={{ width: '100%' }}>{VIEW_MAP[activeView]}</Col>
+                            <Col style={{ maxWidth: 300, width: '100%', paddingRight: 16 }}>
+                                <InsightLegend />
+                            </Col>
+                        </Row>
+                    ) : (
+                        VIEW_MAP[activeView]
+                    )}
                 </div>
             </Card>
             {renderTable()}
-
             {correlationAnalysisAvailable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>
     )

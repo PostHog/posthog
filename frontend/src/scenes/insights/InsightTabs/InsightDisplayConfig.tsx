@@ -2,7 +2,6 @@ import React from 'react'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
-import { TZIndicator } from 'lib/components/TimezoneAware'
 import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE, FEATURE_FLAGS } from 'lib/constants'
 import { ChartDisplayType, FilterType, FunnelVizType, ItemMode, InsightType } from '~/types'
 import { CalendarOutlined } from '@ant-design/icons'
@@ -93,9 +92,6 @@ export function InsightDisplayConfig({
 
     return (
         <div className="display-config-inner">
-            <span className="hide-lte-md">
-                <TZIndicator style={{ float: 'left', fontSize: '0.75rem', marginRight: 16 }} placement="topRight" />
-            </span>
             <div>
                 {showDateFilter[activeView] && (
                     <span className="filter">
@@ -128,7 +124,11 @@ export function InsightDisplayConfig({
                     </span>
                 )}
 
-                {showComparePrevious[activeView] && <CompareFilter />}
+                {showComparePrevious[activeView] && (
+                    <span className="filter">
+                        <CompareFilter />
+                    </span>
+                )}
             </div>
             <div>
                 {showChartFilter(activeView) && (

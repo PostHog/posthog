@@ -1,0 +1,33 @@
+@import '~/vars';
+
+.insight-legend-button {
+    display: flex;
+    align-items: center;
+
+    .insight-legend-button-title {
+        margin-left: $default_spacing / 2;
+        font-size: 14px;
+        font-weight: 500;
+    }
+}
+
+.insight-legend-menu {
+    padding: $default_spacing !important;
+    box-shadow: none !important;
+    border: 1px solid $border;
+    border-radius: $radius;
+    max-width: 300px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+
+    .insight-legend-menu-item {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        .insights-label {
+            margin-left: $default_spacing / 2;
+            width: 100%;
+        }
+    }
+}
