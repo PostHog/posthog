@@ -8,6 +8,13 @@ import { getByAge, UUIDT } from '../../utils/utils'
 
 type TeamCache<T> = Map<TeamId, [T, number]>
 
+enum EventPropertyType {
+    Number = 'NUMBER',
+    String = 'STRING',
+    Boolean = 'BOOLEAN',
+    DateTime = 'DATETIME',
+}
+
 export class TeamManager {
     db: DB
     teamCache: TeamCache<Team | null>
@@ -135,9 +142,22 @@ export class TeamManager {
     public async updateEventProperties(team: Team, event: string, properties: Record<string, any>): Promise<void> {
         await this.db.postgresTransaction(async (client) => {
             for (const [property, value] of Object.entries(properties)) {
-                const propertyType =
-                    typeof value === 'number' ? 'NUMBER' : typeof value === 'boolean' ? 'BOOLEAN' : 'STRING'
-                const propertyTypeFormat = null // TODO: detect datetime format
+                let propertyType: EventPropertyType =
+                    typeof value === 'number'
+                        ? EventPropertyType.Number
+                        : typeof value === 'boolean'
+                        ? EventPropertyType.Boolean
+                        : EventPropertyType.String
+                let propertyTypeFormat = null
+
+                if (propertyType === EventPropertyType.String) {
+                    const dateFormat = getDateFormat(value)
+                    if (dateFormat) {
+                        propertyType = EventPropertyType.DateTime
+                        propertyTypeFormat = dateFormat
+                    }
+                }
+
                 const totalVolume = 1
                 const lastSeenAt = null // TODO: fill this in
 
@@ -150,5 +170,11 @@ export class TeamManager {
                 )
             }
         })
+    }
+}
+
+function getDateFormat(value: string): string | void {
+    if (value.match(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/)) {
+        return 'YYYY-MM-DD'
     }
 }
