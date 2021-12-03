@@ -905,7 +905,7 @@ export function IconKeyboard(props: React.SVGProps<SVGSVGElement>): JSX.Element 
     )
 }
 
-/** Material Design Keyboard icon. */
+/** Material Design Search icon. */
 export function IconMagnifier(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
         <svg
