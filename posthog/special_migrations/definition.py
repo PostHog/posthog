@@ -78,7 +78,3 @@ class SpecialMigrationDefinition:
     # return an int between 0-100 to specify how far along this migration is
     def progress(self, migration_instance: SpecialMigrationType) -> int:
         return int(100 * migration_instance.current_operation_index / len(self.operations))
-
-    # a function we'll try to run if the migration fails to roll it back, can also be triggered manually
-    def rollback(self, migration_instance: SpecialMigrationType) -> Tuple[bool, Optional[str]]:
-        return (False, None)

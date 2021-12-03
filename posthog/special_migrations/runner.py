@@ -105,24 +105,30 @@ def update_migration_progress(migration_instance: SpecialMigration):
         pass
 
 
-# TODO: Move towards a rollback per op
 def attempt_migration_rollback(migration_instance: SpecialMigration, force: bool = False):
-    error = None
     try:
-        rollback = ALL_SPECIAL_MIGRATIONS[migration_instance.name].rollback
-        ok, error = rollback(migration_instance)  # type: ignore
-        if ok:
-            migration_instance.status = MigrationStatus.RolledBack
-            migration_instance.save()
-            return
-
+        ops = ALL_SPECIAL_MIGRATIONS[migration_instance.name].operations
+        start = migration_instance.current_operation_index
+        end = -(len(ops) + 1)
+        for op in ops[start:end:-1]:
+            if not op.rollback:
+                raise Exception(f"No rollback provided for operation {op.sql}")
+            execute_op(database=op.database, sql=op.rollback, timeout_seconds=60, query_id=str(UUIDT()))
     except Exception as e:
         error = str(e)
 
-    if error and force:
-        migration_instance.status = MigrationStatus.Errored
-        migration_instance.last_error = f"Force rollback failed with error: {error}"
-        migration_instance.save()
+        # forced rollbacks are when the migration completed successfully but the user
+        # still requested a rollback, in which case we set the error to whatever happened
+        # while rolling back. under normal circumstances, the error is reserved to
+        # things that happened during the migration itself
+        if force:
+            migration_instance.status = MigrationStatus.Errored
+            migration_instance.last_error = f"Force rollback failed with error: {error}"
+            migration_instance.save()
+            return
+
+    migration_instance.status = MigrationStatus.RolledBack
+    migration_instance.save()
 
 
 def is_current_operation_resumable(migration_instance: SpecialMigration):
