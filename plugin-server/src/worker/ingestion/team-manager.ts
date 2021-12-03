@@ -1,4 +1,5 @@
 import { Properties } from '@posthog/plugin-scaffold'
+import { DateTime } from 'luxon'
 
 import { Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
@@ -46,7 +47,12 @@ export class TeamManager {
         }
     }
 
-    public async updateEventNamesAndProperties(teamId: number, event: string, properties: Properties): Promise<void> {
+    public async updateEventNamesAndProperties(
+        teamId: number,
+        event: string,
+        properties: Properties,
+        eventTimestamp: DateTime
+    ): Promise<void> {
         const team: Team | null = await this.fetchTeam(teamId)
 
         if (!team) {
@@ -110,7 +116,7 @@ export class TeamManager {
             }
         }
 
-        await this.updateEventProperties(team, event, properties)
+        await this.updateEventProperties(team, event, properties, eventTimestamp)
 
         clearTimeout(timeout)
     }
@@ -139,7 +145,12 @@ export class TeamManager {
         }
     }
 
-    public async updateEventProperties(team: Team, event: string, properties: Record<string, any>): Promise<void> {
+    public async updateEventProperties(
+        team: Team,
+        event: string,
+        properties: Record<string, any>,
+        eventTimestamp: DateTime
+    ): Promise<void> {
         await this.db.postgresTransaction(async (client) => {
             for (const [property, value] of Object.entries(properties)) {
                 let propertyType =
