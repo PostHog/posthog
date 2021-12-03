@@ -52,13 +52,13 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
 
         assert isinstance(self._filter.correlation_person_entity, Entity)
 
-        funnel_persons_query, funnel_persons_params = self._funnel_correlation.get_funnel_persons_cte()
+        funnel_persons_query, funnel_persons_params = self._funnel_correlation.get_funnel_actors_cte()
 
         prop_filters = self._filter.correlation_person_entity.properties
         prop_query, prop_params = FunnelEventQuery(self._filter, self._team.pk)._get_props(prop_filters)
 
         conversion_filter = (
-            f'AND person.steps {"=" if self._filter.correlation_persons_converted else "<>"} target_step'
+            f'AND actors.steps {"=" if self._filter.correlation_persons_converted else "<>"} target_step'
             if self._filter.correlation_persons_converted is not None
             else ""
         )
@@ -73,13 +73,13 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
                 %(target_step)s AS target_step,
                 %(funnel_step_names)s as funnel_step_names
             SELECT
-                DISTINCT person.person_id as person_id
+                DISTINCT actors.actor_id AS actor_id
             FROM events AS event
                 {event_join_query}
                 AND event.event = %(target_event)s
                 {conversion_filter}
                 {prop_query}
-            ORDER BY person_id
+            ORDER BY actor_id
             LIMIT {self._filter.correlation_person_limit}
             OFFSET {self._filter.correlation_person_offset}
         """
@@ -108,7 +108,7 @@ class _FunnelPropertyCorrelationActors(ActorBaseQuery):
         if not self._filter.correlation_property_values:
             raise ValidationError("Property Correlation expects atleast one Property to get persons for")
 
-        funnel_persons_query, funnel_persons_params = self._funnel_correlation.get_funnel_persons_cte()
+        funnel_persons_query, funnel_persons_params = self._funnel_correlation.get_funnel_actors_cte()
 
         conversion_filter = (
             f'funnel_actors.steps {"=" if self._filter.correlation_persons_converted else "<>"} target_step'
@@ -124,7 +124,7 @@ class _FunnelPropertyCorrelationActors(ActorBaseQuery):
                 funnel_actors AS ({funnel_persons_query}),
                 %(target_step)s AS target_step
             SELECT
-                DISTINCT funnel_actors.person_id AS actor_id
+                DISTINCT funnel_actors.actor_id AS actor_id
             FROM funnel_actors
             {actor_join_subquery}
             WHERE {conversion_filter}
@@ -145,7 +145,7 @@ class _FunnelPropertyCorrelationActors(ActorBaseQuery):
     def _get_actor_subquery(self) -> Tuple[str, Dict[str, Any]]:
         if self.is_aggregating_by_groups:
             actor_join_subquery, actor_join_subquery_params = GroupsJoinQuery(
-                self._filter, self._team.pk, join_key="funnel_actors.person_id"
+                self._filter, self._team.pk, join_key="funnel_actors.actor_id"
             ).get_join_query()
         else:
             person_query, actor_join_subquery_params = ClickhousePersonQuery(
@@ -158,7 +158,7 @@ class _FunnelPropertyCorrelationActors(ActorBaseQuery):
 
             actor_join_subquery = f"""
                 JOIN ({person_query}) person
-                ON person.id = funnel_actors.person_id
+                ON person.id = funnel_actors.actor_id
             """
 
         return actor_join_subquery, actor_join_subquery_params

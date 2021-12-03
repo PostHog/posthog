@@ -122,7 +122,7 @@ class FunnelCorrelation:
             # Funnel Step by default set to 1, to give us all people who entered the funnel
 
         # Used for generating the funnel persons cte
-        self._funnel_persons_generator = ClickhouseFunnelActors(
+        self._funnel_actors_generator = ClickhouseFunnelActors(
             Filter(
                 data={
                     key: value
@@ -167,7 +167,7 @@ class FunnelCorrelation:
 
     def get_event_query(self) -> Tuple[str, Dict[str, Any]]:
 
-        funnel_persons_query, funnel_persons_params = self.get_funnel_persons_cte()
+        funnel_persons_query, funnel_persons_params = self.get_funnel_actors_cte()
 
         event_join_query = self._get_events_join_query()
 
@@ -185,14 +185,14 @@ class FunnelCorrelation:
                 -- If we have a `person.steps = target_step`, we know the person
                 -- reached the end of the funnel
                 countDistinctIf(
-                    person.person_id,
-                    person.steps = target_step
+                    actors.actor_id,
+                    actors.steps = target_step
                 ) AS success_count,
 
                 -- And the converse being for failures
                 countDistinctIf(
-                    person.person_id,
-                    person.steps <> target_step
+                    actors.actor_id,
+                    actors.steps <> target_step
                 ) AS failure_count
 
             FROM events AS event
@@ -201,7 +201,7 @@ class FunnelCorrelation:
             GROUP BY name
 
             -- To get the total success/failure numbers, we do an aggregation on
-            -- the funnel people CTE and count distinct person_ids
+            -- the funnel people CTE and count distinct actor_ids
             UNION ALL
 
             SELECT
@@ -210,15 +210,15 @@ class FunnelCorrelation:
                 '{self.TOTAL_IDENTIFIER}' as name,
 
                 countDistinctIf(
-                    person.person_id,
-                    person.steps = target_step
+                    actors.actor_id,
+                    actors.steps = target_step
                 ) AS success_count,
 
                 countDistinctIf(
-                    person.person_id,
-                    person.steps <> target_step
+                    actors.actor_id,
+                    actors.steps <> target_step
                 ) AS failure_count
-            FROM funnel_actors AS person
+            FROM funnel_actors AS actors
         """
         params = {
             **funnel_persons_params,
@@ -234,7 +234,7 @@ class FunnelCorrelation:
         if not self._filter.correlation_event_names:
             raise ValidationError("Event Property Correlation expects atleast one event name to run correlation on")
 
-        funnel_persons_query, funnel_persons_params = self.get_funnel_persons_cte()
+        funnel_persons_query, funnel_persons_params = self.get_funnel_actors_cte()
 
         event_join_query = self._get_events_join_query()
 
@@ -263,12 +263,12 @@ class FunnelCorrelation:
                 %(funnel_step_names)s as funnel_step_names
 
             SELECT concat(event_name, '::', prop.1, '::', prop.2) as name,
-                   countDistinctIf(person_id, steps = target_step) as success_count,
-                   countDistinctIf(person_id, steps <> target_step) as failure_count
+                   countDistinctIf(actor_id, steps = target_step) as success_count,
+                   countDistinctIf(actor_id, steps <> target_step) as failure_count
             FROM (
                 SELECT
-                    person.person_id as person_id,
-                    person.steps as steps,
+                    actors.actor_id as actor_id,
+                    actors.steps as steps,
                     events.event as event_name,
                     -- Same as what we do in $all property queries
                     {array_join_query}
@@ -284,20 +284,20 @@ class FunnelCorrelation:
 
             UNION ALL
             -- To get the total success/failure numbers, we do an aggregation on
-            -- the funnel people CTE and count distinct person_ids
+            -- the funnel people CTE and count distinct actor_ids
             SELECT
                 '{self.TOTAL_IDENTIFIER}' as name,
 
                 countDistinctIf(
-                    person.person_id,
-                    person.steps = target_step
+                    actors.actor_id,
+                    actors.steps = target_step
                 ) AS success_count,
 
                 countDistinctIf(
-                    person.person_id,
-                    person.steps <> target_step
+                    actors.actor_id,
+                    actors.steps <> target_step
                 ) AS failure_count
-            FROM funnel_actors AS person
+            FROM funnel_actors AS actors
         """
         params = {
             **funnel_persons_params,
@@ -314,7 +314,7 @@ class FunnelCorrelation:
         if not self._filter.correlation_property_names:
             raise ValidationError("Property Correlation expects atleast one Property to run correlation on")
 
-        funnel_persons_query, funnel_persons_params = self.get_funnel_persons_cte()
+        funnel_actors_query, funnel_actors_params = self.get_funnel_actors_cte()
 
         person_prop_query, person_prop_params = self._get_properties_prop_clause()
 
@@ -322,16 +322,16 @@ class FunnelCorrelation:
 
         query = f"""
             WITH
-                funnel_actors as ({funnel_persons_query}),
+                funnel_actors as ({funnel_actors_query}),
                 %(target_step)s AS target_step
             SELECT
                 concat(prop.1, '::', prop.2) as name,
                 -- We generate a unique identifier for each property value as: PropertyName::Value
-                countDistinctIf(person_id, steps = target_step) AS success_count,
-                countDistinctIf(person_id, steps <> target_step) AS failure_count
+                countDistinctIf(actor_id, steps = target_step) AS success_count,
+                countDistinctIf(actor_id, steps <> target_step) AS failure_count
             FROM (
                 SELECT
-                    person_id,
+                    actor_id,
                     funnel_actors.steps as steps,
                     /*
                         We can extract multiple property values at the same time, since we're
@@ -368,12 +368,12 @@ class FunnelCorrelation:
             UNION ALL
             SELECT
                 '{self.TOTAL_IDENTIFIER}' as name,
-                countDistinctIf(person_id, steps = target_step) AS success_count,
-                countDistinctIf(person_id, steps <> target_step) AS failure_count
+                countDistinctIf(actor_id, steps = target_step) AS success_count,
+                countDistinctIf(actor_id, steps <> target_step) AS failure_count
             FROM funnel_actors
         """
         params = {
-            **funnel_persons_params,
+            **funnel_actors_params,
             **person_prop_params,
             **aggregation_join_params,
             "target_step": len(self._filter.entities),
@@ -392,16 +392,16 @@ class FunnelCorrelation:
                 -- success/failure numbers in one pass, but this causes out of memory
                 -- error mentioning issues with right filling. I'm sure there's a way
                 -- to do it but lifes too short.
-                JOIN funnel_actors AS person
-                    ON pdi.person_id = person.person_id
+                JOIN funnel_actors AS actors
+                    ON pdi.person_id = actors.actor_id
             """
 
         # :KLUDGE: aggregation_target is called person_id in funnel people CTEs.
         # Since supporting that properly involves updating everything that uses the CTE to rename person_id,
         # keeping it as-is for now
         aggregation_group_join = f"""
-            JOIN funnel_actors AS person
-                ON person.person_id = events.$group_{self._filter.aggregation_group_type_index}
+            JOIN funnel_actors AS actors
+                ON actors.actor_id = events.$group_{self._filter.aggregation_group_type_index}
             """
 
         return (
@@ -431,13 +431,13 @@ class FunnelCorrelation:
 
                 AND event.team_id = {self._team.pk}
 
-                -- Add in per person filtering on event time range. We just want
+                -- Add in per actor filtering on event time range. We just want
                 -- to include events that happened within the bounds of the
-                -- persons time in the funnel.
-                AND event.timestamp > person.first_timestamp
+                -- actors time in the funnel.
+                AND event.timestamp > actors.first_timestamp
                 AND event.timestamp < COALESCE(
-                    person.final_timestamp,
-                    person.first_timestamp + INTERVAL {self._funnel_persons_generator._filter.funnel_window_interval} {self._funnel_persons_generator._filter.funnel_window_interval_unit_ch()},
+                    actors.final_timestamp,
+                    actors.first_timestamp + INTERVAL {self._funnel_actors_generator._filter.funnel_window_interval} {self._funnel_actors_generator._filter.funnel_window_interval_unit_ch()},
                     date_to)
                     -- Ensure that the event is not outside the bounds of the funnel conversion window
 
@@ -454,12 +454,12 @@ class FunnelCorrelation:
             return (
                 f"""
                 JOIN ({person_query}) person
-                    ON person.id = funnel_actors.person_id
+                    ON person.id = funnel_actors.actor_id
             """,
                 person_query_params,
             )
         else:
-            return GroupsJoinQuery(self._filter, self._team.pk, join_key="funnel_actors.person_id").get_join_query()
+            return GroupsJoinQuery(self._filter, self._team.pk, join_key="funnel_actors.actor_id").get_join_query()
 
     def _get_properties_prop_clause(self):
 
@@ -753,9 +753,9 @@ class FunnelCorrelation:
             failure_total,
         )
 
-    def get_funnel_persons_cte(self) -> Tuple[str, Dict[str, Any]]:
+    def get_funnel_actors_cte(self) -> Tuple[str, Dict[str, Any]]:
 
-        return self._funnel_persons_generator.actor_query(extra_fields=["steps", "final_timestamp", "first_timestamp"])
+        return self._funnel_actors_generator.actor_query(extra_fields=["steps", "final_timestamp", "first_timestamp"])
 
     @staticmethod
     def are_results_insignificant(event_contingency_table: EventContingencyTable) -> bool:
