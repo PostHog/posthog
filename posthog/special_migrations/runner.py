@@ -39,7 +39,7 @@ def start_special_migration(migration_name: str) -> bool:
                 f"Service {service_version_requirement.service} is in version {version}. Expected range: {str(service_version_requirement.supported_version)}.",
             )
 
-    ok, error = migration_definition.healthcheck()
+    ok, error = run_migration_healthcheck(migration_instance)
     if not ok:
         process_error(migration_instance, error)
         return False
@@ -97,6 +97,7 @@ def run_migration_healthcheck(migration_instance: SpecialMigration):
 
 
 def update_migration_progress(migration_instance: SpecialMigration):
+    # we don't want to interrupt a migration if the progress check fails, hence try without handling exceptions
     try:
         migration_instance.progress = ALL_SPECIAL_MIGRATIONS[migration_instance.name].progress(migration_instance)  # type: ignore
         migration_instance.save()
@@ -104,6 +105,7 @@ def update_migration_progress(migration_instance: SpecialMigration):
         pass
 
 
+# TODO: Move towards a rollback per op
 def attempt_migration_rollback(migration_instance: SpecialMigration, force: bool = False):
     error = None
     try:
@@ -124,9 +126,9 @@ def attempt_migration_rollback(migration_instance: SpecialMigration, force: bool
 
 
 def is_current_operation_resumable(migration_instance: SpecialMigration):
-    return (
-        ALL_SPECIAL_MIGRATIONS[migration_instance.name].operations[migration_instance.current_operation_index].resumbale
-    )
+    migration_definition = ALL_SPECIAL_MIGRATIONS[migration_instance.name]
+    index = migration_instance.current_operation_index
+    return migration_definition.operations[index].resumbale
 
 
 def is_migration_in_range(posthog_min_version, posthog_max_version):
@@ -140,11 +142,11 @@ def run_next_migration(candidate: str) -> bool:
     )
     dependency = SPECIAL_MIGRATION_TO_DEPENDENCY[candidate]
 
-    if not dependency or (
-        migration_in_range
-        and migration_instance.status == MigrationStatus.NotStarted
-        and SpecialMigration.objects.get(name=dependency).status == MigrationStatus.CompletedSuccessfully
-    ):
+    dependency_ok = (
+        not dependency or SpecialMigration.objects.get(name=dependency).status == MigrationStatus.CompletedSuccessfully
+    )
+
+    if dependency_ok and migration_in_range and migration_instance.status == MigrationStatus.NotStarted:
         trigger_migration(migration_instance)
         return True
 

@@ -58,11 +58,11 @@ def setup_special_migrations():
 
         SPECIAL_MIGRATION_TO_DEPENDENCY[migration_name] = dependency
 
-        for key, val in SPECIAL_MIGRATION_TO_DEPENDENCY.items():
-            DEPENDENCY_TO_SPECIAL_MIGRATION[val] = key
-
         if migration_name in unapplied_migrations and POSTHOG_VERSION > Version(migration.posthog_max_version):
             raise ImproperlyConfigured(f"Migration {migration_name} is required for PostHog versions above {VERSION}.")
+
+    for key, val in SPECIAL_MIGRATION_TO_DEPENDENCY.items():
+        DEPENDENCY_TO_SPECIAL_MIGRATION[val] = key
 
     if AUTO_START_SPECIAL_MIGRATIONS and first_migration:
         kickstart_migration_if_possible(first_migration, applied_migrations)
