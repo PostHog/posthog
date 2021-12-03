@@ -49,7 +49,10 @@ export class TeamManager {
         const event_names: string[] = []
         const last_seen_at_array: number[] = []
 
-        for (const event of this.eventLastSeenCache) {
+        const events = this.eventLastSeenCache
+        this.eventLastSeenCache = new Map()
+
+        for (const event of events) {
             const [key, value] = event
             team_ids.push(key.split('_')[0])
             event_names.push(key.substring(key.indexOf('_') + 1))
@@ -57,7 +60,6 @@ export class TeamManager {
         }
 
         this.lastFlushAt = DateTime.now()
-        this.eventLastSeenCache = new Map()
 
         await this.db.postgresQuery(
             `UPDATE posthog_eventdefinition t1 SET t1.last_seen_at = GREATEST(t1.last_seen_at, t2.last_seen_at)
