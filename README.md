@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="posthog-logo-padded@2x" width=250 src="https://user-images.githubusercontent.com/85295485/144538867-ee676209-7b38-4eed-b133-ed58b43f9fa5.png"/>
+  <img width="300" alt="posthoglogo" src="https://user-images.githubusercontent.com/85295485/144591858-cb39e04a-7bf4-4a4d-a1fd-5d05a3ff693f.png">
 </p>
 <p align="center">
   <!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
