@@ -47,6 +47,21 @@ QUERY_TIMEOUT_THREAD = get_timer_thread("ee.clickhouse.client", SLOW_QUERY_THRES
 _request_information: Optional[Dict] = None
 
 
+def default_client():
+    """
+    Return a bare bones client for use in places where we are only interested in general ClickHouse state
+    DO NOT USE THIS FOR QUERYING DATA
+    """
+    return SyncClient(
+        host=CLICKHOUSE_HOST,
+        secure=CLICKHOUSE_SECURE,
+        user=CLICKHOUSE_USER,
+        password=CLICKHOUSE_PASSWORD,
+        ca_certs=CLICKHOUSE_CA,
+        verify=CLICKHOUSE_VERIFY,
+    )
+
+
 def make_ch_pool(**overrides) -> ChPool:
     kwargs = {
         "host": CLICKHOUSE_HOST,
