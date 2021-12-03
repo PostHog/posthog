@@ -175,10 +175,13 @@ export function InsightContainer(): JSX.Element {
                         align="middle"
                         justify="space-between"
                     >
-                        <Col>
-                            <FunnelCanvasLabel />
-                            <PathCanvasLabel />
-                        </Col>
+                        {activeView === InsightType.FUNNELS ||
+                            (activeView === InsightType.PATHS && (
+                                <Col>
+                                    <FunnelCanvasLabel />
+                                    <PathCanvasLabel />
+                                </Col>
+                            ))}
                         {lastRefresh && <ComputationTimeWithRefresh />}
                     </Row>
                     {!!BlockingEmptyState ? BlockingEmptyState : VIEW_MAP[activeView]}

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { Select } from 'antd'
+import { SelectProps } from 'antd/lib/select'
 import { dateMapping, isDate, dateFilterToText } from 'lib/utils'
 import { DateFilterRange } from 'lib/components/DateFilter/DateFilterRange'
 import { dayjs } from 'lib/dayjs'
@@ -9,12 +10,14 @@ export interface DateFilterProps {
     defaultValue: string
     showCustom?: boolean
     bordered?: boolean
-    makeLabel?: (key: string) => React.ReactNode
+    makeLabel?: (key: React.ReactNode) => React.ReactNode
     style?: React.CSSProperties
     onChange?: (fromDate: string, toDate: string) => void
     disabled?: boolean
     getPopupContainer?: (props: any) => HTMLElement
     dateOptions?: Record<string, dateMappingOption>
+    isDateFormatted?: boolean
+    selectProps?: SelectProps<any>
 }
 
 interface RawDateFilterProps extends DateFilterProps {
@@ -34,6 +37,8 @@ export function DateFilter({
     dateFrom,
     dateTo,
     dateOptions = dateMapping,
+    isDateFormatted = false,
+    selectProps = {},
 }: RawDateFilterProps): JSX.Element {
     const [rangeDateFrom, setRangeDateFrom] = useState(
         dateFrom && isDate.test(dateFrom as string) ? dayjs(dateFrom) : undefined
@@ -88,8 +93,8 @@ export function DateFilter({
         setDate(dayjs(rangeDateFrom).format('YYYY-MM-DD'), dayjs(rangeDateTo).format('YYYY-MM-DD'))
     }
 
-    const parsedValue = useMemo(
-        () => dateFilterToText(dateFrom, dateTo, defaultValue, dateOptions),
+    const currKey = useMemo(
+        () => dateFilterToText(dateFrom, dateTo, defaultValue, dateOptions, false),
         [dateFrom, dateTo, defaultValue]
     )
 
@@ -98,7 +103,11 @@ export function DateFilter({
             data-attr="date-filter"
             bordered={bordered}
             id="daterange_selector"
-            value={parsedValue}
+            value={
+                isDateFormatted && !(currKey in dateOptions)
+                    ? dateFilterToText(dateFrom, dateTo, defaultValue, dateOptions, true)
+                    : currKey
+            }
             onChange={_onChange}
             style={style}
             open={open || dateRangeOpen}
@@ -127,6 +136,7 @@ export function DateFilter({
                     return menu
                 }
             }}
+            {...selectProps}
         >
             {[
                 ...Object.entries(dateOptions).map(([key, { inactive }]) => {
@@ -134,12 +144,22 @@ export function DateFilter({
                         return null
                     }
 
-                    if (inactive && parsedValue !== key) {
+                    if (inactive && currKey !== key) {
                         return null
                     }
 
                     return (
-                        <Select.Option key={key} value={key} label={makeLabel ? makeLabel(key) : undefined}>
+                        <Select.Option
+                            key={key}
+                            value={key}
+                            label={
+                                makeLabel
+                                    ? makeLabel(
+                                          dateFilterToText(dateFrom, dateTo, defaultValue, dateOptions, isDateFormatted)
+                                      )
+                                    : undefined
+                            }
+                        >
                             {key}
                         </Select.Option>
                     )

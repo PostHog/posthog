@@ -15,7 +15,7 @@ export function CompareFilter(): JSX.Element {
             style={{ marginLeft: 8, marginRight: 6 }}
             disabled={disabled}
         >
-            Compare<span className="hide-lte-md"> to previous time period</span>
+            Compare<span className="hide-lte-md"> to previous</span>
         </Checkbox>
     )
 }

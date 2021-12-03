@@ -14,6 +14,7 @@ import { FunnelBinsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBi
 import { PathStepPicker } from './PathTab/PathStepPicker'
 import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getFormattedLastWeekDate } from 'lib/utils'
 
 interface InsightDisplayConfigProps {
     clearAnnotationsToCreate: () => void
@@ -95,57 +96,72 @@ export function InsightDisplayConfig({
             <span className="hide-lte-md">
                 <TZIndicator style={{ float: 'left', fontSize: '0.75rem', marginRight: 16 }} placement="topRight" />
             </span>
-            <div style={{ width: '100%', textAlign: 'right' }}>
-                {showChartFilter(activeView) && (
-                    <ChartFilter
-                        onChange={(display: ChartDisplayType | FunnelVizType) => {
-                            if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART) {
-                                clearAnnotationsToCreate()
-                            }
-                        }}
-                        filters={filters}
-                        disabled={filters.insight === InsightType.LIFECYCLE}
-                    />
-                )}
-                {showIntervalFilter(activeView, filters) && <IntervalFilter view={activeView} />}
-
-                {activeView === InsightType.RETENTION && <RetentionDatePicker />}
-
-                {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.Steps && (
-                    <>
-                        <FunnelDisplayLayoutPicker />
-                        {!featureFlags[FEATURE_FLAGS.FUNNEL_SIMPLE_MODE] && <FunnelStepReferencePicker />}
-                    </>
-                )}
-
-                {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.TimeToConvert && (
-                    <>
-                        <FunnelBinsPicker />
-                    </>
-                )}
-
-                {showPathOptions && (
-                    <>
-                        <PathStepPicker />
-                    </>
-                )}
-
+            <div>
                 {showDateFilter[activeView] && (
-                    <>
+                    <span className="filter">
+                        <span className="head-title-item">Date range</span>
                         <InsightDateFilter
-                            defaultValue="Last 7 days"
+                            defaultValue={getFormattedLastWeekDate()}
                             disabled={dateFilterDisabled}
-                            bordered={false}
+                            bordered
                             makeLabel={(key) => (
                                 <>
                                     <CalendarOutlined /> {key}
                                 </>
                             )}
+                            isDateFormatted
                         />
-                    </>
+                    </span>
+                )}
+                {showIntervalFilter(activeView, filters) && (
+                    <span className="filter">
+                        <span className="head-title-item">grouped by</span>
+                        <IntervalFilter view={activeView} />
+                    </span>
+                )}
+
+                {activeView === InsightType.RETENTION && <RetentionDatePicker />}
+
+                {showPathOptions && (
+                    <span className="filter">
+                        <PathStepPicker />
+                    </span>
                 )}
 
                 {showComparePrevious[activeView] && <CompareFilter />}
+            </div>
+            <div>
+                {showChartFilter(activeView) && (
+                    <span className="filter">
+                        <span className="head-title-item">Chart type</span>
+                        <ChartFilter
+                            onChange={(display: ChartDisplayType | FunnelVizType) => {
+                                if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART) {
+                                    clearAnnotationsToCreate()
+                                }
+                            }}
+                            filters={filters}
+                            disabled={filters.insight === InsightType.LIFECYCLE}
+                        />
+                    </span>
+                )}
+                {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.Steps && (
+                    <>
+                        <span className="filter">
+                            <FunnelDisplayLayoutPicker />
+                        </span>
+                        {!featureFlags[FEATURE_FLAGS.FUNNEL_SIMPLE_MODE] && (
+                            <span className="filter">
+                                <FunnelStepReferencePicker bordered />
+                            </span>
+                        )}
+                    </>
+                )}
+                {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.TimeToConvert && (
+                    <span className="filter">
+                        <FunnelBinsPicker />
+                    </span>
+                )}
             </div>
         </div>
     )

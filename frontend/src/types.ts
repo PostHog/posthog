@@ -21,6 +21,7 @@ import { eventWithTime } from 'rrweb/typings/types'
 import { PostHog } from 'posthog-js'
 import React from 'react'
 import { PopupProps } from 'lib/components/Popup/Popup'
+import { dayjs } from 'lib/dayjs'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -1443,6 +1444,7 @@ export interface VersionType {
 export interface dateMappingOption {
     inactive?: boolean // Options removed due to low usage (see relevant PR); will not show up for new insights but will be kept for existing
     values: string[]
+    getFormattedDate?: (date: dayjs.Dayjs, format: string) => string
 }
 
 export interface Breadcrumb {

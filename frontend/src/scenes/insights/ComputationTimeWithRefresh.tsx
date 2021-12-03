@@ -20,10 +20,7 @@ export function ComputationTimeWithRefresh(): JSX.Element {
     }, [])
 
     return (
-        <div
-            className="text-muted-alt"
-            style={{ marginLeft: 'auto', height: 32, display: 'flex', alignItems: 'center' }}
-        >
+        <div className="text-muted-alt" style={{ height: 32, display: 'flex', alignItems: 'center' }}>
             Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
             <span style={{ padding: '0 4px' }}>•</span>
             <Tooltip
