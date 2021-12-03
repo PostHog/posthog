@@ -102,6 +102,9 @@ export class TeamManager {
                 })
             }
         }
+
+        await this.updateEventProperties(team, event, properties)
+
         clearTimeout(timeout)
     }
 
@@ -127,5 +130,25 @@ export class TeamManager {
             propertyDefinitionsCache = new Set(eventProperties.rows.map((r) => r.name))
             this.propertyDefinitionsCache.set(teamId, propertyDefinitionsCache)
         }
+    }
+
+    public async updateEventProperties(team: Team, event: string, properties: Record<string, any>): Promise<void> {
+        await this.db.postgresTransaction(async (client) => {
+            for (const [property, value] of Object.entries(properties)) {
+                const propertyType =
+                    typeof value === 'number' ? 'NUMBER' : typeof value === 'boolean' ? 'BOOLEAN' : 'STRING'
+                const propertyTypeFormat = null // TODO: detect datetime format
+                const totalVolume = 1
+                const lastSeenAt = null // TODO: fill this in
+
+                // starting with a naive implementation
+                await client.query(
+                    'INSERT INTO posthog_eventproperty (team_id, event, property, property_type, property_type_format, total_volume, created_at, last_seen_at) ' +
+                        'VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7) ON CONFLICT ON CONSTRAINT posthog_eventproperty_team_id_event_property_10910b3b_uniq DO ' +
+                        'UPDATE SET total_volume=posthog_eventproperty.total_volume+$6, last_seen_at=$7 ',
+                    [team.id, event, property, propertyType, propertyTypeFormat, totalVolume, lastSeenAt]
+                )
+            }
+        })
     }
 }
