@@ -4,7 +4,7 @@ from django.core.exceptions import ImproperlyConfigured
 from infi.clickhouse_orm.utils import import_submodules
 from semantic_version.base import SimpleSpec, Version
 
-from posthog.settings import DEBUG, E2E_TESTING, SKIP_SERVICE_VERSION_REQUIREMENTS, TEST
+from posthog.settings import AUTO_START_SPECIAL_MIGRATIONS, DEBUG, E2E_TESTING, SKIP_SERVICE_VERSION_REQUIREMENTS, TEST
 from posthog.special_migrations.definition import SpecialMigrationDefinition
 from posthog.utils import print_warning
 from posthog.version import VERSION
@@ -64,7 +64,7 @@ def setup_special_migrations():
         if migration_name in unapplied_migrations and POSTHOG_VERSION > Version(migration.posthog_max_version):
             raise ImproperlyConfigured(f"Migration {migration_name} is required for PostHog versions above {VERSION}.")
 
-    if first_migration:
+    if AUTO_START_SPECIAL_MIGRATIONS and first_migration:
         kickstart_migration_if_possible(first_migration, applied_migrations)
 
 
