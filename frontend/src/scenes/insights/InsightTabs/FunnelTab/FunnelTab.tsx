@@ -217,7 +217,13 @@ function FunnelTabOld(): JSX.Element {
                                 </Tooltip>
                             </h4>
                             <Row align="middle">
-                                <BreakdownFilter filters={filters} setFilters={setFilters} />
+                                <BreakdownFilter
+                                    filters={filters}
+                                    setFilters={setFilters}
+                                    useMultiBreakdown={
+                                        featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES] !== undefined
+                                    }
+                                />
                             </Row>
                         </>
                     )}

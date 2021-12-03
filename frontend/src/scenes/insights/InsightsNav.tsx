@@ -9,6 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import clsx from 'clsx'
 import { FunnelsCue } from './InsightTabs/TrendTab/FunnelsCue'
+import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { Link } from 'lib/components/Link'
 
 const { TabPane } = Tabs
@@ -22,7 +23,6 @@ interface Tab {
     type: InsightType
     dataAttr: string
     hotkey: HotKeys
-    tooltip?: ReactNode
     ref?: RefObject<HTMLSpanElement>
     className?: string
 }
@@ -65,31 +65,18 @@ export function InsightsNav(): JSX.Element {
                 type: InsightType.STICKINESS,
                 dataAttr: 'insight-stickiness-tab',
                 hotkey: 'i',
-                tooltip: (
-                    <>
-                        Stickiness shows you how many days users performed an action repeatedly within a timeframe.
-                        <br />
-                        <br />
-                        <i>
-                            Example: If a user performed an action on Monday and again on Friday, it would be shown as
-                            "2 days".
-                        </i>
-                    </>
-                ),
             },
             {
                 label: 'Lifecycle',
                 type: InsightType.LIFECYCLE,
                 dataAttr: 'insight-lifecycle-tab',
                 hotkey: 'i',
-                tooltip: 'Understand growth by breaking down new, resurrected, returning, and dormant users.',
             },
             {
                 label: 'Sessions',
                 type: InsightType.SESSIONS,
                 dataAttr: 'insight-sessions-tab',
                 hotkey: 'o',
-                tooltip: 'View average and distribution of session durations.',
                 className: clsx(featureFlags[FEATURE_FLAGS.SESSION_INSIGHT_REMOVAL] && 'deprecated'),
             },
         ],
@@ -111,10 +98,14 @@ export function InsightsNav(): JSX.Element {
                 onChange={(key) => setActiveView(key as InsightType)}
                 animated={false}
             >
-                {tabs.map(({ label, type, dataAttr, hotkey, tooltip, ref, className }) => {
+                {tabs.map(({ label, type, dataAttr, hotkey, ref, className }) => {
                     const Outer = ({ children }: { children: ReactNode }): JSX.Element =>
-                        tooltip ? (
-                            <Tooltip placement="top" title={tooltip} data-attr={dataAttr}>
+                        INSIGHT_TYPES_METADATA[type]?.description ? (
+                            <Tooltip
+                                placement="top"
+                                title={INSIGHT_TYPES_METADATA[type].description}
+                                data-attr={dataAttr}
+                            >
                                 {children}
                             </Tooltip>
                         ) : (

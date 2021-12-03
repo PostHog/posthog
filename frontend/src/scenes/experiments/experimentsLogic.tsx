@@ -1,5 +1,6 @@
 import { kea } from 'kea'
 import { api } from 'lib/api.mock'
+import { experimentsLogicType } from './experimentsLogicType'
 import { teamLogic } from 'scenes/teamLogic'
 import { Experiment } from '~/types'
 import { experimentsLogicType } from './experimentsLogicType'

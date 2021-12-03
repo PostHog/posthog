@@ -7,11 +7,14 @@ from ee.clickhouse.queries.funnels.funnel_trends import TIMESTAMP_FORMAT, Clickh
 from ee.clickhouse.queries.util import get_trunc_func_ch
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_PERSONS_BY_STEP_SQL
 from posthog.constants import DROP_OFF, ENTRANCE_PERIOD_START
+from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.person import Person
 
 
 class ClickhouseFunnelTrendsActors(ClickhouseFunnelTrends, ActorBaseQuery):
+    _filter: Filter
+
     @cached_property
     def is_aggregating_by_groups(self) -> bool:
         return self._filter.aggregation_group_type_index is not None
