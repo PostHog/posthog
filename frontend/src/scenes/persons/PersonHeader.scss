@@ -4,12 +4,7 @@
     display: flex;
     align-items: center;
 
-    .icon {
-        font-size: 1.125rem;
-        margin-right: 0.5rem;
-    }
-
-    &:hover {
-        text-decoration: underline;
+    .profile-picture {
+        margin-right: 0.25rem;
     }
 }
