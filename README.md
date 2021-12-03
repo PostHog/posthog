@@ -1,25 +1,34 @@
-<p align="center"><img src="https://user-images.githubusercontent.com/65415371/124739522-d8393d00-df11-11eb-9741-820955887d21.png" width="1000px" /></p>
-<!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
-<a href='https://posthog.com/contributors'><img src='https://img.shields.io/badge/all_contributors-190-orange.svg?style=flat-square' /></a>
-<!-- ALL-CONTRIBUTORS-BADGE:END -->
+<p align="center">
+  <img alt="posthog-logo-padded@2x" width=250 src="https://user-images.githubusercontent.com/85295485/144538867-ee676209-7b38-4eed-b133-ed58b43f9fa5.png"/>
+</p>
+<p align="center">
+  <!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
+  <a href='https://posthog.com/contributors'><img alt="Github All Contributors" src="https://img.shields.io/github/all-contributors/posthog/posthog"></a>
+  <!-- ALL-CONTRIBUTORS-BADGE:END -->
+  <a href='http://makeapullrequest.com'><img alt='PRs Welcome' src='https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=shields'/></a>
+  <img alt="Docker Pulls" src="https://img.shields.io/docker/pulls/posthog/posthog">
+  <img alt="GitHub commit activity" src="https://img.shields.io/github/commit-activity/m/posthog/posthog">
+  <img alt="GitHub closed issues" src="https://img.shields.io/github/issues-closed/posthog/posthog">
+</p>
 
-<br />
+### PostHog is an open-source product analytics suite, built for engineers
+* Automatically track every event on your website or app
+* Understand your users and how to improve your product
+* Deploy on your own infrastructure to keep control of your data.
 
-PostHog is an open-source product analytics suite, built for developers. Automate the collection of every event on your website or app, with no need to send data to third-parties. 
-
-You can deploy on your own infrastructure, and PostHog plays nicely with data warehouses through plugins for import, transformation, and export. 
-
-<br /><br />
-
-<img align="left" src="https://user-images.githubusercontent.com/65415371/124739629-f43cde80-df11-11eb-9033-c5d1d7194f03.png" width="50px" />
 
 ## Quick start
 
-It's easy and free to get started.
+It's easy and free to get started, we have 3 simple options to chose from:
 
-<a href="https://posthog.com/docs/self-host/overview#deploy">Deploy PostHog Self-Hosted</a> in your existing infrastructure.
+**Option 1:** One-line deploy a hobby instance (<100K events) to a Ubuntu machine:
 
-... or use [PostHog Cloud](https://app.posthog.com/signup) if you don't need to self-host.
+ ```bash 
+  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/deploy-hobby)" 
+ ``` 
+**Option 2:** Deploy a production instance (>100K events) on your infrastructure, follow our <a href="https://posthog.com/docs/self-host/overview#deploy">Scaleable Self-Hosting Guide</a>
+
+**Option 3:** If you don't need to self-host use [PostHog Cloud](https://app.posthog.com/signup)
 
 <br /><br />
 
