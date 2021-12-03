@@ -135,6 +135,7 @@ export function EventsTable({
             {
                 title: 'URL / Screen',
                 key: 'url',
+                width: '4rem',
                 render: function renderURL(_, { event }: EventsTableRowItem) {
                     if (!event) {
                         return { props: { colSpan: 0 } }
@@ -213,9 +214,9 @@ export function EventsTable({
                           }
                   )
         columnsSoFar.push({
-            title: 'When',
-            key: 'when',
-            render: function renderWhen(_, { event }: EventsTableRowItem) {
+            title: 'Time',
+            key: 'time',
+            render: function renderTime(_, { event }: EventsTableRowItem) {
                 if (!event) {
                     return { props: { colSpan: 0 } }
                 }
@@ -344,7 +345,6 @@ export function EventsTable({
                     dataSource={eventsFormatted}
                     loading={isLoading}
                     columns={columns}
-                    size="small"
                     key={selectedColumns === 'DEFAULT' ? 'default' : selectedColumns.join('-')}
                     className="ph-no-capture"
                     emptyState={

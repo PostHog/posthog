@@ -1,6 +1,9 @@
 @import '~/vars';
 
 .events {
+    .event-row-new {
+        height: 2.5rem;
+    }
     .event-row-date-separator {
         background-color: var(--bg-mid);
         color: var(--text-muted);

@@ -44,7 +44,9 @@
         margin-bottom: 0.125rem;
     }
 
-    span.row-description {
+    .row-description {
+        display: inline-block;
+        max-width: 30rem;
         font-size: 0.75rem;
     }
 }
@@ -69,7 +71,7 @@
             &.LemonTable__expansion {
                 background: var(--bg-side);
                 > td {
-                    padding: 0;
+                    padding: 0; // DIsable padding inside the expansion for better tailored placement of contents
                 }
             }
             > td {
@@ -85,6 +87,7 @@
             > th,
             > td {
                 padding-left: 1rem;
+                text-align: left;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 &[colspan='0'] {
@@ -168,6 +171,7 @@
 
 .LemonTable__header-content {
     display: flex;
+    white-space: pre-wrap;
     align-items: center;
     line-height: 1.5;
 }
