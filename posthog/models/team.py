@@ -62,8 +62,7 @@ class TeamManager(models.Manager):
         # Create default dashboards (skipped for demo projects)
         # TODO: Support multiple dashboard flavors based on #2822 personalization
         if default_dashboards:
-            dashboard = Dashboard.objects.create(name="My App Dashboard", pinned=True, team=team)
-            create_dashboard_from_template("DEFAULT_APP", dashboard)
+            dashboard = create_dashboard_from_template("DEFAULT_APP", team)
         return team
 
     def create(self, *args, **kwargs) -> "Team":
