@@ -54,8 +54,9 @@ export class TeamManager {
 
         for (const event of events) {
             const [key, value] = event
-            team_ids.push(key.split('_')[0])
-            event_names.push(key.substring(key.indexOf('_') + 1))
+            const [team_id, eventName] = key.split('_', 1)
+            team_ids.push(team_id)
+            event_names.push(eventName)
             last_seen_at_array.push(value)
         }
 
