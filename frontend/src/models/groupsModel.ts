@@ -9,16 +9,24 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { userLogic } from 'scenes/userLogic'
 
-export const groupsModel = kea<groupsModelType>({
+export enum GroupsAccessStatus {
+    AlreadyUsing,
+    HasAccess,
+    HasGroupTypes,
+    NoAccess,
+    Hidden,
+}
+
+export const groupsModel = kea<groupsModelType<GroupsAccessStatus>>({
     path: ['models', 'groupsModel'],
     connect: {
         values: [
             teamLogic,
-            ['currentTeamId'],
+            ['currentTeam', 'currentTeamId'],
             featureFlagLogic,
             ['featureFlags'],
             preflightLogic,
-            ['clickhouseEnabled'],
+            ['clickhouseEnabled', 'preflight'],
             userLogic,
             ['hasAvailableFeature'],
         ],
@@ -43,6 +51,25 @@ export const groupsModel = kea<groupsModelType>({
                 featureFlags[FEATURE_FLAGS.GROUP_ANALYTICS] &&
                 clickhouseEnabled &&
                 hasAvailableFeature(AvailableFeature.CORRELATION_ANALYSIS),
+        ],
+        // Used to toggle various upsell mechanisms for groups
+        groupsAccessStatus: [
+            (s) => [s.groupsEnabled, s.currentTeam, s.preflight],
+            (isEnabled, currentTeam, preflight): GroupsAccessStatus => {
+                const hasGroups = currentTeam?.has_group_types
+                const hideUpsell = preflight?.instance_preferences?.disable_paid_fs
+                if (isEnabled && hasGroups) {
+                    return GroupsAccessStatus.AlreadyUsing
+                } else if (hideUpsell) {
+                    return GroupsAccessStatus.Hidden
+                } else if (isEnabled) {
+                    return GroupsAccessStatus.HasAccess
+                } else if (hasGroups) {
+                    return GroupsAccessStatus.HasGroupTypes
+                } else {
+                    return GroupsAccessStatus.NoAccess
+                }
+            },
         ],
         showGroupsOptions: [
             (s) => [s.groupsEnabled, s.groupTypes],
