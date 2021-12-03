@@ -3,12 +3,14 @@ import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic, truth } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
-import dashboardJson from './__mocks__/dashboard.json'
+import _dashboardJson from './__mocks__/dashboard.json'
 import { dashboardLogicType } from 'scenes/dashboard/dashboardLogicType'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { DashboardItemType } from '~/types'
+import { DashboardItemType, DashboardType } from '~/types'
+
+const dashboardJson = _dashboardJson as any as DashboardType
 
 jest.mock('lib/api')
 
@@ -25,12 +27,21 @@ describe('dashboardLogic', () => {
                 items: [
                     { ...dashboardJson.items[0], result: null },
                     { ...dashboardJson.items[1], result: null },
-                    { ...dashboardJson.items[0], id: 666 },
-                    { ...dashboardJson.items[1], id: 999 },
+                    { ...dashboardJson.items[0], id: 666, short_id: '666' },
+                    { ...dashboardJson.items[1], id: 999, short_id: '999' },
                 ],
             }
+        } else if (pathname === `api/projects/${MOCK_TEAM_ID}/dashboards/7/`) {
+            throw new Error('💣')
+        } else if (pathname === `api/projects/${MOCK_TEAM_ID}/dashboards/8/`) {
+            return {
+                ...dashboardJson,
+                items: [{ id: 1001, short_id: '1001' }],
+            }
+        } else if (pathname === `api/projects/${MOCK_TEAM_ID}/insights/1001`) {
+            throw new Error('💣')
         } else if (pathname.startsWith(`api/projects/${MOCK_TEAM_ID}/insights/`)) {
-            return dashboardJson.items.find(({ id }) => id === parseInt(pathname.split('/')[4]))
+            return dashboardJson.items.find(({ id }: any) => String(id) === pathname.split('/')[4])
         }
         return defaultAPIMocks(url)
     })
@@ -46,6 +57,43 @@ describe('dashboardLogic', () => {
 
         it('does not fetch dashboard items on mount', async () => {
             await expectLogic(logic).toNotHaveDispatchedActions(['loadDashboardItems'])
+        })
+    })
+
+    describe('when the dashboard API errors', () => {
+        initKeaTestLogic({
+            logic: dashboardLogic,
+            props: {
+                id: 7,
+            },
+            onLogic: (l) => (logic = l),
+        })
+
+        it('allows consumers to respond', async () => {
+            await expectLogic(logic).toMatchValues({
+                receivedErrorsFromAPI: true,
+            })
+        })
+    })
+
+    describe('when a dashboard item API errors', () => {
+        initKeaTestLogic({
+            logic: dashboardLogic,
+            props: {
+                id: 8,
+            },
+            onLogic: (l) => (logic = l),
+        })
+
+        it('allows consumers to respond', async () => {
+            await expectLogic(logic, () => {
+                // try and load dashboard items data once dashboard is loaded
+                logic.actions.refreshAllDashboardItemsManual()
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    refreshStatus: { 1001: { error: true } },
+                })
         })
     })
 
@@ -74,6 +122,7 @@ describe('dashboardLogic', () => {
                     .toMatchValues({
                         allItems: dashboardJson,
                         items: truth((items) => items.length === 2),
+                        receivedErrorsFromAPI: false,
                     })
             })
         })
@@ -89,14 +138,14 @@ describe('dashboardLogic', () => {
                         'refreshAllDashboardItems',
                         // sets the "reloading" status
                         logic.actionCreators.setRefreshStatuses(
-                            dashboardJson.items.map(({ id }) => id),
+                            dashboardJson.items.map(({ short_id }) => short_id),
                             true
                         ),
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboardJson.items[0].id]: { loading: true },
-                            [dashboardJson.items[1].id]: { loading: true },
+                            [dashboardJson.items[0].short_id]: { loading: true },
+                            [dashboardJson.items[1].short_id]: { loading: true },
                         },
                         refreshMetrics: {
                             completed: 0,
@@ -107,18 +156,18 @@ describe('dashboardLogic', () => {
                         // and updates the action in the model
                         (a) =>
                             a.type === dashboardsModel.actionTypes.updateDashboardItem &&
-                            a.payload.item.id === dashboardJson.items[1].id,
+                            a.payload.item.short_id === dashboardJson.items[1].short_id,
                         (a) =>
                             a.type === dashboardsModel.actionTypes.updateDashboardItem &&
-                            a.payload.item.id === dashboardJson.items[0].id,
+                            a.payload.item.short_id === dashboardJson.items[0].short_id,
                         // no longer reloading
-                        logic.actionCreators.setRefreshStatus(dashboardJson.items[0].id, false),
-                        logic.actionCreators.setRefreshStatus(dashboardJson.items[1].id, false),
+                        logic.actionCreators.setRefreshStatus(dashboardJson.items[0].short_id, false),
+                        logic.actionCreators.setRefreshStatus(dashboardJson.items[1].short_id, false),
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboardJson.items[0].id]: { refreshed: true },
-                            [dashboardJson.items[1].id]: { refreshed: true },
+                            [dashboardJson.items[0].short_id]: { refreshed: true },
+                            [dashboardJson.items[1].short_id]: { refreshed: true },
                         },
                         refreshMetrics: {
                             completed: 2,
@@ -133,11 +182,11 @@ describe('dashboardLogic', () => {
                 })
                     .toDispatchActions([
                         'refreshAllDashboardItems',
-                        logic.actionCreators.setRefreshStatuses([dashboardJson.items[0].id], true),
+                        logic.actionCreators.setRefreshStatuses([dashboardJson.items[0].short_id], true),
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboardJson.items[0].id]: { loading: true },
+                            [dashboardJson.items[0].short_id]: { loading: true },
                         },
                         refreshMetrics: {
                             completed: 0,
@@ -147,12 +196,12 @@ describe('dashboardLogic', () => {
                     .toDispatchActionsInAnyOrder([
                         (a) =>
                             a.type === dashboardsModel.actionTypes.updateDashboardItem &&
-                            a.payload.item.id === dashboardJson.items[0].id,
-                        logic.actionCreators.setRefreshStatus(dashboardJson.items[0].id, false),
+                            a.payload.item.short_id === dashboardJson.items[0].short_id,
+                        logic.actionCreators.setRefreshStatus(dashboardJson.items[0].short_id, false),
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboardJson.items[0].id]: { refreshed: true },
+                            [dashboardJson.items[0].short_id]: { refreshed: true },
                         },
                         refreshMetrics: {
                             completed: 1,

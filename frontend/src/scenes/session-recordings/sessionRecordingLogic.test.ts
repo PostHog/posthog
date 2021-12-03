@@ -28,8 +28,6 @@ describe('sessionRecordingLogic', () => {
             return { result: recordingMetaJson }
         } else if (url.pathname.startsWith(EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT)) {
             return { results: recordingEventsJson }
-        } else if (url.pathname === 'api/sessions_filter') {
-            return { results: [] }
         }
         return defaultAPIMocks(url)
     })

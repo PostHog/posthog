@@ -1,6 +1,6 @@
 import datetime
 import uuid
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import pytest
 from django.contrib.auth.tokens import default_token_generator
@@ -30,7 +30,10 @@ class TestAuthenticationAPI(APIBaseTest):
 
         # Assert the event was captured.
         mock_capture.assert_called_once_with(
-            self.user.distinct_id, "user logged in", properties={"social_provider": ""}
+            self.user.distinct_id,
+            "user logged in",
+            properties={"social_provider": ""},
+            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid),},
         )
 
     @patch("posthoganalytics.capture")
@@ -315,8 +318,17 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # assert events were captured
-        mock_capture.assert_any_call(self.user.distinct_id, "user logged in", properties={"social_provider": ""})
-        mock_capture.assert_any_call(self.user.distinct_id, "user password reset")
+        mock_capture.assert_any_call(
+            self.user.distinct_id,
+            "user logged in",
+            properties={"social_provider": ""},
+            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid),},
+        )
+        mock_capture.assert_any_call(
+            self.user.distinct_id,
+            "user password reset",
+            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid),},
+        )
         self.assertEqual(mock_capture.call_count, 2)
 
     def test_cant_set_short_password(self):

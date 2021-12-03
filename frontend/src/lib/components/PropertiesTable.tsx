@@ -1,15 +1,14 @@
 import React, { CSSProperties, useMemo, useState } from 'react'
 
 import { keyMappingKeys, PropertyKeyInfo } from './PropertyKeyInfo'
-import { Dropdown, Input, Menu, Popconfirm, Table } from 'antd'
+import { Dropdown, Input, Menu, Popconfirm } from 'antd'
 import { NumberOutlined, BulbOutlined, StopOutlined, DeleteOutlined } from '@ant-design/icons'
 import { isURL } from 'lib/utils'
-import stringWithWBR from 'lib/utils/stringWithWBR'
 import { IconExternalLink, IconText } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import './PropertiesTable.scss'
-import { CopyOutlined } from '@ant-design/icons'
-import { copyToClipboard } from 'lib/utils'
+import { LemonTable, LemonTableColumns } from './LemonTable'
+import { CopyToClipboardInline } from './CopyToClipboard'
 
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
@@ -94,7 +93,7 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
             className={canEdit ? 'editable ph-no-capture' : 'ph-no-capture'}
             onClick={() => canEdit && textBasedTypes.includes(valueType) && setEditing(true)}
         >
-            {stringWithWBR(String(value))}
+            {value}
         </span>
     )
 
@@ -112,15 +111,14 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
                             {canEdit && boolNullTypes.includes(valueType) ? (
                                 <Dropdown overlay={boolNullSelect}>{valueComponent}</Dropdown>
                             ) : (
-                                <>
+                                <CopyToClipboardInline
+                                    description="property value"
+                                    explicitValue={value}
+                                    selectable
+                                    isValueSensitive
+                                >
                                     {valueComponent}
-                                    <CopyOutlined
-                                        style={{ marginLeft: 4, color: 'var(--primary)' }}
-                                        onClick={() => {
-                                            copyToClipboard(value)
-                                        }}
-                                    />
-                                </>
+                                </CopyToClipboardInline>
                             )}
 
                             {isURL(value) && (
@@ -173,10 +171,24 @@ export function PropertiesTable({
         })
     }, [properties, sortProperties])
 
-    const columns = [
+    if (Array.isArray(properties)) {
+        return (
+            <div>
+                {properties.map((item, index) => (
+                    <span key={index}>
+                        <PropertiesTable properties={item} nestingLevel={nestingLevel + 1} />
+                        <br />
+                    </span>
+                ))}
+            </div>
+        )
+    }
+
+    const columns: LemonTableColumns<Record<string, any>> = [
         {
             title: 'key',
-            render: function Key(item: any): JSX.Element {
+            width: '15rem',
+            render: function Key(_, item: any): JSX.Element {
                 return (
                     <div className="properties-table-key">
                         {onDelete && nestingLevel <= 1 && !keyMappingKeys.includes(item[0]) && (
@@ -198,7 +210,7 @@ export function PropertiesTable({
         },
         {
             title: 'value',
-            render: function Value(item: any): JSX.Element {
+            render: function Value(_, item: any): JSX.Element {
                 return (
                     <PropertiesTable
                         properties={item[1]}
@@ -211,29 +223,17 @@ export function PropertiesTable({
         },
     ]
 
-    if (Array.isArray(properties)) {
-        return (
-            <div>
-                {properties.map((item, index) => (
-                    <span key={index}>
-                        <PropertiesTable properties={item} nestingLevel={nestingLevel + 1} />
-                        <br />
-                    </span>
-                ))}
-            </div>
-        )
-    }
     if (properties instanceof Object) {
         return (
-            <Table
+            <LemonTable
                 columns={columns}
                 showHeader={false}
-                rowKey={(item) => item[0]}
                 size="small"
-                pagination={false}
+                rowKey="0"
+                embedded
                 dataSource={objectProperties}
                 className={className}
-                locale={{ emptyText: 'This property contains an empty object.' }}
+                emptyState="This property contains an empty object."
             />
         )
     }

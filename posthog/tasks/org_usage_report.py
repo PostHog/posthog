@@ -4,7 +4,6 @@ import time
 from datetime import datetime
 from typing import Dict, List, Literal, Optional, TypedDict, Union, cast
 
-from django.conf import settings
 from django.db.models.manager import BaseManager
 from sentry_sdk import capture_exception
 
@@ -107,22 +106,24 @@ def send_all_reports(
 
     for team in Team.objects.exclude(organization__for_internal_metrics=True):
         org = team.organization
-        id = str(org.id)
-        if id in org_data:
-            org_data[id]["teams"].append(team.id)
-            feature_flag_count = org_data[id]["feature_flag_count"]
-            org_data[id]["feature_flag_count"] = feature_flag_count + get_feature_flags_count_for_team(team.id)
+        organization_id = str(org.id)
+        if organization_id in org_data:
+            org_data[organization_id]["teams"].append(team.id)
+            feature_flag_count = org_data[organization_id]["feature_flag_count"]
+            org_data[organization_id]["feature_flag_count"] = feature_flag_count + get_feature_flags_count_for_team(
+                team.id
+            )
         else:
-            org_data[id] = {
+            org_data[organization_id] = {
                 "teams": [team.id],
-                "user_count": get_org_user_count(id),
+                "user_count": get_org_user_count(organization_id),
                 "name": org.name,
                 "created_at": str(org.created_at),
                 "feature_flag_count": get_feature_flags_count_for_team(team.id),
             }
 
-    for id, org in org_data.items():
-        org_owner = get_org_owner_or_first_user(id)
+    for organization_id, org in org_data.items():
+        org_owner = get_org_owner_or_first_user(organization_id)
         if not org_owner:
             continue
         distinct_id = org_owner.distinct_id
@@ -138,7 +139,7 @@ def send_all_reports(
             report: dict = {
                 **metadata,
                 **usage,
-                "organization_id": id,
+                "organization_id": organization_id,
                 "organization_name": org["name"],
                 "organization_created_at": org["created_at"],
                 "organization_user_count": org["user_count"],
@@ -147,9 +148,11 @@ def send_all_reports(
             }
             org_reports.append(report)  # type: ignore
         except Exception as err:
-            report_org_usage_failure(distinct_id, str(err))
-        if not (dry_run or settings.TEST or settings.DEBUG):
-            report_org_usage(distinct_id, report)
+            logger.warning("Organization usage report calculation failed", err)
+            if not dry_run:
+                report_org_usage_failure(organization_id, distinct_id, str(err))
+        if not dry_run:
+            report_org_usage(organization_id, distinct_id, report)
             time.sleep(0.25)
 
     return org_reports

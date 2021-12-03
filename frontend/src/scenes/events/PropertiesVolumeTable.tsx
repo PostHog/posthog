@@ -7,13 +7,12 @@ import { UsageDisabledWarning } from './UsageDisabledWarning'
 import { VolumeTable } from './VolumeTable'
 import { DefinitionDrawer } from 'scenes/events/definitions/DefinitionDrawer'
 import { SceneExport } from 'scenes/sceneTypes'
-import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { EventsTab } from 'scenes/events/EventsTabs'
 import { EventPageHeader } from './EventPageHeader'
 
 export const scene: SceneExport = {
     component: PropertiesVolumeTable,
-    logic: eventDefinitionsModel,
+    logic: propertyDefinitionsModel,
 }
 
 export function PropertiesVolumeTable(): JSX.Element | null {
@@ -21,7 +20,7 @@ export function PropertiesVolumeTable(): JSX.Element | null {
     const { propertyDefinitions, loaded } = useValues(propertyDefinitionsModel)
 
     return (
-        <div data-attr="manage-events-table" style={{ paddingTop: 16 }}>
+        <div data-attr="manage-events-table">
             <EventPageHeader activeTab={EventsTab.EventPropertyStats} />
             {loaded ? (
                 <>

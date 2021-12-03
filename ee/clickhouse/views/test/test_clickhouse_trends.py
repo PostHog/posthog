@@ -1,5 +1,4 @@
 from datetime import datetime
-from uuid import uuid4
 
 from freezegun.api import freeze_time
 
@@ -10,11 +9,10 @@ from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.api.test.test_trends import (
     TrendsRequest,
     TrendsRequestBreakdown,
+    get_people_from_url_ok,
     get_trends_aggregate_ok,
-    get_trends_people_ok,
     get_trends_time_series_ok,
 )
-from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
@@ -58,7 +56,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
         assert data["$pageview"]["2012-01-15"].value == 0
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-            people = get_trends_people_ok(self.client, data["$pageview"]["2012-01-14"].person_url)
+            people = get_people_from_url_ok(self.client, data["$pageview"]["2012-01-14"].person_url)
 
         assert sorted([p["id"] for p in people]) == sorted(
             [str(created_people["1"].uuid), str(created_people["2"].uuid)]
@@ -96,7 +94,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
         assert data["$pageview"].label == "$pageview"
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-            people = get_trends_people_ok(self.client, data["$pageview"].person_url)
+            people = get_people_from_url_ok(self.client, data["$pageview"].person_url)
 
         assert sorted([p["id"] for p in people]) == sorted(
             [str(created_people["1"].uuid), str(created_people["2"].uuid)]
@@ -134,7 +132,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
                 ],
             )
             data_response = get_trends_time_series_ok(self.client, request, self.team)
-            person_response = get_trends_people_ok(self.client, data_response["$pageview"]["2012-01-14"].person_url)
+            person_response = get_people_from_url_ok(self.client, data_response["$pageview"]["2012-01-14"].person_url)
 
         assert data_response["$pageview"]["2012-01-13"].value == 2
         assert data_response["$pageview"]["2012-01-14"].value == 4
@@ -165,7 +163,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
                 ],
             )
             data_response = get_trends_time_series_ok(self.client, request, self.team)
-            person_response = get_trends_people_ok(self.client, data_response["$pageview"]["2012-01-14"].person_url)
+            person_response = get_people_from_url_ok(self.client, data_response["$pageview"]["2012-01-14"].person_url)
 
         assert data_response["$pageview"]["2012-01-13"].value == 2
         assert data_response["$pageview"]["2012-01-14"].value == 3
@@ -197,7 +195,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
                 ],
             )
             data_response = get_trends_time_series_ok(self.client, request, self.team)
-            person_response = get_trends_people_ok(
+            person_response = get_people_from_url_ok(
                 self.client, data_response["$pageview - val"]["2012-01-14"].person_url
             )
 
@@ -231,7 +229,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
                 ],
             )
             data_response = get_trends_time_series_ok(self.client, request, self.team)
-            people = get_trends_people_ok(self.client, data_response["$pageview - val"]["2012-01-14"].person_url)
+            people = get_people_from_url_ok(self.client, data_response["$pageview - val"]["2012-01-14"].person_url)
 
         assert data_response["$pageview - val"]["2012-01-13"].value == 1
         assert data_response["$pageview - val"]["2012-01-13"].breakdown_value == "val"
@@ -258,7 +256,9 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
                 properties=[{"key": "key", "value": "oh", "operator": "not_icontains"}],
             )
             data_response = get_trends_time_series_ok(self.client, params, self.team)
-            person_response = get_trends_people_ok(self.client, data_response["sign up - val"]["2012-01-13"].person_url)
+            person_response = get_people_from_url_ok(
+                self.client, data_response["sign up - val"]["2012-01-13"].person_url
+            )
 
         assert data_response["sign up - val"]["2012-01-13"].value == 1
         assert data_response["sign up - val"]["2012-01-13"].breakdown_value == "val"
@@ -273,7 +273,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
                 events=[{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
             )
             aggregate_response = get_trends_aggregate_ok(self.client, params, self.team)
-            aggregate_person_response = get_trends_people_ok(
+            aggregate_person_response = get_people_from_url_ok(
                 self.client, aggregate_response["sign up - val"].person_url
             )
 
@@ -308,10 +308,10 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
         assert data_response["$pageview - previous"]["2012-01-05"].value == 2
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-            curr_people = get_trends_people_ok(
+            curr_people = get_people_from_url_ok(
                 self.client, data_response["$pageview - current"]["2012-01-14"].person_url
             )
-            prev_people = get_trends_people_ok(
+            prev_people = get_people_from_url_ok(
                 self.client, data_response["$pageview - previous"]["2012-01-05"].person_url
             )
 
@@ -323,17 +323,6 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
         )
 
 
-def _create_group(**kwargs) -> Group:
-    group = Group.objects.create(**kwargs, version=0)
-    create_group(
-        team_id=group.team.pk,
-        group_type_index=group.group_type_index,
-        group_key=group.group_key,
-        properties=group.group_properties,
-    )
-    return group
-
-
 class ClickhouseTestTrendsGroups(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
     maxDiff = None
     CLASS_DATA_LEVEL_SETUP = False
@@ -342,13 +331,11 @@ class ClickhouseTestTrendsGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
 
-        _create_group(team=self.team, group_type_index=0, group_key="org:5", group_properties={"industry": "finance"})
-        _create_group(
-            team=self.team, group_type_index=0, group_key="org:6", group_properties={"industry": "technology"}
-        )
-        _create_group(team=self.team, group_type_index=0, group_key="org:7", group_properties={"industry": "finance"})
-        _create_group(
-            team=self.team, group_type_index=1, group_key="company:10", group_properties={"industry": "finance"}
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:7", properties={"industry": "finance"})
+        create_group(
+            team_id=self.team.pk, group_type_index=1, group_key="company:10", properties={"industry": "finance"}
         )
 
     @snapshot_clickhouse_queries
@@ -380,6 +367,6 @@ class ClickhouseTestTrendsGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
         assert data_response["$pageview"]["2020-01-01"].value == 0
         assert data_response["$pageview"]["2020-01-02"].value == 2
 
-        curr_people = get_trends_people_ok(self.client, data_response["$pageview"]["2020-01-02"].person_url)
+        curr_people = get_people_from_url_ok(self.client, data_response["$pageview"]["2020-01-02"].person_url)
 
         assert sorted([p["group_key"] for p in curr_people]) == sorted(["org:5", "org:6"])

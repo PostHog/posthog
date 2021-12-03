@@ -98,7 +98,7 @@ djangorestframework==3.12.2
     #   djangorestframework-csv
     #   drf-exceptions-hog
     #   drf-extensions
-drf-exceptions-hog==0.0.4
+drf-exceptions-hog==0.1.0
     # via -r requirements.in
 drf-extensions==0.7.0
     # via -r requirements.in
@@ -142,7 +142,7 @@ pexpect==4.7.0
     # via -r requirements.in
 pickleshare==0.7.5
     # via -r requirements.in
-posthoganalytics==1.4.3
+posthoganalytics==1.4.4
     # via -r requirements.in
 protobuf==3.13.0
     # via -r requirements.in

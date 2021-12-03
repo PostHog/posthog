@@ -24,6 +24,7 @@ export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
 
 export interface TaxonomicFilterGroup {
     name: string
+    searchPlaceholder: string
     type: TaxonomicFilterGroupType
     endpoint?: string
     options?: Record<string, any>[]

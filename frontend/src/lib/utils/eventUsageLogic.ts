@@ -21,10 +21,11 @@ import {
     AvailableFeature,
     SessionRecordingUsageType,
     FunnelCorrelation,
+    ItemMode,
 } from '~/types'
 import { Dayjs } from 'dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import type { PersonModalParams } from 'scenes/trends/personsModalLogic'
+import type { PersonsModalParams } from 'scenes/trends/personsModalLogic'
 import { EventIndex } from '@posthog/react-rrweb-player'
 
 export enum DashboardEventSource {
@@ -55,8 +56,6 @@ export enum RecordingWatchedSource {
     Direct = 'direct', // Visiting the URL directly
     Unknown = 'unknown',
     RecordingsList = 'recordings_list', // New recordings list page
-    SessionsList = 'sessions_list', // DEPRECATED sessions list page
-    SessionsListPlayAll = 'sessions_list_play_all', // DEPRECATED play all button on sessions list
 }
 
 export enum GraphSeriesAddedSource {
@@ -72,7 +71,6 @@ interface RecordingViewedProps {
     end_time?: number // End timestamp of the session
     page_change_events_length: number
     recording_width?: number
-    user_is_identified?: boolean
     source: RecordingWatchedSource
 }
 
@@ -150,25 +148,28 @@ export const eventUsageLogic = kea<
     actions: {
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
+        reportInsightCreated: (insight: InsightType | null) => ({ insight }),
         reportInsightViewed: (
             filters: Partial<FilterType>,
+            insightMode: ItemMode,
             isFirstLoad: boolean,
             fromDashboard: boolean,
             delay?: number,
             changedFilters?: Record<string, any>
         ) => ({
             filters,
+            insightMode,
             isFirstLoad,
             fromDashboard,
             delay, // Number of delayed seconds to report event (useful to measure insights where users don't navigate immediately away)
             changedFilters,
         }),
-        reportPersonModalViewed: (params: PersonModalParams, count: number, hasNext: boolean) => ({
+        reportPersonsModalViewed: (params: PersonsModalParams, count: number, hasNext: boolean) => ({
             params,
             count,
             hasNext,
         }),
-        reportCohortCreatedFromPersonModal: (filters: Partial<FilterType>) => ({ filters }),
+        reportCohortCreatedFromPersonsModal: (filters: Partial<FilterType>) => ({ filters }),
         reportBookmarkletDragged: true,
         reportIngestionBookmarkletCollapsible: (activePanels: string[]) => ({ activePanels }),
         reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
@@ -310,10 +311,7 @@ export const eventUsageLogic = kea<
                     content_length: annotation.content.length,
                     scope: annotation.scope,
                     deleted: annotation.deleted,
-                    created_by_me:
-                        annotation.created_by &&
-                        annotation.created_by !== 'local' &&
-                        annotation.created_by?.uuid === userLogic.values.user?.uuid,
+                    created_by_me: annotation.created_by && annotation.created_by?.uuid === userLogic.values.user?.uuid,
                     creation_type: annotation.creation_type,
                     created_at: annotation.created_at,
                     updated_at: annotation.updated_at,
@@ -343,7 +341,6 @@ export const eventUsageLogic = kea<
 
             const properties = {
                 properties_count: Object.keys(person.properties).length,
-                is_identified: person.is_identified,
                 has_email: !!person.properties.email,
                 has_name: !!person.properties.name,
                 custom_properties_count,
@@ -351,7 +348,14 @@ export const eventUsageLogic = kea<
             }
             posthog.capture('person viewed', properties)
         },
-        reportInsightViewed: async ({ filters, isFirstLoad, fromDashboard, delay, changedFilters }, breakpoint) => {
+        reportInsightCreated: async ({ insight }, breakpoint) => {
+            await breakpoint(500) // Debounce to avoid multiple quick "New insight" clicks being reported
+            posthog.capture('insight created', { insight })
+        },
+        reportInsightViewed: async (
+            { filters, insightMode, isFirstLoad, fromDashboard, delay, changedFilters },
+            breakpoint
+        ) => {
             if (!delay) {
                 await breakpoint(500) // Debounce to avoid noisy events from changing filters multiple times
             }
@@ -404,11 +408,13 @@ export const eventUsageLogic = kea<
             } else if (insight === 'STICKINESS') {
                 properties.stickiness_days = filters.stickiness_days
             }
+            properties.compare = filters.compare // "Compare previous" option
+            properties.mode = insightMode // View or edit
 
             const eventName = delay ? 'insight analyzed' : 'insight viewed'
             posthog.capture(eventName, { ...properties, ...(changedFilters ? changedFilters : {}) })
         },
-        reportPersonModalViewed: async ({ params, count, hasNext }) => {
+        reportPersonsModalViewed: async ({ params, count, hasNext }) => {
             const { funnelStep, filters, breakdown_value, saveOriginal, searchTerm, date_from, date_to } = params
             const properties = {
                 ...sanitizeFilterParams(filters),
@@ -423,7 +429,7 @@ export const eventUsageLogic = kea<
             }
             posthog.capture('insight person modal viewed', properties)
         },
-        reportCohortCreatedFromPersonModal: async ({ filters }) => {
+        reportCohortCreatedFromPersonsModal: async ({ filters }) => {
             posthog.capture('person modal cohort created', sanitizeFilterParams(filters))
         },
         reportDashboardViewed: async ({ dashboard, hasShareToken }, breakpoint) => {
@@ -652,7 +658,6 @@ export const eventUsageLogic = kea<
                 end_time: recordingData?.session_recording?.end_time,
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingMetadata(0)[0]?.width,
-                user_is_identified: recordingData.person?.is_identified,
                 source: source,
             }
             posthog.capture(`recording ${type}`, payload)

@@ -7,7 +7,7 @@
     align-items: start;
     justify-content: center;
     min-height: 2.5rem;
-    padding: 0 0.5rem;
+    padding: 0.25rem 0.5rem;
     background: none;
     border-radius: var(--radius);
     border: none;
@@ -62,6 +62,15 @@
     width: 100%;
     .LemonRow__main-area {
         justify-content: start;
+    }
+}
+
+.LemonRow--center {
+    .LemonRow__main-area {
+        justify-content: center !important;
+    }
+    .LemonRow__content {
+        flex-grow: 0;
     }
 }
 

@@ -2,8 +2,8 @@ import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { personsLogic } from './personsLogic'
 import Skeleton from 'antd/lib/skeleton'
-import { Table } from 'antd'
 import { CohortType } from '~/types'
+import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 
 export function PersonCohorts(): JSX.Element {
     const { cohorts, cohortsLoading } = useValues(personsLogic)
@@ -19,36 +19,38 @@ export function PersonCohorts(): JSX.Element {
         return <Skeleton paragraph={{ rows: 2 }} active />
     }
 
-    const columns = [
+    const columns: LemonTableColumns<CohortType> = [
         {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
             className: 'ph-no-capture',
-            sorter: (a: CohortType, b: CohortType) => ('' + a.name).localeCompare(b.name as string),
+            sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
         },
         {
             title: 'Users in cohort',
-            render: function RenderCount(_: any, cohort: CohortType) {
-                return cohort.count?.toLocaleString()
+            render: function RenderCount(count) {
+                return (count as number).toLocaleString()
             },
-            sorter: (a: CohortType, b: CohortType) => (a.count || 0) - (b.count || 0),
+            dataIndex: 'count',
+            sorter: (a, b) => (a.count || 0) - (b.count || 0),
         },
     ]
 
-    return (
-        <Table
-            dataSource={cohorts || []}
+    return cohorts?.length ? (
+        <LemonTable
+            dataSource={cohorts}
             loading={cohortsLoading}
             columns={columns}
             rowClassName="cursor-pointer"
             rowKey="id"
-            pagination={{ pageSize: 100, hideOnSinglePage: true }}
+            pagination={{ pageSize: 30, hideOnSinglePage: true }}
+            embedded
             onRow={(cohort) => ({
                 onClick: () => navigateToCohort(cohort),
-                'data-test-cohort-row': cohort.id,
             })}
-            locale={{ emptyText: 'Person belongs to no cohorts' }}
         />
+    ) : (
+        <i>This person doesn't belong to any cohort</i>
     )
 }

@@ -1,46 +1,35 @@
-import { BuiltLogic } from 'kea'
-import {
-    BareEntity,
-    entityFilterLogic,
-    EntityFilterProps,
-    LocalFilter,
-} from 'scenes/insights/ActionFilter/entityFilterLogic'
+import { entityFilterLogic } from 'scenes/insights/ActionFilter/entityFilterLogic'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/init'
 import filtersJson from './__mocks__/filters.json'
 import { EntityFilter } from '~/types'
-import { renameModalLogicType } from 'scenes/insights/ActionFilter/renameModalLogicType'
-import { renameModalLogic, RenameModalProps } from 'scenes/insights/ActionFilter/renameModalLogic'
+import { renameModalLogic } from 'scenes/insights/ActionFilter/renameModalLogic'
 import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
-import { entityFilterLogicType } from 'scenes/insights/ActionFilter/entityFilterLogicType'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
+import { initKeaTests } from '~/test/init'
 
 jest.mock('lib/api')
 
 describe('renameModalLogic', () => {
-    let logic: BuiltLogic<renameModalLogicType<RenameModalProps>>
-    let relevantEntityFilterLogic: BuiltLogic<entityFilterLogicType<BareEntity, EntityFilterProps, LocalFilter>>
+    let logic: ReturnType<typeof renameModalLogic.build>
+    let relevantEntityFilterLogic: ReturnType<typeof entityFilterLogic.build>
 
     mockAPI(async (url) => {
         return defaultAPIMocks(url)
     })
 
-    initKeaTestLogic({
-        logic: entityFilterLogic,
-        props: {
+    beforeEach(() => {
+        initKeaTests()
+        relevantEntityFilterLogic = entityFilterLogic({
             setFilters: jest.fn(),
             filters: filtersJson,
             typeKey: 'logic_test',
-        },
-        onLogic: (l) => (relevantEntityFilterLogic = l),
-    })
-    initKeaTestLogic({
-        logic: renameModalLogic,
-        props: {
+        })
+        relevantEntityFilterLogic.mount()
+        logic = renameModalLogic({
             filter: filtersJson.events[0] as EntityFilter,
             typeKey: 'logic_test',
-        },
-        onLogic: (l) => (logic = l),
+        })
+        logic.mount()
     })
 
     describe('core assumptions', () => {

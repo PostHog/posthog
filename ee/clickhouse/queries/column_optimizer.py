@@ -10,7 +10,8 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.property import GroupTypeIndex, PropertyIdentifier, PropertyType, TableWithProperties
+from posthog.models.filters.utils import GroupTypeIndex
+from posthog.models.property import PropertyIdentifier, PropertyType, TableWithProperties
 
 
 class ColumnOptimizer:
@@ -49,7 +50,7 @@ class ColumnOptimizer:
     @cached_property
     def group_types_to_query(self) -> Set[GroupTypeIndex]:
         used_properties = self._used_properties_with_type("group")
-        return set(cast(int, group_type_index) for _, _, group_type_index in used_properties)
+        return set(cast(GroupTypeIndex, group_type_index) for _, _, group_type_index in used_properties)
 
     @cached_property
     def should_query_elements_chain_column(self) -> bool:

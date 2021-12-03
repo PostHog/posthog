@@ -5,7 +5,7 @@ set -e
 trap 'kill $(jobs -p)' EXIT
 
 # start celery worker with heartbeat (-B)
-celery -A posthog worker -B --scheduler redbeat.RedBeatScheduler --without-heartbeat --without-gossip --without-mingle -Ofair &
+celery -A posthog worker -B --scheduler redbeat.RedBeatScheduler --without-heartbeat --without-gossip --without-mingle -Ofair -n node@%h &
 
 # start celery plugin worker
 ./bin/plugin-server

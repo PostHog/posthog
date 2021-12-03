@@ -8,6 +8,7 @@ from rest_framework import request
 
 from posthog.models.filters.mixins.common import BaseParamMixin
 from posthog.models.utils import sane_repr
+from posthog.utils import encode_get_request_params
 
 
 class BaseFilter(BaseParamMixin):
@@ -39,7 +40,7 @@ class BaseFilter(BaseParamMixin):
         return ret
 
     def to_params(self) -> Dict[str, str]:
-        return {key: encode_value_as_param(value=value) for key, value in self.to_dict().items()}
+        return encode_get_request_params(data=self.to_dict())
 
     def toJSON(self):
         return json.dumps(self.to_dict(), default=lambda o: o.__dict__, sort_keys=True, indent=4)
@@ -49,19 +50,3 @@ class BaseFilter(BaseParamMixin):
         return type(self)(data={**self._data, **overrides}, **self.kwargs)
 
     __repr__ = sane_repr("_data", "kwargs", include_id=False)
-
-
-class DataclassJSONEncoder(json.JSONEncoder):
-    def default(self, o):
-        if dataclasses.is_dataclass(o):
-            return dataclasses.asdict(o)
-        return super().default(o)
-
-
-def encode_value_as_param(value: Union[str, list, dict]) -> str:
-    if isinstance(value, (list, dict)):
-        return json.dumps(value, cls=DataclassJSONEncoder)
-    elif isinstance(value, Enum):
-        return value.value
-    else:
-        return value

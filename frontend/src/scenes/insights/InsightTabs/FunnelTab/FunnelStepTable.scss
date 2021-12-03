@@ -1,6 +1,47 @@
 @import '~/vars';
 
+.dashboard-item-container {
+    .funnel-steps-table {
+        margin: 0 !important;
+    }
+
+    .funnel-bar-wrapper.breakdown.vertical {
+        height: 100% !important;
+        min-width: 120px !important;
+        min-height: 120px;
+    }
+
+    .funnel-bar-axis {
+        height: 80% !important;
+    }
+
+    .breakdown-bar-group {
+        height: 80% !important;
+        min-height: calc(120px * 0.8);
+        width: 100px !important;
+
+        .breakdown-label {
+            display: none;
+        }
+    }
+}
+
 .funnel-steps-table {
+    margin-top: 1rem;
+    height: 100%;
+
+    .tag-pill {
+        vertical-align: bottom;
+        padding: 4px 6px;
+        line-height: 16px;
+        color: $bg_depth;
+        background-color: $border;
+        border: 1px solid $border;
+        border-radius: 40px;
+        font-weight: 400;
+        font-size: 14px;
+    }
+
     .sub-column-title {
         font-size: 12px;
         color: $text_muted_alt;
@@ -80,7 +121,6 @@
     font-weight: 500;
     font-size: 14px;
     line-height: 16px;
-    align-items: right;
     text-align: right;
 
     display: flex;
@@ -118,11 +158,13 @@
 }
 
 .funnel-bar-wrapper.breakdown.vertical {
+    position: relative;
     height: 400px;
-    width: 300px;
+    width: 100%;
+    min-width: 300px;
     background-color: transparent;
     display: flex;
-    justify-content: center;
+    justify-content: flex-start;
     align-items: center;
     flex-direction: row;
 
@@ -135,6 +177,7 @@
         width: 200px;
         position: relative;
         z-index: 1;
+        margin-left: 1.5rem;
 
         .breakdown-bar-column {
             display: block;
@@ -209,6 +252,60 @@
                 font-size: 12px;
                 margin-right: 10px;
                 color: $text_muted_alt;
+            }
+        }
+    }
+}
+
+// Full height of parent workaround - https://github.com/ant-design/ant-design/issues/23974#issuecomment-698787941
+.funnel-steps-table.ant-table-wrapper {
+    .ant-spin-nested-loading {
+        height: 100%;
+
+        .ant-spin-container {
+            height: 100%;
+            display: flex;
+            flex-flow: column nowrap;
+
+            .ant-table {
+                flex: auto;
+                overflow: hidden;
+
+                .ant-table-container {
+                    height: 100%;
+                    display: flex;
+                    flex-flow: column nowrap;
+
+                    .ant-table-header {
+                        flex: none;
+                    }
+
+                    .ant-table-content {
+                        flex: auto;
+                        overflow: auto auto !important;
+
+                        table {
+                            height: 100%;
+
+                            tr {
+                                min-height: 45px;
+
+                                &.funnel-steps-table-row-1 {
+                                    // Row with funnel steps
+                                    height: 100%;
+
+                                    td {
+                                        padding: 0;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            .ant-table-pagination {
+                flex: none;
             }
         }
     }

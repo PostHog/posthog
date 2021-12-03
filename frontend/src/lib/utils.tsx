@@ -2,7 +2,17 @@ import React, { CSSProperties, PropsWithChildren } from 'react'
 import api from './api'
 import { toast } from 'react-toastify'
 import { Button } from 'antd'
-import { EventType, FilterType, ActionFilter, IntervalType, ItemMode, DashboardMode, dateMappingOption } from '~/types'
+import {
+    EventType,
+    FilterType,
+    ActionFilter,
+    IntervalType,
+    ItemMode,
+    DashboardMode,
+    dateMappingOption,
+    GroupActorType,
+    ActorType,
+} from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { WEBHOOK_SERVICES } from 'lib/constants'
@@ -255,7 +265,15 @@ export function SceneLoading(): JSX.Element {
     )
 }
 
-export function deleteWithUndo({ undo = false, ...props }: Record<string, any>): void {
+export function deleteWithUndo({
+    undo = false,
+    ...props
+}: {
+    undo?: boolean
+    endpoint: string
+    object: Record<string, any>
+    callback?: () => void
+}): void {
     api.update(`api/${props.endpoint}/${props.object.id}`, {
         ...props.object,
         deleted: !undo,
@@ -263,7 +281,7 @@ export function deleteWithUndo({ undo = false, ...props }: Record<string, any>):
         props.callback?.()
         const response = (
             <span>
-                <b>{props.object.name ?? 'Untitled'}</b>
+                <b>{props.object.name || <i>Unnnamed</i>}</b>
                 {!undo ? ' deleted. Click to undo.' : ' deletion undone.'}
             </span>
         )
@@ -983,12 +1001,18 @@ export function autocorrectInterval(filters: Partial<FilterType>): IntervalType 
     }
 }
 
-export function pluralize(count: number, singular: string, plural?: string, includeNumber: boolean = true): string {
+export function pluralize(
+    count: number,
+    singular: string,
+    plural?: string,
+    includeNumber: boolean = true,
+    formatNumber: boolean = false
+): string {
     if (!plural) {
         plural = singular + 's'
     }
     const form = count === 1 ? singular : plural
-    return includeNumber ? `${count} ${form}` : form
+    return includeNumber ? `${formatNumber ? count.toLocaleString() : count} ${form}` : form
 }
 
 /** Return a number in a compact format, with a SI suffix if applicable.
@@ -1029,13 +1053,14 @@ export function endWithPunctation(text?: string | null): string {
     return trimmedText
 }
 
-export function shortTimeZone(timeZone?: string, atDate: Date = new Date()): string {
+export function shortTimeZone(timeZone?: string, atDate?: Date): string {
     /**
      * Return the short timezone identifier for a specific timezone (e.g. BST, EST, PDT, UTC+2).
      * @param timeZone E.g. 'America/New_York'
      * @param atDate
      */
-    const localeTimeString = new Date(atDate).toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone })
+    const date = atDate ? new Date(atDate) : new Date()
+    const localeTimeString = date.toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone })
     return localeTimeString.split(' ')[2]
 }
 
@@ -1194,4 +1219,8 @@ export function findLastIndex<T>(array: Array<T>, predicate: (value: T, index: n
 
 export function isEllipsisActive(e: HTMLElement | null): boolean {
     return !!e && e.offsetWidth < e.scrollWidth
+}
+
+export function isGroupType(actor: ActorType): actor is GroupActorType {
+    return actor.type === 'group'
 }

@@ -1,6 +1,6 @@
 describe('Insights Premium Features', () => {
     beforeEach(() => {
-        cy.clickNavMenu('insights')
+        cy.clickNavMenu('insight')
         cy.location('pathname').should('include', '/insights')
     })
 
