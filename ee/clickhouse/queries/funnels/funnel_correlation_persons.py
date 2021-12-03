@@ -37,6 +37,8 @@ class FunnelCorrelationActors:
 
 
 class _FunnelEventsCorrelationActors(ActorBaseQuery):
+    _filter: Filter
+
     def __init__(self, filter: Filter, team: Team, base_uri: str = "/") -> None:
         self._funnel_correlation = FunnelCorrelation(filter, team, base_uri=base_uri)
         super().__init__(team, filter)
