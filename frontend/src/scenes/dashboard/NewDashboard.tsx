@@ -38,6 +38,9 @@ export function NewDashboard(): JSX.Element {
                     <Select.Option data-attr="dashboard-select-default-app" value="DEFAULT_APP">
                         Default Dashboard - Web App
                     </Select.Option>
+                    <Select.Option data-attr="dashboard-select-default-app" value="OPEN_STARTUP">
+                        Open Startup
+                    </Select.Option>
                 </Select>
             </Form.Item>
 

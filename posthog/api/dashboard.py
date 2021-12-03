@@ -57,15 +57,18 @@ class DashboardSerializer(serializers.ModelSerializer):
         use_template: str = validated_data.pop("use_template", None)
         use_dashboard: int = validated_data.pop("use_dashboard", None)
         validated_data = self._update_creation_mode(validated_data, use_template, use_dashboard)
-        dashboard = Dashboard.objects.create(team=team, **validated_data)
 
         if use_template:
             try:
-                create_dashboard_from_template(use_template, dashboard)
+                dashboard = create_dashboard_from_template(
+                    use_template, team=team, name=validated_data["name"], created_by=request.user
+                )
             except AttributeError:
                 raise serializers.ValidationError({"use_template": "Invalid value provided."})
+        else:
+            dashboard = Dashboard.objects.create(team=team, **validated_data)
 
-        elif use_dashboard:
+        if use_dashboard:
             try:
                 from posthog.api.insight import InsightSerializer
 
