@@ -45,20 +45,24 @@ export const groupsModel = kea<groupsModelType<GroupsAccessStatus>>({
         ],
     }),
     selectors: {
+        groupsCanBeEnabled: [
+            (s) => [s.featureFlags, s.clickhouseEnabled],
+            (featureFlags, clickhouseEnabled) => featureFlags[FEATURE_FLAGS.GROUP_ANALYTICS] && clickhouseEnabled,
+        ],
         groupsEnabled: [
-            (s) => [s.featureFlags, s.clickhouseEnabled, s.hasAvailableFeature],
-            (featureFlags, clickhouseEnabled, hasAvailableFeature) =>
-                featureFlags[FEATURE_FLAGS.GROUP_ANALYTICS] &&
-                clickhouseEnabled &&
-                hasAvailableFeature(AvailableFeature.CORRELATION_ANALYSIS),
+            (s) => [s.groupsCanBeEnabled, s.hasAvailableFeature],
+            (groupsCanBeEnabled, hasAvailableFeature) =>
+                groupsCanBeEnabled && hasAvailableFeature(AvailableFeature.CORRELATION_ANALYSIS),
         ],
         // Used to toggle various upsell mechanisms for groups
         groupsAccessStatus: [
-            (s) => [s.groupsEnabled, s.currentTeam, s.preflight],
-            (isEnabled, currentTeam, preflight): GroupsAccessStatus => {
+            (s) => [s.groupsCanBeEnabled, s.groupsEnabled, s.currentTeam, s.preflight],
+            (canBeEnabled, isEnabled, currentTeam, preflight): GroupsAccessStatus => {
                 const hasGroups = currentTeam?.has_group_types
                 const hideUpsell = preflight?.instance_preferences?.disable_paid_fs
-                if (isEnabled && hasGroups) {
+                if (!canBeEnabled) {
+                    return GroupsAccessStatus.Hidden
+                } else if (isEnabled && hasGroups) {
                     return GroupsAccessStatus.AlreadyUsing
                 } else if (hideUpsell) {
                     return GroupsAccessStatus.Hidden
