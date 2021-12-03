@@ -64,9 +64,9 @@ class TestSpecialMigration(APIBaseTest):
         # sm2 = create_special_migration(name="test2")
 
         response = self.client.post(f"/api/special_migrations/{sm1.id}/trigger").json()
-        mock_run_special_migration.assert_called_once()
         sm1.refresh_from_db()
 
+        mock_run_special_migration.assert_called_once()
         self.assertEqual(response["success"], True)
         self.assertEqual(sm1.status, MigrationStatus.Starting)
 
@@ -79,3 +79,44 @@ class TestSpecialMigration(APIBaseTest):
         mock_run_special_migration.assert_not_called()
         self.assertEqual(response["success"], False)
         self.assertEqual(response["error"], "No more than 1 special migration can run at once.")
+
+    @patch("posthog.celery.app.control.revoke")
+    def test_force_stop_endpoint(self, mock_run_special_migration):
+        sm1 = create_special_migration(status=MigrationStatus.Running)
+
+        response = self.client.post(f"/api/special_migrations/{sm1.id}/force_stop").json()
+        sm1.refresh_from_db()
+
+        mock_run_special_migration.assert_called_once()
+        self.assertEqual(response["success"], True)
+        self.assertEqual(sm1.status, MigrationStatus.Errored)
+        self.assertEqual(sm1.last_error, "Force stopped by user")
+
+    @patch("posthog.celery.app.control.revoke")
+    def test_force_stop_endpoint_non_running_migration(self, mock_run_special_migration):
+        sm1 = create_special_migration(status=MigrationStatus.RolledBack)
+
+        response = self.client.post(f"/api/special_migrations/{sm1.id}/force_stop").json()
+        sm1.refresh_from_db()
+
+        mock_run_special_migration.assert_not_called()
+        self.assertEqual(response["success"], False)
+        self.assertEqual(response["error"], "Can't stop a migration that isn't running.")
+
+        # didn't change
+        self.assertEqual(sm1.status, MigrationStatus.RolledBack)
+
+    def test_force_rollback_endpoint(self):
+        sm1 = create_special_migration(status=MigrationStatus.CompletedSuccessfully)
+
+        response = self.client.post(f"/api/special_migrations/{sm1.id}/force_rollback").json()
+
+        self.assertEqual(response["success"], True)
+
+    def test_force_rollback_endpoint_migration_not_complete(self):
+        sm1 = create_special_migration(status=MigrationStatus.Running)
+
+        response = self.client.post(f"/api/special_migrations/{sm1.id}/force_rollback").json()
+
+        self.assertEqual(response["success"], False)
+        self.assertEqual(response["error"], "Can't force rollback a migration that did not complete successfully.")

@@ -82,7 +82,7 @@ class SpecialMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
         migration_instance = self.get_object()
         if migration_instance.status != MigrationStatus.Running:
             return response.Response(
-                {"success": False, "error": f"Can't stop a migration that isn't running.",}, status=400,
+                {"success": False, "error": "Can't stop a migration that isn't running.",}, status=400,
             )
         force_stop_migration(migration_instance)
         return response.Response({"success": True}, status=200)
@@ -92,10 +92,7 @@ class SpecialMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
         migration_instance = self.get_object()
         if migration_instance.status != MigrationStatus.CompletedSuccessfully:
             return response.Response(
-                {
-                    "success": False,
-                    "error": f"Can't force rollback a migration that did not complete successfully. Force stop it instead.",
-                },
+                {"success": False, "error": "Can't force rollback a migration that did not complete successfully.",},
                 status=400,
             )
 
