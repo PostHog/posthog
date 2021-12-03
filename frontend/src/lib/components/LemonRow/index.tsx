@@ -23,6 +23,8 @@ export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
     tooltip?: any
     /** Whether the row should take up the parent's full width. */
     fullWidth?: boolean
+    /** Whether the row's contents should be centered. */
+    center?: boolean
     'data-attr'?: string
 }
 
@@ -50,6 +52,7 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
         sideIcon,
         compact = false,
         fullWidth = false,
+        center = false,
         ...props
     }: LemonRowProps<T>,
     ref: React.Ref<JSX.IntrinsicElements[T]>
@@ -62,7 +65,8 @@ function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
                 className,
                 status && `LemonRow--status-${status}`,
                 compact && 'LemonRow--compact',
-                fullWidth && 'LemonRow--full-width'
+                fullWidth && 'LemonRow--full-width',
+                center && 'LemonRow--center'
             ),
             ...props,
             ref,

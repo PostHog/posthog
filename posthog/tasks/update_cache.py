@@ -10,6 +10,7 @@ from django.core.cache import cache
 from django.db.models import Q
 from django.db.models.expressions import F, Subquery
 from django.utils import timezone
+from sentry_sdk import capture_exception
 
 from posthog.celery import update_cache_item_task
 from posthog.constants import (
@@ -38,7 +39,6 @@ logger = logging.getLogger(__name__)
 if is_clickhouse_enabled():
     from ee.clickhouse.queries import ClickhousePaths
     from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
-    from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
     from ee.clickhouse.queries.funnels import (
         ClickhouseFunnel,
         ClickhouseFunnelBase,
@@ -48,6 +48,7 @@ if is_clickhouse_enabled():
         ClickhouseFunnelUnordered,
     )
     from ee.clickhouse.queries.sessions.clickhouse_sessions import ClickhouseSessions
+    from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
     from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 
     CACHE_TYPE_TO_INSIGHT_CLASS = {
@@ -83,19 +84,21 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Di
     dashboard_items = Insight.objects.filter(team_id=team_id, filters_hash=key)
     dashboard_items.update(refreshing=True)
 
-    if cache_type == CacheType.FUNNEL:
-        result = _calculate_funnel(filter, key, team_id)
-    else:
-        result = _calculate_by_filter(filter, key, team_id, cache_type)
-    cache.set(key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, settings.CACHED_RESULTS_TTL)
+    try:
+        if cache_type == CacheType.FUNNEL:
+            result = _calculate_funnel(filter, key, team_id)
+        else:
+            result = _calculate_by_filter(filter, key, team_id, cache_type)
+        cache.set(
+            key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, settings.CACHED_RESULTS_TTL
+        )
+    except Exception as e:
+        dashboard_items.filter(refresh_attempt=None).update(refresh_attempt=0)
+        dashboard_items.update(refreshing=False, refresh_attempt=F("refresh_attempt") + 1)
+        raise e
 
-    dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
+    dashboard_items.update(last_refresh=timezone.now(), refreshing=False, refresh_attempt=0)
     return result
-
-
-def update_dashboard_items_cache(dashboard: Dashboard) -> None:
-    for item in Insight.objects.filter(dashboard=dashboard, filters__isnull=False).exclude(filters={}):
-        update_dashboard_item_cache(item, dashboard)
 
 
 def update_dashboard_item_cache(dashboard_item: Insight, dashboard: Optional[Dashboard]) -> List[Dict[str, Any]]:
@@ -134,6 +137,7 @@ def update_cached_items() -> None:
         .exclude(dashboard__deleted=True)
         .exclude(refreshing=True)
         .exclude(deleted=True)
+        .exclude(refresh_attempt__gt=2)
         .distinct("filters_hash")
     )
 

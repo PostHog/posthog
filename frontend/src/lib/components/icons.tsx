@@ -387,6 +387,18 @@ export function IconMenuOpen(): JSX.Element {
     )
 }
 
+/** Material Design Sync icon. */
+export function IconSync(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="m12.5 4v-3l-4 4 4 4v-3c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46c.78-1.23 1.24-2.69 1.24-4.26 0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8l-1.46-1.46c-.78 1.23-1.24 2.69-1.24 4.26 0 4.42 3.58 8 8 8v3l4-4-4-4z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
 export function IconGroupedEvents(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
         <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>

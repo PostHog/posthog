@@ -3,13 +3,12 @@ import hashlib
 import json
 import types
 from time import perf_counter
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 import sqlparse
 from aioch import Client
 from asgiref.sync import async_to_sync
 from clickhouse_driver import Client as SyncClient
-from clickhouse_driver.util.escape import escape_params
 from clickhouse_pool import ChPool
 from django.conf import settings as app_settings
 from django.core.cache import cache
@@ -166,6 +165,23 @@ else:
                     save_query(prepared_sql, execution_time)
         return result
 
+    def substitute_params(query, params):
+        """
+        Helper method to ease rendering of sql clickhouse queries progressively.
+        For example, there are many places where we construct queries to be used
+        as subqueries of others. Each time we generate a subquery we also pass
+        up the "bound" parameters to be used to render the query, which
+        otherwise only happens at the point of calling clickhouse via the
+        clickhouse_driver `Client`.
+
+        This results in sometimes large lists of parameters with no relevance to
+        the containing query being passed up. Rather than do this, we can
+        instead "render" the subqueries prior to using as a subquery, so our
+        containing code is only responsible for it's parameters, and we can
+        avoid any potential param collisions.
+        """
+        return cast(SyncClient, ch_client).substitute_params(query, params)
+
 
 def _prepare_query(client: SyncClient, query: str, args: QueryArgs):
     """
@@ -189,10 +205,10 @@ def _prepare_query(client: SyncClient, query: str, args: QueryArgs):
     clickhouse_driver at this moment in time decides based on the
     below predicate.
     """
-    if isinstance(args, (list, tuple, types.GeneratorType)):
+    if args is None or isinstance(args, (list, tuple, types.GeneratorType)):
         rendered_sql = query
     else:
-        rendered_sql = client.substitute_params(query, args or {})
+        rendered_sql = client.substitute_params(query, args)
         args = None
 
     formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)

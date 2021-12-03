@@ -7,12 +7,12 @@ import {
 import { taxonomicFilterTypeToPropertyFilterType } from 'lib/components/PropertyFilters/utils'
 
 interface FilterChange {
-    multiPropertyBreakdownIsEnabled: string | boolean | undefined
+    useMultiBreakdown: string | boolean | undefined
     breakdownParts: (string | number)[]
     setFilters: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
 }
 
-export function onFilterChange({ multiPropertyBreakdownIsEnabled, breakdownParts, setFilters }: FilterChange) {
+export function onFilterChange({ useMultiBreakdown, breakdownParts, setFilters }: FilterChange) {
     return (changedBreakdown: TaxonomicFilterValue, taxonomicGroup: TaxonomicFilterGroup): void => {
         const changedBreakdownType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type) as BreakdownType
 
@@ -22,7 +22,7 @@ export function onFilterChange({ multiPropertyBreakdownIsEnabled, breakdownParts
                 breakdown_group_type_index: taxonomicGroup.groupTypeIndex,
             }
 
-            if (multiPropertyBreakdownIsEnabled) {
+            if (useMultiBreakdown) {
                 newFilters.breakdowns = [...breakdownParts, changedBreakdown]
                     .filter((b): b is string | number => !!b)
                     .map((b) => ({ property: b, type: changedBreakdownType }))

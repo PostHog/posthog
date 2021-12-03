@@ -11,9 +11,9 @@ import { dayjs } from 'lib/dayjs'
 export const LastRefreshText = (): JSX.Element => {
     const { lastRefreshed } = useValues(dashboardLogic)
     return (
-        <>
+        <span>
             Last updated <b>{lastRefreshed ? dayjs(lastRefreshed).fromNow() : 'a while ago'}</b>
-        </>
+        </span>
     )
 }
 

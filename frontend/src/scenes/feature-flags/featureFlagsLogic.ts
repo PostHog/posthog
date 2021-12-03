@@ -2,8 +2,9 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import Fuse from 'fuse.js'
 import { featureFlagsLogicType } from './featureFlagsLogicType'
-import { FeatureFlagType } from '~/types'
+import { Breadcrumb, FeatureFlagType } from '~/types'
 import { teamLogic } from '../teamLogic'
+import { urls } from 'scenes/urls'
 
 export const featureFlagsLogic = kea<featureFlagsLogicType>({
     path: ['scenes', 'feature-flags', 'featureFlagsLogic'],
@@ -42,6 +43,15 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                     .search(searchTerm)
                     .map((result) => result.item)
             },
+        ],
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    name: 'Feature flags',
+                    path: urls.featureFlags(),
+                },
+            ],
         ],
     },
     reducers: {

@@ -4,6 +4,7 @@ from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from posthog.models import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models.filters.stickiness_filter import StickinessFilter
 
 
 class GroupsJoinQuery:
@@ -11,13 +12,13 @@ class GroupsJoinQuery:
     Query class responsible for joining with `groups` clickhouse table based on filters
     """
 
-    _filter: Union[Filter, PathFilter, RetentionFilter]
+    _filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter]
     _team_id: int
     _column_optimizer: ColumnOptimizer
 
     def __init__(
         self,
-        filter: Union[Filter, PathFilter, RetentionFilter],
+        filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter],
         team_id: int,
         column_optimizer: Optional[ColumnOptimizer] = None,
         join_key: Optional[str] = None,

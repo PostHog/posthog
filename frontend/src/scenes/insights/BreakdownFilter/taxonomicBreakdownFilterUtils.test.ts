@@ -19,7 +19,7 @@ describe('taxonomic breakdown filter utils', () => {
     describe('with multi property breakdown flag on', () => {
         it('sets breakdowns for events', () => {
             const onChange = onFilterChange({
-                multiPropertyBreakdownIsEnabled: true,
+                useMultiBreakdown: true,
                 breakdownParts: ['a', 'b'],
                 setFilters,
             })
@@ -42,7 +42,7 @@ describe('taxonomic breakdown filter utils', () => {
 
         it('sets breakdowns for cohorts', () => {
             const onChange = onFilterChange({
-                multiPropertyBreakdownIsEnabled: true,
+                useMultiBreakdown: true,
                 breakdownParts: ['all', 1],
                 setFilters,
             })
@@ -68,7 +68,7 @@ describe('taxonomic breakdown filter utils', () => {
 
         it('sets breakdowns for person properties', () => {
             const onChange = onFilterChange({
-                multiPropertyBreakdownIsEnabled: true,
+                useMultiBreakdown: true,
                 breakdownParts: ['country'],
                 setFilters,
             })
@@ -94,7 +94,7 @@ describe('taxonomic breakdown filter utils', () => {
     describe('with single property breakdown', () => {
         it('sets breakdown for events', () => {
             const onChange = onFilterChange({
-                multiPropertyBreakdownIsEnabled: false,
+                useMultiBreakdown: false,
                 breakdownParts: ['a', 'b'],
                 setFilters,
             })
@@ -111,7 +111,7 @@ describe('taxonomic breakdown filter utils', () => {
 
         it('sets breakdown for cohorts', () => {
             const onChange = onFilterChange({
-                multiPropertyBreakdownIsEnabled: false,
+                useMultiBreakdown: false,
                 breakdownParts: ['all', 1],
                 setFilters,
             })
@@ -131,7 +131,7 @@ describe('taxonomic breakdown filter utils', () => {
 
         it('sets breakdown for person properties', () => {
             const onChange = onFilterChange({
-                multiPropertyBreakdownIsEnabled: false,
+                useMultiBreakdown: false,
                 breakdownParts: ['country'],
                 setFilters,
             })
@@ -148,7 +148,7 @@ describe('taxonomic breakdown filter utils', () => {
 
         it('sets breakdowns for group properties', () => {
             const onChange = onFilterChange({
-                multiPropertyBreakdownIsEnabled: false,
+                useMultiBreakdown: false,
                 breakdownParts: ['$lib'],
                 setFilters,
             })

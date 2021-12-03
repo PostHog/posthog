@@ -23,6 +23,10 @@
             "essential": true,
             "environment": [
                 {
+                    "name": "JS_URL",
+                    "value": "https://app-static.posthog.com"
+                },
+                {
                     "name": "USING_PGBOUNCER",
                     "value": "True"
                 },

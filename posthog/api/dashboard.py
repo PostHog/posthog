@@ -1,3 +1,4 @@
+import json
 import secrets
 from typing import Any, Dict, Sequence, Type, Union
 
@@ -20,7 +21,6 @@ from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, Insight, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.tasks.update_cache import update_dashboard_items_cache
 from posthog.utils import render_template
 
 
@@ -136,10 +136,6 @@ class DashboardSerializer(serializers.ModelSerializer):
         if self.context["view"].action == "list":
             return None
 
-        if self.context["request"].GET.get("refresh"):
-            update_dashboard_items_cache(dashboard)
-            dashboard.refresh_from_db()
-
         items = dashboard.items.filter(deleted=False).order_by("order").all()
         self.context.update({"dashboard": dashboard})
 
@@ -223,8 +219,18 @@ class DashboardItemViewSet(InsightViewSet):
 @xframe_options_exempt
 def shared_dashboard(request: HttpRequest, share_token: str):
     dashboard = get_object_or_404(Dashboard, is_shared=True, share_token=share_token)
+    shared_dashboard_serialized = {
+        "id": dashboard.id,
+        "share_token": dashboard.share_token,
+        "name": dashboard.name,
+        "description": dashboard.description,
+        "team_name": dashboard.team.name,
+    }
+
     return render_template(
-        "shared_dashboard.html", request=request, context={"dashboard": dashboard, "team_name": dashboard.team.name},
+        "shared_dashboard.html",
+        request=request,
+        context={"shared_dashboard_serialized": json.dumps(shared_dashboard_serialized)},
     )
 
 
