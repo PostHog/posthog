@@ -12,6 +12,7 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.utils import encode_get_request_params
+from posthog.test.base import test_with_materialized_columns
 
 
 class RetentionTests(TestCase):
@@ -54,11 +55,15 @@ class RetentionTests(TestCase):
         self.assertEqual(
             retention_by_cohort_by_period,
             {
-                "Day 0": {"1": 2, "2": 1,},  # ["person 1", "person 2"]  # ["person 1"]
+                "Day 0": {
+                    "1": 2,
+                    "2": 1,
+                },  # ["person 1", "person 2"]  # ["person 1"]
                 "Day 1": {"1": 1},  # ["person 3"]
             },
         )
 
+    @test_with_materialized_columns(person_properties=["os"])
     def test_can_specify_breakdown_person_property(self):
         """
         By default, we group users together by the first time they perform the
@@ -118,6 +123,7 @@ class RetentionTests(TestCase):
             },
         )
 
+    @test_with_materialized_columns(event_properties=["os"])
     def test_can_specify_breakdown_event_property(self):
         """
         By default, we group users together by the first time they perform the
