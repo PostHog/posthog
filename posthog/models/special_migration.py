@@ -8,6 +8,7 @@ class MigrationStatus:
     CompletedSuccessfully = 2
     Errored = 3
     RolledBack = 4
+    Starting = 5  # only relevant for the UI
 
 
 class SpecialMigration(models.Model):

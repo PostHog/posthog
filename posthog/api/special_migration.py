@@ -70,6 +70,8 @@ class SpecialMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
                 status=400,
             )
 
+        migration_instance.status = MigrationStatus.Starting
+        migration_instance.save()
         trigger_migration(migration_instance)
         return response.Response({"success": True}, status=200)
 

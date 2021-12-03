@@ -15,6 +15,7 @@ import {
 } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { Tooltip } from 'lib/components/Tooltip'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 
 export const scene: SceneExport = {
     component: SpecialMigrations,
@@ -51,12 +52,14 @@ export function SpecialMigrations(): JSX.Element {
                             />
                         ) : status === 2 ? (
                             <CheckCircleOutlined className="success" />
-                        ) : (
+                        ) : status === 3 || status === 4 ? (
                             <RedoOutlined
                                 className="migration-btn warning"
                                 onClick={() => triggerMigration(specialMigration.id)}
                             />
-                        )}
+                        ) : status === 5 ? (
+                            <Spinner size="sm" />
+                        ) : null}
                     </Tooltip>
                 )
             },
@@ -136,11 +139,11 @@ export function SpecialMigrations(): JSX.Element {
             },
         },
         {
-            title: 'Current operation index',
+            title: 'Last operation index',
             dataIndex: 'current_operation_index',
         },
         {
-            title: 'Current query ID',
+            title: 'Last query ID',
             dataIndex: 'current_query_id',
             render: function RenderQueryId(queryId: string): JSX.Element {
                 return (

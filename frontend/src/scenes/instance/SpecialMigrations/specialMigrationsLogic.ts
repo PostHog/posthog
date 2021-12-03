@@ -13,6 +13,7 @@ export enum SpecialMigrationStatus {
     CompletedSuccessfully = 2,
     Errored = 3,
     RolledBack = 4,
+    Starting = 5,
 }
 
 export const migrationStatusNumberToMessage = {
@@ -21,6 +22,7 @@ export const migrationStatusNumberToMessage = {
     2: 'Completed successfully',
     3: 'Errored',
     4: 'Rolled back',
+    5: 'Starting',
 }
 export interface SpecialMigration {
     id: number
