@@ -12,7 +12,6 @@ import { BulkInviteModal } from '../../../scenes/organization/Settings/BulkInvit
 import { Link } from '../../../lib/components/Link'
 import { IconMenu, IconMenuOpen } from '../../../lib/components/icons'
 import { CreateProjectModal } from '../../../scenes/project/CreateProjectModal'
-import { announcementLogic } from '~/layout/navigation/TopBar/announcementLogic'
 import './TopBar.scss'
 
 export function TopBar(): JSX.Element {
@@ -21,14 +20,9 @@ export function TopBar(): JSX.Element {
     const { toggleSideBar, hideInviteModal, hideCreateOrganizationModal, hideCreateProjectModal } =
         useActions(navigationLogic)
 
-    const { announcementMessage, isAnnouncementShown } = useValues(announcementLogic)
-    const { hideAnnouncement } = useActions(announcementLogic)
-
     return (
         <>
-            {announcementMessage && (
-                <Announcement message={announcementMessage} visible={isAnnouncementShown} onClose={hideAnnouncement} />
-            )}
+            <Announcement />
             <header className="TopBar">
                 <div className="TopBar__segment TopBar__segment--left">
                     {!bareNav && (
