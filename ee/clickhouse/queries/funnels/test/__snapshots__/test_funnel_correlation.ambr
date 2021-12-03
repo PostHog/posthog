@@ -1,6 +1,6 @@
 # name: TestClickhouseFunnelCorrelation.test_action_events_are_excluded_from_correlations
   '
-  WITH funnel_people as
+  WITH funnel_actors as
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -106,7 +106,7 @@
                  team_id
         HAVING max(is_deleted) = 0)
      GROUP BY distinct_id) AS pdi ON pdi.distinct_id = events.distinct_id
-  JOIN funnel_people AS person ON pdi.person_id = person.person_id
+  JOIN funnel_actors AS person ON pdi.person_id = person.person_id
   WHERE event.timestamp >= date_from
     AND event.timestamp < date_to
     AND event.team_id = 2
@@ -119,12 +119,12 @@
   SELECT 'Total_Values_In_Query' as name,
          countDistinctIf(person.person_id, person.steps = target_step) AS success_count,
          countDistinctIf(person.person_id, person.steps <> target_step) AS failure_count
-  FROM funnel_people AS person
+  FROM funnel_actors AS person
   '
 ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties
   '
-  WITH funnel_people as
+  WITH funnel_actors as
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -207,16 +207,16 @@
          countDistinctIf(person_id, steps <> target_step) AS failure_count
   FROM
     (SELECT person_id,
-            funnel_people.steps as steps,
+            funnel_actors.steps as steps,
             arrayJoin(arrayZip(['$browser'], [trim(BOTH '"' FROM JSONExtractRaw(person_props, '$browser'))])) as prop
-     FROM funnel_people
+     FROM funnel_actors
      JOIN
        (SELECT id,
                argMax(properties, _timestamp) as person_props
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0) person ON person.id = funnel_people.person_id) aggregation_target_with_props
+        HAVING max(is_deleted) = 0) person ON person.id = funnel_actors.person_id) aggregation_target_with_props
   GROUP BY prop.1,
                prop.2
   HAVING prop.1 NOT IN []
@@ -224,12 +224,12 @@
   SELECT 'Total_Values_In_Query' as name,
          countDistinctIf(person_id, steps = target_step) AS success_count,
          countDistinctIf(person_id, steps <> target_step) AS failure_count
-  FROM funnel_people
+  FROM funnel_actors
   '
 ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.1
   '
-  WITH funnel_people as
+  WITH funnel_actors AS
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -307,8 +307,8 @@
      ORDER BY aggregation_target
      OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_people.person_id as person_id
-  FROM funnel_people
+  SELECT DISTINCT funnel_actors.person_id AS actor_id
+  FROM funnel_actors
   JOIN
     (SELECT id
      FROM person
@@ -316,16 +316,16 @@
      GROUP BY id
      HAVING max(is_deleted) = 0
      AND has(['Positive'], trim(BOTH '"'
-                                FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser')))) person ON person.id = funnel_people.person_id
-  WHERE funnel_people.steps = target_step
-  ORDER BY person_id
+                                FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser')))) person ON person.id = funnel_actors.person_id
+  WHERE funnel_actors.steps = target_step
+  ORDER BY actor_id
   LIMIT 100
   OFFSET 0
   '
 ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.2
   '
-  WITH funnel_people as
+  WITH funnel_actors AS
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -403,8 +403,8 @@
      ORDER BY aggregation_target
      OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_people.person_id as person_id
-  FROM funnel_people
+  SELECT DISTINCT funnel_actors.person_id AS actor_id
+  FROM funnel_actors
   JOIN
     (SELECT id
      FROM person
@@ -412,16 +412,16 @@
      GROUP BY id
      HAVING max(is_deleted) = 0
      AND has(['Positive'], trim(BOTH '"'
-                                FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser')))) person ON person.id = funnel_people.person_id
-  WHERE funnel_people.steps <> target_step
-  ORDER BY person_id
+                                FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser')))) person ON person.id = funnel_actors.person_id
+  WHERE funnel_actors.steps <> target_step
+  ORDER BY actor_id
   LIMIT 100
   OFFSET 0
   '
 ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.3
   '
-  WITH funnel_people as
+  WITH funnel_actors AS
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -499,8 +499,8 @@
      ORDER BY aggregation_target
      OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_people.person_id as person_id
-  FROM funnel_people
+  SELECT DISTINCT funnel_actors.person_id AS actor_id
+  FROM funnel_actors
   JOIN
     (SELECT id
      FROM person
@@ -508,16 +508,16 @@
      GROUP BY id
      HAVING max(is_deleted) = 0
      AND has(['Negative'], trim(BOTH '"'
-                                FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser')))) person ON person.id = funnel_people.person_id
-  WHERE funnel_people.steps = target_step
-  ORDER BY person_id
+                                FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser')))) person ON person.id = funnel_actors.person_id
+  WHERE funnel_actors.steps = target_step
+  ORDER BY actor_id
   LIMIT 100
   OFFSET 0
   '
 ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.4
   '
-  WITH funnel_people as
+  WITH funnel_actors AS
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -595,8 +595,8 @@
      ORDER BY aggregation_target
      OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_people.person_id as person_id
-  FROM funnel_people
+  SELECT DISTINCT funnel_actors.person_id AS actor_id
+  FROM funnel_actors
   JOIN
     (SELECT id
      FROM person
@@ -604,16 +604,16 @@
      GROUP BY id
      HAVING max(is_deleted) = 0
      AND has(['Negative'], trim(BOTH '"'
-                                FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser')))) person ON person.id = funnel_people.person_id
-  WHERE funnel_people.steps <> target_step
-  ORDER BY person_id
+                                FROM JSONExtractRaw(argMax(person.properties, _timestamp), '$browser')))) person ON person.id = funnel_actors.person_id
+  WHERE funnel_actors.steps <> target_step
+  ORDER BY actor_id
   LIMIT 100
   OFFSET 0
   '
 ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized
   '
-  WITH funnel_people as
+  WITH funnel_actors as
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -696,16 +696,16 @@
          countDistinctIf(person_id, steps <> target_step) AS failure_count
   FROM
     (SELECT person_id,
-            funnel_people.steps as steps,
+            funnel_actors.steps as steps,
             arrayJoin(arrayZip(['$browser'], [pmat_$browser])) as prop
-     FROM funnel_people
+     FROM funnel_actors
      JOIN
        (SELECT id,
                argMax(pmat_$browser, _timestamp) as pmat_$browser
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0) person ON person.id = funnel_people.person_id) aggregation_target_with_props
+        HAVING max(is_deleted) = 0) person ON person.id = funnel_actors.person_id) aggregation_target_with_props
   GROUP BY prop.1,
                prop.2
   HAVING prop.1 NOT IN []
@@ -713,12 +713,12 @@
   SELECT 'Total_Values_In_Query' as name,
          countDistinctIf(person_id, steps = target_step) AS success_count,
          countDistinctIf(person_id, steps <> target_step) AS failure_count
-  FROM funnel_people
+  FROM funnel_actors
   '
 ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.1
   '
-  WITH funnel_people as
+  WITH funnel_actors AS
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -796,24 +796,24 @@
      ORDER BY aggregation_target
      OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_people.person_id as person_id
-  FROM funnel_people
+  SELECT DISTINCT funnel_actors.person_id AS actor_id
+  FROM funnel_actors
   JOIN
     (SELECT id
      FROM person
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND has(['Positive'], argMax(person.pmat_$browser, _timestamp))) person ON person.id = funnel_people.person_id
-  WHERE funnel_people.steps = target_step
-  ORDER BY person_id
+     AND has(['Positive'], argMax(person.pmat_$browser, _timestamp))) person ON person.id = funnel_actors.person_id
+  WHERE funnel_actors.steps = target_step
+  ORDER BY actor_id
   LIMIT 100
   OFFSET 0
   '
 ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.2
   '
-  WITH funnel_people as
+  WITH funnel_actors AS
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -891,24 +891,24 @@
      ORDER BY aggregation_target
      OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_people.person_id as person_id
-  FROM funnel_people
+  SELECT DISTINCT funnel_actors.person_id AS actor_id
+  FROM funnel_actors
   JOIN
     (SELECT id
      FROM person
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND has(['Positive'], argMax(person.pmat_$browser, _timestamp))) person ON person.id = funnel_people.person_id
-  WHERE funnel_people.steps <> target_step
-  ORDER BY person_id
+     AND has(['Positive'], argMax(person.pmat_$browser, _timestamp))) person ON person.id = funnel_actors.person_id
+  WHERE funnel_actors.steps <> target_step
+  ORDER BY actor_id
   LIMIT 100
   OFFSET 0
   '
 ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.3
   '
-  WITH funnel_people as
+  WITH funnel_actors AS
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -986,24 +986,24 @@
      ORDER BY aggregation_target
      OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_people.person_id as person_id
-  FROM funnel_people
+  SELECT DISTINCT funnel_actors.person_id AS actor_id
+  FROM funnel_actors
   JOIN
     (SELECT id
      FROM person
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND has(['Negative'], argMax(person.pmat_$browser, _timestamp))) person ON person.id = funnel_people.person_id
-  WHERE funnel_people.steps = target_step
-  ORDER BY person_id
+     AND has(['Negative'], argMax(person.pmat_$browser, _timestamp))) person ON person.id = funnel_actors.person_id
+  WHERE funnel_actors.steps = target_step
+  ORDER BY actor_id
   LIMIT 100
   OFFSET 0
   '
 ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.4
   '
-  WITH funnel_people as
+  WITH funnel_actors AS
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -1081,24 +1081,24 @@
      ORDER BY aggregation_target
      OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_people.person_id as person_id
-  FROM funnel_people
+  SELECT DISTINCT funnel_actors.person_id AS actor_id
+  FROM funnel_actors
   JOIN
     (SELECT id
      FROM person
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND has(['Negative'], argMax(person.pmat_$browser, _timestamp))) person ON person.id = funnel_people.person_id
-  WHERE funnel_people.steps <> target_step
-  ORDER BY person_id
+     AND has(['Negative'], argMax(person.pmat_$browser, _timestamp))) person ON person.id = funnel_actors.person_id
+  WHERE funnel_actors.steps <> target_step
+  ORDER BY actor_id
   LIMIT 100
   OFFSET 0
   '
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_event_properties_and_groups
   '
-  WITH funnel_people as
+  WITH funnel_actors as
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -1191,7 +1191,7 @@
                                FROM JSONExtractRaw(properties, x)), prop_keys) as prop_values,
             arrayJoin(arrayZip(prop_keys, prop_values)) as prop
      FROM events AS event
-     JOIN funnel_people AS person ON person.person_id = events.$group_1
+     JOIN funnel_actors AS person ON person.person_id = events.$group_1
      WHERE event.timestamp >= date_from
        AND event.timestamp < date_to
        AND event.team_id = 2
@@ -1206,12 +1206,12 @@
   SELECT 'Total_Values_In_Query' as name,
          countDistinctIf(person.person_id, person.steps = target_step) AS success_count,
          countDistinctIf(person.person_id, person.steps <> target_step) AS failure_count
-  FROM funnel_people AS person
+  FROM funnel_actors AS person
   '
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_event_properties_and_groups_materialized
   '
-  WITH funnel_people as
+  WITH funnel_actors as
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -1304,7 +1304,7 @@
                                FROM JSONExtractRaw(properties, x)), prop_keys) as prop_values,
             arrayJoin(arrayZip(prop_keys, prop_values)) as prop
      FROM events AS event
-     JOIN funnel_people AS person ON person.person_id = events.$group_1
+     JOIN funnel_actors AS person ON person.person_id = events.$group_1
      WHERE event.timestamp >= date_from
        AND event.timestamp < date_to
        AND event.team_id = 2
@@ -1319,12 +1319,12 @@
   SELECT 'Total_Values_In_Query' as name,
          countDistinctIf(person.person_id, person.steps = target_step) AS success_count,
          countDistinctIf(person.person_id, person.steps <> target_step) AS failure_count
-  FROM funnel_people AS person
+  FROM funnel_actors AS person
   '
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups
   '
-  WITH funnel_people as
+  WITH funnel_actors as
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -1409,7 +1409,7 @@
          countDistinctIf(person.person_id, person.steps = target_step) AS success_count,
          countDistinctIf(person.person_id, person.steps <> target_step) AS failure_count
   FROM events AS event
-  JOIN funnel_people AS person ON person.person_id = events.$group_0
+  JOIN funnel_actors AS person ON person.person_id = events.$group_0
   WHERE event.timestamp >= date_from
     AND event.timestamp < date_to
     AND event.team_id = 2
@@ -1422,12 +1422,12 @@
   SELECT 'Total_Values_In_Query' as name,
          countDistinctIf(person.person_id, person.steps = target_step) AS success_count,
          countDistinctIf(person.person_id, person.steps <> target_step) AS failure_count
-  FROM funnel_people AS person
+  FROM funnel_actors AS person
   '
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.1
   '
-  WITH funnel_people as
+  WITH funnel_actors as
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -1510,7 +1510,7 @@
        ['user signed up', 'paid'] as funnel_step_names
   SELECT DISTINCT person.person_id as person_id
   FROM events AS event
-  JOIN funnel_people AS person ON person.person_id = events.$group_0
+  JOIN funnel_actors AS person ON person.person_id = events.$group_0
   WHERE event.timestamp >= date_from
     AND event.timestamp < date_to
     AND event.team_id = 2
@@ -1526,7 +1526,7 @@
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.2
   '
-  WITH funnel_people as
+  WITH funnel_actors as
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -1609,7 +1609,7 @@
        ['user signed up', 'paid'] as funnel_step_names
   SELECT DISTINCT person.person_id as person_id
   FROM events AS event
-  JOIN funnel_people AS person ON person.person_id = events.$group_0
+  JOIN funnel_actors AS person ON person.person_id = events.$group_0
   WHERE event.timestamp >= date_from
     AND event.timestamp < date_to
     AND event.team_id = 2
@@ -1625,7 +1625,7 @@
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.3
   '
-  WITH funnel_people as
+  WITH funnel_actors as
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -1708,7 +1708,7 @@
        ['user signed up', 'paid'] as funnel_step_names
   SELECT DISTINCT person.person_id as person_id
   FROM events AS event
-  JOIN funnel_people AS person ON person.person_id = events.$group_0
+  JOIN funnel_actors AS person ON person.person_id = events.$group_0
   WHERE event.timestamp >= date_from
     AND event.timestamp < date_to
     AND event.team_id = 2
@@ -1724,7 +1724,7 @@
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.4
   '
-  WITH funnel_people as
+  WITH funnel_actors as
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -1807,7 +1807,7 @@
        ['user signed up', 'paid'] as funnel_step_names
   SELECT DISTINCT person.person_id as person_id
   FROM events AS event
-  JOIN funnel_people AS person ON person.person_id = events.$group_0
+  JOIN funnel_actors AS person ON person.person_id = events.$group_0
   WHERE event.timestamp >= date_from
     AND event.timestamp < date_to
     AND event.team_id = 2
@@ -1823,7 +1823,7 @@
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.5
   '
-  WITH funnel_people as
+  WITH funnel_actors as
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -1918,7 +1918,7 @@
          countDistinctIf(person.person_id, person.steps = target_step) AS success_count,
          countDistinctIf(person.person_id, person.steps <> target_step) AS failure_count
   FROM events AS event
-  JOIN funnel_people AS person ON person.person_id = events.$group_0
+  JOIN funnel_actors AS person ON person.person_id = events.$group_0
   WHERE event.timestamp >= date_from
     AND event.timestamp < date_to
     AND event.team_id = 2
@@ -1931,12 +1931,12 @@
   SELECT 'Total_Values_In_Query' as name,
          countDistinctIf(person.person_id, person.steps = target_step) AS success_count,
          countDistinctIf(person.person_id, person.steps <> target_step) AS failure_count
-  FROM funnel_people AS person
+  FROM funnel_actors AS person
   '
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.6
   '
-  WITH funnel_people as
+  WITH funnel_actors as
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -2029,7 +2029,7 @@
        ['user signed up', 'paid'] as funnel_step_names
   SELECT DISTINCT person.person_id as person_id
   FROM events AS event
-  JOIN funnel_people AS person ON person.person_id = events.$group_0
+  JOIN funnel_actors AS person ON person.person_id = events.$group_0
   WHERE event.timestamp >= date_from
     AND event.timestamp < date_to
     AND event.team_id = 2
@@ -2045,7 +2045,7 @@
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.7
   '
-  WITH funnel_people as
+  WITH funnel_actors as
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -2138,7 +2138,7 @@
        ['user signed up', 'paid'] as funnel_step_names
   SELECT DISTINCT person.person_id as person_id
   FROM events AS event
-  JOIN funnel_people AS person ON person.person_id = events.$group_0
+  JOIN funnel_actors AS person ON person.person_id = events.$group_0
   WHERE event.timestamp >= date_from
     AND event.timestamp < date_to
     AND event.team_id = 2
@@ -2154,7 +2154,7 @@
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups
   '
-  WITH funnel_people as
+  WITH funnel_actors as
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -2237,16 +2237,16 @@
          countDistinctIf(person_id, steps <> target_step) AS failure_count
   FROM
     (SELECT person_id,
-            funnel_people.steps as steps,
+            funnel_actors.steps as steps,
             arrayJoin(arrayZip(['industry'], [trim(BOTH '"' FROM JSONExtractRaw(groups_0.group_properties_0, 'industry'))])) as prop
-     FROM funnel_people
+     FROM funnel_actors
      INNER JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON funnel_people.person_id == groups_0.group_key) aggregation_target_with_props
+        GROUP BY group_key) groups_0 ON funnel_actors.person_id == groups_0.group_key) aggregation_target_with_props
   GROUP BY prop.1,
                prop.2
   HAVING prop.1 NOT IN []
@@ -2254,12 +2254,12 @@
   SELECT 'Total_Values_In_Query' as name,
          countDistinctIf(person_id, steps = target_step) AS success_count,
          countDistinctIf(person_id, steps <> target_step) AS failure_count
-  FROM funnel_people
+  FROM funnel_actors
   '
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.1
   '
-  WITH funnel_people as
+  WITH funnel_actors AS
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -2337,26 +2337,26 @@
      ORDER BY aggregation_target
      OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_people.person_id as person_id
-  FROM funnel_people
+  SELECT DISTINCT funnel_actors.person_id AS actor_id
+  FROM funnel_actors
   INNER JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
      WHERE team_id = 2
        AND group_type_index = 0
-     GROUP BY group_key) groups_0 ON funnel_people.person_id == groups_0.group_key
-  WHERE funnel_people.steps = target_step
+     GROUP BY group_key) groups_0 ON funnel_actors.person_id == groups_0.group_key
+  WHERE funnel_actors.steps = target_step
     AND has(['positive'], trim(BOTH '"'
                                FROM JSONExtractRaw(group_properties_0, 'industry')))
-  ORDER BY person_id
+  ORDER BY actor_id
   LIMIT 100
   OFFSET 0
   '
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.2
   '
-  WITH funnel_people as
+  WITH funnel_actors AS
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -2434,26 +2434,26 @@
      ORDER BY aggregation_target
      OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_people.person_id as person_id
-  FROM funnel_people
+  SELECT DISTINCT funnel_actors.person_id AS actor_id
+  FROM funnel_actors
   INNER JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
      WHERE team_id = 2
        AND group_type_index = 0
-     GROUP BY group_key) groups_0 ON funnel_people.person_id == groups_0.group_key
-  WHERE funnel_people.steps <> target_step
+     GROUP BY group_key) groups_0 ON funnel_actors.person_id == groups_0.group_key
+  WHERE funnel_actors.steps <> target_step
     AND has(['positive'], trim(BOTH '"'
                                FROM JSONExtractRaw(group_properties_0, 'industry')))
-  ORDER BY person_id
+  ORDER BY actor_id
   LIMIT 100
   OFFSET 0
   '
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.3
   '
-  WITH funnel_people as
+  WITH funnel_actors AS
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -2531,26 +2531,26 @@
      ORDER BY aggregation_target
      OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_people.person_id as person_id
-  FROM funnel_people
+  SELECT DISTINCT funnel_actors.person_id AS actor_id
+  FROM funnel_actors
   INNER JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
      WHERE team_id = 2
        AND group_type_index = 0
-     GROUP BY group_key) groups_0 ON funnel_people.person_id == groups_0.group_key
-  WHERE funnel_people.steps = target_step
+     GROUP BY group_key) groups_0 ON funnel_actors.person_id == groups_0.group_key
+  WHERE funnel_actors.steps = target_step
     AND has(['negative'], trim(BOTH '"'
                                FROM JSONExtractRaw(group_properties_0, 'industry')))
-  ORDER BY person_id
+  ORDER BY actor_id
   LIMIT 100
   OFFSET 0
   '
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.4
   '
-  WITH funnel_people as
+  WITH funnel_actors AS
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -2628,26 +2628,26 @@
      ORDER BY aggregation_target
      OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_people.person_id as person_id
-  FROM funnel_people
+  SELECT DISTINCT funnel_actors.person_id AS actor_id
+  FROM funnel_actors
   INNER JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
      WHERE team_id = 2
        AND group_type_index = 0
-     GROUP BY group_key) groups_0 ON funnel_people.person_id == groups_0.group_key
-  WHERE funnel_people.steps <> target_step
+     GROUP BY group_key) groups_0 ON funnel_actors.person_id == groups_0.group_key
+  WHERE funnel_actors.steps <> target_step
     AND has(['negative'], trim(BOTH '"'
                                FROM JSONExtractRaw(group_properties_0, 'industry')))
-  ORDER BY person_id
+  ORDER BY actor_id
   LIMIT 100
   OFFSET 0
   '
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.5
   '
-  WITH funnel_people as
+  WITH funnel_actors as
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -2730,18 +2730,18 @@
          countDistinctIf(person_id, steps <> target_step) AS failure_count
   FROM
     (SELECT person_id,
-            funnel_people.steps as steps,
+            funnel_actors.steps as steps,
             arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(groups_0.group_properties_0)) as person_prop_keys,
             arrayJoin(arrayZip(person_prop_keys, arrayMap(x -> trim(BOTH '"'
                                                                     FROM JSONExtractRaw(groups_0.group_properties_0, x)), person_prop_keys))) as prop
-     FROM funnel_people
+     FROM funnel_actors
      INNER JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON funnel_people.person_id == groups_0.group_key) aggregation_target_with_props
+        GROUP BY group_key) groups_0 ON funnel_actors.person_id == groups_0.group_key) aggregation_target_with_props
   GROUP BY prop.1,
                prop.2
   HAVING prop.1 NOT IN []
@@ -2749,12 +2749,12 @@
   SELECT 'Total_Values_In_Query' as name,
          countDistinctIf(person_id, steps = target_step) AS success_count,
          countDistinctIf(person_id, steps <> target_step) AS failure_count
-  FROM funnel_people
+  FROM funnel_actors
   '
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized
   '
-  WITH funnel_people as
+  WITH funnel_actors as
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -2837,16 +2837,16 @@
          countDistinctIf(person_id, steps <> target_step) AS failure_count
   FROM
     (SELECT person_id,
-            funnel_people.steps as steps,
+            funnel_actors.steps as steps,
             arrayJoin(arrayZip(['industry'], [trim(BOTH '"' FROM JSONExtractRaw(groups_0.group_properties_0, 'industry'))])) as prop
-     FROM funnel_people
+     FROM funnel_actors
      INNER JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON funnel_people.person_id == groups_0.group_key) aggregation_target_with_props
+        GROUP BY group_key) groups_0 ON funnel_actors.person_id == groups_0.group_key) aggregation_target_with_props
   GROUP BY prop.1,
                prop.2
   HAVING prop.1 NOT IN []
@@ -2854,12 +2854,12 @@
   SELECT 'Total_Values_In_Query' as name,
          countDistinctIf(person_id, steps = target_step) AS success_count,
          countDistinctIf(person_id, steps <> target_step) AS failure_count
-  FROM funnel_people
+  FROM funnel_actors
   '
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.1
   '
-  WITH funnel_people as
+  WITH funnel_actors AS
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -2937,26 +2937,26 @@
      ORDER BY aggregation_target
      OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_people.person_id as person_id
-  FROM funnel_people
+  SELECT DISTINCT funnel_actors.person_id AS actor_id
+  FROM funnel_actors
   INNER JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
      WHERE team_id = 2
        AND group_type_index = 0
-     GROUP BY group_key) groups_0 ON funnel_people.person_id == groups_0.group_key
-  WHERE funnel_people.steps = target_step
+     GROUP BY group_key) groups_0 ON funnel_actors.person_id == groups_0.group_key
+  WHERE funnel_actors.steps = target_step
     AND has(['positive'], trim(BOTH '"'
                                FROM JSONExtractRaw(group_properties_0, 'industry')))
-  ORDER BY person_id
+  ORDER BY actor_id
   LIMIT 100
   OFFSET 0
   '
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.2
   '
-  WITH funnel_people as
+  WITH funnel_actors AS
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -3034,26 +3034,26 @@
      ORDER BY aggregation_target
      OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_people.person_id as person_id
-  FROM funnel_people
+  SELECT DISTINCT funnel_actors.person_id AS actor_id
+  FROM funnel_actors
   INNER JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
      WHERE team_id = 2
        AND group_type_index = 0
-     GROUP BY group_key) groups_0 ON funnel_people.person_id == groups_0.group_key
-  WHERE funnel_people.steps <> target_step
+     GROUP BY group_key) groups_0 ON funnel_actors.person_id == groups_0.group_key
+  WHERE funnel_actors.steps <> target_step
     AND has(['positive'], trim(BOTH '"'
                                FROM JSONExtractRaw(group_properties_0, 'industry')))
-  ORDER BY person_id
+  ORDER BY actor_id
   LIMIT 100
   OFFSET 0
   '
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.3
   '
-  WITH funnel_people as
+  WITH funnel_actors AS
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -3131,26 +3131,26 @@
      ORDER BY aggregation_target
      OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_people.person_id as person_id
-  FROM funnel_people
+  SELECT DISTINCT funnel_actors.person_id AS actor_id
+  FROM funnel_actors
   INNER JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
      WHERE team_id = 2
        AND group_type_index = 0
-     GROUP BY group_key) groups_0 ON funnel_people.person_id == groups_0.group_key
-  WHERE funnel_people.steps = target_step
+     GROUP BY group_key) groups_0 ON funnel_actors.person_id == groups_0.group_key
+  WHERE funnel_actors.steps = target_step
     AND has(['negative'], trim(BOTH '"'
                                FROM JSONExtractRaw(group_properties_0, 'industry')))
-  ORDER BY person_id
+  ORDER BY actor_id
   LIMIT 100
   OFFSET 0
   '
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.4
   '
-  WITH funnel_people as
+  WITH funnel_actors AS
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -3228,26 +3228,26 @@
      ORDER BY aggregation_target
      OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
-  SELECT DISTINCT funnel_people.person_id as person_id
-  FROM funnel_people
+  SELECT DISTINCT funnel_actors.person_id AS actor_id
+  FROM funnel_actors
   INNER JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
      FROM groups
      WHERE team_id = 2
        AND group_type_index = 0
-     GROUP BY group_key) groups_0 ON funnel_people.person_id == groups_0.group_key
-  WHERE funnel_people.steps <> target_step
+     GROUP BY group_key) groups_0 ON funnel_actors.person_id == groups_0.group_key
+  WHERE funnel_actors.steps <> target_step
     AND has(['negative'], trim(BOTH '"'
                                FROM JSONExtractRaw(group_properties_0, 'industry')))
-  ORDER BY person_id
+  ORDER BY actor_id
   LIMIT 100
   OFFSET 0
   '
 ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.5
   '
-  WITH funnel_people as
+  WITH funnel_actors as
     (SELECT aggregation_target as person_id,
             timestamp,
             steps,
@@ -3330,18 +3330,18 @@
          countDistinctIf(person_id, steps <> target_step) AS failure_count
   FROM
     (SELECT person_id,
-            funnel_people.steps as steps,
+            funnel_actors.steps as steps,
             arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(groups_0.group_properties_0)) as person_prop_keys,
             arrayJoin(arrayZip(person_prop_keys, arrayMap(x -> trim(BOTH '"'
                                                                     FROM JSONExtractRaw(groups_0.group_properties_0, x)), person_prop_keys))) as prop
-     FROM funnel_people
+     FROM funnel_actors
      INNER JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON funnel_people.person_id == groups_0.group_key) aggregation_target_with_props
+        GROUP BY group_key) groups_0 ON funnel_actors.person_id == groups_0.group_key) aggregation_target_with_props
   GROUP BY prop.1,
                prop.2
   HAVING prop.1 NOT IN []
@@ -3349,6 +3349,6 @@
   SELECT 'Total_Values_In_Query' as name,
          countDistinctIf(person_id, steps = target_step) AS success_count,
          countDistinctIf(person_id, steps <> target_step) AS failure_count
-  FROM funnel_people
+  FROM funnel_actors
   '
 ---

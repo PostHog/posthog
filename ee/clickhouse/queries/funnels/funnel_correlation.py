@@ -173,7 +173,7 @@ class FunnelCorrelation:
 
         query = f"""
             WITH
-                funnel_people as ({funnel_persons_query}),
+                funnel_actors as ({funnel_persons_query}),
                 toDateTime(%(date_to)s) AS date_to,
                 toDateTime(%(date_from)s) AS date_from,
                 %(target_step)s AS target_step,
@@ -218,7 +218,7 @@ class FunnelCorrelation:
                     person.person_id,
                     person.steps <> target_step
                 ) AS failure_count
-            FROM funnel_people AS person
+            FROM funnel_actors AS person
         """
         params = {
             **funnel_persons_params,
@@ -256,7 +256,7 @@ class FunnelCorrelation:
 
         query = f"""
             WITH
-                funnel_people as ({funnel_persons_query}),
+                funnel_actors as ({funnel_persons_query}),
                 toDateTime(%(date_to)s) AS date_to,
                 toDateTime(%(date_from)s) AS date_from,
                 %(target_step)s AS target_step,
@@ -297,7 +297,7 @@ class FunnelCorrelation:
                     person.person_id,
                     person.steps <> target_step
                 ) AS failure_count
-            FROM funnel_people AS person
+            FROM funnel_actors AS person
         """
         params = {
             **funnel_persons_params,
@@ -322,7 +322,7 @@ class FunnelCorrelation:
 
         query = f"""
             WITH
-                funnel_people as ({funnel_persons_query}),
+                funnel_actors as ({funnel_persons_query}),
                 %(target_step)s AS target_step
             SELECT
                 concat(prop.1, '::', prop.2) as name,
@@ -332,7 +332,7 @@ class FunnelCorrelation:
             FROM (
                 SELECT
                     person_id,
-                    funnel_people.steps as steps,
+                    funnel_actors.steps as steps,
                     /*
                         We can extract multiple property values at the same time, since we're
                         already querying the person table.
@@ -358,7 +358,7 @@ class FunnelCorrelation:
                         tuples like: (property_name, property_value), which we then group by
                     */
                     {person_prop_query}
-                FROM funnel_people
+                FROM funnel_actors
                 {aggregation_join_query}
                 
             ) aggregation_target_with_props
@@ -370,7 +370,7 @@ class FunnelCorrelation:
                 '{self.TOTAL_IDENTIFIER}' as name,
                 countDistinctIf(person_id, steps = target_step) AS success_count,
                 countDistinctIf(person_id, steps <> target_step) AS failure_count
-            FROM funnel_people
+            FROM funnel_actors
         """
         params = {
             **funnel_persons_params,
@@ -392,7 +392,7 @@ class FunnelCorrelation:
                 -- success/failure numbers in one pass, but this causes out of memory
                 -- error mentioning issues with right filling. I'm sure there's a way
                 -- to do it but lifes too short.
-                JOIN funnel_people AS person
+                JOIN funnel_actors AS person
                     ON pdi.person_id = person.person_id
             """
 
@@ -400,7 +400,7 @@ class FunnelCorrelation:
         # Since supporting that properly involves updating everything that uses the CTE to rename person_id,
         # keeping it as-is for now
         aggregation_group_join = f"""
-            JOIN funnel_people AS person
+            JOIN funnel_actors AS person
                 ON person.person_id = events.$group_{self._filter.aggregation_group_type_index}
             """
 
@@ -410,9 +410,9 @@ class FunnelCorrelation:
 
     def _get_events_join_query(self) -> str:
         """
-        This query is used to join and filter the events table corresponding to the funnel_people CTE.
+        This query is used to join and filter the events table corresponding to the funnel_actors CTE.
         It expects the following variables to be present in the CTE expression:
-            - funnel_people
+            - funnel_actors
             - date_to
             - date_from
             - funnel_step_names
@@ -425,7 +425,7 @@ class FunnelCorrelation:
             -- failing that, date_to
             WHERE
                 -- add this condition in to ensure we can filter events before
-                -- joining funnel_people
+                -- joining funnel_actors
                 event.timestamp >= date_from
                 AND event.timestamp < date_to
 
@@ -454,12 +454,12 @@ class FunnelCorrelation:
             return (
                 f"""
                 JOIN ({person_query}) person
-                    ON person.id = funnel_people.person_id
+                    ON person.id = funnel_actors.person_id
             """,
                 person_query_params,
             )
         else:
-            return GroupsJoinQuery(self._filter, self._team.pk, join_key="funnel_people.person_id").get_join_query()
+            return GroupsJoinQuery(self._filter, self._team.pk, join_key="funnel_actors.person_id").get_join_query()
 
     def _get_properties_prop_clause(self):
 
