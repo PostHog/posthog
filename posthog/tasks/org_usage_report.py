@@ -42,7 +42,7 @@ OrgUsageData = TypedDict(
         "event_count_lifetime": Optional[int],
         "event_count_in_period": Optional[int],
         "event_count_in_month": Optional[int],
-        "event_count_in_month_vs_previous": Optional[int],
+        "event_growth_month_over_month": Optional[float],
         "session_recording_count_in_month": Optional[int],
     },
 )
@@ -60,7 +60,7 @@ OrgReport = TypedDict(
         "event_count_lifetime": int,
         "event_count_in_period": int,
         "event_count_in_month": int,
-        "event_count_in_month_vs_previous": int,
+        "event_growth_month_over_month": float,
         "session_recording_count_in_month": int,
         "organization_id": str,
         "organization_name": str,
@@ -169,7 +169,7 @@ def get_org_usage(
         "event_count_lifetime": None,
         "event_count_in_period": None,
         "event_count_in_month": None,
-        "event_count_in_month_vs_previous": None,
+        "event_growth_month_over_month": None,
         "session_recording_count_in_month": None,
     }
     usage = default_usage
@@ -187,7 +187,9 @@ def get_org_usage(
         usage["event_count_lifetime"] = get_agg_event_count_for_teams(team_ids)
         usage["event_count_in_period"] = get_agg_event_count_for_teams_and_period(team_ids, period_start, period_end)
         usage["event_count_in_month"] = event_count_in_current_month
-        usage["event_count_in_month_vs_previous"] = event_count_in_current_month - event_count_in_previous_month
+        usage["event_growth_month_over_month"] = (
+            event_count_in_current_month / event_count_in_previous_month if event_count_in_previous_month else 1
+        )
         usage["session_recording_count_in_month"] = get_session_recording_count_for_teams_and_period(
             team_ids, month_start, period_end
         )
@@ -205,7 +207,9 @@ def get_org_usage(
             team_id__in=team_ids, timestamp__gte=period_start, timestamp__lte=period_end,
         ).count()
         usage["event_count_in_month"] = event_count_in_current_month
-        usage["event_count_in_month_vs_previous"] = event_count_in_current_month - event_count_in_previous_month
+        usage["event_growth_month_over_month"] = (
+            event_count_in_current_month / event_count_in_previous_month if event_count_in_previous_month else 1
+        )
         usage["session_recording_count_in_month"] = (
             SessionRecordingEvent.objects.filter(
                 team_id__in=team_ids, timestamp__gte=month_start, timestamp__lte=period_end,

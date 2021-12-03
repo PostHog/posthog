@@ -146,11 +146,10 @@ def factory_org_usage_report(
                         updated_org_report["event_count_lifetime"],
                     )
 
-                    # Create an event in the previous month
+                    # Create events in the previous month
                     _create_event("new_user1", "$event1", "$web", now() - relativedelta(months=1), team=default_team)
-                    org_reports_with_previous = _send_all_org_usage_reports(dry_run=True)
-                    org_report_with_previous = self.select_report_by_org_id(
-                        str(default_team.organization.id), org_reports_with_previous
+                    _create_event(
+                        "new_user2", "$event1", "$web", now() - relativedelta(months=1, days=1), team=default_team
                     )
 
                     # Create another event in the previous month, outside the current period
@@ -166,11 +165,10 @@ def factory_org_usage_report(
                         str(default_team.organization.id), org_reports_with_previous
                     )
 
-                    # Expected count is the difference between events in the current month-to-date
-                    # and last month at current day (should count 1 event, not 2)
-                    expected_count = org_report_with_previous["event_count_in_month"] - 1
+                    # Expected value for M/M growth: ratio of events in the current month-to-date (5)
+                    # and last month at current day (2)
                     self.assertEqual(
-                        org_report_with_previous["event_count_in_month_vs_previous"], expected_count,
+                        org_report_with_previous["event_growth_month_over_month"], 2.5,
                     )
 
                     # Create a feature flag and verify the count
