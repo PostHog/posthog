@@ -35,6 +35,7 @@ export enum AvailableFeature {
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
     PATHS_ADVANCED = 'paths_advanced',
     CORRELATION_ANALYSIS = 'correlation_analysis',
+    GROUP_ANALYTICS = 'group_analytics',
 }
 
 export type ColumnChoice = string[] | 'DEFAULT'
