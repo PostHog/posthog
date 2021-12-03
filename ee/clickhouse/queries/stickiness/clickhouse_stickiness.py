@@ -10,6 +10,7 @@ from sentry_sdk.api import capture_exception
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.person import ClickhousePersonSerializer
+from ee.clickhouse.queries.stickiness.stickiness_actors import ClickhouseStickinessActors
 from ee.clickhouse.queries.stickiness.stickiness_event_query import StickinessEventsQuery
 from ee.clickhouse.sql.person import (
     GET_LATEST_PERSON_SQL,
@@ -37,35 +38,18 @@ class ClickhouseStickiness(Stickiness):
         """
 
         counts = sync_execute(query, {**event_params, "num_intervals": filter.total_intervals})
-        return self.process_result(counts, filter)
+        return self.process_result(counts, filter, entity)
 
-    def stickiness_people_query(
-        self, target_entity: Entity, filter: StickinessFilter, team_id: int
-    ) -> Tuple[str, Dict[str, Any]]:
-        events_query, event_params = StickinessEventsQuery(target_entity, filter, team_id).get_query()
-
-        query = f"""
-        SELECT DISTINCT aggregation_target FROM ({events_query}) WHERE num_intervals = %(stickiness_day)s
-        """
-
-        return query, {**event_params, "stickiness_day": filter.selected_interval, "offset": filter.offset,}
-
-    def _retrieve_people(
-        self, target_entity: Entity, filter: StickinessFilter, team: Team, request: Request
-    ) -> ReturnDict:
-        person_ids_query, params = self.stickiness_people_query(target_entity, filter, team.pk)
-        query = PEOPLE_SQL.format(
-            content_sql=person_ids_query,
-            query="",
-            latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
-            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-        )
-        people = sync_execute(query, params)
-        return ClickhousePersonSerializer(people, many=True).data
+    def _retrieve_people(self, target_entity: Entity, filter: StickinessFilter, team: Team, request: Request):
+        _, serialized_actors = ClickhouseStickinessActors(entity=target_entity, filter=filter, team=team).get_actors()
+        return serialized_actors
 
 
 def insert_stickiness_people_into_cohort(cohort: Cohort, target_entity: Entity, filter: StickinessFilter) -> None:
-    content_sql, params = ClickhouseStickiness().stickiness_people_query(target_entity, filter, cohort.team_id)
+    content_sql, params = ClickhouseStickinessActors(
+        entity=target_entity, filter=filter, team=cohort.team
+    ).actor_query()
+
     try:
         sync_execute(
             INSERT_COHORT_ALL_PEOPLE_SQL.format(

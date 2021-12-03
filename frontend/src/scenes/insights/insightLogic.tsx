@@ -438,6 +438,7 @@ export const insightLogic = kea<insightLogicType>({
                 },
             ],
         ],
+        isViewedOnDashboard: [() => [router.selectors.location], ({ pathname }) => pathname.startsWith('/dashboard/')],
     },
     listeners: ({ actions, selectors, values, props }) => ({
         setFilters: async ({ filters }, _, __, previousState) => {

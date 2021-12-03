@@ -171,6 +171,10 @@ def get_trends_time_series_ok(
     client: Client, request: TrendsRequest, team: Team
 ) -> Dict[str, Dict[str, NormalizedTrendResult]]:
     data = get_trends_ok(client=client, request=request, team=team)
+    return get_time_series_ok(data)
+
+
+def get_time_series_ok(data):
     res = {}
     for item in data["result"]:
         collect_dates = {}
@@ -182,7 +186,6 @@ def get_trends_time_series_ok(
                 breakdown_value=item.get("breakdown_value", None),
             )
         res[item["label"]] = collect_dates
-
     return res
 
 
@@ -200,7 +203,7 @@ def get_trends_aggregate_ok(client: Client, request: TrendsRequest, team: Team) 
     return res
 
 
-def get_trends_people_ok(client: Client, url: str):
+def get_people_from_url_ok(client: Client, url: str):
     response = client.get("/" + url)
     assert response.status_code == 200, response.content
     return response.json()["results"][0]["people"]

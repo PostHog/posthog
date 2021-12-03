@@ -13,7 +13,7 @@ import generatePicker from 'antd/lib/date-picker/generatePicker'
 import { SceneExport } from 'scenes/sceneTypes'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/components/Spinner/Spinner'
-import { LemonTable, LemonTableColumns, LemonTableColumn } from 'lib/components/LemonTable/LemonTable'
+import { LemonTable, LemonTableColumns, LemonTableColumn } from 'lib/components/LemonTable'
 import { createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { TZLabel } from 'lib/components/TimezoneAware'
 

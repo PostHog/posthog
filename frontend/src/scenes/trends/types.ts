@@ -1,4 +1,4 @@
-import { ActionFilter, FilterType, GroupActorType, PersonType, TrendResult } from '~/types'
+import { ActionFilter, ActorType, FilterType, TrendResult } from '~/types'
 
 export interface TrendResponse {
     result: TrendResult[]
@@ -11,7 +11,7 @@ export interface IndexedTrendResult extends TrendResult {
 }
 
 export interface TrendActors {
-    people: PersonType[] | GroupActorType[]
+    people: ActorType[]
     count: number
     day: string | number
     label: string
