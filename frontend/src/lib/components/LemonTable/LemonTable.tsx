@@ -118,6 +118,29 @@ export function LemonTable<T extends Record<string, any>>({
     )
 
     const scrollRef = useRef<HTMLDivElement>(null)
+    const updateIsScrollable = useCallback(() => {
+        const element = scrollRef.current
+        if (element) {
+            const left = element.scrollLeft > 0
+            const right =
+                element.scrollWidth > element.clientWidth &&
+                element.scrollWidth > element.scrollLeft + element.clientWidth
+            if (left !== isScrollable[0] || right !== isScrollable[1]) {
+                setIsScrollable([left, right])
+            }
+        }
+    }, [isScrollable[0], isScrollable[1]])
+    const { width } = useResizeObserver({
+        ref: scrollRef,
+    })
+    useEffect(updateIsScrollable, [updateIsScrollable, width])
+    useEffect(() => {
+        const element = scrollRef.current
+        if (element) {
+            element.addEventListener('scroll', updateIsScrollable)
+            return () => element.removeEventListener('scroll', updateIsScrollable)
+        }
+    }, [updateIsScrollable])
 
     /** Sorting. */
     const currentSorting =
@@ -152,32 +175,6 @@ export function LemonTable<T extends Record<string, any>>({
             : !!(pagination?.controlled && pagination.onForward)
     /** Whether there's reason to show pagination. */
     const showPagination: boolean = isPreviousAvailable || isNextAvailable || pagination?.hideOnSinglePage === false
-
-    const updateIsScrollable = useCallback(() => {
-        const element = scrollRef.current
-        if (element) {
-            const left = element.scrollLeft > 0
-            const right =
-                element.scrollWidth > element.clientWidth &&
-                element.scrollWidth > element.scrollLeft + element.clientWidth
-            if (left !== isScrollable[0] || right !== isScrollable[1]) {
-                setIsScrollable([left, right])
-            }
-        }
-    }, [isScrollable[0], isScrollable[1]])
-
-    useResizeObserver({
-        ref: scrollRef,
-        onResize: updateIsScrollable,
-    })
-
-    useEffect(() => {
-        const element = scrollRef.current
-        if (element) {
-            element.addEventListener('scroll', updateIsScrollable)
-            return () => element.removeEventListener('scroll', updateIsScrollable)
-        }
-    }, [updateIsScrollable])
 
     const { currentFrame, currentStartIndex, currentEndIndex } = useMemo(() => {
         let processedDataSource = dataSource
@@ -224,8 +221,8 @@ export function LemonTable<T extends Record<string, any>>({
                     <table>
                         <colgroup>
                             {expandable && <col style={{ width: 0 }} />}
-                            {columns.map(({ width }, index) => (
-                                <col key={index} style={{ width }} />
+                            {columns.map((column, index) => (
+                                <col key={index} style={{ width: column.width }} />
                             ))}
                         </colgroup>
                         {showHeader && (
