@@ -44,8 +44,14 @@ def start_special_migration(migration_name: str) -> bool:
         process_error(migration_instance, error)
         return False
 
+    migration_instance.last_error = ""
+    migration_instance.current_query_id = ""
+    migration_instance.celery_task_id = ""
+    migration_instance.progress = 0
+    migration_instance.current_operation_index = 0
     migration_instance.status = MigrationStatus.Running
     migration_instance.started_at = datetime.now()
+    migration_instance.finished_at = None
     migration_instance.save()
     return run_special_migration_next_op(migration_name, migration_instance)
 
