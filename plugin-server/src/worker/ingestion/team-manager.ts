@@ -172,14 +172,16 @@ export class TeamManager {
                 }
 
                 const totalVolume = 1
-                const lastSeenAt = null // TODO: fill this in
 
                 // starting with a naive implementation
                 await client.query(
                     'INSERT INTO posthog_eventproperty (team_id, event, property, property_type, property_type_format, total_volume, created_at, last_seen_at) ' +
-                        'VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7) ON CONFLICT ON CONSTRAINT posthog_eventproperty_team_id_event_property_10910b3b_uniq DO ' +
-                        'UPDATE SET total_volume=posthog_eventproperty.total_volume+$6, last_seen_at=$7 ',
-                    [team.id, event, property, propertyType, propertyTypeFormat, totalVolume, lastSeenAt]
+                        'VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7) ON CONFLICT ON CONSTRAINT posthog_eventproperty_team_id_event_property_10910b3b_uniq DO UPDATE SET ' +
+                        'total_volume = posthog_eventproperty.total_volume+$6, ' +
+                        'last_seen_at = GREATEST(posthog_eventproperty.last_seen_at, $7), ' +
+                        'property_type = CASE WHEN posthog_eventproperty.property_type IS NULL THEN $4 ELSE posthog_eventproperty.property_type END, ' +
+                        'property_type_format = CASE WHEN posthog_eventproperty.property_type_format IS NULL THEN $5 ELSE posthog_eventproperty.property_type_format END, ',
+                    [team.id, event, property, propertyType, propertyTypeFormat, totalVolume, eventTimestamp]
                 )
             }
         })
