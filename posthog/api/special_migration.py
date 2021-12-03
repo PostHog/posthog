@@ -54,7 +54,7 @@ class SpecialMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
             return response.Response(
                 {
                     "success": False,
-                    "error": f"No more than {MAX_CONCURRENT_SPECIAL_MIGRATIONS} special migrations can run at once.",
+                    "error": f"No more than {MAX_CONCURRENT_SPECIAL_MIGRATIONS} special migration can run at once.",
                 },
                 status=400,
             )
@@ -72,6 +72,7 @@ class SpecialMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         migration_instance.status = MigrationStatus.Starting
         migration_instance.save()
+
         trigger_migration(migration_instance)
         return response.Response({"success": True}, status=200)
 
