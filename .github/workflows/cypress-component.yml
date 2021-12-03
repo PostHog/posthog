@@ -28,7 +28,7 @@ jobs:
             - name: Yarn install deps
               if: steps.cypress-node-modules-cache-2.outputs.cache-hit != 'true'
               run: |
-                  yarn install --frozen-lockfile
+                  yarn install --immutable
                   yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
             - name: Yarn build
               env:

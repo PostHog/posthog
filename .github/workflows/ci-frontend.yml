@@ -26,7 +26,7 @@ jobs:
 
             - name: Install package.json dependencies with Yarn
               if: steps.node-modules-cache.outputs.cache-hit != 'true'
-              run: yarn install --frozen-lockfile
+              run: yarn install --immutable
 
             - name: Check formatting with prettier
               run: yarn prettier:check
@@ -61,7 +61,7 @@ jobs:
 
             - name: Install package.json dependencies with Yarn
               if: steps.node-modules-cache.outputs.cache-hit != 'true'
-              run: yarn install --frozen-lockfile
+              run: yarn install --immutable
 
             - name: Test with Jest
               run: yarn test

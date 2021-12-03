@@ -56,11 +56,11 @@ RUN pip install -r requirements-dev.txt --compile --no-cache-dir && \
 # - we need few additional OS packages for this. Let's install
 #   and then uninstall them when the compilation is completed.
 COPY package.json yarn.lock ./
-RUN yarn install --frozen-lockfile && \
+RUN yarn install --immutable && \
     yarn cache clean
 
 COPY ./plugin-server/package.json ./plugin-server/yarn.lock ./plugin-server/
-RUN yarn install --frozen-lockfile && \
+RUN yarn install --immutable && \
     yarn cache clean
 
 # Install SAML dependencies

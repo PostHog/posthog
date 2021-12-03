@@ -125,7 +125,7 @@ export const commandPaletteLogic = kea<
     connect: {
         actions: [personalAPIKeysLogic, ['createKey']],
         values: [teamLogic, ['currentTeam'], userLogic, ['user']],
-        logic: [preflightLogic], // used in afterMount, which does not auto-connect
+        logic: [preflightLogic],
     },
     actions: {
         hidePalette: true,

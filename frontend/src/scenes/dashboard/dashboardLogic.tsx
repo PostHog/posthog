@@ -133,8 +133,14 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         receivedErrorsFromAPI: [
             false,
             {
-                setReceivedErrorsFromAPI: (_: boolean, { receivedErrors }: { receivedErrors: boolean }) =>
-                    receivedErrors,
+                setReceivedErrorsFromAPI: (
+                    _: boolean,
+                    {
+                        receivedErrors,
+                    }: {
+                        receivedErrors: boolean
+                    }
+                ) => receivedErrors,
             },
         ],
         filters: [

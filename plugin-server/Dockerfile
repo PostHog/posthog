@@ -4,7 +4,7 @@ WORKDIR /code/
 
 COPY package.json yarn.lock .eslintrc.js .prettierrc tsconfig.json tsconfig.eslint.json ./
 COPY src/config/idl/ src/config/idl/
-RUN yarn install --frozen-lockfile
+RUN yarn install --immutable
 
 COPY ./ ./
 RUN yarn typescript:compile
