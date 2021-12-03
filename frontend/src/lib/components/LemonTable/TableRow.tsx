@@ -75,4 +75,4 @@ function TableRowRaw<T extends Record<string, any>>({
 // Without `memo` all rows get rendered when anything in the parent component (LemonTable) changes.
 // This was most jarring when scrolling thet table from the very left or the very right – the simple addition
 // of a class indicating that scrollability to `table` caused the component to lag due to unneded rerendering of rows.
-export const TableRow = React.memo(TableRowRaw)
+export const TableRow = React.memo(TableRowRaw) as typeof TableRowRaw

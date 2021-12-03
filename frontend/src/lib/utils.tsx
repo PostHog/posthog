@@ -1059,7 +1059,8 @@ export function shortTimeZone(timeZone?: string, atDate?: Date): string {
      * @param timeZone E.g. 'America/New_York'
      * @param atDate
      */
-    const localeTimeString = new Date(atDate).toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone })
+    const date = atDate ? new Date(atDate) : new Date()
+    const localeTimeString = date.toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone })
     return localeTimeString.split(' ')[2]
 }
 
