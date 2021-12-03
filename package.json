@@ -2,6 +2,7 @@
     "name": "posthog",
     "description": "",
     "version": "0.0.0",
+    "packageManager": "yarn@3.1.1",
     "repository": {
         "type": "git",
         "url": "https://github.com/posthog/posthog.git"
