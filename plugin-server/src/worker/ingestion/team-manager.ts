@@ -151,7 +151,7 @@ export class TeamManager {
                 let propertyTypeFormat = null
 
                 if (propertyType === EventPropertyType.String) {
-                    const dateFormat = getDateFormat(value)
+                    const dateFormat = detectDateFormat(value)
                     if (dateFormat) {
                         propertyType = EventPropertyType.DateTime
                         propertyTypeFormat = dateFormat
@@ -173,7 +173,7 @@ export class TeamManager {
     }
 }
 
-function getDateFormat(value: string): string | void {
+function detectDateFormat(value: string): string | void {
     if (value.match(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/)) {
         return 'YYYY-MM-DD'
     }
