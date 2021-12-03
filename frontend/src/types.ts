@@ -451,9 +451,19 @@ export interface FunnelStepRangeEntityFilter extends EntityFilter {
 }
 
 export type EntityFilterTypes = EntityFilter | ActionFilter | FunnelStepRangeEntityFilter | null
+
 export interface PersonType {
+    id?: number
+    uuid?: string
+    name?: string
+    distinct_ids: string[]
+    properties: Record<string, any>
+    created_at?: string
+}
+
+export interface PersonActorType {
     type: 'person'
-    id?: string | number
+    id?: string
     properties: Record<string, any>
     created_at?: string
     uuid?: string
@@ -462,7 +472,6 @@ export interface PersonType {
     is_identified: boolean
 }
 
-// TODO: reconcile with "Group". This pattern is meant to mirror returned persons but overlaps with the already existing group type
 export interface GroupActorType {
     type: 'group'
     id?: string | number
@@ -472,7 +481,8 @@ export interface GroupActorType {
     group_type_index: number
 }
 
-export type ActorType = PersonType | GroupActorType
+export type ActorType = PersonActorType | GroupActorType
+
 export interface CohortGroupType {
     id: string
     days?: string
@@ -988,7 +998,7 @@ export interface FunnelStep {
     labels?: string[]
     breakdown?: BreakdownKeyType
     breakdowns?: Breakdown[]
-    breakdown_value?: string | number
+    breakdown_value?: BreakdownKeyType
 
     // Url that you can GET to retrieve the people that converted in this step
     converted_people_url: string
@@ -1077,8 +1087,8 @@ export interface FlattenedFunnelStep extends FunnelStepWithConversionMetrics {
 export interface FlattenedFunnelStepByBreakdown {
     rowKey: number | string
     isBaseline?: boolean
-    breakdown?: string | number
-    breakdown_value?: string | number
+    breakdown?: BreakdownKeyType
+    breakdown_value?: BreakdownKeyType
     breakdownIndex?: number
     conversionRates?: {
         total: number

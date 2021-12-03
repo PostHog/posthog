@@ -164,7 +164,9 @@ jobs:
 
             - name: Install SAML (python3-saml) dependencies (not required for Cloud or FOSS)
               if: ${{ matrix.saml }}
-              run: sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - uses: syphar/restore-virtualenv@v1.2
               id: cache-backend-tests

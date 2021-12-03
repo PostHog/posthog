@@ -7,16 +7,26 @@ export interface LemonSwitchProps {
     onChange: (newChecked: boolean) => void
     checked: boolean
     loading?: boolean
+    label?: string
     /** Whether the switch should use the alternative primary color. */
     alt?: boolean
     style?: React.CSSProperties
     disabled?: boolean
 }
 
-export function LemonSwitch({ id, onChange, checked, loading, alt, style, disabled }: LemonSwitchProps): JSX.Element {
+export function LemonSwitch({
+    id,
+    onChange,
+    checked,
+    loading,
+    label,
+    alt,
+    style,
+    disabled,
+}: LemonSwitchProps): JSX.Element {
     const [isActive, setIsActive] = useState(false)
 
-    return (
+    const button = (
         <button
             id={id}
             type="button"
@@ -39,5 +49,21 @@ export function LemonSwitch({ id, onChange, checked, loading, alt, style, disabl
             <div className="LemonSwitch__slider" />
             <div className="LemonSwitch__handle" />
         </button>
+    )
+
+    return label ? (
+        <div style={{ display: 'flex', alignItems: 'center', padding: '0 0.25rem' }}>
+            <label
+                style={{
+                    marginRight: '0.375rem',
+                }}
+                htmlFor={id}
+            >
+                {label}
+            </label>
+            {button}
+        </div>
+    ) : (
+        button
     )
 }

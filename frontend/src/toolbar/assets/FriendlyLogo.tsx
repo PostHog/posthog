@@ -5,9 +5,9 @@ export function FriendlyLogo({ style }: React.PropsWithoutRef<JSX.IntrinsicEleme
         <svg
             style={style}
             fill="none"
-            height="32"
+            width="8.125em"
+            height="2em"
             viewBox="0 0 130 32"
-            width="130"
             xmlns="http://www.w3.org/2000/svg"
             xmlnsXlink="http://www.w3.org/1999/xlink"
         >

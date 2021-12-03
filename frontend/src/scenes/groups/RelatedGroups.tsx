@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues } from 'kea'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
+import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { RelatedActor } from '~/types'
 import { Skeleton } from 'antd'
 import { groupsModel } from '~/models/groupsModel'

@@ -227,7 +227,7 @@ export function LineGraph({
             // If bar, we want to only show the tooltip for what we're hovering over
             // to avoid confusion
             axis: type === 'horizontalBar' ? 'xy' : 'x',
-            intersect: type === 'horizontalBar',
+            intersect: false,
             itemSort: (a, b) => b.yLabel - a.yLabel,
             callbacks: {
                 label: function labelElement(tooltipItem, data) {
