@@ -172,22 +172,64 @@ describe('TeamManager()', () => {
             ])
         })
 
-        it('does not update last seen in cache if it is older', async () => {
+        it('sets or updates last_seen_cache on event', async () => {
+            // Existing event
+            await teamManager.updateEventNamesAndProperties(
+                2,
+                'another_test_event',
+                {},
+                DateTime.fromISO('2015-04-04T04:04:04.000Z')
+            )
+
+            expect(teamManager.eventLastSeenCache.size).toEqual(1)
+            expect(teamManager.eventLastSeenCache.get('2_another_test_event')).toEqual(1428120244000)
+
+            // New event
+            await teamManager.updateEventNamesAndProperties(
+                2,
+                'another_test_event',
+                {},
+                DateTime.fromISO('2015-04-04T05:05:05.000Z')
+            )
+            expect(teamManager.eventLastSeenCache.size).toEqual(1)
+            expect(teamManager.eventLastSeenCache.get('2_another_test_event')).toEqual(1428123905000)
+        })
+
+        it('does not set last_seen_cache on new event', async () => {
+            // last_seen_at is set in the same INSERT statement, so we don't need to update it
+
+            await teamManager.updateEventNamesAndProperties(
+                2,
+                'this_is_new_3881',
+                {},
+                DateTime.fromISO('2018-01-01T12:12:12.000Z')
+            )
+            expect(teamManager.eventLastSeenCache.size).toEqual(0)
+        })
+
+        it('does not update last_seen_cache if event timestamp is older', async () => {
             jest.spyOn(hub.db, 'postgresQuery')
             await teamManager.updateEventNamesAndProperties(
                 2,
-                'new-event',
+                'another_test_event',
                 {},
-                DateTime.fromISO('2020-02-26T00:01:01Z')
+                DateTime.fromISO('2014-03-23T23:23:23.000Z')
             )
 
-            // const eventDefinitions = await hub.db.fetchEventDefinitions()
-            // for (const eventDef of eventDefinitions) {
-            //     if (eventDef.name === 'new-event') {
-            //         const parsedLastSeen = DateTime.fromISO(eventDef.last_seen_at)
-            //         expect(parsedLastSeen.diff(DateTime.now()).seconds).toBeCloseTo(0)
-            //     }
-            // }
+            // Try to set an older time
+            await teamManager.updateEventNamesAndProperties(
+                2,
+                'another_test_event',
+                {},
+                DateTime.fromISO('2014-03-23T23:23:00.000Z')
+            )
+
+            expect(teamManager.eventLastSeenCache.size).toEqual(1)
+            expect(teamManager.eventLastSeenCache.get('2_another_test_event')).toEqual(1395617003000)
+        })
+
+        it('flushes last_seen_cache properly', async () => {
+            // TODO: Test
         })
 
         it('does not capture event', async () => {

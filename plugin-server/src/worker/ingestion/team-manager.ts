@@ -50,9 +50,10 @@ export class TeamManager {
         const last_seen_at_array: number[] = []
 
         for (const event of this.eventLastSeenCache) {
-            team_ids.push(event[0].split('_')[0])
-            event_names.push(event[0].split('_')[1])
-            last_seen_at_array.push(event[1])
+            const [key, value] = event
+            team_ids.push(key.split('_')[0])
+            event_names.push(key.substring(key.indexOf('_') + 1))
+            last_seen_at_array.push(value)
         }
 
         this.lastFlushAt = DateTime.now()
@@ -96,14 +97,13 @@ export class TeamManager {
                 'insertEventDefinition'
             )
             this.eventNamesCache.get(team.id)?.add(event)
-            this.eventLastSeenCache.set(`${team.id}_${event}`, eventTimestamp.valueOf())
         } else {
-            if ((this.eventLastSeenCache.get(`${team.id}_${event}`) ?? 0) < DateTime.now().valueOf()) {
+            if ((this.eventLastSeenCache.get(`${team.id}_${event}`) ?? 0) < eventTimestamp.valueOf()) {
                 this.eventLastSeenCache.set(`${team.id}_${event}`, eventTimestamp.valueOf())
             }
-            if (this.eventLastSeenCache.size > 100000 || DateTime.now().diff(this.lastFlushAt).minutes > 60) {
+            if (this.eventLastSeenCache.size > 100000 || DateTime.now().diff(this.lastFlushAt).minutes > 360) {
                 // to not run out of memory
-                void this.flushLastSeenAtCache()
+                await this.flushLastSeenAtCache()
             }
         }
 
@@ -151,16 +151,14 @@ export class TeamManager {
     }
 
     public async cacheEventNamesAndProperties(teamId: number): Promise<void> {
-        if (!this.eventNamesCache.get(teamId)) {
+        let eventNamesCache = this.eventNamesCache.get(teamId)
+        if (!eventNamesCache) {
             const eventData = await this.db.postgresQuery(
-                'SELECT name, last_seen_at FROM posthog_eventdefinition WHERE team_id = $1',
+                'SELECT name FROM posthog_eventdefinition WHERE team_id = $1',
                 [teamId],
                 'fetchEventDefinitions'
             )
-            const eventNamesCache = new Set<string>()
-            for (const row of eventData.rows) {
-                eventNamesCache.add(row.name)
-            }
+            eventNamesCache = new Set(eventData.rows.map((r) => r.name))
             this.eventNamesCache.set(teamId, eventNamesCache)
         }
 
