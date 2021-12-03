@@ -98,6 +98,8 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
 
 
 class _FunnelPropertyCorrelationActors(ActorBaseQuery):
+    _filter: Filter
+
     def __init__(self, filter: Filter, team: Team, base_uri: str = "/") -> None:
         self._funnel_correlation = FunnelCorrelation(filter, team, base_uri=base_uri)
         super().__init__(team, filter)
@@ -169,22 +171,23 @@ class _FunnelPropertyCorrelationActors(ActorBaseQuery):
         if self.is_aggregating_by_groups:
             conditions, params = [""], {}
 
-            properties = self._filter.correlation_property_values or []
+            properties = self._filter.correlation_property_values
 
-            for index, property in enumerate(properties):
-                if property.type != "group":
-                    continue
+            if properties:
+                for index, property in enumerate(properties):
+                    if property.type != "group":
+                        continue
 
-                expr, prop_params = prop_filter_json_extract(
-                    property,
-                    index,
-                    prepend=f"group_type_{property.group_type_index}",
-                    prop_var=f"group_properties_{property.group_type_index}",
-                    allow_denormalized_props=True,
-                )
+                    expr, prop_params = prop_filter_json_extract(
+                        property,
+                        index,
+                        prepend=f"group_type_{property.group_type_index}",
+                        prop_var=f"group_properties_{property.group_type_index}",
+                        allow_denormalized_props=True,
+                    )
 
-                conditions.append(expr)
-                params.update(prop_params)
+                    conditions.append(expr)
+                    params.update(prop_params)
 
             return " ".join(conditions), params
         else:
