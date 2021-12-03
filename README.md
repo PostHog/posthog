@@ -34,21 +34,22 @@ Sign up for a free [PostHog Cloud](https://app.posthog.com/signup) project
 
 
 ## Features
-We bring all the tools into one place to give you everything you need to build better products:
-- **Event-based Analytics** on users or groups - capture your product's usage data to see which users are doing what in your application.
-- **Product data visualizations** [graphs](https://posthog.com/docs/features/trends), [funnels](https://posthog.com/docs/features/funnels), [cohorts](https://posthog.com/docs/features/cohorts), [paths](https://posthog.com/docs/features/paths), [retention](https://posthog.com/docs/features/retention), and [dashboards](https://posthog.com/docs/features/dashboards).
-- **Complete control** over your data - [host it yourself](https://posthog.com/docs/self-host/overview#deploy) on any infrastructure.
-- **Session recording** to [watch videos](https://posthog.com/docs/features/session-recording) of your users' behavior, with fine-grained privacy controls.
-- **Automatically capture** [clicks and pageviews](https://posthog.com/docs/features/actions) to analyze what your users are doing without pushing events manually.
-- **Feature flags** to understand the impact of new features before rolling them out more widely.
-- **Heatmaps** to understand how users interact with your product with the [PostHog Toolbar](https://posthog.com/docs/features/toolbar).
-- **Automated Analysis** to find [correlations](https://posthog.com/docs/user-guides/correlation) between successful users and their behaviors or attributes 
-- **Plays nicely with data warehouses** import events or user data from your warehouse by writing a simple transformation plugin, and export data with pre-built plugins - such as BigQuery, Redshift, Snowflake and S3.
-- **Infinitely extensible** use custom [plugins](https://posthog.com/docs/user-guides/plugins) to extend PostHog and integrate with any service or tool
-- **Ready-made libraries** for **[JS](https://posthog.com/docs/integrations/js-integration), [Python](https://posthog.com/docs/integrations/python-integration), [Ruby](https://posthog.com/docs/integrations/ruby-integration), [Node](https://posthog.com/docs/integrations/node-integration), [Go](https://posthog.com/docs/integrations/go-integration)**, [Android](https://posthog.com/docs/integrations/android-integration), [iOS](https://posthog.com/docs/integrations/ios-integration), [PHP](https://posthog.com/docs/integrations/php-integration), [Flutter](https://posthog.com/docs/integrations/flutter-integration), [React Native](https://posthog.com/docs/integrations/react-native-integration), [Elixir](https://posthog.com/docs/integrations/elixir-integration) + an [API](https://posthog.com/docs/integrations/api) for anything else.
-- **And much much more...* for a [full list of PostHog features](https://posthog.com/features).
+![ui-demo](https://user-images.githubusercontent.com/85295485/144591577-fe97e4a5-5631-4a60-a684-45caf421507f.gif)
 
-![PostHog dashboard screenshot](https://posthog-static-files.s3.us-east-2.amazonaws.com/Documentation-Assets/posthog-app-screenshot.png)
+We bring all the tools into one place to give you everything you need to build better products:
+- **Event-based Analytics** on users or groups - capture your product's usage data to see which users are doing what in your application
+- **Product data visualizations** [graphs](https://posthog.com/docs/features/trends), [funnels](https://posthog.com/docs/features/funnels), [cohorts](https://posthog.com/docs/features/cohorts), [paths](https://posthog.com/docs/features/paths), [retention](https://posthog.com/docs/features/retention), and [dashboards](https://posthog.com/docs/features/dashboards)
+- **Complete control** over your data - [host it yourself](https://posthog.com/docs/self-host/overview#deploy) on any infrastructure
+- **Session recording** to [watch videos](https://posthog.com/docs/features/session-recording) of your users' behavior, with fine-grained privacy controls
+- **Automatically capture** [clicks and pageviews](https://posthog.com/docs/features/actions) to analyze what your users are doing without pushing events manually
+- **Feature flags** to understand the impact of new features before rolling them out more widely
+- **Heatmaps** to understand how users interact with your product with the [PostHog Toolbar](https://posthog.com/docs/features/toolbar)
+- **Automated Analysis** to find [correlations](https://posthog.com/docs/user-guides/correlation) between successful users and their behaviors or attributes 
+- **Plays nicely with data warehouses** import events or user data from your warehouse by writing a simple transformation plugin, and export data with pre-built plugins - such as BigQuery, Redshift, Snowflake and S3
+- **Infinitely extensible** use custom [plugins](https://posthog.com/docs/user-guides/plugins) to extend PostHog and integrate with any service or tool
+- **Ready-made libraries** for **[JS](https://posthog.com/docs/integrations/js-integration), [Python](https://posthog.com/docs/integrations/python-integration), [Ruby](https://posthog.com/docs/integrations/ruby-integration), [Node](https://posthog.com/docs/integrations/node-integration), [Go](https://posthog.com/docs/integrations/go-integration)**, [Android](https://posthog.com/docs/integrations/android-integration), [iOS](https://posthog.com/docs/integrations/ios-integration), [PHP](https://posthog.com/docs/integrations/php-integration), [Flutter](https://posthog.com/docs/integrations/flutter-integration), [React Native](https://posthog.com/docs/integrations/react-native-integration), [Elixir](https://posthog.com/docs/integrations/elixir-integration) + an [API](https://posthog.com/docs/integrations/api) for anything else
+- **And much much more...** for a [full list of PostHog features](https://posthog.com/features).
+
 
 ## Event autocapture
 You don't have to spend weeks instrumenting every event on your front-end, point and click at elements from your browser and turn them into events which you and your team can analyze
