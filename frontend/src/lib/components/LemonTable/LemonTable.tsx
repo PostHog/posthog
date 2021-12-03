@@ -164,7 +164,7 @@ export function LemonTable<T extends Record<string, any>>({
                 setIsScrollable([left, right])
             }
         }
-    }, [isScrollable])
+    }, [isScrollable[0], isScrollable[1]])
 
     useResizeObserver({
         ref: scrollRef,
