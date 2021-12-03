@@ -13,8 +13,8 @@ import { DateDisplay } from 'lib/components/DateDisplay'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { PersonHeader } from '../persons/PersonHeader'
 import api from '../../lib/api'
+import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { GroupActorHeader } from 'scenes/persons/GroupActorHeader'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
 import { IconPersonFilled } from 'lib/components/icons'
 
 export interface PersonsModalProps {
