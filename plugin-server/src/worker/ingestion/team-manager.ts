@@ -142,12 +142,14 @@ export class TeamManager {
     public async updateEventProperties(team: Team, event: string, properties: Record<string, any>): Promise<void> {
         await this.db.postgresTransaction(async (client) => {
             for (const [property, value] of Object.entries(properties)) {
-                let propertyType: EventPropertyType =
+                let propertyType =
                     typeof value === 'number'
                         ? EventPropertyType.Number
                         : typeof value === 'boolean'
                         ? EventPropertyType.Boolean
-                        : EventPropertyType.String
+                        : typeof value === 'string'
+                        ? EventPropertyType.String
+                        : null
                 let propertyTypeFormat = null
 
                 if (propertyType === EventPropertyType.String) {
