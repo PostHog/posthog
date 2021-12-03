@@ -12,20 +12,17 @@ import { BulkInviteModal } from '../../../scenes/organization/Settings/BulkInvit
 import { Link } from '../../../lib/components/Link'
 import { IconMenu, IconMenuOpen } from '../../../lib/components/icons'
 import { CreateProjectModal } from '../../../scenes/project/CreateProjectModal'
+import { announcementLogic } from '~/layout/navigation/TopBar/announcementLogic'
 import './TopBar.scss'
 
 export function TopBar(): JSX.Element {
-    const {
-        isSideBarShown,
-        bareNav,
-        announcementMessage,
-        isAnnouncementShown,
-        isInviteModalShown,
-        isCreateOrganizationModalShown,
-        isCreateProjectModalShown,
-    } = useValues(navigationLogic)
-    const { toggleSideBar, hideAnnouncement, hideInviteModal, hideCreateOrganizationModal, hideCreateProjectModal } =
+    const { isSideBarShown, bareNav, isInviteModalShown, isCreateOrganizationModalShown, isCreateProjectModalShown } =
+        useValues(navigationLogic)
+    const { toggleSideBar, hideInviteModal, hideCreateOrganizationModal, hideCreateProjectModal } =
         useActions(navigationLogic)
+
+    const { announcementMessage, isAnnouncementShown } = useValues(announcementLogic)
+    const { hideAnnouncement } = useActions(announcementLogic)
 
     return (
         <>
