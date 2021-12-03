@@ -60,5 +60,9 @@ export const groupsAccessLogic = kea<groupsAccessLogicType<GroupsAccessStatus>>(
                 }
             },
         ],
+        upgradeLink: [
+            (s) => [s.preflight],
+            (preflight) => (preflight?.cloud ? '/organization/billing' : '/instance/licenses'),
+        ],
     },
 })

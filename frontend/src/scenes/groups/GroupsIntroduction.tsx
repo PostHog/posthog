@@ -2,8 +2,7 @@ import { useValues } from 'kea'
 import { IconExternalLink } from 'lib/components/icons'
 import { LinkButton } from 'lib/components/LinkButton'
 import React from 'react'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
+import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import './GroupsIntroduction.scss'
 
 interface Props {
@@ -13,12 +12,11 @@ interface Props {
 export function GroupsIntroduction({ access }: Props): JSX.Element {
     let title, subtext, primaryButton, secondaryButton
 
-    const { preflight } = useValues(preflightLogic)
-    const isCloud = !!preflight?.cloud
+    const { upgradeLink } = useValues(groupsAccessLogic)
 
     const upgradeButton = (
         <LinkButton
-            to={isCloud ? '/organization/billing' : '/instance/licenses'}
+            to={upgradeLink}
             type="primary"
             data-attr="group-analytics-upgrade"
             className="groups-introduction__action-button"
