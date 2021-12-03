@@ -36,14 +36,12 @@
     &.LemonTable--scrollable-left::before {
         opacity: 1;
     }
-
     h4.row-name {
         font-size: 0.875rem;
         font-weight: 600;
         color: inherit;
         margin-bottom: 0.125rem;
     }
-
     .row-description {
         display: inline-block;
         max-width: 30rem;
@@ -62,6 +60,9 @@
         font-weight: 600;
         letter-spacing: 0.03125rem;
         text-transform: uppercase;
+        > th {
+            text-align: left;
+        }
     }
     > tbody {
         > tr {
@@ -87,7 +88,6 @@
             > th,
             > td {
                 padding-left: 1rem;
-                text-align: left;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 &[colspan='0'] {
