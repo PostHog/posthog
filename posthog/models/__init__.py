@@ -8,6 +8,7 @@ from .element_group import ElementGroup
 from .entity import Entity
 from .event import Event
 from .event_definition import EventDefinition
+from .event_property import EventProperty
 from .feature_flag import FeatureFlag
 from .filters import Filter, RetentionFilter
 from .group import Group
