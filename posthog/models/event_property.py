@@ -26,7 +26,7 @@ class EventProperty(models.Model):
     property_type: models.CharField = models.CharField(
         max_length=20, choices=PropertyType.choices, default=PropertyType.STRING
     )
-    property_type_format: models.CharField = models.CharField(max_length=100, null=False)
+    property_type_format: models.CharField = models.CharField(max_length=100, null=True)
 
     # things we keep track of
     total_volume: models.IntegerField = models.IntegerField(default=None, null=True)
