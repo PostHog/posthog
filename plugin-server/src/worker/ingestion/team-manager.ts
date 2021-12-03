@@ -13,7 +13,8 @@ export class TeamManager {
     db: DB
     teamCache: TeamCache<Team | null>
     eventNamesCache: Map<TeamId, Set<string>>
-    eventLastSeenCache: Map<string, DateTime> // key: ${team_id}_${name}
+    eventLastSeenCache: Map<string, number> // key: ${team_id}_${name}; value: DateTime.valueOf()
+    lastFlushAt: DateTime // time when the `eventLastSeenCache` was last flushed
     eventPropertiesCache: Map<TeamId, Set<string>>
     instanceSiteUrl: string
 
@@ -24,6 +25,7 @@ export class TeamManager {
         this.eventLastSeenCache = new Map()
         this.eventPropertiesCache = new Map()
         this.instanceSiteUrl = instanceSiteUrl || 'unknown'
+        this.lastFlushAt = DateTime.now()
     }
 
     public async fetchTeam(teamId: number): Promise<Team | null> {
@@ -40,6 +42,29 @@ export class TeamManager {
         } finally {
             clearTimeout(timeout)
         }
+    }
+
+    async flushLastSeenAtCache(): Promise<void> {
+        const team_ids: string[] = []
+        const event_names: string[] = []
+        const last_seen_at_array: number[] = []
+
+        for (const event of this.eventLastSeenCache) {
+            team_ids.push(event[0].split('_')[0])
+            event_names.push(event[0].split('_')[1])
+            last_seen_at_array.push(event[1])
+        }
+
+        this.lastFlushAt = DateTime.now()
+        this.eventLastSeenCache = new Map()
+
+        await this.db.postgresQuery(
+            `UPDATE posthog_eventdefinition t1 SET t1.last_seen_at = GREATEST(t1.last_seen_at, t2.last_seen_at)
+            FROM (UNNEST ($1) as team_id, UNNEST($2) as name, UNNEST($3) as last_seen_at) as t2
+            WHERE t1.name = t2.name AND t1.team_id = t2.team_id`,
+            [team_ids, event_names, last_seen_at_array],
+            'updateEventLastSeen'
+        )
     }
 
     public async updateEventNamesAndProperties(
@@ -63,25 +88,22 @@ export class TeamManager {
 
         if (!this.eventNamesCache.get(team.id)?.has(event)) {
             await this.db.postgresQuery(
-                `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, last_seen_at, created_at) VALUES ($1, $2, NULL, NULL, $3, $4, NOW()) ON CONFLICT DO NOTHING`,
+                `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, last_seen_at, created_at)` +
+                    ` VALUES ($1, $2, NULL, NULL, $3, $4, NOW())` +
+                    ` ON CONFLICT ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq` +
+                    ` DO UPDATE SET last_seen_at=$4`,
                 [new UUIDT().toString(), event, team.id, eventTimestamp],
                 'insertEventDefinition'
             )
             this.eventNamesCache.get(team.id)?.add(event)
-            this.eventLastSeenCache.set(`${team.id}_${event}`, eventTimestamp)
+            this.eventLastSeenCache.set(`${team.id}_${event}`, eventTimestamp.valueOf())
         } else {
-            if (
-                !this.eventLastSeenCache.get(`${team.id}_${event}`) ||
-                eventTimestamp.diff(
-                    this.eventLastSeenCache.get(`${team.id}_${event}`) || DateTime.fromISO('1970-01-01')
-                ).minutes > 15
-            ) {
-                await this.db.postgresQuery(
-                    `UPDATE posthog_eventdefinition SET last_seen_at = GREATEST(last_seen_at, $1) WHERE name = $2 AND team_id = $3`,
-                    [eventTimestamp.toUTC().toISO(), event, team.id],
-                    'updateEventLastSeen'
-                )
-                this.eventLastSeenCache.set(`${team.id}_${event}`, eventTimestamp)
+            if ((this.eventLastSeenCache.get(`${team.id}_${event}`) ?? 0) < DateTime.now().valueOf()) {
+                this.eventLastSeenCache.set(`${team.id}_${event}`, eventTimestamp.valueOf())
+            }
+            if (this.eventLastSeenCache.size > 100000 || DateTime.now().diff(this.lastFlushAt).minutes > 60) {
+                // to not run out of memory
+                void this.flushLastSeenAtCache()
             }
         }
 
@@ -138,9 +160,6 @@ export class TeamManager {
             const eventNamesCache = new Set<string>()
             for (const row of eventData.rows) {
                 eventNamesCache.add(row.name)
-                if (row.last_seen_at) {
-                    this.eventLastSeenCache.set(`${teamId}_${row.name}`, DateTime.fromISO(row.last_seen_at))
-                }
             }
             this.eventNamesCache.set(teamId, eventNamesCache)
         }

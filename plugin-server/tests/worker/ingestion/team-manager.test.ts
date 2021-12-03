@@ -74,7 +74,7 @@ describe('TeamManager()', () => {
             )
             await hub.db.postgresQuery(
                 `INSERT INTO posthog_eventdefinition (id, name, team_id, created_at, last_seen_at) VALUES ($1, $2, $3, NOW(), $4)`,
-                [new UUIDT().toString(), 'another_test_event', 2, '2020-01-30T11:00:36Z'],
+                [new UUIDT().toString(), 'another_test_event', 2, '2014-03-23T23:23:23Z'],
                 'testTag'
             )
             await hub.db.postgresQuery(
@@ -120,7 +120,7 @@ describe('TeamManager()', () => {
                     query_usage_30_day: null,
                     team_id: 2,
                     volume_30_day: null,
-                    last_seen_at: '2020-01-30T11:00:36.000Z',
+                    last_seen_at: '2014-03-23T23:23:23.000Z', // values are not updated directly
                     created_at: expect.any(String),
                 },
                 {
@@ -129,7 +129,7 @@ describe('TeamManager()', () => {
                     query_usage_30_day: null,
                     team_id: 2,
                     volume_30_day: null,
-                    last_seen_at: expect.any(String),
+                    last_seen_at: '2020-02-27T16:00:36.000Z', // overridden Date.now()
                     created_at: expect.any(String),
                 },
             ])
@@ -172,90 +172,7 @@ describe('TeamManager()', () => {
             ])
         })
 
-        it('caches last_seen_at properly', async () => {
-            await teamManager.fetchTeam(2)
-            await teamManager.cacheEventNamesAndProperties(2)
-
-            expect(teamManager.eventLastSeenCache.get('2_another_test_event')).toEqual(
-                DateTime.fromISO('2020-01-30T11:00:36Z')
-            )
-        })
-
-        it('only updates last_seen_at if nothing else changes', async () => {
-            await teamManager.fetchTeam(2)
-            await teamManager.cacheEventNamesAndProperties(2)
-
-            let eventDefinitions = await hub.db.fetchEventDefinitions()
-            for (const eventDef of eventDefinitions) {
-                if (eventDef.name === '$pageview') {
-                    expect(eventDef.last_seen_at).toBe(null)
-                }
-            }
-
-            jest.spyOn(hub.db, 'postgresQuery')
-
-            await teamManager.updateEventNamesAndProperties(2, '$pageview', {}, DateTime.now())
-
-            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1) // Update last_seen_at
-
-            eventDefinitions = await hub.db.fetchEventDefinitions()
-            for (const eventDef of eventDefinitions) {
-                if (eventDef.name === '$pageview') {
-                    const parsedLastSeen = DateTime.fromISO(eventDef.last_seen_at)
-                    expect(parsedLastSeen.diff(DateTime.now()).seconds).toBeCloseTo(0)
-                }
-            }
-        })
-
-        it('does not update last seen if it was recently updated', async () => {
-            await teamManager.fetchTeam(2)
-            await teamManager.cacheEventNamesAndProperties(2)
-
-            // Fill cache first
-            await teamManager.updateEventNamesAndProperties(2, 'another_test_event', {}, DateTime.now())
-
-            jest.spyOn(hub.db, 'postgresQuery')
-            await teamManager.updateEventNamesAndProperties(
-                2,
-                'another_test_event',
-                {},
-                DateTime.fromISO('2020-01-30T11:10:36Z') // 10 minutes later; threshold is 15 minutes
-            )
-
-            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(0)
-
-            const eventDefinitions = await hub.db.fetchEventDefinitions()
-            for (const eventDef of eventDefinitions) {
-                if (eventDef.name === 'another_test_event') {
-                    const parsedLastSeen = DateTime.fromISO(eventDef.last_seen_at)
-                    expect(parsedLastSeen.diff(DateTime.fromISO('2020-01-30T11:00:36Z')).seconds).toBeCloseTo(0)
-                }
-            }
-        })
-
-        it('does not update last seen if it was recently updated (new events)', async () => {
-            await teamManager.fetchTeam(2)
-            await teamManager.cacheEventNamesAndProperties(2)
-
-            // Fill cache first
-            await teamManager.updateEventNamesAndProperties(
-                2,
-                'gamma-event',
-                {},
-                DateTime.fromISO('2020-01-30T11:00:36Z')
-            )
-
-            jest.spyOn(hub.db, 'postgresQuery')
-            await teamManager.updateEventNamesAndProperties(
-                2,
-                'gamma-event',
-                {},
-                DateTime.fromISO('2020-01-30T11:13:36Z') // 13 minutes later; threshold is 15 minutes
-            )
-            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(0)
-        })
-
-        it('does not update last seen if it is older', async () => {
+        it('does not update last seen in cache if it is older', async () => {
             jest.spyOn(hub.db, 'postgresQuery')
             await teamManager.updateEventNamesAndProperties(
                 2,
@@ -264,13 +181,13 @@ describe('TeamManager()', () => {
                 DateTime.fromISO('2020-02-26T00:01:01Z')
             )
 
-            const eventDefinitions = await hub.db.fetchEventDefinitions()
-            for (const eventDef of eventDefinitions) {
-                if (eventDef.name === 'new-event') {
-                    const parsedLastSeen = DateTime.fromISO(eventDef.last_seen_at)
-                    expect(parsedLastSeen.diff(DateTime.now()).seconds).toBeCloseTo(0)
-                }
-            }
+            // const eventDefinitions = await hub.db.fetchEventDefinitions()
+            // for (const eventDef of eventDefinitions) {
+            //     if (eventDef.name === 'new-event') {
+            //         const parsedLastSeen = DateTime.fromISO(eventDef.last_seen_at)
+            //         expect(parsedLastSeen.diff(DateTime.now()).seconds).toBeCloseTo(0)
+            //     }
+            // }
         })
 
         it('does not capture event', async () => {
