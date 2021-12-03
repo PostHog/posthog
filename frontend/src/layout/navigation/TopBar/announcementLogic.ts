@@ -1,5 +1,6 @@
 import { kea } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { announcementLogicType } from './announcementLogicType'
@@ -12,7 +13,7 @@ export enum AnnouncementType {
 export const announcementLogic = kea<announcementLogicType<AnnouncementType>>({
     path: ['layout', 'navigation', 'TopBar', 'announcementLogic'],
     connect: {
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], groupsAccessLogic, ['showGroupsAnnouncementBanner']],
     },
     actions: {
         hideAnnouncement: (type: AnnouncementType | null) => ({ type }),
@@ -28,7 +29,7 @@ export const announcementLogic = kea<announcementLogicType<AnnouncementType>>({
                         return state
                     }
                     return { ...state, [type]: true }
-                }
+                },
             },
         ],
         closed: [
@@ -46,18 +47,26 @@ export const announcementLogic = kea<announcementLogicType<AnnouncementType>>({
                     return null
                 }
                 return relevantAnnouncementType
-            }
+            },
         ],
         relevantAnnouncementType: [
-            (s) => [s.cloudAnnouncement],
-            (cloudAnnouncement): AnnouncementType | null =>
-                cloudAnnouncement ? AnnouncementType.CloudFlag : null,
+            (s) => [s.cloudAnnouncement, s.showGroupsAnnouncementBanner],
+            (cloudAnnouncement, showGroupsAnnouncementBanner): AnnouncementType | null => {
+                if (cloudAnnouncement) {
+                    return AnnouncementType.CloudFlag
+                } else if (showGroupsAnnouncementBanner) {
+                    return AnnouncementType.GroupAnalytics
+                }
+                return null
+            },
         ],
         cloudAnnouncement: [
             (s) => [s.featureFlags],
             (featureFlags): string | null => {
                 const flagValue = featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]
-                return !!flagValue && typeof flagValue === 'string' ? featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT] : null
+                return !!flagValue && typeof flagValue === 'string'
+                    ? featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]
+                    : null
             },
         ],
     },
