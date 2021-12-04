@@ -977,6 +977,7 @@ export interface TrendResult {
     breakdown_value?: string | number
     aggregated_value: number
     status?: string
+    compare_label?: string
 }
 
 export interface TrendResultWithAggregate extends TrendResult {

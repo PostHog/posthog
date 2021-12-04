@@ -24,6 +24,7 @@ interface InsightsLabelProps {
     value?: string
     className?: string
     breakdownValue?: BreakdownKeyType
+    compareValue?: string
     hideBreakdown?: boolean // Whether to hide the breakdown detail in the label
     hideIcon?: boolean // Whether to hide the icon that showcases the color of the series
     iconSize?: IconSize // Size of the series color icon
@@ -80,6 +81,7 @@ export function InsightLabel({
     value,
     className,
     breakdownValue,
+    compareValue,
     hideBreakdown,
     hideIcon,
     iconSize = IconSize.Large,
@@ -96,8 +98,6 @@ export function InsightLabel({
     const showEventName = !breakdownValue || (hasMultipleSeries && !Array.isArray(breakdownValue))
     const eventName = seriesStatus ? capitalizeFirstLetter(seriesStatus) : action?.name || fallbackName || ''
     const iconSizePx = iconSize === IconSize.Large ? 14 : iconSize === IconSize.Medium ? 12 : 10
-
-    console.log('INSIGHT LABEl', showEventName, breakdownValue, useCustomName && action, !hideSeriesSubtitle)
 
     return (
         <Row className={clsx('insights-label', className)} wrap={false}>
@@ -130,7 +130,7 @@ export function InsightLabel({
                                 <EntityFilterInfo
                                     filter={action}
                                     showSubTitle={!hideSeriesSubtitle}
-                                    subTitle={breakdownValue?.toString() || undefined}
+                                    subTitles={[compareValue, ...[breakdownValue].flat()]}
                                 />
                             ) : (
                                 <PropertyKeyInfo disableIcon disablePopover value={eventName} ellipsis={!allowWrap} />

@@ -8,18 +8,14 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { getChartColors } from 'lib/colors'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
+import { formatCompareLabel } from 'scenes/insights/InsightsTable/InsightsTable'
 
 export function InsightLegendButton(): JSX.Element {
     const { filters } = useValues(insightLogic)
-    const { setFilters } = useActions(insightLogic)
-
-    console.log('FILTERS', filters.legend_visible)
+    const { toggleInsightLegend } = useActions(insightLogic)
 
     return (
-        <Button
-            className="insight-legend-button"
-            onClick={() => setFilters({ legend_visible: !filters.legend_visible })}
-        >
+        <Button className="insight-legend-button" onClick={toggleInsightLegend}>
             <LegendIcon />
             <span className="insight-legend-button-title">{filters.legend_visible ? 'Hide' : 'Show'} Legend</span>
         </Button>
@@ -27,12 +23,11 @@ export function InsightLegendButton(): JSX.Element {
 }
 
 export function InsightLegend(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, filters } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { indexedResults, visibilityMap } = useValues(logic)
     const { toggleVisibility } = useActions(logic)
 
-    console.log('RESULTS', indexedResults)
     const colorList = getChartColors('white')
 
     return (
@@ -59,6 +54,7 @@ export function InsightLegend(): JSX.Element {
                                     breakdownValue={
                                         item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()
                                     }
+                                    compareValue={filters.compare ? formatCompareLabel(item) : undefined}
                                     hideIcon
                                     useCustomName
                                     hideSeriesSubtitle={false}

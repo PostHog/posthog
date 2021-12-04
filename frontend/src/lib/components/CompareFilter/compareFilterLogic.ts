@@ -40,19 +40,10 @@ export const compareFilterLogic = kea<compareFilterLogicType>({
             actions.setCompare(!values.compare)
         },
     }),
-    urlToAction: ({ actions }) => ({
-        '/insights': (
-            _: any,
-            {
-                compare,
-                insight,
-                date_from,
-            }: {
-                compare?: boolean
-                insight?: InsightType
-                date_from?: string
-            }
-        ) => {
+    events: ({ actions }) => ({
+        afterMount: () => {
+            const { compare, date_from, insight } = router.values.searchParams
+
             if (compare !== undefined) {
                 actions.setCompare(compare)
             }

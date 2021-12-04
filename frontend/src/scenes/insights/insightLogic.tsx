@@ -115,6 +115,7 @@ export const insightLogic = kea<insightLogicType>({
         loadResults: (refresh = false) => ({ refresh, queryId: uuid() }),
         setInsightMetadata: (metadata: Partial<DashboardItemType>) => ({ metadata }),
         createAndRedirectToNewInsight: (filters?: Partial<FilterType>) => ({ filters }),
+        toggleInsightLegend: true,
     }),
     loaders: ({ actions, cache, values, props }) => ({
         insight: [
@@ -692,6 +693,9 @@ export const insightLogic = kea<insightLogicType>({
             router.actions.replace(
                 urls.insightEdit(createdInsight.short_id, cleanFilters(createdInsight.filters || filters || {}))
             )
+        },
+        toggleInsightLegend: () => {
+            actions.setFilters({ ...values.filters, legend_visible: !values.filters.legend_visible })
         },
     }),
     actionToUrl: ({ values }) => {

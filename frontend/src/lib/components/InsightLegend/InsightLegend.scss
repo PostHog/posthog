@@ -25,6 +25,11 @@
         display: flex;
         align-items: center;
         width: 100%;
+
+        &:not(:last-child) {
+            margin-bottom: $default_spacing / 2;
+        }
+
         .insights-label {
             margin-left: $default_spacing / 2;
             width: 100%;

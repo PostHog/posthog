@@ -8,7 +8,7 @@ import { getChartColors } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
 import { BreakdownKeyType, CohortType, IntervalType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
-import { average, median, maybeAddCommasToInteger } from 'lib/utils'
+import { average, median, maybeAddCommasToInteger, capitalizeFirstLetter } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
@@ -171,6 +171,22 @@ export function InsightsTable({
         },
     })
 
+    if (filters.compare) {
+        columns.push({
+            title: 'Compare',
+            render: function RenderCompare({}, item: IndexedTrendResult): JSX.Element {
+                return <div>{formatCompareLabel(item)}</div>
+            },
+            fixed: 'left',
+            width: 150,
+            sorter: (a, b) => {
+                const labelA = a.compare_label || a.label || ''
+                const labelB = b.compare_label || b.label || ''
+                return labelA.localeCompare(labelB)
+            },
+        })
+    }
+
     if (indexedResults?.length > 0 && indexedResults[0].data) {
         const valueColumns: ColumnsType<IndexedTrendResult> = indexedResults[0].data.map(({}, index: number) => ({
             title: (
@@ -264,4 +280,10 @@ export function formatBreakdownLabel(cohorts: CohortType[], breakdown_value?: Br
     } else {
         return ''
     }
+}
+
+export function formatCompareLabel(trendResult: IndexedTrendResult): string {
+    // label splitting ensures backwards compatibility for api results that don't contain the new compare_label
+    const labels = trendResult.label.split(' - ')
+    return capitalizeFirstLetter(trendResult.compare_label ?? labels?.[labels.length - 1] ?? 'current')
 }
