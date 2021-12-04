@@ -451,6 +451,8 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             response = stickiness_response["result"]
             self.assertEqual(response[0]["data"], [2, 1, 1, 0, 0, 0, 0, 0])
             self.assertEqual(response[1]["data"], [3, 0, 0, 0, 0, 0, 0, 0])
+            self.assertEqual(response[0]["compare_label"], "current")
+            self.assertEqual(response[1]["compare_label"], "previous")
 
         def test_filter_test_accounts(self):
             self._create_multiple_people()
