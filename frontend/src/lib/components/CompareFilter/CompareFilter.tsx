@@ -7,7 +7,6 @@ export function CompareFilter(): JSX.Element {
     const { compare, disabled } = useValues(compareFilterLogic)
     const { setCompare } = useActions(compareFilterLogic)
 
-    console.log('DISABLED', compare, disabled)
     return (
         <Checkbox
             onChange={(e) => {
