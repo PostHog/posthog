@@ -1,18 +1,19 @@
 import SaveOutlined from '@ant-design/icons/lib/icons/SaveOutlined'
-import { Button, Carousel, Form, Input } from 'antd'
+import { Button, Carousel, Col, Form, Input, Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React, { useRef } from 'react'
 import { userLogic } from 'scenes/userLogic'
+import { PersonPropertyFilter } from '~/types'
 import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
 
 export function Experiment(): JSX.Element {
     const { user } = useValues(userLogic)
     const { experiment } = useValues(experimentLogic)
-    const { setExperiment } = useActions(experimentLogic)
+    const { setExperiment, createExperiment, createDraftExperiment } = useActions(experimentLogic)
     const carouselRef = useRef<any>(null)
     const handleNext = (): void => carouselRef.current.next()
     const handlePrev = (): void => carouselRef.current.prev()
@@ -51,28 +52,30 @@ export function Experiment(): JSX.Element {
                     </div>
                     <div>
                         <Form.Item label="Person selection">
-                            <label>Select the users who will participate in this experiment.</label>
-                            <div style={{ flex: 3, marginRight: 5 }}>
-                                <PropertyFilters
-                                    endpoint="person"
-                                    pageKey={'1234'}
-                                    onChange={(personProperties) => {
-                                        form.setFieldsValue({ personSelection: personProperties })
-                                    }}
-                                    propertyFilters={[]}
-                                    // onChange={(properties) => {
-                                    //     onPropertyCriteriaChange({ properties })
-                                    // }}
-                                    // propertyFilters={group.properties}
-                                    style={{ margin: '1rem 0 0' }}
-                                    taxonomicGroupTypes={[
-                                        TaxonomicFilterGroupType.PersonProperties,
-                                        TaxonomicFilterGroupType.CohortsWithAllUsers,
-                                    ]}
-                                    popoverPlacement="top"
-                                    taxonomicPopoverPlacement="auto"
-                                />
-                            </div>
+                            <Form.Item name="filters">
+                                <label>Select the users who will participate in this experiment.</label>
+                                <div style={{ flex: 3, marginRight: 5 }}>
+                                    <PropertyFilters
+                                        endpoint="person"
+                                        pageKey={'1234'}
+                                        onChange={(personProperties) => {
+                                            form.setFieldsValue({ filters: personProperties })
+                                        }}
+                                        propertyFilters={[]}
+                                        // onChange={(properties) => {
+                                        //     onPropertyCriteriaChange({ properties })
+                                        // }}
+                                        // propertyFilters={group.properties}
+                                        style={{ margin: '1rem 0 0' }}
+                                        taxonomicGroupTypes={[
+                                            TaxonomicFilterGroupType.PersonProperties,
+                                            TaxonomicFilterGroupType.CohortsWithAllUsers,
+                                        ]}
+                                        popoverPlacement="top"
+                                        taxonomicPopoverPlacement="auto"
+                                    />
+                                </div>
+                            </Form.Item>
                         </Form.Item>
                         <Form.Item className="text-right">
                             <Button icon={<SaveOutlined />} htmlType="submit" type="primary" onClick={handleNext}>
@@ -86,6 +89,26 @@ export function Experiment(): JSX.Element {
                         <div>{experiment?.description}</div>
                         <div>Owner: {user?.first_name}</div>
                         <div>Feature flag key: {experiment?.feature_flag}</div>
+                        <Row>
+                            <Col>
+                                <Row>Person allocation</Row>
+                                <Row>The following users will participate in the experiment</Row>
+                                <ul>
+                                    {experiment?.filters?.map((filter: PersonPropertyFilter, idx: number) => (
+                                        <li key={idx}>
+                                            Users with {filter.key} {filter.operator}{' '}
+                                            {Array.isArray(filter.value)
+                                                ? filter.value.map((val) => `${val}, `)
+                                                : filter.value}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </Col>
+                        </Row>
+                        <Button onClick={createDraftExperiment}>Save as draft</Button>
+                        <Button type="primary" onClick={createExperiment}>
+                            Save and launch
+                        </Button>
                     </div>
                 </Carousel>
             </Form>
