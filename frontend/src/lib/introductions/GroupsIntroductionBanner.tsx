@@ -2,17 +2,36 @@ import React from 'react'
 import { useValues } from 'kea'
 import { LinkButton } from 'lib/components/LinkButton'
 import { Link } from 'lib/components/Link'
-import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 
 export function GroupsIntroductionBanner(): JSX.Element | null {
-    const { upgradeLink } = useValues(groupsAccessLogic)
+    const { groupsAccessStatus, upgradeLink } = useValues(groupsAccessLogic)
+
+    const showUpgradeButton = [GroupsAccessStatus.NoAccess, GroupsAccessStatus.HasGroupTypes].includes(
+        groupsAccessStatus
+    )
+
+    let introductionSegment = (
+        <>
+            <strong>🎉 Introducing group analytics!</strong> Analyze how groups interact with your product as a whole.
+        </>
+    )
+    if (groupsAccessStatus === GroupsAccessStatus.HasGroupTypes) {
+        introductionSegment = (
+            <>
+                <strong>🎉 Looks like you're tracking groups!</strong> Upgrade today to use groups in Insights.
+            </>
+        )
+    }
 
     return (
         <div>
-            <strong>🎉 Introducing group analytics!</strong> Analyze how groups interact with your product as a whole.
-            <LinkButton to={upgradeLink} className="GroupsAnnouncement__button" data-attr="group-analytics-upgrade">
-                Upgrade
-            </LinkButton>
+            {introductionSegment}
+            {showUpgradeButton && (
+                <LinkButton to={upgradeLink} className="GroupsAnnouncement__button" data-attr="group-analytics-upgrade">
+                    Upgrade
+                </LinkButton>
+            )}
             <Link
                 to="https://posthog.com/docs/user-guides/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-learn-more"
                 target="_blank"
