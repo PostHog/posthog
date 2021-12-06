@@ -67,6 +67,9 @@ class ActorBaseQuery:
     def get_actors_from_result(
         self, raw_result
     ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]]]:
+        actors: Union[QuerySet[Person], QuerySet[Group]]
+        serialized_actors: Union[List[SerializedGroup], List[SerializedPerson]]
+
         if self.is_aggregating_by_groups:
             actors, serialized_actors = self._get_groups(raw_result)
         else:
