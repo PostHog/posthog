@@ -5,15 +5,16 @@ from django.test import TestCase
 from django.test.client import Client
 
 from ee.clickhouse.test.test_journeys import _create_all_events, update_or_create_person
+from ee.clickhouse.util import ClickhouseTestMixin
 from ee.clickhouse.views.test.funnel.util import EventPattern
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.utils import encode_get_request_params
 from posthog.test.base import test_with_materialized_columns
+from posthog.utils import encode_get_request_params
 
 
-class RetentionTests(TestCase):
+class RetentionTests(TestCase, ClickhouseTestMixin):
     def test_can_get_retention_cohort_breakdown(self):
         organization = create_organization(name="test")
         team = create_team(organization=organization)
@@ -53,10 +54,7 @@ class RetentionTests(TestCase):
         self.assertEqual(
             retention_by_cohort_by_period,
             {
-                "Day 0": {
-                    "1": 2,
-                    "2": 1,
-                },  # ["person 1", "person 2"]  # ["person 1"]
+                "Day 0": {"1": 2, "2": 1,},  # ["person 1", "person 2"]  # ["person 1"]
                 "Day 1": {"1": 1},  # ["person 3"]
             },
         )
