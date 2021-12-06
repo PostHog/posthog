@@ -117,7 +117,12 @@ export function InsightContainer(): JSX.Element {
             filters.funnel_viz_type === FunnelVizType.Steps &&
             (!featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] || filters?.layout === FunnelLayout.horizontal)
         ) {
-            return <FunnelStepTable />
+            return (
+                <Card>
+                    <h3 className="l3">Details table</h3>
+                    <FunnelStepTable />
+                </Card>
+            )
         }
         if (
             (!filters.display ||

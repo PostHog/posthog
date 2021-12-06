@@ -438,6 +438,15 @@ export const insightLogic = kea<insightLogicType>({
                 },
             ],
         ],
+        isViewedOnDashboard: [() => [router.selectors.location], ({ pathname }) => pathname.startsWith('/dashboard/')],
+        createInsightUrl: [
+            (s) => [s.insight, s.filters],
+            ({ short_id, filters }) =>
+                (insightType: InsightType) =>
+                    short_id
+                        ? urls.insightEdit(short_id, cleanFilters({ ...filters, insight: insightType }, filters))
+                        : undefined,
+        ],
     },
     listeners: ({ actions, selectors, values, props }) => ({
         setFilters: async ({ filters }, _, __, previousState) => {

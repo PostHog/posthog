@@ -1053,13 +1053,14 @@ export function endWithPunctation(text?: string | null): string {
     return trimmedText
 }
 
-export function shortTimeZone(timeZone?: string, atDate: Date = new Date()): string {
+export function shortTimeZone(timeZone?: string, atDate?: Date): string {
     /**
      * Return the short timezone identifier for a specific timezone (e.g. BST, EST, PDT, UTC+2).
      * @param timeZone E.g. 'America/New_York'
      * @param atDate
      */
-    const localeTimeString = new Date(atDate).toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone })
+    const date = atDate ? new Date(atDate) : new Date()
+    const localeTimeString = date.toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone })
     return localeTimeString.split(' ')[2]
 }
 

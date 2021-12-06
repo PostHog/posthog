@@ -708,7 +708,7 @@
 # name: TestFunnelBreakdown.test_funnel_breakdown_group.3
   '
   
-  SELECT aggregation_target as person_id
+  SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
             steps,
@@ -861,7 +861,7 @@
 # name: TestFunnelBreakdown.test_funnel_breakdown_group.5
   '
   
-  SELECT aggregation_target as person_id
+  SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
             steps,
@@ -1014,7 +1014,7 @@
 # name: TestFunnelBreakdown.test_funnel_breakdown_group.7
   '
   
-  SELECT aggregation_target as person_id
+  SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
             steps,
@@ -1167,7 +1167,7 @@
 # name: TestFunnelBreakdown.test_funnel_breakdown_group.9
   '
   
-  SELECT aggregation_target as person_id
+  SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
             steps,

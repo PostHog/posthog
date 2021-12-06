@@ -20,7 +20,6 @@ from ee.clickhouse.timer import get_timer_thread
 from posthog import redis
 from posthog.constants import AnalyticsDBMS
 from posthog.internal_metrics import incr, timing
-from posthog.management import query_logging
 from posthog.settings import (
     CLICKHOUSE_ASYNC,
     CLICKHOUSE_CA,
@@ -44,6 +43,23 @@ QueryArgs = Optional[Union[InsertParams, NonInsertParams]]
 CACHE_TTL = 60  # seconds
 SLOW_QUERY_THRESHOLD_MS = 15000
 QUERY_TIMEOUT_THREAD = get_timer_thread("ee.clickhouse.client", SLOW_QUERY_THRESHOLD_MS)
+
+_request_information: Optional[Dict] = None
+
+
+def default_client():
+    """
+    Return a bare bones client for use in places where we are only interested in general ClickHouse state
+    DO NOT USE THIS FOR QUERYING DATA
+    """
+    return SyncClient(
+        host=CLICKHOUSE_HOST,
+        secure=CLICKHOUSE_SECURE,
+        user=CLICKHOUSE_USER,
+        password=CLICKHOUSE_PASSWORD,
+        ca_certs=CLICKHOUSE_CA,
+        verify=CLICKHOUSE_VERIFY,
+    )
 
 
 def make_ch_pool(**overrides) -> ChPool:
@@ -160,9 +176,7 @@ else:
 
                 if app_settings.SHELL_PLUS_PRINT_SQL:
                     print("Execution time: %.6fs" % (execution_time,))
-                if query_logging.request_information is not None and query_logging.request_information.get(
-                    "save", False
-                ):
+                if _request_information is not None and _request_information.get("save", False):
                     save_query(prepared_sql, execution_time)
         return result
 
@@ -243,14 +257,12 @@ def _annotate_tagged_query(query, args):
     Adds in a /* */ so we can look in clickhouses `system.query_log`
     to easily marry up to the generating code.
     """
-    tags = {
-        "kind": (query_logging.request_information or {}).get("kind"),
-        "id": (query_logging.request_information or {}).get("id"),
-    }
+    tags = {"kind": (_request_information or {}).get("kind"), "id": (_request_information or {}).get("id")}
     if isinstance(args, dict) and "team_id" in args:
         tags["team_id"] = args["team_id"]
     # Annotate the query with information on the request/task
-    query = f"{query_logging.sql_comment()}{query}"
+    if _request_information is not None:
+        query = f"/* {_request_information['kind']}:{_request_information['id'].replace('/', '_')} */ {query}"
 
     return query, tags
 
@@ -281,11 +293,11 @@ def save_query(sql: str, execution_time: float) -> None:
     """
     Save query for debugging purposes
     """
-    if query_logging.request_information is None:
+    if _request_information is None:
         return
 
     try:
-        key = "save_query_{}".format(query_logging.request_information["user_id"])
+        key = "save_query_{}".format(_request_information["user_id"])
         queries = json.loads(get_safe_cache(key) or "[]")
 
         queries.insert(
