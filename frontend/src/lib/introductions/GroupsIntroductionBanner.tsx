@@ -36,6 +36,7 @@ export function GroupsIntroductionBanner(): JSX.Element | null {
                 to="https://posthog.com/docs/user-guides/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-learn-more"
                 target="_blank"
                 data-attr="group-analytics-learn-more"
+                style={{ marginLeft: 8 }}
             >
                 Learn more
             </Link>

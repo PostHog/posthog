@@ -10,21 +10,21 @@ import { GroupsIntroductionBanner } from 'lib/introductions/GroupsIntroductionBa
 window.process = MOCK_NODE_PROCESS
 
 export function Announcement(): JSX.Element | null {
-    const { relevantAnnouncementType, cloudAnnouncement } = useValues(announcementLogic)
+    const { shownAnnouncementType, cloudAnnouncement } = useValues(announcementLogic)
     const { hideAnnouncement } = useActions(announcementLogic)
 
     let message = <Fragment />
-    if (relevantAnnouncementType === AnnouncementType.CloudFlag && cloudAnnouncement) {
+    if (shownAnnouncementType === AnnouncementType.CloudFlag && cloudAnnouncement) {
         message = <ReactMarkdown className="strong">{cloudAnnouncement}</ReactMarkdown>
-    } else if (relevantAnnouncementType === AnnouncementType.GroupAnalytics) {
+    } else if (shownAnnouncementType === AnnouncementType.GroupAnalytics) {
         message = <GroupsIntroductionBanner />
     }
 
     return (
-        <div className={clsx('Announcement', !relevantAnnouncementType && 'Announcement--hidden')}>
+        <div className={clsx('Announcement', !shownAnnouncementType && 'Announcement--hidden')}>
             {message}
 
-            <CloseOutlined className="Announcement__close" onClick={() => hideAnnouncement(relevantAnnouncementType)} />
+            <CloseOutlined className="Announcement__close" onClick={() => hideAnnouncement(shownAnnouncementType)} />
         </div>
     )
 }
