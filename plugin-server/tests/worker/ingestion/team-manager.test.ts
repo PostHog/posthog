@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { mocked } from 'ts-jest/utils'
 
+import { defaultConfig } from '../../../src/config/config'
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { posthog } from '../../../src/utils/posthog'
@@ -21,10 +22,12 @@ describe('TeamManager()', () => {
     let teamManager: TeamManager
 
     beforeEach(async () => {
-        ;[hub, closeHub] = await createHub()
+        // TODO: #7422 remove experimental config
+        ;[hub, closeHub] = await createHub({ ...defaultConfig, EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED_TEAMS: '2,3' })
         await resetTestDatabase()
         teamManager = hub.teamManager
     })
+
     afterEach(async () => {
         await closeHub()
     })

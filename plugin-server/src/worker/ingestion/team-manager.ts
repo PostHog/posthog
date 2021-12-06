@@ -1,6 +1,7 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
+import { defaultConfig } from '../../config/config'
 import { Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
@@ -17,8 +18,10 @@ export class TeamManager {
     lastFlushAt: DateTime // time when the `eventLastSeenCache` was last flushed
     eventPropertiesCache: Map<TeamId, Set<string>>
     instanceSiteUrl: string
+    experimentalLastSeenAtEnabledTeams: string[]
 
-    constructor(db: DB, instanceSiteUrl?: string | null) {
+    // TODO: #7422 Remove temporary parameter
+    constructor(db: DB, instanceSiteUrl?: string | null, experimentalLastSeenAtEnabledTeams?: string) {
         this.db = db
         this.teamCache = new Map()
         this.eventNamesCache = new Map()
@@ -26,6 +29,7 @@ export class TeamManager {
         this.eventPropertiesCache = new Map()
         this.instanceSiteUrl = instanceSiteUrl || 'unknown'
         this.lastFlushAt = DateTime.now()
+        this.experimentalLastSeenAtEnabledTeams = experimentalLastSeenAtEnabledTeams?.split(',') ?? []
     }
 
     public async fetchTeam(teamId: number): Promise<Team | null> {
@@ -91,22 +95,36 @@ export class TeamManager {
         await this.cacheEventNamesAndProperties(team.id)
 
         if (!this.eventNamesCache.get(team.id)?.has(event)) {
-            await this.db.postgresQuery(
-                `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, last_seen_at, created_at)` +
-                    ` VALUES ($1, $2, NULL, NULL, $3, $4, NOW())` +
-                    ` ON CONFLICT ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq` +
-                    ` DO UPDATE SET last_seen_at=$4`,
-                [new UUIDT().toString(), event, team.id, eventTimestamp],
-                'insertEventDefinition'
-            )
+            // TODO: #7422 Temporary conditional to test experimental feature
+            if (this.experimentalLastSeenAtEnabledTeams.includes(team.id.toString())) {
+                await this.db.postgresQuery(
+                    `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, last_seen_at, created_at)` +
+                        ` VALUES ($1, $2, NULL, NULL, $3, $4, NOW())` +
+                        ` ON CONFLICT ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq` +
+                        ` DO UPDATE SET last_seen_at=$4`,
+                    [new UUIDT().toString(), event, team.id, eventTimestamp],
+                    'insertEventDefinition'
+                )
+            } else {
+                await this.db.postgresQuery(
+                    `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, created_at)` +
+                        ` VALUES ($1, $2, NULL, NULL, $3, NOW())` +
+                        ` ON CONFLICT DO NOTHING`,
+                    [new UUIDT().toString(), event, team.id],
+                    'insertEventDefinition'
+                )
+            }
             this.eventNamesCache.get(team.id)?.add(event)
         } else {
-            if ((this.eventLastSeenCache.get(`${team.id}_${event}`) ?? 0) < eventTimestamp.valueOf()) {
-                this.eventLastSeenCache.set(`${team.id}_${event}`, eventTimestamp.valueOf())
-            }
-            if (this.eventLastSeenCache.size > 100000 || DateTime.now().diff(this.lastFlushAt).minutes > 360) {
-                // to not run out of memory
-                await this.flushLastSeenAtCache()
+            // TODO: #7422 Temporary conditional to test experimental feature
+            if (this.experimentalLastSeenAtEnabledTeams.includes(team.id.toString())) {
+                if ((this.eventLastSeenCache.get(`${team.id}_${event}`) ?? 0) < eventTimestamp.valueOf()) {
+                    this.eventLastSeenCache.set(`${team.id}_${event}`, eventTimestamp.valueOf())
+                }
+                if (this.eventLastSeenCache.size > 100000 || DateTime.now().diff(this.lastFlushAt).minutes > 360) {
+                    // to not run out of memory
+                    await this.flushLastSeenAtCache()
+                }
             }
         }
 
