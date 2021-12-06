@@ -4,12 +4,12 @@ import { GroupType } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { groupsModelType } from './groupsModelType'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 
 export const groupsModel = kea<groupsModelType>({
     path: ['models', 'groupsModel'],
     connect: {
-        values: [teamLogic, ['currentTeamId'], groupsAccessLogic, ['groupsEnabled']],
+        values: [teamLogic, ['currentTeamId'], groupsAccessLogic, ['groupsEnabled', 'groupsAccessStatus']],
     },
     loaders: ({ values }) => ({
         groupTypes: [
@@ -26,8 +26,8 @@ export const groupsModel = kea<groupsModelType>({
     }),
     selectors: {
         showGroupsOptions: [
-            (s) => [s.groupsEnabled, s.groupTypes],
-            (enabled, groupTypes) => enabled && groupTypes.length > 0,
+            (s) => [s.groupsAccessStatus, s.groupsEnabled, s.groupTypes],
+            (status, enabled, groupTypes) => status !== GroupsAccessStatus.Hidden || (enabled && groupTypes.length > 0),
         ],
         groupsTaxonomicTypes: [
             (s) => [s.groupTypes],
