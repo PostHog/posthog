@@ -175,7 +175,7 @@ describe('TeamManager()', () => {
             ])
         })
 
-        it('sets or updates last_seen_cache on event', async () => {
+        it('sets or updates lastSeenCache on event', async () => {
             // Existing event
             await teamManager.updateEventNamesAndProperties(
                 2,
@@ -198,7 +198,7 @@ describe('TeamManager()', () => {
             expect(teamManager.eventLastSeenCache.get('2_another_test_event')).toEqual(1428123905000)
         })
 
-        it('does not set last_seen_cache on new event', async () => {
+        it('does not set lastSeenCache on new event', async () => {
             // last_seen_at is set in the same INSERT statement, so we don't need to update it
 
             await teamManager.updateEventNamesAndProperties(
@@ -210,7 +210,7 @@ describe('TeamManager()', () => {
             expect(teamManager.eventLastSeenCache.size).toEqual(0)
         })
 
-        it('does not update last_seen_cache if event timestamp is older', async () => {
+        it('does not update lastSeenCache if event timestamp is older', async () => {
             jest.spyOn(hub.db, 'postgresQuery')
             await teamManager.updateEventNamesAndProperties(
                 2,
@@ -229,6 +229,56 @@ describe('TeamManager()', () => {
 
             expect(teamManager.eventLastSeenCache.size).toEqual(1)
             expect(teamManager.eventLastSeenCache.get('2_another_test_event')).toEqual(1395617003000)
+        })
+
+        // TODO: #7422 temporary test
+        it('last_seen_at feature is enabled for certain teams only', async () => {
+            teamManager.lastFlushAt = DateTime.fromISO('2010-01-01T22:22:22.000Z') // a long time ago
+            await teamManager.updateEventNamesAndProperties(5, 'disabled-feature', {}, DateTime.now())
+
+            jest.spyOn(hub.db, 'postgresQuery')
+            jest.spyOn(teamManager, 'flushLastSeenAtCache')
+            await teamManager.updateEventNamesAndProperties(5, 'disabled-feature', {}, DateTime.now()) // Called twice to test both insert and update
+
+            // Only the `fetchTeam` call was sent to the DB (in this case because test team does not exist)
+            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1)
+            expect(hub.db.postgresQuery).toHaveBeenCalledWith(
+                'SELECT * FROM posthog_team WHERE id = $1',
+                [5],
+                'fetchTeam'
+            )
+
+            expect(teamManager.eventLastSeenCache.size).toBe(0)
+            expect(teamManager.flushLastSeenAtCache).toHaveBeenCalledTimes(0)
+
+            const eventDefinitions = await hub.db.fetchEventDefinitions()
+            for (const def of eventDefinitions) {
+                if (def.name === 'disabled-feature') {
+                    expect(def.last_seen_at).toBe(null)
+                }
+            }
+        })
+
+        // TODO: #7422 temporary test
+        it('last_seen_at feature is experimental and completely disabled', async () => {
+            const [newHub, closeNewHub] = await createHub({ ...defaultConfig })
+            const newTeamManager = newHub.teamManager
+            newTeamManager.lastFlushAt = DateTime.fromISO('2010-01-01T22:22:22.000Z') // a long time ago
+            await newTeamManager.updateEventNamesAndProperties(2, '$pageview', {}, DateTime.now())
+            jest.spyOn(newHub.db, 'postgresQuery')
+            jest.spyOn(newTeamManager, 'flushLastSeenAtCache')
+            await newTeamManager.updateEventNamesAndProperties(2, '$pageview', {}, DateTime.now()) // Called twice to test both insert and update
+            expect(newHub.db.postgresQuery).toHaveBeenCalledTimes(0)
+            expect(newTeamManager.eventLastSeenCache.size).toBe(0)
+            expect(newTeamManager.flushLastSeenAtCache).toHaveBeenCalledTimes(0)
+            const eventDefinitions = await newHub.db.fetchEventDefinitions()
+            for (const def of eventDefinitions) {
+                if (def.name === 'disabled-feature') {
+                    expect(def.last_seen_at).toBe(null)
+                }
+            }
+
+            await closeNewHub()
         })
 
         it('flushes last_seen_cache properly', async () => {

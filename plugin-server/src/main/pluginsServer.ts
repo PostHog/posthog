@@ -71,6 +71,7 @@ export async function startPluginsServer(
         }
         status.info('💤', ' Shutting down gracefully...')
         lastActivityCheck && clearInterval(lastActivityCheck)
+        await hub?.teamManager.flushLastSeenAtCache()
         await queue?.stop()
         await redisQueueForPluginJobs?.stop()
         await pubSub?.stop()
