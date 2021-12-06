@@ -1310,7 +1310,7 @@ export interface Experiment {
     name: string
     description: string
     feature_flag: string[]
-    filters: Partial<FilterType>
+    filters: Record<string, any>
 }
 
 export interface SelectOption {

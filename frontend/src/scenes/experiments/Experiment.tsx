@@ -59,7 +59,7 @@ export function Experiment(): JSX.Element {
                                         endpoint="person"
                                         pageKey={'1234'}
                                         onChange={(personProperties) => {
-                                            form.setFieldsValue({ filters: personProperties })
+                                            form.setFieldsValue({ filters: { properties: personProperties } })
                                         }}
                                         propertyFilters={[]}
                                         // onChange={(properties) => {
@@ -84,32 +84,34 @@ export function Experiment(): JSX.Element {
                         </Form.Item>
                         <Button onClick={handlePrev}>Go back</Button>
                     </div>
-                    <div className="confirmation">
-                        <PageHeader title={experiment?.name} />
-                        <div>{experiment?.description}</div>
-                        <div>Owner: {user?.first_name}</div>
-                        <div>Feature flag key: {experiment?.feature_flag}</div>
-                        <Row>
-                            <Col>
-                                <Row>Person allocation</Row>
-                                <Row>The following users will participate in the experiment</Row>
-                                <ul>
-                                    {experiment?.filters?.map((filter: PersonPropertyFilter, idx: number) => (
-                                        <li key={idx}>
-                                            Users with {filter.key} {filter.operator}{' '}
-                                            {Array.isArray(filter.value)
-                                                ? filter.value.map((val) => `${val}, `)
-                                                : filter.value}
-                                        </li>
-                                    ))}
-                                </ul>
-                            </Col>
-                        </Row>
-                        <Button onClick={createDraftExperiment}>Save as draft</Button>
-                        <Button type="primary" onClick={createExperiment}>
-                            Save and launch
-                        </Button>
-                    </div>
+                    {experiment && (
+                        <div className="confirmation">
+                            <PageHeader title={experiment.name} />
+                            <div>{experiment?.description}</div>
+                            <div>Owner: {user?.first_name}</div>
+                            <div>Feature flag key: {experiment?.feature_flag}</div>
+                            <Row>
+                                <Col>
+                                    <Row>Person allocation</Row>
+                                    <Row>The following users will participate in the experiment</Row>
+                                    <ul>
+                                        {experiment.filters?.map((filter: PersonPropertyFilter, idx: number) => (
+                                            <li key={idx}>
+                                                Users with {filter.key} {filter.operator}{' '}
+                                                {Array.isArray(filter.value)
+                                                    ? filter.value.map((val) => `${val}, `)
+                                                    : filter.value}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </Col>
+                            </Row>
+                            <Button onClick={createDraftExperiment}>Save as draft</Button>
+                            <Button type="primary" onClick={createExperiment}>
+                                Save and launch
+                            </Button>
+                        </div>
+                    )}
                 </Carousel>
             </Form>
         </>

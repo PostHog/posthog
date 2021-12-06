@@ -5,6 +5,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { Experiment } from '~/types'
 
+import { experimentsLogicType } from './experimentsLogicType'
 export const experimentsLogic = kea<experimentsLogicType>({
     path: ['scenes', 'experiments', 'experimentsLogic'],
     connect: { values: [teamLogic, ['currentTeamId']] },
@@ -33,7 +34,7 @@ export const experimentsLogic = kea<experimentsLogicType>({
     actionToUrl: ({ values }) => ({
         setOpenExperiment: () =>
             combineUrl(
-                values.openExperiment ? urls.experiment(values.openExperiment.id || 'new') : urls.experiments(),
+                values.openExperiment ? urls.experiment(values.openExperiment['id'] || 'new') : urls.experiments(),
                 router.values.searchParams
             ).url,
     }),
