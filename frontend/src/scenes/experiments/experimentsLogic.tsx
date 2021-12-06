@@ -33,9 +33,7 @@ export const experimentsLogic = kea<experimentsLogicType>({
     },
     actionToUrl: ({ values }) => ({
         setOpenExperiment: () =>
-            combineUrl(
-                values.openExperiment ? urls.experiment(values.openExperiment['id'] || 'new') : urls.experiments(),
-                router.values.searchParams
-            ).url,
+            combineUrl(values.openExperiment ? urls.experiment('new') : urls.experiments(), router.values.searchParams)
+                .url,
     }),
 })

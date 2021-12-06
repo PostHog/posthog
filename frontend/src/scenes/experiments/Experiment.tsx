@@ -6,7 +6,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React, { useRef } from 'react'
 import { userLogic } from 'scenes/userLogic'
-import { PersonPropertyFilter } from '~/types'
+import { PropertyFilter } from '~/types'
 import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
 
@@ -95,7 +95,7 @@ export function Experiment(): JSX.Element {
                                     <Row>Person allocation</Row>
                                     <Row>The following users will participate in the experiment</Row>
                                     <ul>
-                                        {experiment.filters?.map((filter: PersonPropertyFilter, idx: number) => (
+                                        {experiment.filters?.properties?.map((filter: PropertyFilter, idx: number) => (
                                             <li key={idx}>
                                                 Users with {filter.key} {filter.operator}{' '}
                                                 {Array.isArray(filter.value)
