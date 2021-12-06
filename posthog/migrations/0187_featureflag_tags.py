@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0185_special_migrations'),
+        ('posthog', '0186_insight_refresh_attempt'),
     ]
 
     operations = [

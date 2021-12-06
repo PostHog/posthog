@@ -155,6 +155,21 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
         return queryset.order_by("-created_at")
 
     @action(methods=["GET"], detail=False)
+    def tags(self, request: request.Request, **kwargs):
+
+        tags = []
+        feature_flags_tags = (
+            FeatureFlag.objects.filter(team=self.team, deleted=False)
+        ).only("tags")
+
+        for feature_flag in feature_flags_tags:
+            for tag in feature_flag.tags:
+                if not tag in tags:
+                    tags.append(tag)
+
+        return Response(tags)
+
+    @action(methods=["GET"], detail=False)
     def my_flags(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
