@@ -21,7 +21,7 @@
 ## Get started for free
 
 ### Option 1: Hobby instance one-line-deploy
-For <100K events on Linux with Docker (recommended 4GB memory):
+For <100K events ingested monthly on Linux with Docker (recommended 4GB memory):
 
  ```bash 
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/deploy-hobby)" 
