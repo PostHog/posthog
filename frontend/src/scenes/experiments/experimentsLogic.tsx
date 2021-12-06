@@ -1,12 +1,17 @@
 import { kea } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import { api } from 'lib/api.mock'
 import { experimentsLogicType } from './experimentsLogicType'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 import { Experiment } from '~/types'
 
 export const experimentsLogic = kea<experimentsLogicType>({
     path: ['scenes', 'experiments', 'experimentsLogic'],
     connect: { values: [teamLogic, ['currentTeamId']] },
+    actions: {
+        setOpenExperiment: (experiment) => ({ experiment }),
+    },
     loaders: ({ values }) => ({
         experiments: [
             null as Experiment | null,
@@ -17,5 +22,18 @@ export const experimentsLogic = kea<experimentsLogicType>({
                 },
             },
         ],
+    }),
+    reducers: {
+        openExperiment: [
+            null,
+            {
+                setOpenExperiment: (_, { experiment }) => experiment,
+            },
+        ],
+    },
+    actionToUrl: ({ values }) => ({
+        setOpenExperiment: () =>
+            combineUrl(values.openExperiment ? urls.experiment('new') : urls.experiments(), router.values.searchParams)
+                .url,
     }),
 })
