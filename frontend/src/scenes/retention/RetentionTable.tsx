@@ -27,7 +27,7 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
         peopleLoading,
         people: _people,
         loadingMore,
-        filters: { period, date_to, aggregation_group_type_index },
+        filters: { period, date_to, aggregation_group_type_index, breakdowns },
     } = useValues(logic)
     const results = _results as RetentionTablePayload[]
     const people = _people as RetentionTablePeoplePayload
@@ -40,12 +40,21 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
     useEffect(() => {
         setIsLatestPeriod(periodIsLatest(date_to || null, period || null))
     }, [date_to, period])
+
     const columns: ColumnsType<Record<string, any>> = [
         {
-            title: 'Date',
-            key: 'date',
-            render: (row) =>
-                period === 'Hour' ? dayjs(row.date).format('MMM D, h A') : dayjs.utc(row.date).format('MMM D'),
+            title: 'Cohort',
+            key: 'cohort',
+            render: (row: RetentionTablePayload) =>
+                // If we have breakdowns, then use the returned label attribute
+                // as the cohort name, otherwise we construct one ourselves
+                // based on the returned date. It might be nice to just unify to
+                // have label computed as such from the API.
+                breakdowns?.length
+                    ? row.label
+                    : period === 'Hour'
+                    ? dayjs(row.date).format('MMM D, h A')
+                    : dayjs.utc(row.date).format('MMM D'),
             align: 'center',
         },
         {
@@ -60,23 +69,24 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
         if (results.length === 0) {
             return null
         }
-        results[0].values.forEach((_: any, dayIndex: number) => {
-            columns.push({
-                title: results[dayIndex].label,
-                key: `day::${dayIndex}`,
-                render: (row) => {
-                    if (dayIndex >= row.values.length) {
+        const maxIntervalsCount = Math.max(...results.map((result) => result.values.length))
+        columns.push(
+            ...Array.from(Array(maxIntervalsCount).keys()).map((index: number) => ({
+                key: `period::${index}`,
+                title: `${period} ${index}`,
+                render: (row: RetentionTablePayload) => {
+                    if (index >= row.values.length) {
                         return ''
                     }
                     return renderPercentage(
-                        row.values[dayIndex]['count'],
+                        row.values[index]['count'],
                         row.values[0]['count'],
-                        isLatestPeriod && dayIndex === row.values.length - 1,
-                        dayIndex === 0
+                        isLatestPeriod && index === row.values.length - 1,
+                        index === 0
                     )
                 },
-            })
-        })
+            }))
+        )
     }
 
     function dismissModal(): void {

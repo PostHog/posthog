@@ -1,20 +1,11 @@
 import dataclasses
-from typing import (
-    Any,
-    Dict,
-    List,
-    Literal,
-    Optional,
-    TypedDict,
-    Union,
-    cast,
-)
+from typing import Any, Dict, Literal, Optional, TypedDict, Union
 
 from django.test.client import Client
 
-from ee.clickhouse.queries.actor_base_query import SerializedGroup, SerializedPerson
 from ee.clickhouse.queries.funnels.funnel_correlation import EventOddsRatioSerialized
 from posthog.constants import FunnelCorrelationType
+from posthog.models.property import GroupTypeIndex
 
 
 class EventPattern(TypedDict, total=False):
@@ -42,7 +33,7 @@ class FunnelRequest:
     events: str
     date_from: str
     insight: str
-    aggregation_group_type_index: Optional[int] = None
+    aggregation_group_type_index: Optional[GroupTypeIndex] = None
     date_to: Optional[str] = None
     properties: Optional[str] = None
     funnel_order_type: Optional[str] = None

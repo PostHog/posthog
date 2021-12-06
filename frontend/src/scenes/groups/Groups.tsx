@@ -6,9 +6,15 @@ import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { PersonPageHeader } from 'scenes/persons/PersonPageHeader'
 import { LemonTableColumns } from 'lib/components/LemonTable/types'
 import { TZLabel } from 'lib/components/TimezoneAware'
-import { LemonTable } from 'lib/components/LemonTable/LemonTable'
+import { LemonTable } from 'lib/components/LemonTable'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
+import { SceneExport } from 'scenes/sceneTypes'
+
+export const scene: SceneExport = {
+    component: Groups,
+    logic: groupsListLogic,
+}
 
 export function Groups(): JSX.Element {
     const { groups, groupsLoading } = useValues(groupsListLogic)

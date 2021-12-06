@@ -18,7 +18,7 @@ export function EventName({ value, onChange, isActionStep = false }: EventNameIn
             <Select
                 showSearch
                 allowClear
-                style={{ width: '100%' }}
+                style={{ width: '100%', maxWidth: '24rem' }}
                 onChange={onChange}
                 filterOption={(input, option) => option?.value?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
                 disabled={isActionStep && eventNamesGrouped[0].options.length === 0}
