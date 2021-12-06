@@ -70,6 +70,31 @@ class QuerySuite:
             ClickhouseTrends().run(filter, self.team)
 
     @benchmark_clickhouse
+    def track_trends_event_property_filter_dau(self):
+        filter = Filter(
+            data={
+                "events": [{"id": "$pageview", "math": "dau"}],
+                "properties": [
+                    {
+                        "key": "$host",
+                        "operator": "is_not",
+                        "value": [
+                            "localhost:8000",
+                            "localhost:5000",
+                            "127.0.0.1:8000",
+                            "127.0.0.1:3000",
+                            "localhost:3000",
+                        ],
+                    }
+                ],
+                **SHORT_DATE_RANGE,
+            }
+        )
+
+        with no_materialized_columns():
+            ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
     def track_trends_event_property_filter_materialized(self):
         filter = Filter(
             data={
