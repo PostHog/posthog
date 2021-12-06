@@ -6,6 +6,7 @@ interface Props {
     onChange: () => void
     color?: string
     disabled?: boolean
+    showIcon?: boolean // show checkmark, irrelevant of whether checkbox is on or off.
 }
 
 export const PHCheckbox = ({
@@ -13,6 +14,7 @@ export const PHCheckbox = ({
     indeterminate,
     color = 'var(--primary)',
     disabled = false,
+    showIcon = true,
     ...props
 }: Props): JSX.Element => (
     <div
@@ -44,7 +46,12 @@ export const PHCheckbox = ({
                 }}
                 viewBox="0 0 24 24"
             >
-                {checked ? <polyline points="20 6 9 17 4 12" /> : indeterminate && <polyline points="4 12 20 12" />}
+                {showIcon &&
+                    (checked ? (
+                        <polyline points="20 6 9 17 4 12" />
+                    ) : (
+                        indeterminate && <polyline points="4 12 20 12" />
+                    ))}
             </svg>
         </div>
     </div>

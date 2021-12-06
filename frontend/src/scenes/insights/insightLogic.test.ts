@@ -125,14 +125,14 @@ describe('insightLogic', () => {
         it('toggles insight legend', () => {
             logic = insightLogic({
                 dashboardItemId: undefined,
-                filters: { legend_visible: false },
+                filters: { legend_hidden: false },
             })
             expectLogic(logic, () => {
                 logic.actions.toggleInsightLegend()
             })
                 .toDispatchActions(['toggleInsightLegend', 'setFilter'])
                 .toMatchValues({
-                    filters: partial({ legend_visible: true }),
+                    filters: partial({ legend_hidden: true }),
                 })
         })
     })

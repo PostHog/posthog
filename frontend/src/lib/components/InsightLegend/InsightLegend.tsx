@@ -1,6 +1,7 @@
 import './InsightLegend.scss'
 import React from 'react'
 import { Button, Row, Col } from 'antd'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LegendIcon } from 'lib/components/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -17,7 +18,7 @@ export function InsightLegendButton(): JSX.Element {
     return (
         <Button className="insight-legend-button" onClick={toggleInsightLegend}>
             <LegendIcon />
-            <span className="insight-legend-button-title">{filters.legend_visible ? 'Hide' : 'Show'} Legend</span>
+            <span className="insight-legend-button-title">{filters.legend_hidden ? 'Show' : 'Hide'} Legend</span>
         </Button>
     )
 }
@@ -27,11 +28,10 @@ export function InsightLegend(): JSX.Element {
     const logic = trendsLogic(insightProps)
     const { indexedResults, visibilityMap } = useValues(logic)
     const { toggleVisibility } = useActions(logic)
-
-    const colorList = getChartColors('white')
+    const colorList = getChartColors('white', indexedResults.length, !!filters.compare)
 
     return (
-        <div className="insight-legend-menu">
+        <div className={clsx('insight-legend-menu', indexedResults.length <= 5 && 'short')}>
             {indexedResults &&
                 indexedResults.map((item) => {
                     return (
@@ -40,6 +40,7 @@ export function InsightLegend(): JSX.Element {
                                 <PHCheckbox
                                     color={colorList[item.id]}
                                     checked={visibilityMap[item.id]}
+                                    showIcon={indexedResults.length > 1}
                                     onChange={() => toggleVisibility(item.id)}
                                     disabled={indexedResults.length === 1}
                                 />

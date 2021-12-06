@@ -102,6 +102,7 @@ $funnel_canvas_background: #fafafa;
 
     .insights-graph-container {
         margin-bottom: $default_spacing;
+        background-color: $bg_side;
 
         .ant-card-head {
             border-bottom: 1px solid $border;
@@ -135,6 +136,21 @@ $funnel_canvas_background: #fafafa;
 
         .ant-card-body {
             padding: 0;
+        }
+
+        .insights-graph-container-row {
+            .insights-graph-container-row-left {
+                width: 100%;
+            }
+
+            .insights-graph-container-row-right {
+                width: 100%;
+                height: min(calc(90vh - 16rem), 36rem); // same as .trends-insights-container
+                max-width: 300px;
+                padding: 0 $default_spacing $default_spacing 0;
+                display: flex;
+                align-items: center;
+            }
         }
 
         .graph-container {
@@ -248,7 +264,7 @@ $funnel_canvas_background: #fafafa;
     align-items: center;
     padding-top: $default_spacing * 2;
     padding-bottom: $default_spacing * 2;
-    background-color: $bg_mid;
+    background-color: $bg_side;
     color: $text_muted;
     font-size: 1.1em;
     flex-grow: 1;

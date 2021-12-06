@@ -40,6 +40,7 @@ export function LineGraph({
     totalValue,
     showPersonsModal = true,
     tooltipPreferAltTitle = false,
+    isCompare = false,
 }) {
     const chartRef = useRef()
     const myLineChart = useRef()
@@ -139,7 +140,7 @@ export function LineGraph({
     }
 
     function processDataset(dataset, index) {
-        const colorList = getChartColors(color || 'white')
+        const colorList = getChartColors(color || 'white', dataset.data.length, isCompare)
         const mainColor = dataset?.status ? getBarColorFromStatus(dataset.status) : colorList[index % colorList.length]
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
 

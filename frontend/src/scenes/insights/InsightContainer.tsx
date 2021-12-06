@@ -197,10 +197,10 @@ export function InsightContainer(): JSX.Element {
                     </Row>
                     {!!BlockingEmptyState ? (
                         BlockingEmptyState
-                    ) : featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS] && filters.legend_visible ? (
-                        <Row wrap={false}>
-                            <Col style={{ width: '100%' }}>{VIEW_MAP[activeView]}</Col>
-                            <Col style={{ maxWidth: 300, width: '100%', paddingRight: 16 }}>
+                    ) : featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS] && !filters.legend_hidden ? (
+                        <Row className="insights-graph-container-row" wrap={false}>
+                            <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>
+                            <Col className="insights-graph-container-row-right">
                                 <InsightLegend />
                             </Col>
                         </Row>

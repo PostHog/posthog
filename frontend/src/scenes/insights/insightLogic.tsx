@@ -469,13 +469,13 @@ export const insightLogic = kea<insightLogicType>({
                     layout: undefined,
                     hiddenLegendKeys: undefined,
                     funnel_advanced: undefined,
-                    legend_visible: undefined,
+                    legend_hidden: undefined,
                 }),
                 Object.assign({}, values.loadedFilters, {
                     layout: undefined,
                     hiddenLegendKeys: undefined,
                     funnel_advanced: undefined,
-                    legend_visible: undefined,
+                    legend_hidden: undefined,
                 })
             )
 
@@ -695,7 +695,7 @@ export const insightLogic = kea<insightLogicType>({
             )
         },
         toggleInsightLegend: () => {
-            actions.setFilters({ ...values.filters, legend_visible: !values.filters.legend_visible })
+            actions.setFilters({ ...values.filters, legend_hidden: !values.filters.legend_hidden })
         },
     }),
     actionToUrl: ({ values }) => {
