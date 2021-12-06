@@ -115,7 +115,7 @@ def update_migration_progress(migration_instance: SpecialMigration):
     try:
         migration_instance.progress = get_special_migration_definition(migration_instance.name).progress(
             migration_instance
-        )
+        )  # type: ignore
         migration_instance.save()
     except:
         pass
@@ -177,10 +177,10 @@ def run_next_migration(candidate: str) -> bool:
     return False
 
 
-def is_migration_dependency_fulfilled(migration_name: str) -> Tuple[bool, str]:
+def is_migration_dependency_fulfilled(migration_name: str) -> Tuple[bool, Optional[str]]:
     dependency = get_special_migration_dependency(migration_name)
 
-    dependency_ok = (
+    dependency_ok: bool = (
         not dependency or SpecialMigration.objects.get(name=dependency).status == MigrationStatus.CompletedSuccessfully
     )
-    return (dependency_ok, dependency)
+    return dependency_ok, dependency

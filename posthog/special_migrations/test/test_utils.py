@@ -28,7 +28,7 @@ class TestUtils(BaseTest):
         mock_sync_execute.assert_called_once_with("/* some_id */ SELECT 1", settings={"max_execution_time": 10})
 
     @patch("django.db.connection.cursor")
-    def test_execute_op_clickhouse(self, mock_cursor):
+    def test_execute_op_postgres(self, mock_cursor):
         execute_op(AnalyticsDBMS.POSTGRES, "SELECT 1", 10, "some_id")
 
         # correctly routes to postgres
