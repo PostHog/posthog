@@ -155,7 +155,9 @@ jobs:
                   fetch-depth: 1
 
             - name: Start stack with Docker Compose
-              run: docker-compose -f ee/docker-compose.ch.yml up -d ${{ matrix.foss && 'db' || 'db clickhouse zookeeper kafka' }}
+              run: |
+                  docker-compose -f ee/docker-compose.ch.yml down
+                  docker-compose -f ee/docker-compose.ch.yml up -d ${{ matrix.foss && 'db' || 'db clickhouse zookeeper kafka' }}
 
             - name: Set up Python
               uses: actions/setup-python@v2
@@ -275,7 +277,9 @@ jobs:
                   cat multi_tenancy_settings.py >> deploy/posthog/settings.py
                   cat requirements.txt >> deploy/requirements.txt
             - name: Start stack with Docker Compose
-              run: docker-compose -f deploy/ee/docker-compose.ch.yml up -d db clickhouse zookeeper kafka
+              run: |
+                  docker-compose -f deploy/ee/docker-compose.ch.yml down
+                  docker-compose -f deploy/ee/docker-compose.ch.yml up -d db clickhouse zookeeper kafka
             - name: Set up Python 3.8
               uses: actions/setup-python@v2
               with:

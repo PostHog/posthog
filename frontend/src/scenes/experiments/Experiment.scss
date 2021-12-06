@@ -1,0 +1,12 @@
+@import '~/vars.scss';
+
+.experiment-form {
+    .ant-carousel .slick-dots li {
+        background-color: $border;
+    }
+
+    .ant-carousel .slick-dots li.slick-active button {
+        background-color: lighten($primary, 15%);
+        height: 100%;
+    }
+}

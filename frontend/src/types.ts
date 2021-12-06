@@ -1336,7 +1336,7 @@ export interface Experiment {
     id: string
     name: string
     description: string
-    feature_flags: string[]
+    feature_flag: string[]
     filters: Partial<FilterType>
 }
 
