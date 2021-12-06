@@ -15,6 +15,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         updateFlag: (flag: FeatureFlagType) => ({ flag }),
         deleteFlag: (id: number) => ({ id }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setSelectedTag: (selectedTag: string) => ({ selectedTag }),
     },
     loaders: ({ values }) => ({
         featureFlags: {
@@ -28,15 +29,35 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                 return [...values.featureFlags].map((flag) => (flag.id === response.id ? response : flag))
             },
         },
+        featureFlagsTags: {
+            __default: [] as string[],
+            loadFeatureFlagTags: async () => {
+                const response = await api.get(`api/projects/${values.currentTeamId}/feature_flags/tags`)
+                return response as string[]
+            },
+        },
     }),
     selectors: {
         searchedFeatureFlags: [
-            (selectors) => [selectors.featureFlags, selectors.searchTerm],
-            (featureFlags, searchTerm) => {
-                if (!searchTerm) {
+            (selectors) => [selectors.featureFlags, selectors.searchTerm, selectors.selectedTag],
+            (featureFlags, searchTerm, selectedTag) => {
+                if (!searchTerm && !selectedTag) {
                     return featureFlags
                 }
-                return new Fuse(featureFlags, {
+
+                if (!searchTerm && selectedTag === 'all-tags') {
+                    return featureFlags
+                }
+
+                const filteredFlagsByTags = selectedTag
+                    ? featureFlags.filter((item) => item.tags.includes(selectedTag))
+                    : featureFlags
+
+                if (!searchTerm) {
+                    return filteredFlagsByTags
+                }
+
+                return new Fuse(filteredFlagsByTags, {
                     keys: ['key', 'name'],
                     threshold: 0.3,
                 })
@@ -58,6 +79,9 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         searchTerm: {
             setSearchTerm: (_, { searchTerm }) => searchTerm,
         },
+        selectedTag: {
+            setSelectedTag: (_, { selectedTag }) => selectedTag,
+        },
         featureFlags: {
             updateFlag: (state, { flag }) => {
                 if (state.find(({ id }) => id === flag.id)) {
@@ -72,6 +96,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
     events: ({ actions }) => ({
         afterMount: () => {
             actions.loadFeatureFlags()
+            actions.loadFeatureFlagTags()
         },
     }),
 })

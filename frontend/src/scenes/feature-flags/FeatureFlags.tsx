@@ -1,7 +1,8 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
 import { featureFlagsLogic } from './featureFlagsLogic'
-import { Input } from 'antd'
+import { featureFlagLogic as featureFlagClientLogic } from 'lib/logic/featureFlagLogic'
+import { Input, Select } from 'antd'
 import { Link } from 'lib/components/Link'
 import { copyToClipboard, deleteWithUndo } from 'lib/utils'
 import { PlusOutlined } from '@ant-design/icons'
@@ -20,6 +21,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from '../../lib/compo
 import { More } from '../../lib/components/LemonButton/More'
 import { createdAtColumn, createdByColumn } from '../../lib/components/LemonTable/columnUtils'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -28,8 +30,10 @@ export const scene: SceneExport = {
 
 export function FeatureFlags(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
-    const { featureFlagsLoading, searchedFeatureFlags, searchTerm } = useValues(featureFlagsLogic)
-    const { updateFeatureFlag, loadFeatureFlags, setSearchTerm } = useActions(featureFlagsLogic)
+    const { featureFlagsLoading, searchedFeatureFlags, selectedTag, searchTerm, featureFlagsTags } =
+        useValues(featureFlagsLogic)
+    const { updateFeatureFlag, loadFeatureFlags, setSearchTerm, setSelectedTag } = useActions(featureFlagsLogic)
+    const { featureFlags: enabledFeatureFlags } = useValues(featureFlagClientLogic)
 
     const columns: LemonTableColumns<FeatureFlagType> = [
         {
@@ -59,6 +63,21 @@ export function FeatureFlags(): JSX.Element {
                 return groupFilters(featureFlag.filters.groups)
             },
         },
+        ...(enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAGS_TAGS]
+            ? [
+                  {
+                      title: 'Tags',
+                      width: 200,
+                      render: function Render(_, featureFlag: FeatureFlagType) {
+                          if (featureFlag.tags.length === 0) {
+                              return 'None'
+                          }
+
+                          return featureFlag.tags.join(', ')
+                      },
+                  },
+              ]
+            : []),
         {
             title: 'Status',
             dataIndex: 'active',
@@ -139,6 +158,21 @@ export function FeatureFlags(): JSX.Element {
         },
     ]
 
+    const tagOptions = featureFlagsTags.map((item) => ({
+        label: item,
+        key: `${item}`,
+        value: item,
+    }))
+
+    const allTagOptions = [
+        {
+            label: 'All tags',
+            key: 'all-tags',
+            value: 'all-tags',
+        },
+        ...tagOptions,
+    ]
+
     return (
         <div className="feature_flags">
             <PageHeader
@@ -166,6 +200,22 @@ export function FeatureFlags(): JSX.Element {
                         New Feature Flag
                     </LinkButton>
                 </div>
+                {enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAGS_TAGS] && (
+                    <div className="mb float-right">
+                        <Select
+                            bordered={false}
+                            disabled={false}
+                            defaultValue={'all-tags'}
+                            value={selectedTag || 'all-tags'}
+                            dropdownMatchSelectWidth={false}
+                            onChange={(key, option) => {
+                                setSelectedTag(option.value)
+                            }}
+                            data-attr="tag-filter"
+                            options={allTagOptions}
+                        />
+                    </div>
+                )}
             </div>
             <LemonTable
                 dataSource={searchedFeatureFlags}

@@ -221,15 +221,17 @@ export function FeatureFlag(): JSX.Element {
                                 />
                             </Form.Item>
 
-                            <Form.Item name="tags" label="Tags">
-                                <ObjectTags
-                                    tags={featureFlag.tags || []}
-                                    onTagSave={saveNewTag}
-                                    onTagDelete={deleteTag}
-                                    saving={false}
-                                    tagsAvailable={[]}
-                                />
-                            </Form.Item>
+                            {enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAGS_TAGS] && (
+                                <Form.Item name="tags" label="Tags">
+                                    <ObjectTags
+                                        tags={featureFlag.tags || []}
+                                        onTagSave={saveNewTag}
+                                        onTagDelete={deleteTag}
+                                        saving={false}
+                                        tagsAvailable={[]}
+                                    />
+                                </Form.Item>
+                            )}
                         </Col>
                         <Col span={12} style={{ paddingTop: 31 }}>
                             <Collapse>
