@@ -83,7 +83,7 @@ export function cleanFilters(
             date_to: filters.date_to,
             period: filters.period || 'Day',
             retention_type: filters.retention_type || (filters as any)['retentionType'] || RETENTION_FIRST_TIME,
-            breakdowns: filters.breakdowns,
+            breakdown: filters.breakdown,
             breakdown_type: filters.breakdown_type,
             display: insightChanged ? ChartDisplayType.ActionsTable : filters.display || ChartDisplayType.ActionsTable,
             properties: filters.properties || [],
