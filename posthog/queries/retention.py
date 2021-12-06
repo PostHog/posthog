@@ -301,7 +301,7 @@ class Retention(BaseQuery):
             people_dict = {
                 person.pk: PersonSerializer(person).data
                 for person in Person.objects.filter(
-                    team_id=team.pk, id__in=[person.person_id for person in people_appearances]
+                    team_id=team.pk, id__in=[actor.actor_id for actor in people_appearances]
                 )
             }
 
