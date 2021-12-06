@@ -10,9 +10,6 @@ import { teamLogic } from './teamLogic'
 
 export const userLogic = kea<userLogicType>({
     path: ['scenes', 'userLogic'],
-    connect: {
-        values: [teamLogic, ['currentTeam']],
-    },
     actions: () => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentTeam: (teamId: number, destination?: string) => ({ teamId, destination }),
