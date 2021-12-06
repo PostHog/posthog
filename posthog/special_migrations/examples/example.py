@@ -17,6 +17,8 @@ TEMPORARY_TABLE_NAME = "person_distinct_id_special_migration"
 
 class Migration(SpecialMigrationDefinition):
 
+    description = "An example special migration."
+
     posthog_min_version = "1.29.0"
     posthog_max_version = "1.30.0"
 

@@ -2,12 +2,13 @@ from datetime import datetime
 from typing import Optional
 
 from posthog.celery import app
+from posthog.constants import AnalyticsDBMS
 from posthog.models.special_migration import MigrationStatus, SpecialMigration
 from posthog.special_migrations.setup import DEPENDENCY_TO_SPECIAL_MIGRATION
 
 
-def execute_op(database: str, sql: str, timeout_seconds: int, query_id: str):
-    if database == "clickhouse":
+def execute_op(database: AnalyticsDBMS, sql: str, timeout_seconds: int, query_id: str):
+    if database == AnalyticsDBMS.CLICKHOUSE:
         execute_op_clickhouse(sql, query_id, timeout_seconds)
         return
 
@@ -17,14 +18,14 @@ def execute_op(database: str, sql: str, timeout_seconds: int, query_id: str):
 def execute_op_clickhouse(sql: str, query_id: str, timeout_seconds: int):
     from ee.clickhouse.client import sync_execute
 
-    sync_execute(f"/* {query_id} */" + sql, settings={"max_execution_time": timeout_seconds})
+    sync_execute(f"/* {query_id} */ " + sql, settings={"max_execution_time": timeout_seconds})
 
 
 def execute_op_postgres(sql: str, query_id: str):
     from django.db import connection
 
     with connection.cursor() as cursor:
-        cursor.execute(f"/* {query_id} */" + sql)
+        cursor.execute(f"/* {query_id} */ " + sql)
 
 
 def process_error(migration_instance: SpecialMigration, error: Optional[str]):

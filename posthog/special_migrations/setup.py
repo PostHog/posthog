@@ -17,6 +17,9 @@ DEPENDENCY_TO_SPECIAL_MIGRATION: Dict[Optional[str], str] = {}
 
 POSTHOG_VERSION = Version(VERSION)
 
+SPECIAL_MIGRATIONS_MODULE_PATH = "posthog.special_migrations.migrations"
+SPECIAL_MIGRATIONS_EXAMPLE_MODULE_PATH = "posthog.special_migrations.examples"
+
 
 def setup_special_migrations():
     from posthog.models.special_migration import SpecialMigration, get_all_completed_special_migrations
@@ -25,10 +28,10 @@ def setup_special_migrations():
         print_warning(["Skipping special migrations setup. This is unsafe in production!"])
         return
 
-    all_migrations = import_submodules("posthog.special_migrations.migrations")
+    all_migrations = import_submodules(SPECIAL_MIGRATIONS_MODULE_PATH)
 
     if DEBUG:
-        all_migrations["example"] = import_submodules("posthog.special_migrations.examples")["example"]
+        all_migrations["example"] = import_submodules(SPECIAL_MIGRATIONS_EXAMPLE_MODULE_PATH)["example"]
 
     for name, module in all_migrations.items():
         ALL_SPECIAL_MIGRATIONS[name] = module.Migration()
