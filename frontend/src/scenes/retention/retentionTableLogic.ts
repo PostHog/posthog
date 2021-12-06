@@ -77,7 +77,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
             // Take the insight result, and cast it to `RetentionTablePayload[]`
             (s) => [s.insight],
             ({ filters, result }): RetentionTablePayload[] => {
-                return filters?.insight === InsightType.RETENTION && result
+                return filters?.insight === InsightType.RETENTION ? result : []
             },
         ],
         trendSeries: [
