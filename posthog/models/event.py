@@ -29,7 +29,7 @@ TEAM_ACTION_QUERY_CACHE: Dict[int, str] = {}
 DEFAULT_EARLIEST_TIME_DELTA = relativedelta(weeks=1)
 
 
-class SelectorPart(object):
+class SelectorPart:
     direct_descendant = False
     unique_order = 0
 
@@ -80,7 +80,7 @@ class SelectorPart(object):
         return "\\".join([p.replace("\\", "") for p in class_name.split("\\\\")])
 
 
-class Selector(object):
+class Selector:
     parts: List[SelectorPart] = []
 
     def __init__(self, selector: str, escape_slashes=True):
@@ -355,7 +355,7 @@ class Event(models.Model):
             # We then take the parameters and replace the event id's with a placeholder
             # We use this later to sub back in future event id's
             # The rest of the parameters are shared between action types
-            qp = tuple(["%s" if i == self.pk else i for i in p])
+            qp = tuple("%s" if i == self.pk else i for i in p)
 
             # Create a cache item and add it to the cache keyed on team_id and event id
             qcache = {self.event: (q, qp)}
@@ -373,7 +373,7 @@ class Event(models.Model):
             q, p = TEAM_EVENT_ACTION_QUERY_CACHE[self.team_id][self.event]
 
             # Replace the query param placeholders with the event id (opposite of what we did above)
-            qp = tuple([self.pk if i == "%s" else i for i in p])
+            qp = tuple(self.pk if i == "%s" else i for i in p)
 
             with connection.cursor() as cursor:
                 # Format and execute the cached query using the mostly cached params

@@ -11,7 +11,7 @@ from django.utils.cache import add_never_cache_headers
 from .auth import PersonalAPIKeyAuthentication
 
 
-class AllowIP(object):
+class AllowIP:
 
     trusted_proxies: List[str] = []
 
@@ -71,7 +71,7 @@ class AllowIP(object):
 
 class ToolbarCookieMiddleware(SessionMiddleware):
     def process_response(self, request, response):
-        response = super(ToolbarCookieMiddleware, self).process_response(request, response)
+        response = super().process_response(request, response)
 
         # skip adding the toolbar 3rd party cookie on API requests
         if request.path.startswith("/api/") or request.path.startswith("/e/") or request.path.startswith("/decide/"):
