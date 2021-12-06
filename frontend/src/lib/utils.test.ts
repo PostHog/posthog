@@ -267,7 +267,7 @@ describe('dateFilterToText()', () => {
             const to = dayjs('2018-04-09T15:05:00.000Z')
 
             expect(dateFilterToText(from, to, 'custom', dateMapping, true, 'YYYY-MM-DD hh:mm:ss')).toEqual(
-                '2018-04-04 09:00:00 - 2018-04-09 08:05:00'
+                '2018-04-04 04:00:00 - 2018-04-09 03:05:00'
             )
         })
     })
