@@ -2,7 +2,7 @@ import React from 'react'
 import { useValues, useActions } from 'kea'
 import { featureFlagsLogic } from './featureFlagsLogic'
 import { featureFlagLogic as featureFlagClientLogic } from 'lib/logic/featureFlagLogic'
-import { Input, Select } from 'antd'
+import { Input, Select, Space } from 'antd'
 import { Link } from 'lib/components/Link'
 import { copyToClipboard, deleteWithUndo } from 'lib/utils'
 import { PlusOutlined } from '@ant-design/icons'
@@ -191,31 +191,32 @@ export function FeatureFlags(): JSX.Element {
                     }}
                 />
                 <div className="mb float-right">
-                    <LinkButton
-                        type="primary"
-                        to={urls.featureFlag('new')}
-                        data-attr="new-feature-flag"
-                        icon={<PlusOutlined />}
-                    >
-                        New Feature Flag
-                    </LinkButton>
+                    <Space>
+                        {enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAGS_TAGS] && (
+                            <Select
+                                bordered={true}
+                                disabled={false}
+                                defaultValue={'all-tags'}
+                                value={selectedTag || 'all-tags'}
+                                dropdownMatchSelectWidth={false}
+                                onChange={(key, option) => {
+                                    setSelectedTag(option.value)
+                                }}
+                                data-attr="tag-filter"
+                                options={allTagOptions}
+                            />
+                        )}
+
+                        <LinkButton
+                            type="primary"
+                            to={urls.featureFlag('new')}
+                            data-attr="new-feature-flag"
+                            icon={<PlusOutlined />}
+                        >
+                            New Feature Flag
+                        </LinkButton>
+                    </Space>
                 </div>
-                {enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAGS_TAGS] && (
-                    <div className="mb float-right">
-                        <Select
-                            bordered={false}
-                            disabled={false}
-                            defaultValue={'all-tags'}
-                            value={selectedTag || 'all-tags'}
-                            dropdownMatchSelectWidth={false}
-                            onChange={(key, option) => {
-                                setSelectedTag(option.value)
-                            }}
-                            data-attr="tag-filter"
-                            options={allTagOptions}
-                        />
-                    </div>
-                )}
             </div>
             <LemonTable
                 dataSource={searchedFeatureFlags}
