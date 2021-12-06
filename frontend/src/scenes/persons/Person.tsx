@@ -113,7 +113,7 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element {
                         <Card className="card-elevated person-detail" data-test-person-details>
                             {person && (
                                 <>
-                                    <PersonHeader withIcon person={person} />
+                                    <PersonHeader withIcon person={person} noLink />
                                     <div className="item-group">
                                         <label>IDs</label>
                                         <div style={{ display: 'flex' }}>
