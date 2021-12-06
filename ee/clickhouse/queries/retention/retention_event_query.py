@@ -90,14 +90,14 @@ class RetentionEventsQuery(ClickhouseEventQuery):
                 {','.join(_fields)} 
 
             FROM 
-                events AS {self.EVENT_TABLE_ALIAS}
+                events {self.EVENT_TABLE_ALIAS}
 
                 {self._get_distinct_id_query()}
                 {person_query}
                 {groups_query}
 
             WHERE 
-                e.team_id = %(team_id)s
+                team_id = %(team_id)s
                 AND {entity_query}
                 {f"AND {date_query}" if self._event_query_type != RetentionQueryType.TARGET_FIRST_TIME else ''}
                 {prop_query}
