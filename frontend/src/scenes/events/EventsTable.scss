@@ -1,47 +1,21 @@
 @import '~/vars';
 
 .events {
-    .ant-table-row-expand-icon-cell {
-        min-width: 0 !important;
+    .event-row-new {
+        height: 2.5rem;
     }
-
-    .event-day-separator {
-        background-color: darken($bg_mid, 10%);
-        font-weight: bold;
+    .event-row-date-separator {
+        background-color: var(--bg-mid);
+        color: var(--text-muted);
+        font-weight: 600;
+        font-size: 0.75rem;
+        height: 2rem;
         text-align: center;
-
-        .ant-table-row-expand-icon-cell {
-            display: none;
-        }
-    }
-    thead th {
-        max-width: 360px;
-        min-width: 160px;
-    }
-    .event-row {
-        td {
-            max-width: 360px;
-            min-width: 160px;
-        }
-        transition: background-color 2s;
-        background-color: #fff;
-        cursor: pointer;
-    }
-    .event-row-new,
-    .event-new-events {
-        background-color: darken($bg_mid, 10%);
-        font-weight: bold;
-        transition: background-color 0.3s ease-out;
-
-        .ant-table-row-expand-icon-cell {
-            display: none;
-        }
     }
     .event-row-is-exception {
         background-color: lighten($danger, 40%);
     }
-
-    .highlight-new-row {
-        background-color: rgba($yellow_50, 0.5);
+    td {
+        max-width: 20rem;
     }
 }

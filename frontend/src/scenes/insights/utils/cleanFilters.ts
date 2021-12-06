@@ -2,10 +2,11 @@ import { ChartDisplayType, Entity, EntityTypes, FilterType, FunnelVizType, Insig
 import { deepCleanFunnelExclusionEvents, getClampedStepRangeFilter, isStepsUndefined } from 'scenes/funnels/funnelUtils'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { defaultFilterTestAccounts } from 'scenes/insights/insightLogic'
-import { BinCountAuto, RETENTION_FIRST_TIME, ShownAsValue } from 'lib/constants'
+import { BinCountAuto, FEATURE_FLAGS, RETENTION_FIRST_TIME, ShownAsValue } from 'lib/constants'
 import { autocorrectInterval } from 'lib/utils'
 import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsLogic'
 import { isTrendsInsight } from 'scenes/insights/sharedUtils'
+import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 export function getDefaultEvent(): Entity {
     const event = getDefaultEventName()
@@ -17,7 +18,57 @@ export function getDefaultEvent(): Entity {
     }
 }
 
-export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<FilterType>): Partial<FilterType> {
+const cleanBreakdownParams = (
+    cleanedParams: Partial<FilterType>,
+    filters: Partial<FilterType>,
+    featureFlags: Record<string, any>
+): void => {
+    const isStepsFunnel = filters.insight === InsightType.FUNNELS && filters.funnel_viz_type === FunnelVizType.Steps
+    const isTrends = filters.insight === InsightType.TRENDS
+    const canBreakdown = isStepsFunnel || isTrends
+
+    const canMultiPropertyBreakdown = isStepsFunnel
+
+    cleanedParams['breakdowns'] = undefined
+    cleanedParams['breakdown'] = undefined
+    cleanedParams['breakdown_type'] = undefined
+    cleanedParams['breakdown_group_type_index'] = undefined
+
+    if (canBreakdown) {
+        if (filters.breakdown_type && (filters.breakdown || filters.breakdowns)) {
+            cleanedParams['breakdown_type'] = filters.breakdown_type
+        }
+
+        const hasBreakdowns = Array.isArray(filters.breakdowns) && filters.breakdowns?.length > 0
+        if (hasBreakdowns && canMultiPropertyBreakdown) {
+            cleanedParams['breakdowns'] = filters.breakdowns
+        } else if (hasBreakdowns && isTrends) {
+            cleanedParams['breakdown'] = filters.breakdowns && filters.breakdowns[0].property
+        } else if (
+            filters.breakdown &&
+            isStepsFunnel &&
+            featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES] &&
+            ['string', 'number'].includes(typeof filters.breakdown) &&
+            cleanedParams['breakdown_type']
+        ) {
+            cleanedParams['breakdowns'] = [
+                { property: filters.breakdown as string | number, type: cleanedParams['breakdown_type'] },
+            ]
+        } else if (filters.breakdown) {
+            cleanedParams['breakdown'] = filters.breakdown
+        }
+
+        if (filters.breakdown_type === 'group' && filters.breakdown_group_type_index != undefined) {
+            cleanedParams['breakdown_group_type_index'] = filters.breakdown_group_type_index
+        }
+    }
+}
+
+export function cleanFilters(
+    filters: Partial<FilterType>,
+    oldFilters?: Partial<FilterType>,
+    featureFlags?: FeatureFlagsSet
+): Partial<FilterType> {
     const insightChanged = oldFilters?.insight && filters.insight !== oldFilters?.insight
 
     if (filters.insight === InsightType.RETENTION) {
@@ -32,6 +83,8 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
             date_to: filters.date_to,
             period: filters.period || 'Day',
             retention_type: filters.retention_type || (filters as any)['retentionType'] || RETENTION_FIRST_TIME,
+            breakdowns: filters.breakdowns,
+            breakdown_type: filters.breakdown_type,
             display: insightChanged ? ChartDisplayType.ActionsTable : filters.display || ChartDisplayType.ActionsTable,
             properties: filters.properties || [],
             ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
@@ -40,7 +93,6 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
                 : {}),
         }
     } else if (filters.insight === InsightType.FUNNELS) {
-        const breakdownEnabled = filters.funnel_viz_type === FunnelVizType.Steps
         const cleanedParams: Partial<FilterType> = {
             insight: InsightType.FUNNELS,
             ...(filters.date_from ? { date_from: filters.date_from } : {}),
@@ -73,14 +125,9 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
             ...(filters.funnel_window_interval ? { funnel_window_interval: filters.funnel_window_interval } : {}),
             ...(filters.funnel_order_type ? { funnel_order_type: filters.funnel_order_type } : {}),
             ...(filters.hiddenLegendKeys ? { hiddenLegendKeys: filters.hiddenLegendKeys } : {}),
+            ...(filters.funnel_advanced ? { funnel_advanced: filters.funnel_advanced } : {}),
             exclusions: deepCleanFunnelExclusionEvents(filters),
             interval: autocorrectInterval(filters),
-            breakdown: breakdownEnabled ? filters.breakdown || undefined : undefined,
-            breakdown_type: breakdownEnabled ? filters.breakdown_type || undefined : undefined,
-            breakdown_group_type_index:
-                breakdownEnabled && filters.breakdown_group_type_index != undefined
-                    ? filters.breakdown_group_type_index
-                    : undefined,
             funnel_correlation_person_entity: filters.funnel_correlation_person_entity || undefined,
             funnel_correlation_person_converted: filters.funnel_correlation_person_converted || undefined,
             funnel_custom_steps: filters.funnel_custom_steps || undefined,
@@ -88,6 +135,8 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
                 ? { aggregation_group_type_index: filters.aggregation_group_type_index }
                 : {}),
         }
+
+        cleanBreakdownParams(cleanedParams, filters, featureFlags || {})
 
         // if we came from an URL with just `#q={insight:TRENDS}` (no `events`/`actions`), add the default states `[]`
         if (isStepsUndefined(cleanedParams)) {
@@ -146,6 +195,8 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
             properties: filters.properties || [],
             ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
         }
+
+        cleanBreakdownParams(cleanSearchParams, filters, featureFlags || {})
 
         if (Object.keys(filters).length === 0 || (!filters.actions && !filters.events)) {
             cleanSearchParams.filter_test_accounts = defaultFilterTestAccounts()

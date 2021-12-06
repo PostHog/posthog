@@ -1,6 +1,6 @@
 import re
 from datetime import timedelta
-from typing import Dict, List
+from typing import Dict, List, Literal, Union
 
 from django.utils.timezone import now
 
@@ -18,11 +18,13 @@ from posthog.settings import (
 
 ColumnName = str
 
+TablesWithMaterializedColumns = Union[TableWithProperties, Literal["session_recording_events"]]
+
 TRIM_AND_EXTRACT_PROPERTY = "trim(BOTH '\"' FROM JSONExtractRaw(properties, %(property)s))"
 
 
 @cache_for(timedelta(minutes=15))
-def get_materialized_columns(table: TableWithProperties) -> Dict[PropertyName, ColumnName]:
+def get_materialized_columns(table: TablesWithMaterializedColumns) -> Dict[PropertyName, ColumnName]:
     rows = sync_execute(
         """
         SELECT comment, name

@@ -36,7 +36,9 @@ def factory_session_recordings_list_test(
                 team=team, event=event_name, timestamp=timestamp, distinct_id=distinct_id, properties=properties,
             )
 
-        def create_snapshot(self, distinct_id, session_id, timestamp, window_id="", type=2, team_id=None):
+        def create_snapshot(
+            self, distinct_id, session_id, timestamp, window_id="", team_id=None, has_full_snapshot=True
+        ):
             if team_id == None:
                 team_id = self.team.pk
             session_recording_event_factory(
@@ -45,14 +47,14 @@ def factory_session_recordings_list_test(
                 timestamp=timestamp,
                 session_id=session_id,
                 window_id=window_id,
-                snapshot_data={"timestamp": timestamp.timestamp(), "type": type},
+                snapshot_data={"timestamp": timestamp.timestamp(), "has_full_snapshot": has_full_snapshot,},
             )
 
         @property
         def base_time(self):
             return now() - relativedelta(hours=1)
 
-        @test_with_materialized_columns(["$current_url"], verify_no_jsonextract=False)
+        @test_with_materialized_columns(["$current_url"])
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_basic_query(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -129,7 +131,7 @@ def factory_session_recordings_list_test(
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 0)
 
-        @test_with_materialized_columns(["$current_url", "$browser"], verify_no_jsonextract=False)
+        @test_with_materialized_columns(["$current_url", "$browser"])
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_event_filter_with_properties(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -212,7 +214,7 @@ def factory_session_recordings_list_test(
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 0)
 
-        @test_with_materialized_columns(["$current_url", "$browser"], verify_no_jsonextract=False)
+        @test_with_materialized_columns(["$current_url", "$browser"])
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_action_filter(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -457,7 +459,7 @@ def factory_session_recordings_list_test(
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_recording_without_fullsnapshot_dont_appear(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-            self.create_snapshot("user", "1", self.base_time, type=1)
+            self.create_snapshot("user", "1", self.base_time, has_full_snapshot=False)
             filter = SessionRecordingsFilter(team=self.team, data={"no-filter": True})
             session_recording_list_instance = session_recording_list(filter=filter, team_id=self.team.pk)
             (session_recordings, _) = session_recording_list_instance.run()

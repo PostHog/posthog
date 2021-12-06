@@ -87,6 +87,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             (teamId, groupAnalyticsTaxonomicGroups): TaxonomicFilterGroup[] => [
                 {
                     name: 'Events',
+                    searchPlaceholder: 'events',
                     type: TaxonomicFilterGroupType.Events,
                     endpoint: `api/projects/${teamId}/event_definitions`,
                     getName: (eventDefinition: EventDefinition): string => eventDefinition.name,
@@ -94,6 +95,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 },
                 {
                     name: 'Actions',
+                    searchPlaceholder: 'actions',
                     type: TaxonomicFilterGroupType.Actions,
                     logic: actionsModel as any,
                     value: 'actions',
@@ -101,7 +103,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     getValue: (action: ActionType): TaxonomicFilterValue => action.id,
                 },
                 {
-                    name: 'Elements',
+                    name: 'Autocapture elements',
+                    searchPlaceholder: 'autocapture elements',
                     type: TaxonomicFilterGroupType.Elements,
                     options: ['tag_name', 'text', 'href', 'selector'].map((option) => ({
                         name: option,
@@ -111,6 +114,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 },
                 {
                     name: 'Event properties',
+                    searchPlaceholder: 'event properties',
                     type: TaxonomicFilterGroupType.EventProperties,
                     endpoint: `api/projects/${teamId}/property_definitions`,
                     getName: (propertyDefinition: PropertyDefinition): string => propertyDefinition.name,
@@ -118,6 +122,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 },
                 {
                     name: 'Person properties',
+                    searchPlaceholder: 'person properties',
                     type: TaxonomicFilterGroupType.PersonProperties,
                     logic: personPropertiesModel,
                     value: 'personProperties',
@@ -126,6 +131,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 },
                 {
                     name: 'Cohorts',
+                    searchPlaceholder: 'cohorts',
                     type: TaxonomicFilterGroupType.Cohorts,
                     logic: cohortsModel,
                     value: 'cohorts',
@@ -134,6 +140,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 },
                 {
                     name: 'Cohorts',
+                    searchPlaceholder: 'cohorts',
                     type: TaxonomicFilterGroupType.CohortsWithAllUsers,
                     logic: cohortsModel,
                     value: 'cohortsWithAllUsers',
@@ -142,6 +149,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 },
                 {
                     name: 'Pageview URLs',
+                    searchPlaceholder: 'pageview URLs',
                     type: TaxonomicFilterGroupType.PageviewUrls,
                     endpoint: `api/projects/${teamId}/events/values/?key=$current_url`,
                     searchAlias: 'value',
@@ -150,6 +158,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 },
                 {
                     name: 'Screens',
+                    searchPlaceholder: 'screens',
                     type: TaxonomicFilterGroupType.Screens,
                     endpoint: `api/projects/${teamId}/events/values/?key=$screen_name`,
                     searchAlias: 'value',
@@ -158,6 +167,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 },
                 {
                     name: 'Custom Events',
+                    searchPlaceholder: 'custom events',
                     type: TaxonomicFilterGroupType.CustomEvents,
                     logic: eventDefinitionsModel,
                     value: 'customEvents',
@@ -166,6 +176,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 },
                 {
                     name: 'Wildcards',
+                    searchPlaceholder: 'wildcards',
                     type: TaxonomicFilterGroupType.Wildcards,
                     // Populated via optionsFromProp
                     getName: (option: SimpleOption): string => option.name,
@@ -184,6 +195,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             (groupTypes, teamId): TaxonomicFilterGroup[] =>
                 groupTypes.map((type, index) => ({
                     name: capitalizeFirstLetter(type.group_type),
+                    searchPlaceholder: `${type.group_type} properties`,
                     type: `${TaxonomicFilterGroupType.GroupsPrefix}_${index}` as TaxonomicFilterGroupType,
                     logic: groupPropertiesModel,
                     value: `groupProperties_${index}`,
@@ -199,6 +211,28 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         currentTabIndex: [
             (s) => [s.taxonomicGroupTypes, s.activeTab],
             (groupTypes, activeTab) => Math.max(groupTypes.indexOf(activeTab || ''), 0),
+        ],
+        searchPlaceholder: [
+            (s) => [s.taxonomicGroups, s.taxonomicGroupTypes],
+            (allTaxonomicGroups, searchGroupTypes) => {
+                if (searchGroupTypes.length > 1) {
+                    searchGroupTypes = searchGroupTypes.filter(
+                        (type) => !type.startsWith(TaxonomicFilterGroupType.GroupsPrefix)
+                    )
+                }
+                const names = searchGroupTypes.map((type) => {
+                    const taxonomicGroup = allTaxonomicGroups.find(
+                        (tGroup) => tGroup.type == type
+                    ) as TaxonomicFilterGroup
+                    return taxonomicGroup.searchPlaceholder
+                })
+                return names
+                    .map(
+                        (name, index) =>
+                            `${index !== 0 ? (index === searchGroupTypes.length - 1 ? ' or ' : ', ') : ''}${name}`
+                    )
+                    .join('')
+            },
         ],
     },
 

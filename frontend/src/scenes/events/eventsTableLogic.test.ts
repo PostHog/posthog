@@ -1,7 +1,7 @@
 import { BuiltLogic } from 'kea'
 import { eventsTableLogicType } from 'scenes/events/eventsTableLogicType'
 import { ApiError, eventsTableLogic, EventsTableLogicProps, OnFetchEventsSuccess } from 'scenes/events/eventsTableLogic'
-import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { router } from 'kea-router'
@@ -9,7 +9,8 @@ import * as utils from 'lib/utils'
 import { EmptyPropertyFilter, EventType, PropertyFilter } from '~/types'
 import { urls } from 'scenes/urls'
 
-const toastSpy = jest.spyOn(utils, 'errorToast')
+const errorToastSpy = jest.spyOn(utils, 'errorToast')
+const successToastSpy = jest.spyOn(utils, 'successToast')
 
 jest.mock('lib/api')
 
@@ -155,7 +156,7 @@ describe('eventsTableLogic', () => {
 
             it('can highlight new events', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.prependNewEvents([makeEvent('potato')])
+                    logic.actions.prependEvents([makeEvent('potato')])
                 }).toMatchValues({
                     highlightEvents: { potato: true },
                 })
@@ -184,7 +185,7 @@ describe('eventsTableLogic', () => {
                 const apiResponse = [makeEvent('potato')]
                 await expectLogic(logic, () => {
                     logic.actions.pollEventsSuccess(apiResponse)
-                    logic.actions.prependNewEvents([])
+                    logic.actions.prependEvents([])
                 }).toMatchValues({
                     newEvents: [],
                 })
@@ -251,7 +252,7 @@ describe('eventsTableLogic', () => {
             it('sets events when preprendNewEvents is called', async () => {
                 const events = [makeEvent('potato'), makeEvent('tomato')]
                 await expectLogic(logic, () => {
-                    logic.actions.prependNewEvents(events)
+                    logic.actions.prependEvents(events)
                 }).toMatchValues({
                     events,
                 })
@@ -494,14 +495,29 @@ describe('eventsTableLogic', () => {
                 await expectLogic(logic, () => {
                     logic.actions.pollEventsSuccess([event])
                     logic.actions.toggleAutomaticLoad(true)
-                }).toDispatchActions([logic.actionCreators.prependNewEvents([event])])
+                }).toDispatchActions([logic.actionCreators.prependEvents([event])])
             })
 
             it('calls error toast on fetch failure', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.fetchOrPollFailure({})
                 })
-                expect(toastSpy).toHaveBeenCalled()
+                expect(errorToastSpy).toHaveBeenCalled()
+            })
+
+            it('gives the user advice about the events export download', async () => {
+                window = Object.create(window)
+                Object.defineProperty(window, 'location', {
+                    value: {
+                        href: 'https://dummy.com',
+                    },
+                    writable: true,
+                })
+
+                await expectLogic(logic, () => {
+                    logic.actions.startDownload()
+                })
+                expect(successToastSpy).toHaveBeenCalled()
             })
         })
     })

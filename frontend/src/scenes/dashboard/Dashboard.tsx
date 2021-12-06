@@ -16,6 +16,7 @@ import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 import { NotFound } from 'lib/components/NotFound'
 import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
 import { SceneExport } from 'scenes/sceneTypes'
+import { InsightErrorState } from 'scenes/insights/EmptyStates'
 
 interface Props {
     id?: string
@@ -44,6 +45,7 @@ function DashboardView(): JSX.Element {
         items,
         filters: dashboardFilters,
         dashboardMode,
+        receivedErrorsFromAPI,
     } = useValues(dashboardLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { setDashboardMode, addGraph, setDates } = useActions(dashboardLogic)
@@ -100,10 +102,17 @@ function DashboardView(): JSX.Element {
     return (
         <div className="dashboard">
             {dashboardMode !== DashboardMode.Public && dashboardMode !== DashboardMode.Internal && <DashboardHeader />}
-            {items && items.length ? (
+            {receivedErrorsFromAPI ? (
+                <InsightErrorState title={'There was an error loading this dashboard'} />
+            ) : !items || items.length === 0 ? (
+                <EmptyDashboardComponent />
+            ) : (
                 <div>
                     <div className="dashboard-items-actions">
-                        <div className="left-item">
+                        <div
+                            className="left-item"
+                            style={dashboardMode === DashboardMode.Public ? { textAlign: 'right' } : undefined}
+                        >
                             {dashboardMode === DashboardMode.Public ? <LastRefreshText /> : <DashboardReloadAction />}
                         </div>
 
@@ -135,8 +144,6 @@ function DashboardView(): JSX.Element {
                     </div>
                     <DashboardItems />
                 </div>
-            ) : (
-                <EmptyDashboardComponent />
             )}
         </div>
     )

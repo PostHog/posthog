@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { DependencyList } from 'react'
 import { GlobalHotKeys, HotKeys } from '~/types'
-import { navigationLogic } from '../../layout/navigation/navigationLogic'
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 
 export interface HotkeyInterface {
     action: () => void

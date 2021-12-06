@@ -431,7 +431,6 @@ class TestTeamMembershipsAPI(APILicensedTest):
         self.assertDictEqual(
             self.validation_error_response(
                 "Explicit members can only be accessed for projects with project-based permissioning enabled.",
-                attr="non_field_errors",
             ),
             response_data,
         )

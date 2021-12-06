@@ -66,7 +66,7 @@ def insert_cohort_from_query(
     cohort_id: int, insight_type: str, filter_data: Dict[str, Any], entity_data: Dict[str, Any]
 ) -> None:
     if is_clickhouse_enabled():
-        from ee.clickhouse.queries.clickhouse_stickiness import insert_stickiness_people_into_cohort
+        from ee.clickhouse.queries.stickiness.clickhouse_stickiness import insert_stickiness_people_into_cohort
         from ee.clickhouse.queries.util import get_earliest_timestamp
         from ee.clickhouse.views.actions import insert_entity_people_into_cohort
         from ee.clickhouse.views.cohort import insert_cohort_people_into_pg

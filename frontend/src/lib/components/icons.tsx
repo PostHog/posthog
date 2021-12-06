@@ -387,6 +387,18 @@ export function IconMenuOpen(): JSX.Element {
     )
 }
 
+/** Material Design Sync icon. */
+export function IconSync(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="m12.5 4v-3l-4 4 4 4v-3c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46c.78-1.23 1.24-2.69 1.24-4.26 0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8l-1.46-1.46c-.78 1.23-1.24 2.69-1.24 4.26 0 4.42 3.58 8 8 8v3l4-4-4-4z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
 export function IconGroupedEvents(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
         <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
@@ -579,6 +591,18 @@ export function IconHelpOutline(props: React.SVGProps<SVGSVGElement>): JSX.Eleme
     )
 }
 
+/** Material Design Info icon. */
+export function IconInfo(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="m11 7h2v2h-2zm0 4h2v6h-2zm1-9c-5.52 0-10 4.48-10 10s4.48 10 10 10 10-4.48 10-10-4.48-10-10-10zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
 /** Material Design Mail icon. */
 export function IconMail(): JSX.Element {
     return (
@@ -679,8 +703,8 @@ interface InsightIconProps {
 }
 function InsightIcon({ background = '#747EA2', noBackground = false, children }: InsightIconProps): JSX.Element {
     return (
-        <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-            {!noBackground ? <rect width="32" height="32" rx="4" fill={background} /> : null}
+        <svg width="1em" height="1em" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+            {!noBackground ? <rect width="100%" height="100%" rx="4" fill={background} /> : null}
             {children}
         </svg>
     )
@@ -689,13 +713,9 @@ function InsightIcon({ background = '#747EA2', noBackground = false, children }:
 interface InsightIconInstanceProps extends Omit<InsightIconProps, 'children'> {
     color?: string
 }
-export function InsightsTrendsIcon({
-    color = 'white',
-    background = '#747EA2',
-    noBackground = false,
-}: InsightIconInstanceProps): JSX.Element {
+export function InsightsTrendsIcon({ color = 'white', ...props }: InsightIconInstanceProps): JSX.Element {
     return (
-        <InsightIcon background={background} noBackground={noBackground}>
+        <InsightIcon {...props}>
             <path
                 d="M7.5 22.4898L13.5 16.4798L17.5 20.4798L26 10.9198L24.59 9.50977L17.5 17.4798L13.5 13.4798L6 20.9898L7.5 22.4898Z"
                 fill={color}
@@ -704,13 +724,9 @@ export function InsightsTrendsIcon({
     )
 }
 
-export function InsightsFunnelsIcon({
-    color = 'white',
-    background = '#747EA2',
-    noBackground = false,
-}: InsightIconInstanceProps): JSX.Element {
+export function InsightsFunnelsIcon({ color = 'white', ...props }: InsightIconInstanceProps): JSX.Element {
     return (
-        <InsightIcon background={background} noBackground={noBackground}>
+        <InsightIcon {...props}>
             <path
                 d="M9 9.2002H12V23.0002H9V9.2002ZM14.6 13.0002H17.4V23.0002H14.6V13.0002ZM20.2 17.0002H23V23.0002H20.2V17.0002Z"
                 fill={color}
@@ -719,13 +735,9 @@ export function InsightsFunnelsIcon({
     )
 }
 
-export function InsightsSessionsIcon({
-    color = 'white',
-    background = '#747EA2',
-    noBackground = false,
-}: InsightIconInstanceProps): JSX.Element {
+export function InsightsSessionsIcon({ color = 'white', ...props }: InsightIconInstanceProps): JSX.Element {
     return (
-        <InsightIcon background={background} noBackground={noBackground}>
+        <InsightIcon {...props}>
             <path
                 d="M9 8H23C24.11 8 25 8.9 25 10V14H23V12H9V22H11V24H9C7.89 24 7 23.1 7 22V10C7 8.9 7.89 8 9 8Z"
                 fill={color}
@@ -738,13 +750,9 @@ export function InsightsSessionsIcon({
     )
 }
 
-export function InsightsRetentionIcon({
-    color = 'white',
-    background = '#747EA2',
-    noBackground = false,
-}: InsightIconInstanceProps): JSX.Element {
+export function InsightsRetentionIcon({ color = 'white', ...props }: InsightIconInstanceProps): JSX.Element {
     return (
-        <InsightIcon background={background} noBackground={noBackground}>
+        <InsightIcon {...props}>
             <path
                 fillRule="evenodd"
                 clipRule="evenodd"
@@ -755,13 +763,9 @@ export function InsightsRetentionIcon({
     )
 }
 
-export function InsightsPathsIcon({
-    color = 'white',
-    background = '#747EA2',
-    noBackground = false,
-}: InsightIconInstanceProps): JSX.Element {
+export function InsightsPathsIcon({ color = 'white', ...props }: InsightIconInstanceProps): JSX.Element {
     return (
-        <InsightIcon background={background} noBackground={noBackground}>
+        <InsightIcon {...props}>
             <path
                 d="M13.5 9.5C14.6 9.5 15.5 8.6 15.5 7.5C15.5 6.4 14.6 5.5 13.5 5.5C12.4 5.5 11.5 6.4 11.5 7.5C11.5 8.6 12.4 9.5 13.5 9.5ZM9.75 12.9L7 27H9.1L10.85 19L13 21V27H15V19.45L12.95 17.4L13.55 14.4C14.85 16 16.8 17 19 17V15C17.15 15 15.55 14 14.65 12.55L13.7 10.95C13.35 10.35 12.7 10 12 10C11.75 10 11.5 10.05 11.25 10.15L6 12.3V17H8V13.65L9.75 12.9ZM17 6V13H20.75V27H22.25V13H26V6H17ZM22.01 12V10.25H18.5V8.75H22.01V7L24.5 9.5L22.01 12Z"
                 fill={color}
@@ -770,13 +774,9 @@ export function InsightsPathsIcon({
     )
 }
 
-export function InsightsStickinessIcon({
-    color = 'white',
-    background = '#747EA2',
-    noBackground = false,
-}: InsightIconInstanceProps): JSX.Element {
+export function InsightsStickinessIcon({ color = 'white', ...props }: InsightIconInstanceProps): JSX.Element {
     return (
-        <InsightIcon background={background} noBackground={noBackground}>
+        <InsightIcon {...props}>
             <path
                 d="M8 22V21.35C8 21.01 8.16 20.69 8.41 20.54C10.1 19.53 12.03 19 14 19C14.03 19 14.05 19 14.08 19.01C14.18 18.31 14.38 17.64 14.67 17.03C14.45 17.01 14.23 17 14 17C11.58 17 9.32 17.67 7.39 18.82C6.51 19.34 6 20.32 6 21.35V24H15.26C14.84 23.4 14.51 22.72 14.29 22H8Z"
                 fill={color}
@@ -797,13 +797,9 @@ export function InsightsStickinessIcon({
     )
 }
 
-export function InsightsLifecycleIcon({
-    color = 'white',
-    background = '#747EA2',
-    noBackground = false,
-}: InsightIconInstanceProps): JSX.Element {
+export function InsightsLifecycleIcon({ color = 'white', ...props }: InsightIconInstanceProps): JSX.Element {
     return (
-        <InsightIcon background={background} noBackground={noBackground}>
+        <InsightIcon {...props}>
             <path
                 d="M10 14H13V24H10V14ZM10 9H13V13H10V9ZM20 20H23V24H20V20ZM20 17H23V19H20V17ZM15 17H18V24H15V17ZM15 13H18V16H15V13Z"
                 fill={color}
@@ -876,6 +872,47 @@ export function EventIcon(): JSX.Element {
                 d="M7.4 10.6L2.8 6L7.4 1.4L6 0L0 6L6 12L7.4 10.6ZM12.6 10.6L17.2 6L12.6 1.4L14 0L20 6L14 12L12.6 10.6Z"
                 fill="currentColor"
             />
+        </svg>
+    )
+}
+
+/** Material Design light bulb icon. */
+export function IconLightBulb(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="M12,2A7,7 0 0,0 5,9C5,11.38 6.19,13.47 8,14.74V17A1,1 0 0,0 9,18H15A1,1 0 0,0 16,17V14.74C17.81,13.47 19,11.38 19,9A7,7 0 0,0 12,2M9,21A1,1 0 0,0 10,22H14A1,1 0 0,0 15,21V20H9V21Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Close icon. */
+export function IconClose(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Keyboard icon. */
+export function IconKeyboard(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            height="1em"
+            viewBox="0 0 24 24"
+            width="1em"
+            fill="currentColor"
+            {...props}
+        >
+            <path d="M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z" />
+            <path d="M0 0h24v24H0zm0 0h24v24H0z" fill="none" />
         </svg>
     )
 }

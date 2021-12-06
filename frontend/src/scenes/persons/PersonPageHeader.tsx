@@ -5,15 +5,15 @@ import { GroupsTabs } from 'scenes/groups/GroupsTabs'
 import { groupsModel } from '~/models/groupsModel'
 
 export function PersonPageHeader({ hideGroupTabs }: { hideGroupTabs?: boolean }): JSX.Element {
-    const { groupsEnabled } = useValues(groupsModel)
+    const { showGroupsOptions } = useValues(groupsModel)
 
     return (
         <>
             <PageHeader
-                title={`Persons${groupsEnabled ? ' & groups' : ''}`}
-                caption={`List of persons (end users) ${groupsEnabled ? ' and groups ' : ''}from your app or website.`}
+                title={`Persons${showGroupsOptions ? ' & groups' : ''}`}
+                caption={`A catalog of your product's end users${showGroupsOptions ? ' and groups' : ''}.`}
             />
-            {!hideGroupTabs && groupsEnabled && <GroupsTabs />}
+            {!hideGroupTabs && showGroupsOptions && <GroupsTabs />}
         </>
     )
 }

@@ -1,4 +1,5 @@
 import base64
+import dataclasses
 import datetime
 import datetime as dt
 import gzip
@@ -11,6 +12,7 @@ import subprocess
 import sys
 import time
 import uuid
+from enum import Enum
 from itertools import count
 from typing import (
     Any,
@@ -336,7 +338,7 @@ def append_data(dates_filled: List, interval=None, math="sum") -> Dict[str, Any]
 
 
 def get_ip_address(request: HttpRequest) -> str:
-    """ use requestobject to fetch client machine's IP Address """
+    """use requestobject to fetch client machine's IP Address"""
     x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
     if x_forwarded_for:
         ip = x_forwarded_for.split(",")[0]
@@ -819,7 +821,9 @@ def str_to_bool(value: Any) -> bool:
 
 def print_warning(warning_lines: Sequence[str]):
     highlight_length = min(max(map(len, warning_lines)) // 2, shutil.get_terminal_size().columns)
-    print("\n".join(("", "🔻" * highlight_length, *warning_lines, "🔺" * highlight_length, "",)), file=sys.stderr)
+    print(
+        "\n".join(("", "🔻" * highlight_length, *warning_lines, "🔺" * highlight_length, "",)), file=sys.stderr,
+    )
 
 
 def get_helm_info_env() -> dict:
@@ -861,3 +865,28 @@ def format_query_params_absolute_url(
 
 def get_milliseconds_between_dates(d1: dt.datetime, d2: dt.datetime) -> int:
     return abs(int((d1 - d2).total_seconds() * 1000))
+
+
+def encode_get_request_params(data: Dict[str, Any]) -> Dict[str, str]:
+    return {
+        key: encode_value_as_param(value=value)
+        for key, value in data.items()
+        # NOTE: we cannot encode `None` as a GET parameter, so we simply omit it
+        if value is not None
+    }
+
+
+class DataclassJSONEncoder(json.JSONEncoder):
+    def default(self, o):
+        if dataclasses.is_dataclass(o):
+            return dataclasses.asdict(o)
+        return super().default(o)
+
+
+def encode_value_as_param(value: Union[str, list, dict]) -> str:
+    if isinstance(value, (list, dict)):
+        return json.dumps(value, cls=DataclassJSONEncoder)
+    elif isinstance(value, Enum):
+        return value.value
+    else:
+        return value

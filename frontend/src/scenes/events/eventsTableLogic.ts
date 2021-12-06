@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { errorToast, toParams } from 'lib/utils'
+import { errorToast, successToast, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { eventsTableLogicType } from './eventsTableLogicType'
@@ -92,13 +92,15 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         flipSort: true,
         pollEvents: true,
         pollEventsSuccess: (events: EventType[]) => ({ events }),
-        prependNewEvents: (events: EventType[]) => ({ events }),
+        prependEvents: (events: EventType[]) => ({ events }),
+        prependNewEvents: true,
         setSelectedEvent: (selectedEvent: EventType) => ({ selectedEvent }),
         setPollTimeout: (pollTimeout: number) => ({ pollTimeout }),
         setDelayedLoading: true,
         setEventFilter: (event: string) => ({ event }),
         toggleAutomaticLoad: (automaticLoadEnabled: boolean) => ({ automaticLoadEnabled }),
         noop: (s) => s,
+        startDownload: true,
     },
 
     reducers: ({ props }) => ({
@@ -136,7 +138,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             {
                 fetchEventsSuccess: (state, { events, isNext }: OnFetchEventsSuccess) =>
                     isNext ? [...state, ...events] : events,
-                prependNewEvents: (state, { events }) => [...events, ...state],
+                prependEvents: (state, { events }) => [...events, ...state],
             },
         ],
 
@@ -160,13 +162,13 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             {
                 setProperties: () => [],
                 pollEventsSuccess: (_, { events }) => events || [],
-                prependNewEvents: () => [],
+                prependEvents: () => [],
             },
         ],
         highlightEvents: [
             {} as Record<string, boolean>,
             {
-                prependNewEvents: (_: Record<string, boolean>, { events }) => {
+                prependEvents: (_: Record<string, boolean>, { events }) => {
                     return events.reduce((highlightEvents, event) => {
                         highlightEvents[event.id] = true
                         return highlightEvents
@@ -197,8 +199,8 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             () => [selectors.currentTeamId, selectors.eventFilter, selectors.orderBy, selectors.properties],
             (teamId, eventFilter, orderBy, properties) =>
                 `/api/projects/${teamId}/events.csv?${toParams({
-                    properties,
                     ...(props.fixedFilters || {}),
+                    properties: [...properties, ...(props.fixedFilters?.properties || [])],
                     ...(eventFilter ? { event: eventFilter } : {}),
                     orderBy: [orderBy],
                 })}`,
@@ -260,6 +262,10 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
     }),
 
     listeners: ({ actions, values, props }) => ({
+        startDownload: () => {
+            successToast('The export is starting', 'It should finish soon.')
+            window.location.href = values.exportUrl
+        },
         setProperties: () => actions.fetchEvents(),
         flipSort: () => actions.fetchEvents(),
         setEventFilter: () => actions.fetchEvents(),
@@ -287,13 +293,12 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 clearTimeout(values.pollTimeout)
 
                 const urlParams = toParams({
-                    properties: values.properties,
                     ...(props.fixedFilters || {}),
+                    properties: [...values.properties, ...(props.fixedFilters?.properties || [])],
                     ...(nextParams || {}),
                     ...(values.eventFilter ? { event: values.eventFilter } : {}),
                     orderBy: [values.orderBy],
                 })
-
                 let apiResponse = null
 
                 try {
@@ -326,8 +331,8 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             }
 
             const params: Record<string, unknown> = {
-                properties: values.properties,
                 ...(props.fixedFilters || {}),
+                properties: [...values.properties, ...(props.fixedFilters?.properties || [])],
                 ...(values.eventFilter ? { event: values.eventFilter } : {}),
                 orderBy: [values.orderBy],
             }
@@ -351,7 +356,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             breakpoint()
 
             if (values.automaticLoadEnabled) {
-                actions.prependNewEvents(apiResponse.results)
+                actions.prependEvents(apiResponse.results)
             } else {
                 actions.pollEventsSuccess(apiResponse.results)
             }
@@ -359,6 +364,11 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             // uses window setTimeout because typegen had a hard time with NodeJS.Timeout
             const timeout = window.setTimeout(actions.pollEvents, POLL_TIMEOUT)
             actions.setPollTimeout(timeout)
+        },
+        prependNewEvents: () => {
+            if (values.newEvents.length) {
+                actions.prependEvents(values.newEvents)
+            }
         },
         fetchOrPollFailure: ({ error }: { error: ApiError }) => {
             errorToast(
@@ -369,8 +379,8 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             )
         },
         toggleAutomaticLoad: ({ automaticLoadEnabled }) => {
-            if (automaticLoadEnabled && values.newEvents.length > 0) {
-                actions.prependNewEvents(values.newEvents)
+            if (automaticLoadEnabled) {
+                actions.prependNewEvents()
             }
         },
     }),

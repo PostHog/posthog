@@ -1,6 +1,15 @@
 import json
 from enum import Enum, auto
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import (
+    Any,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    Union,
+    cast,
+)
 
 from rest_framework import request, status
 from sentry_sdk import capture_exception
@@ -9,6 +18,7 @@ from statshog.defaults.django import statsd
 from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Entity
+from posthog.models.entity import MATH_TYPE
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.utils import cors_response, is_clickhouse_enabled, load_data_from_request
@@ -20,16 +30,16 @@ class PaginationMode(Enum):
 
 
 def get_target_entity(request: request.Request) -> Entity:
-    entity_id: Optional[Union[int, str]] = request.GET.get(ENTITY_ID)
+    entity_id: Optional[str] = request.GET.get(ENTITY_ID)
     events = request.GET.get("events", "[]")
     actions = request.GET.get("actions", "[]")
     entity_type = request.GET.get(ENTITY_TYPE)
-    entity_math = request.GET.get(ENTITY_MATH, None)
+    entity_math = cast(MATH_TYPE, request.GET.get(ENTITY_MATH, "total"))
 
     if not entity_id:
-        raise ValueError("An entity id must be provided to determine an entity")
+        raise ValueError("An entity id and the entity type must be provided to determine an entity")
 
-    possible_entity = retrieve_entity_from(entity_id, json.loads(events), json.loads(actions))
+    possible_entity = retrieve_entity_from(entity_id, entity_type, entity_math, json.loads(events), json.loads(actions))
     if possible_entity:
         return Entity(data=possible_entity)
     elif entity_type:
@@ -38,16 +48,31 @@ def get_target_entity(request: request.Request) -> Entity:
         raise ValueError("An entity must be provided for target entity to be determined")
 
 
-def retrieve_entity_from(entity_id: Union[str, int], events: List[Dict], actions: List[Dict]) -> Optional[Dict]:
+def retrieve_entity_from(
+    entity_id: str, entity_type: Optional[str], entity_math: MATH_TYPE, events: List[Dict], actions: List[Dict]
+) -> Optional[Dict]:
     """
     Retrieves the entity from the events and actions.
+
+    NOTE: entity_id here is considered always to be a string. event ids are
+    strings, and action ids are ints. Elsewhere we get the `entity_id` from a
+    get request, from which we do not get type information, and we do not
+    require the entity type to be provided. A more complete solution might be to
+    require entity type information, but to resolve the issue we cast the action
+    id to a string, such that we can get equality.
+
+    This doesn't preclude ths issue that an event name could be a string that is
+    also a valid number however, but this should be an unlikely occurance.
     """
-    for event in events:
-        if event.get("id") == entity_id:
-            return event
-    for action in actions:
-        if action.get("id") == entity_id:
-            return action
+
+    if entity_type == "actions":
+        for action in actions:
+            if str(action.get("id")) == entity_id and action.get("math", "total") == entity_math:
+                return action
+    else:
+        for event in events:
+            if event.get("id") == entity_id and event.get("math", "total") == entity_math:
+                return event
     return None
 
 

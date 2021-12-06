@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional, Union, cast
 
-from django.db.models import Count, Func, Prefetch, Q, QuerySet
+from django.db.models import Count, Func, Q, QuerySet
 from django_filters import rest_framework as filters
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -13,17 +13,17 @@ from rest_framework_csv import renderers as csvrenderers
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_target_entity
-from posthog.constants import TRENDS_TABLE
+from posthog.constants import LIMIT, TRENDS_TABLE
 from posthog.models import Cohort, Event, Filter, Person, User
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.base import filter_persons, properties_to_Q
+from posthog.queries.base import filter_persons
 from posthog.queries.lifecycle import LifecycleTrend
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.tasks.split_person import split_person
-from posthog.utils import convert_property_value, get_safe_cache, is_anonymous_id, relative_date_parse
+from posthog.utils import convert_property_value, is_anonymous_id, relative_date_parse
 
 
 class PersonCursorPagination(CursorPagination):
@@ -50,7 +50,6 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
             "name",
             "distinct_ids",
             "properties",
-            "is_identified",
             "created_at",
             "uuid",
         ]
@@ -77,7 +76,7 @@ class PersonFilter(filters.FilterSet):
 
     class Meta:
         model = Person
-        fields = ["is_identified"]
+        fields = ["email"]
 
 
 class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
@@ -234,6 +233,8 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             )
         earliest_timestamp_func = lambda team_id: Event.objects.earliest_timestamp(team_id)
         filter = StickinessFilter(request=request, team=team, get_earliest_timestamp=earliest_timestamp_func)
+        if not filter.limit:
+            filter = filter.with_data({LIMIT: 100})
 
         target_entity = get_target_entity(request)
 

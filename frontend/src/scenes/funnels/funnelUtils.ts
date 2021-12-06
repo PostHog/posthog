@@ -14,9 +14,19 @@ import {
     FunnelAPIResponse,
     FunnelStepReference,
     TeamType,
+    FlattenedFunnelStepByBreakdown,
 } from '~/types'
 
 const PERCENTAGE_DISPLAY_PRECISION = 1 // Number of decimals to show in percentages
+
+const EMPTY_BREAKDOWN_KEY = '__empty_string__'
+const EMPTY_BREAKDOWN_VALUE = '(empty string)'
+export const EMPTY_BREAKDOWN_VALUES = {
+    rowKey: EMPTY_BREAKDOWN_KEY,
+    breakdown: [EMPTY_BREAKDOWN_KEY], // unique key not to be used by backend in calculating breakdowns
+    breakdown_value: [EMPTY_BREAKDOWN_VALUE],
+    isEmpty: true,
+}
 
 export function formatDisplayPercentage(percentage: number): string {
     if (Number.isNaN(percentage)) {
@@ -155,11 +165,11 @@ export function aggregateBreakdownResult(
     if (breakdownList.length) {
         // Create mapping to determine breakdown ordering by first step counts
         const breakdownToOrderMap: Record<string | number, FunnelStep> = breakdownList
-            .reduce<{ breakdown_value: string | number; count: number }[]>(
+            .reduce<{ breakdown_value: (string | number)[]; count: number }[]>(
                 (allEntries, breakdownSteps) => [
                     ...allEntries,
                     {
-                        breakdown_value: breakdownSteps?.[0]?.breakdown_value ?? 'Other',
+                        breakdown_value: getBreakdownStepValues(breakdownSteps?.[0], -1).breakdown_value,
                         count: breakdownSteps?.[0]?.count ?? 0,
                     },
                 ],
@@ -169,7 +179,7 @@ export function aggregateBreakdownResult(
             .reduce(
                 (allEntries, breakdown, order) => ({
                     ...allEntries,
-                    [breakdown.breakdown_value]: { ...breakdown, order },
+                    [breakdown.breakdown_value.join('_')]: { ...breakdown, order },
                 }),
                 {}
             )
@@ -184,7 +194,9 @@ export function aggregateBreakdownResult(
                         ...allEntries,
                         {
                             ...breakdownSteps[i],
-                            order: breakdownToOrderMap[breakdownSteps[i].breakdown_value ?? 'Other'].order,
+                            order: breakdownToOrderMap[
+                                getBreakdownStepValues(breakdownSteps[i], i).breakdown_value.join('_')
+                            ].order,
                         },
                     ],
                     []
@@ -202,8 +214,15 @@ export function isBreakdownFunnelResults(results: FunnelAPIResponse): results is
 }
 
 // breakdown parameter could be a string (property breakdown) or object/number (list of cohort ids)
-export function isValidBreakdownParameter(breakdown: FunnelRequestParams['breakdown']): boolean {
-    return ['string', 'null', 'undefined', 'number'].includes(typeof breakdown) || Array.isArray(breakdown)
+export function isValidBreakdownParameter(
+    breakdown: FunnelRequestParams['breakdown'],
+    breakdowns: FunnelRequestParams['breakdowns']
+): boolean {
+    return (
+        (Array.isArray(breakdowns) && breakdowns.length > 0) ||
+        ['string', 'null', 'undefined', 'number'].includes(typeof breakdown) ||
+        Array.isArray(breakdown)
+    )
 }
 
 export function wait(ms = 1000): Promise<any> {
@@ -212,15 +231,12 @@ export function wait(ms = 1000): Promise<any> {
     })
 }
 
-export function cleanBreakdownValue(breakdown_value: string | number | undefined): string | number | undefined {
-    return breakdown_value === 'Baseline' ? undefined : breakdown_value
-}
-
-export function getVisibilityIndex(step: FunnelStep, key?: number | string): string {
+export function getVisibilityIndex(step: FunnelStep, key?: BreakdownKeyType): string {
     if (step.type === 'actions') {
         return `${step.type}/${step.action_id}/${step.order}`
     } else {
-        return `${step.type}/${step.action_id}/${step.order}/${key || 'Other'}`
+        const breakdownValues = getBreakdownStepValues({ breakdown: key, breakdown_value: key }, -1).breakdown_value
+        return `${step.type}/${step.action_id}/${step.order}/${breakdownValues.join('_')}`
     }
 }
 
@@ -246,6 +262,53 @@ export async function pollFunnel<T = FunnelStep[] | FunnelsTimeConversionBins>(
         throw { status: 0, statusText: 'Funnel timeout' }
     }
     return result
+}
+
+interface BreakdownStepValues {
+    rowKey: string
+    breakdown: (string | number)[]
+    breakdown_value: (string | number)[]
+    isEmpty?: boolean
+}
+
+export const getBreakdownStepValues = (
+    breakdownStep: Pick<FlattenedFunnelStepByBreakdown, 'breakdown' | 'breakdown_value'>,
+    index: number,
+    isBaseline: boolean = false
+): BreakdownStepValues => {
+    // Standardize all breakdown values to arrays of strings
+    if (!breakdownStep) {
+        return EMPTY_BREAKDOWN_VALUES
+    }
+    if (
+        isBaseline ||
+        breakdownStep?.breakdown_value === 'Baseline' ||
+        breakdownStep?.breakdown_value?.[0] === 'Baseline'
+    ) {
+        return {
+            rowKey: 'baseline_0',
+            breakdown: ['baseline'],
+            breakdown_value: ['Baseline'],
+        }
+    }
+    if (Array.isArray(breakdownStep.breakdown) && !!breakdownStep.breakdown?.[0]) {
+        // At this point, breakdown values are of type (string | number)[] with at least one valid breakdown type
+        return {
+            rowKey: `${breakdownStep.breakdown.join('_')}_${index}`,
+            breakdown: breakdownStep.breakdown,
+            breakdown_value: breakdownStep.breakdown_value as (string | number)[],
+        }
+    }
+    if (!Array.isArray(breakdownStep.breakdown) && !!breakdownStep.breakdown) {
+        // At this point, breakdown values are string | number
+        return {
+            rowKey: `${breakdownStep.breakdown}_${index}`,
+            breakdown: [breakdownStep.breakdown],
+            breakdown_value: [breakdownStep.breakdown_value as string | number],
+        }
+    }
+    // Differentiate 'other' values that have nullish breakdown values.
+    return EMPTY_BREAKDOWN_VALUES
 }
 
 export const isStepsEmpty = (filters: FilterType): boolean =>

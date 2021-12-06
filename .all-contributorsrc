@@ -1752,6 +1752,33 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "k4kuz0",
+      "name": "Louis",
+      "avatar_url": "https://avatars.githubusercontent.com/u/6428417?v=4",
+      "profile": "https://github.com/k4kuz0",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "abtinmo",
+      "name": "Abtin",
+      "avatar_url": "https://avatars.githubusercontent.com/u/21346041?v=4",
+      "profile": "https://github.com/abtinmo",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "shehuphd",
+      "name": "Mohammed Shehu",
+      "avatar_url": "https://avatars.githubusercontent.com/u/40317687?v=4",
+      "profile": "http://mohammedshehu.com",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

@@ -49,7 +49,7 @@ class ClickhouseLifecycle(LifecycleTrend):
         event_params: Dict[str, Any] = {}
 
         props_to_filter = [*filter.properties, *entity.properties]
-        prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id)
+        prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, group_properties_joined=False)
 
         _, _, date_params = parse_timestamps(filter=filter, team_id=team_id)
 
@@ -138,7 +138,7 @@ class ClickhouseLifecycle(LifecycleTrend):
             event_params = {"event": entity.id}
 
         props_to_filter = [*filter.properties, *entity.properties]
-        prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id)
+        prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, group_properties_joined=False)
 
         result = sync_execute(
             LIFECYCLE_PEOPLE_SQL.format(

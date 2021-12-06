@@ -2,7 +2,7 @@ import datetime
 import json
 import re
 from dataclasses import dataclass
-from typing import Dict, List, Literal, Optional, Union, cast
+from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 from dateutil.relativedelta import relativedelta
 from django.db.models.query_utils import Q
@@ -41,16 +41,10 @@ from posthog.constants import (
 from posthog.models.entity import Entity, ExclusionEntity
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType, IntervalType
 from posthog.models.filters.mixins.utils import cached_property, include_dict, process_bool
-from posthog.models.filters.utils import validate_group_type_index
+from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 from posthog.utils import relative_date_parse
 
 ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-\*\^0-9\+\/\(\)]+)"
-
-
-@dataclass
-class Breakdown:
-    property: Union[str, int]
-    type: str
 
 
 class IntervalMixin(BaseParamMixin):
@@ -135,18 +129,19 @@ class BreakdownMixin(BaseParamMixin):
             return breakdown
 
     @cached_property
-    def breakdowns(self) -> Optional[List[Breakdown]]:
+    def breakdowns(self) -> Optional[List[Dict[str, Any]]]:
         breakdowns = self._data.get(BREAKDOWNS)
 
-        if breakdowns is None:
-            return breakdowns
-
         try:
-            loaded = json.loads(breakdowns)
-            breakdowns = [Breakdown(**item) for item in loaded]
-            return breakdowns
-        except (TypeError, json.decoder.JSONDecodeError) as e:
-            raise ValidationError(detail="breakdowns must be a list of Breakdown items, each with property and type")
+            if isinstance(breakdowns, List):
+                return breakdowns
+            elif isinstance(breakdowns, str):
+                return json.loads(breakdowns)
+            else:
+                return breakdowns
+
+        except (TypeError, json.decoder.JSONDecodeError):
+            raise ValidationError(detail="breakdowns must be a list of items, each with property and type")
 
     @cached_property
     def _breakdown_limit(self) -> Optional[int]:
@@ -173,7 +168,7 @@ class BreakdownMixin(BaseParamMixin):
         return self._data.get(BREAKDOWN_TYPE, None)
 
     @cached_property
-    def breakdown_group_type_index(self) -> Optional[int]:
+    def breakdown_group_type_index(self) -> Optional[GroupTypeIndex]:
         value = self._data.get(BREAKDOWN_GROUP_TYPE_INDEX, None)
         return validate_group_type_index(BREAKDOWN_GROUP_TYPE_INDEX, value)
 

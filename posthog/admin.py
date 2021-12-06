@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
-from django.utils.safestring import mark_safe
+from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 
 from posthog.models import (
@@ -94,8 +94,8 @@ class UserAdmin(DjangoUserAdmin):
         if not user.organization:
             return "No Organization"
 
-        return mark_safe(
-            f'<a href="/admin/posthog/organization/{user.organization.pk}/change/">{user.organization.name}</a>',
+        return format_html(
+            '<a href="/admin/posthog/organization/{}/change/">{}</a>', user.organization.pk, user.organization.name
         )
 
     def org_count(self, user: User) -> int:
@@ -145,16 +145,17 @@ class OrganizationAdmin(admin.ModelAdmin):
 
     def first_member(self, organization: Organization):
         user = organization.members.order_by("id").first()
-        return mark_safe('<a href="/admin/posthog/user/%s/change/">%s</a>' % (user.pk, user.email))
+        return format_html('<a href="/admin/posthog/user/{}/change/">{}</a>', user.pk, user.email)
 
     def organization_billing_link(self, organization: Organization) -> str:
-        return mark_safe(f'<a href="/admin/multi_tenancy/organizationbilling/{organization.pk}/change/">Billing →</a>')
+        return format_html(
+            '<a href="/admin/multi_tenancy/organizationbilling/{}/change/">Billing →</a>', organization.pk
+        )
 
     def usage(self, organization: Organization):
-        return mark_safe(
-            '<a target="_blank" href="/insights?insight=TRENDS&interval=day&display=ActionsLineGraph&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%2C%22math%22%3A%22dau%22%7D%5D&properties=%5B%7B%22key%22%3A%22organization_id%22%2C%22value%22%3A%22{}%22%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22person%22%7D%5D&actions=%5B%5D&new_entity=%5B%5D">See usage on PostHog →</a>'.format(
-                organization.id
-            )
+        return format_html(
+            '<a target="_blank" href="/insights/new?insight=TRENDS&interval=day&display=ActionsLineGraph&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%2C%22math%22%3A%22dau%22%7D%5D&properties=%5B%7B%22key%22%3A%22organization_id%22%2C%22value%22%3A%22{}%22%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22person%22%7D%5D&actions=%5B%5D&new_entity=%5B%5D">See usage on PostHog →</a>',
+            organization.id,
         )
 
 

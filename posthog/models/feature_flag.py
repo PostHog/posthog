@@ -62,6 +62,7 @@ class FeatureFlag(models.Model):
             "has_rollout_percentage": any(condition.get("rollout_percentage") for condition in self.conditions),
             "filter_count": filter_count,
             "created_at": self.created_at,
+            "aggregating_by_groups": self.aggregation_group_type_index is not None,
         }
 
     @property
@@ -167,7 +168,7 @@ class FeatureFlagMatcher:
         if len(condition.get("properties", [])) > 0:
             if not self._condition_matches(condition_index):
                 return False
-            elif not rollout_percentage:
+            elif rollout_percentage is None:
                 return True
 
         if rollout_percentage is not None and self._hash > (rollout_percentage / 100):
