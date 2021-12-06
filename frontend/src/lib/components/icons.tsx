@@ -343,9 +343,9 @@ export function IconUpdate(): JSX.Element {
 }
 
 /** Material Design Offline Bolt icon. */
-export function IconOffline(): JSX.Element {
+export function IconOffline({ style }: { style?: CSSProperties }): JSX.Element {
     return (
-        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style={style}>
             <path
                 d="m12 2.02c-5.51 0-9.98 4.47-9.98 9.98s4.47 9.98 9.98 9.98 9.98-4.47 9.98-9.98-4.47-9.98-9.98-9.98zm0 17.96c-4.4 0-7.98-3.58-7.98-7.98s3.58-7.98 7.98-7.98 7.98 3.58 7.98 7.98-3.58 7.98-7.98 7.98zm.75-14.98-4.5 8.5h3.14v5.5l4.36-8.5h-3z"
                 fill="currentColor"
