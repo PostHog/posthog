@@ -1,19 +1,28 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Tuple
 
 from semantic_version.base import SimpleSpec
 
-from posthog.celery import app
 from posthog.models.special_migration import MigrationStatus, SpecialMigration, get_all_running_special_migrations
 from posthog.models.utils import UUIDT
-from posthog.special_migrations.setup import ALL_SPECIAL_MIGRATIONS, POSTHOG_VERSION, SPECIAL_MIGRATION_TO_DEPENDENCY
-from posthog.special_migrations.utils import execute_op, mark_migration_as_successful, process_error, trigger_migration
+from posthog.special_migrations.setup import (
+    POSTHOG_VERSION,
+    get_special_migration_definition,
+    get_special_migration_dependency,
+)
+from posthog.special_migrations.utils import (
+    execute_op,
+    mark_migration_as_successful,
+    process_error,
+    reset_special_migration,
+    trigger_migration,
+)
 
 # important to prevent us taking up too many celery workers
 # and running migrations sequentially
 MAX_CONCURRENT_SPECIAL_MIGRATIONS = 1
 
-# select for update?
+
 def start_special_migration(migration_name: str) -> bool:
     migration_instance = SpecialMigration.objects.get(name=migration_name)
     over_concurrent_migrations_limit = len(get_all_running_special_migrations()) >= MAX_CONCURRENT_SPECIAL_MIGRATIONS
@@ -25,7 +34,7 @@ def start_special_migration(migration_name: str) -> bool:
     ):
         return False
 
-    migration_definition = ALL_SPECIAL_MIGRATIONS[migration_name]
+    migration_definition = get_special_migration_definition(migration_name)
 
     if not migration_definition.is_required():
         mark_migration_as_successful(migration_instance)
@@ -44,19 +53,20 @@ def start_special_migration(migration_name: str) -> bool:
         process_error(migration_instance, error)
         return False
 
-    migration_instance.last_error = ""
-    migration_instance.current_query_id = ""
-    migration_instance.celery_task_id = ""
-    migration_instance.progress = 0
-    migration_instance.current_operation_index = 0
-    migration_instance.status = MigrationStatus.Running
-    migration_instance.started_at = datetime.now()
-    migration_instance.finished_at = None
-    migration_instance.save()
+    dependency_ok, dependency_name = is_migration_dependency_fulfilled(migration_instance.name)
+
+    if not dependency_ok:
+        process_error(migration_instance, f"Could not trigger migration because it depends on {dependency_name}")
+        return False
+
+    reset_special_migration(migration_instance)
+
     return run_special_migration_next_op(migration_name, migration_instance)
 
 
-def run_special_migration_next_op(migration_name: str, migration_instance: Optional[SpecialMigration] = None):
+def run_special_migration_next_op(
+    migration_name: str, migration_instance: Optional[SpecialMigration] = None, run_all=True
+):
     migration_instance = migration_instance or SpecialMigration.objects.get(
         name=migration_name, status=MigrationStatus.Running
     )
@@ -64,7 +74,7 @@ def run_special_migration_next_op(migration_name: str, migration_instance: Optio
     if not migration_instance:
         return False
 
-    migration_definition = ALL_SPECIAL_MIGRATIONS[migration_name]
+    migration_definition = get_special_migration_definition(migration_name)
     if migration_instance.current_operation_index > len(migration_definition.operations) - 1:
         mark_migration_as_successful(migration_instance)
         return True
@@ -89,17 +99,21 @@ def run_special_migration_next_op(migration_name: str, migration_instance: Optio
 
     update_migration_progress(migration_instance)
 
-    return run_special_migration_next_op(migration_name, migration_instance)
+    # recursively run through all operations
+    if run_all:
+        return run_special_migration_next_op(migration_name, migration_instance)
 
 
 def run_migration_healthcheck(migration_instance: SpecialMigration):
-    return ALL_SPECIAL_MIGRATIONS[migration_instance.name].healthcheck()
+    return get_special_migration_definition(migration_instance.name).healthcheck()
 
 
 def update_migration_progress(migration_instance: SpecialMigration):
     # we don't want to interrupt a migration if the progress check fails, hence try without handling exceptions
     try:
-        migration_instance.progress = ALL_SPECIAL_MIGRATIONS[migration_instance.name].progress(migration_instance)  # type: ignore
+        migration_instance.progress = get_special_migration_definition(migration_instance.name).progress(
+            migration_instance  # type: ignore
+        )
         migration_instance.save()
     except:
         pass
@@ -107,11 +121,14 @@ def update_migration_progress(migration_instance: SpecialMigration):
 
 def attempt_migration_rollback(migration_instance: SpecialMigration, force: bool = False):
     try:
-        ops = ALL_SPECIAL_MIGRATIONS[migration_instance.name].operations
+        ops = get_special_migration_definition(migration_instance.name).operations
         start = migration_instance.current_operation_index
         end = -(len(ops) + 1)
+
         for op in ops[start:end:-1]:
             if not op.rollback:
+                if op.rollback == "":
+                    continue
                 raise Exception(f"No rollback provided for operation {op.sql}")
             execute_op(database=op.database, sql=op.rollback, timeout_seconds=60, query_id=str(UUIDT()))
     except Exception as e:
@@ -129,11 +146,12 @@ def attempt_migration_rollback(migration_instance: SpecialMigration, force: bool
         return
 
     migration_instance.status = MigrationStatus.RolledBack
+    migration_instance.progress = 0
     migration_instance.save()
 
 
 def is_current_operation_resumable(migration_instance: SpecialMigration):
-    migration_definition = ALL_SPECIAL_MIGRATIONS[migration_instance.name]
+    migration_definition = get_special_migration_definition(migration_instance.name)
     index = migration_instance.current_operation_index
     return migration_definition.operations[index].resumbale
 
@@ -147,14 +165,20 @@ def run_next_migration(candidate: str) -> bool:
     migration_in_range = is_migration_in_range(
         migration_instance.posthog_min_version, migration_instance.posthog_max_version
     )
-    dependency = SPECIAL_MIGRATION_TO_DEPENDENCY[candidate]
 
-    dependency_ok = (
-        not dependency or SpecialMigration.objects.get(name=dependency).status == MigrationStatus.CompletedSuccessfully
-    )
+    dependency_ok, _ = is_migration_dependency_fulfilled(candidate)
 
     if dependency_ok and migration_in_range and migration_instance.status == MigrationStatus.NotStarted:
         trigger_migration(migration_instance)
         return True
 
     return False
+
+
+def is_migration_dependency_fulfilled(migration_name: str) -> Tuple[bool, Optional[str]]:
+    dependency = get_special_migration_dependency(migration_name)
+
+    dependency_ok: bool = (
+        not dependency or SpecialMigration.objects.get(name=dependency).status == MigrationStatus.CompletedSuccessfully
+    )
+    return dependency_ok, dependency

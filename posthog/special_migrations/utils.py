@@ -2,12 +2,13 @@ from datetime import datetime
 from typing import Optional
 
 from posthog.celery import app
+from posthog.constants import AnalyticsDBMS
 from posthog.models.special_migration import MigrationStatus, SpecialMigration
 from posthog.special_migrations.setup import DEPENDENCY_TO_SPECIAL_MIGRATION
 
 
-def execute_op(database: str, sql: str, timeout_seconds: int, query_id: str):
-    if database == "clickhouse":
+def execute_op(database: AnalyticsDBMS, sql: str, timeout_seconds: int, query_id: str):
+    if database == AnalyticsDBMS.CLICKHOUSE:
         execute_op_clickhouse(sql, query_id, timeout_seconds)
         return
 
@@ -17,14 +18,14 @@ def execute_op(database: str, sql: str, timeout_seconds: int, query_id: str):
 def execute_op_clickhouse(sql: str, query_id: str, timeout_seconds: int):
     from ee.clickhouse.client import sync_execute
 
-    sync_execute(f"/* {query_id} */" + sql, settings={"max_execution_time": timeout_seconds})
+    sync_execute(f"/* {query_id} */ " + sql, settings={"max_execution_time": timeout_seconds})
 
 
 def execute_op_postgres(sql: str, query_id: str):
     from django.db import connection
 
     with connection.cursor() as cursor:
-        cursor.execute(f"/* {query_id} */" + sql)
+        cursor.execute(f"/* {query_id} */ " + sql)
 
 
 def process_error(migration_instance: SpecialMigration, error: Optional[str]):
@@ -70,3 +71,15 @@ def mark_migration_as_successful(migration_instance: SpecialMigration):
     next_migration = DEPENDENCY_TO_SPECIAL_MIGRATION.get(migration_instance.name)
     if next_migration:
         run_next_migration(next_migration)
+
+
+def reset_special_migration(migration_instance: SpecialMigration):
+    migration_instance.last_error = ""
+    migration_instance.current_query_id = ""
+    migration_instance.celery_task_id = ""
+    migration_instance.progress = 0
+    migration_instance.current_operation_index = 0
+    migration_instance.status = MigrationStatus.Running
+    migration_instance.started_at = datetime.now()
+    migration_instance.finished_at = None
+    migration_instance.save()

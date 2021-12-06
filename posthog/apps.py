@@ -3,8 +3,6 @@ import os
 import posthoganalytics
 from django.apps import AppConfig
 from django.conf import settings
-from django.db.backends.signals import connection_created
-from django.dispatch.dispatcher import receiver
 
 from posthog.utils import get_git_branch, get_git_commit, get_machine_id
 from posthog.version import VERSION
@@ -49,10 +47,3 @@ class PostHogConfig(AppConfig):
         from posthog.special_migrations.setup import setup_special_migrations
 
         setup_special_migrations()
-
-
-@receiver(connection_created)
-def on_db_connection_ready(sender, connection, **kwargs):
-    from posthog.management.query_logging import execute_pg_query_with_logging
-
-    connection.execute_wrappers.append(execute_pg_query_with_logging)

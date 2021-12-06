@@ -43,6 +43,7 @@ class SpecialMigrationOperation:
         #   - Resumable: `INSERT INTO table2 (foo, timestamp) SELECT foo, timestamp FROM table1 WHERE timestamp > (SELECT max(timestamp) FROM table2)`
         self.resumable = resumable
 
+        # This should not be a long operation as it will be executed synchronously!
         self.rollback = rollback
 
 

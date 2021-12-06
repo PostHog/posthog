@@ -2,7 +2,7 @@ from typing import Dict, Optional
 
 from django.core.exceptions import ImproperlyConfigured
 from infi.clickhouse_orm.utils import import_submodules
-from semantic_version.base import SimpleSpec, Version
+from semantic_version.base import Version
 
 from posthog.settings import AUTO_START_SPECIAL_MIGRATIONS, DEBUG, E2E_TESTING, SKIP_SERVICE_VERSION_REQUIREMENTS, TEST
 from posthog.special_migrations.definition import SpecialMigrationDefinition
@@ -17,6 +17,9 @@ DEPENDENCY_TO_SPECIAL_MIGRATION: Dict[Optional[str], str] = {}
 
 POSTHOG_VERSION = Version(VERSION)
 
+SPECIAL_MIGRATIONS_MODULE_PATH = "posthog.special_migrations.migrations"
+SPECIAL_MIGRATIONS_EXAMPLE_MODULE_PATH = "posthog.special_migrations.examples"
+
 
 def setup_special_migrations():
     from posthog.models.special_migration import SpecialMigration, get_all_completed_special_migrations
@@ -25,10 +28,10 @@ def setup_special_migrations():
         print_warning(["Skipping special migrations setup. This is unsafe in production!"])
         return
 
-    all_migrations = import_submodules("posthog.special_migrations.migrations")
+    all_migrations = import_submodules(SPECIAL_MIGRATIONS_MODULE_PATH)
 
     if DEBUG:
-        all_migrations["example"] = import_submodules("posthog.special_migrations.examples")["example"]
+        all_migrations["example"] = import_submodules(SPECIAL_MIGRATIONS_EXAMPLE_MODULE_PATH)["example"]
 
     for name, module in all_migrations.items():
         ALL_SPECIAL_MIGRATIONS[name] = module.Migration()
@@ -78,3 +81,17 @@ def kickstart_migration_if_possible(migration_name: str, applied_migrations: set
     from posthog.special_migrations.runner import run_next_migration
 
     run_next_migration(migration_name)
+
+
+def get_special_migration_definition(migration_name: str) -> SpecialMigrationDefinition:
+    if TEST:
+        return import_submodules(SPECIAL_MIGRATIONS_EXAMPLE_MODULE_PATH)[migration_name].Migration()
+
+    return ALL_SPECIAL_MIGRATIONS[migration_name]
+
+
+def get_special_migration_dependency(migration_name: str) -> Optional[str]:
+    if TEST:
+        return None
+
+    return SPECIAL_MIGRATION_TO_DEPENDENCY[migration_name]
