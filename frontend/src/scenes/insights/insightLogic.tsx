@@ -90,7 +90,7 @@ export const insightLogic = kea<insightLogicType>({
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
         setTimeout: (timeout: number | null) => ({ timeout }),
         setLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
-        setNotFirstLoad: () => {},
+        setNotFirstLoad: true,
         saveNewTag: (tag: string) => ({ tag }),
         deleteTag: (tag: string) => ({ tag }),
         setInsight: (insight: Partial<DashboardItemType>, options: SetInsightOptions) => ({
@@ -455,12 +455,6 @@ export const insightLogic = kea<insightLogicType>({
             }
 
             actions.reportInsightViewed(filters, previousFilters)
-            actions.setNotFirstLoad()
-
-            const filterLength = (filter?: Partial<FilterType>): number =>
-                (filter?.events?.length || 0) + (filter?.actions?.length || 0)
-
-            const insightChanged = values.loadedFilters?.insight && filters.insight !== values.loadedFilters?.insight
 
             const backendFilterChanged = !objectsEqual(
                 Object.assign({}, values.filters, {
@@ -475,17 +469,8 @@ export const insightLogic = kea<insightLogicType>({
                 })
             )
 
-            // Auto-reload when setting filters
-            if (
-                backendFilterChanged &&
-                (values.filters.insight !== InsightType.FUNNELS ||
-                    // Auto-reload on funnels if with clickhouse
-                    values.clickhouseFeaturesEnabled ||
-                    // Or if tabbing to the funnels insight
-                    insightChanged ||
-                    // If user started from empty state (<2 steps) and added a new step
-                    (filterLength(values.loadedFilters) === 1 && filterLength(values.filters) === 2))
-            ) {
+            // (Re)load results when filters have changed or if there's no result yet
+            if (backendFilterChanged || !values.insight?.result) {
                 actions.loadResults()
             }
         },
@@ -502,6 +487,7 @@ export const insightLogic = kea<insightLogicType>({
                 0,
                 changedKeysObj
             )
+            actions.setNotFirstLoad()
             await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
 
             eventUsageLogic.actions.reportInsightViewed(
@@ -640,6 +626,7 @@ export const insightLogic = kea<insightLogicType>({
             }
         },
         loadInsightSuccess: async ({ insight }) => {
+            actions.reportInsightViewed(insight?.filters || {})
             // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query
             if (!insight.result && values.filters) {
                 actions.loadResults()
