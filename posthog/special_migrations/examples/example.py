@@ -26,9 +26,6 @@ class Migration(SpecialMigrationDefinition):
         ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0,<21.7.0"),
     ]
 
-    # ideas:
-    # 1. support functions as operations instead of just sql?
-    #   1.1. receive the output of the previous op?
     operations = [
         SpecialMigrationOperation(
             database=AnalyticsDBMS.CLICKHOUSE,
@@ -79,12 +76,12 @@ class Migration(SpecialMigrationDefinition):
         SpecialMigrationOperation(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL,
-            rollback=f"DROP TABLE kafka_person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER}",
+            rollback=f"DROP TABLE IF EXISTS kafka_person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER}",
         ),
         SpecialMigrationOperation(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=PERSONS_DISTINCT_ID_TABLE_MV_SQL,
-            rollback=f"DROP TABLE person_distinct_id_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
+            rollback=f"DROP TABLE IF EXISTS person_distinct_id_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
         ),
     ]
 
