@@ -23,11 +23,9 @@ if (typeof window !== 'undefined') {
     }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    ReactDOM.render(
-        <Provider store={getContext().store}>
-            <App />
-        </Provider>,
-        document.getElementById('root')
-    )
-})
+ReactDOM.render(
+    <Provider store={getContext().store}>
+        <App />
+    </Provider>,
+    document.getElementById('root')
+)
