@@ -1,19 +1,13 @@
 from datetime import datetime
-from os import stat
-from unittest import mock
 from unittest.mock import patch
 
-import pytz
-from django.utils import timezone
 from infi.clickhouse_orm.utils import import_submodules
-from rest_framework import status
 
-from ee.clickhouse.sql.person import PERSONS_DISTINCT_ID_TABLE_MV_SQL
 from posthog.constants import AnalyticsDBMS
-from posthog.models.special_migration import MigrationStatus, SpecialMigration
+from posthog.models.special_migration import MigrationStatus
 from posthog.models.team import Team
-from posthog.special_migrations.definition import SpecialMigrationDefinition, SpecialMigrationOperation
 from posthog.special_migrations.setup import SPECIAL_MIGRATIONS_EXAMPLE_MODULE_PATH
+from posthog.special_migrations.test.util import create_special_migration
 from posthog.special_migrations.utils import (
     execute_op,
     force_stop_migration,
@@ -22,24 +16,6 @@ from posthog.special_migrations.utils import (
     trigger_migration,
 )
 from posthog.test.base import BaseTest
-
-
-def create_special_migration(
-    name="test1",
-    description="my desc",
-    posthog_min_version="1.0.0",
-    posthog_max_version="100000.0.0",
-    status=MigrationStatus.NotStarted,
-    last_error="",
-):
-    return SpecialMigration.objects.create(
-        name=name,
-        description=description,
-        posthog_min_version=posthog_min_version,
-        posthog_max_version=posthog_max_version,
-        status=status,
-        last_error=last_error,
-    )
 
 
 class TestUtils(BaseTest):

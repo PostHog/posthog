@@ -81,3 +81,17 @@ def kickstart_migration_if_possible(migration_name: str, applied_migrations: set
     from posthog.special_migrations.runner import run_next_migration
 
     run_next_migration(migration_name)
+
+
+def get_special_migration_definition(migration_name: str):
+    if TEST:
+        return import_submodules(SPECIAL_MIGRATIONS_EXAMPLE_MODULE_PATH)[migration_name].Migration()
+
+    return ALL_SPECIAL_MIGRATIONS[migration_name]
+
+
+def get_special_migration_dependency(migration_name: str):
+    if TEST:
+        return None
+
+    return SPECIAL_MIGRATION_TO_DEPENDENCY[migration_name]
