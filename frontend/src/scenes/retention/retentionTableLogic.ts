@@ -3,7 +3,7 @@ import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { retentionTableLogicType } from './retentionTableLogicType'
-import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE, RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
+import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import { actionsModel } from '~/models/actionsModel'
 import { ActionType, InsightLogicProps, FilterType, InsightType } from '~/types'
 import {
@@ -77,7 +77,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
             // Take the insight result, and cast it to `RetentionTablePayload[]`
             (s) => [s.insight],
             ({ filters, result }): RetentionTablePayload[] => {
-                return filters?.insight === InsightType.RETENTION ? result : []
+                return filters?.insight === InsightType.RETENTION ? result ?? [] : []
             },
         ],
         trendSeries: [
@@ -86,16 +86,38 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                 // If the retention reference option is specified as previous,
                 // then translate retention rates to relative to previous,
                 // otherwise, just use what the result was originally.
+                //
+                // Our input results might looks something like
+                //
+                //   Cohort 1 | 1000 | 120 | 190 | 170 | 140
+                //   Cohort 2 | 6003 | 300 | 100 | 120 | 50
+                //
+                // If `retentionReference` is not "previous" we want to calculate the percentages
+                // of the sizes compared to the first value. If we have "previous" we want to
+                // go further and translate thhese numbers into percentage of the previous value
+                // so we get some idea for the rate of convergence.
 
                 return results.map((cohortRetention) => {
                     const retentionPercentages = cohortRetention.values
                         .map((value) => value.count / cohortRetention.values[0].count)
                         // Make them display in the right scale
                         .map((value) => 100 * value)
+
+                    // To calculate relative percentages, we take for instance Cohort 1 as percentages
+                    // of the cohort size and create another series that has a 100 at prepended so we have
+                    //
+                    //   Cohort 1'  | 100  | 12  | 19 | 17 | 14
+                    //   Cohort 1'' | 100  | 100 | 12 | 19 | 17 | 14
+                    //
+                    // And from here construct a third, relative percentage series by dividing the
+                    // top numbers by the bottom numbers to get
+                    //
+                    //   Cohort 1''' | 1 | 0.12 | ...
                     const paddedValues = [100].concat(retentionPercentages)
+
                     return {
                         days: retentionPercentages.map((_, index) => `${filters.period} ${index}`),
-                        labels: retentionPercentages.map((_, index) => `Day ${index}`),
+                        labels: retentionPercentages.map((_, index) => `${filters.period} ${index}`),
                         count: 0,
                         label: cohortRetention.label,
                         data:
