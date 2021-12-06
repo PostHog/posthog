@@ -39,18 +39,15 @@ export const groupsAccessLogic = kea<groupsAccessLogicType<GroupsAccessStatus>>(
             (groupsCanBeEnabled, hasAvailableFeature) =>
                 groupsCanBeEnabled && hasAvailableFeature(AvailableFeature.CORRELATION_ANALYSIS),
         ],
-        // Used to toggle various upsell mechanisms for groups
+        // Used to toggle various introduction views related to groups
         groupsAccessStatus: [
             (s) => [s.groupsCanBeEnabled, s.groupsEnabled, s.currentTeam, s.preflight],
             (canBeEnabled, isEnabled, currentTeam, preflight): GroupsAccessStatus => {
                 const hasGroups = currentTeam?.has_group_types
-                const hideUpsell = preflight?.instance_preferences?.disable_paid_fs
-                if (!canBeEnabled) {
+                if (!canBeEnabled || preflight?.instance_preferences?.disable_paid_fs) {
                     return GroupsAccessStatus.Hidden
                 } else if (isEnabled && hasGroups) {
                     return GroupsAccessStatus.AlreadyUsing
-                } else if (hideUpsell) {
-                    return GroupsAccessStatus.Hidden
                 } else if (isEnabled) {
                     return GroupsAccessStatus.HasAccess
                 } else if (hasGroups) {
