@@ -1,6 +1,6 @@
 from typing import Any
 
-from rest_framework import serializers, viewsets
+from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -10,14 +10,45 @@ from rest_framework.response import Response
 from ee.clickhouse.queries.experiments.funnel_experiment_result import ClickhouseFunnelExperimentResult
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models.experiment import Experiment
+from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
+from posthog.models.team import Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
 
 class ExperimentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Experiment
-        fields = ["id", "name", "description", "start_date", "end_date", "feature_flag", "filters"]
+        fields = [
+            "id",
+            "name",
+            "description",
+            "start_date",
+            "end_date",
+            "feature_flag",
+            "parameters",
+            "filters",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+
+    def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
+        request = self.context["request"]
+        validated_data["created_by"] = request.user
+        team = Team.objects.get(id=self.context["team_id"])
+
+        # feature_flag = FeatureFlag.objects.filter(key=validated_data["feature_flag"], team_id=self.context["team_id"], deleted=False).first()
+        # validated_data["feature_flag"] = feature_flag.pk
+
+        experiment = Experiment.objects.create(team=team, **validated_data)
+        return experiment
 
 
 class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):

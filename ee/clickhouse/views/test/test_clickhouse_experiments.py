@@ -1,5 +1,7 @@
 from datetime import datetime
 
+from rest_framework import status
+
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin
@@ -8,8 +10,78 @@ from posthog.models.feature_flag import FeatureFlag
 from posthog.test.base import APIBaseTest
 
 
+class TestExperimentCRUD(APIBaseTest):
+    def test_creating_updating_basic_experiment(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team, rollout_percentage=50, name="Beta feature", key="a-b-test", created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2021-12-01T10:23",
+                "end_date": None,
+                "feature_flag": feature_flag.pk,
+                "parameters": None,
+                "filters": {},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment")
+        self.assertEqual(response.json()["feature_flag"], feature_flag.pk)
+
+        id = response.json()["id"]
+        end_date = "2021-12-10T00:00"
+
+        # Now update
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}",
+            {
+                "description": "Bazinga",
+                "end_date": end_date,
+                "filters": {"events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}]},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        experiment = Experiment.objects.get(pk=id)
+        self.assertEqual(experiment.description, "Bazinga")
+        self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), end_date)
+
+        # TODO: figure out which params we don't want to allow updating
+
+    def test_invalid_FF_selection(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2021-12-01T10:23",
+                "end_date": None,
+                "feature_flag": 123456,
+                "parameters": None,
+                "filters": {},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "does_not_exist",
+                "detail": 'Invalid pk "123456" - object does not exist.',
+                "attr": "feature_flag",
+            },
+        )
+
+
 class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
-    def test_single_property_breakdown(self):
+    def test_basic_experiment(self):
         journeys_for(
             {
                 "person1": [

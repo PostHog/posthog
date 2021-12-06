@@ -8,7 +8,7 @@ class Experiment(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     # Filters define the target metric of an Experiment
     filters: models.JSONField = models.JSONField(default=dict)
-    parameters: models.JSONField = models.JSONField(default=dict)
+    parameters: models.JSONField = models.JSONField(default=dict, null=True)
     feature_flag: models.ForeignKey = models.ForeignKey("FeatureFlag", blank=False, on_delete=models.CASCADE)
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE)
     start_date: models.DateTimeField = models.DateTimeField()

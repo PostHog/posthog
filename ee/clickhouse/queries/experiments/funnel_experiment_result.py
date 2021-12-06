@@ -35,6 +35,7 @@ class ClickhouseFunnelExperimentResult(ClickhouseFunnel):
                 "date_from": experiment_start_date,
                 "date_end": experiment_end_date,
                 "breakdown": f"$feature/{feature_flag}",
+                "breakdown_type": "event",
             }
         )
         super().__init__(query_filter, team)
