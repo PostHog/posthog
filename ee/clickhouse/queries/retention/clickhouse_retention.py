@@ -1,11 +1,7 @@
 from typing import Any, Dict, List, NamedTuple, Tuple, cast
 
-from django.db.models.query import Prefetch
-
 from ee.clickhouse.client import substitute_params, sync_execute
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.person import get_persons_by_uuids
-from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.retention.retention_actors import (
     ClickhouseRetentionActors,
     ClickhouseRetentionActorsByPeriod,
@@ -13,20 +9,10 @@ from ee.clickhouse.queries.retention.retention_actors import (
 from ee.clickhouse.queries.retention.retention_event_query import RetentionEventsQuery
 from ee.clickhouse.queries.util import get_trunc_func_ch
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
-from ee.clickhouse.sql.retention.people_in_period import (
-    DEFAULT_REFERENCE_EVENT_PEOPLE_PER_PERIOD_SQL,
-    DEFAULT_REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL,
-    REFERENCE_EVENT_PEOPLE_PER_PERIOD_SQL,
-    REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL,
-    RETENTION_PEOPLE_PER_PERIOD_SQL,
-)
 from ee.clickhouse.sql.retention.retention import (
     INITIAL_BREAKDOWN_INTERVAL_SQL,
     INITIAL_INTERVAL_SQL,
-    REFERENCE_EVENT_SQL,
-    REFERENCE_EVENT_UNIQUE_SQL,
     RETENTION_BREAKDOWN_SQL,
-    RETENTION_PEOPLE_SQL,
     RETENTION_SQL,
 )
 from posthog.constants import (
@@ -39,7 +25,6 @@ from posthog.constants import (
 from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filters import RetentionFilter
-from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.queries.retention import AppearanceRow, Retention
 
