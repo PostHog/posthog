@@ -25,25 +25,8 @@ class RetentionEventsQuery(ClickhouseEventQuery):
     def __init__(self, filter: RetentionFilter, event_query_type: RetentionQueryType, *args, **kwargs):
         self._event_query_type = event_query_type
 
-        if self._event_query_type != RetentionQueryType.RETURNING and filter.breakdown and filter.breakdown_type:
-            breakdown_type = filter.breakdown_type
-            table = "events"
-
-            if breakdown_type == "person":
-                table = "person"
-
-            self.breakdown_values_expression = get_single_or_multi_property_string_expr(
-                breakdown=filter.breakdown,
-                table=table,
-                query_alias=None,
-            )
-        else:
-            self.breakdown_values_expression = None
-
         super().__init__(
-            filter=filter,
-            *args,
-            **kwargs,
+            filter=filter, *args, **kwargs,
         )
 
         self._trunc_func = get_trunc_func_ch(self._filter.period)
@@ -64,10 +47,22 @@ class RetentionEventsQuery(ClickhouseEventQuery):
             ),
         ]
 
-        if self.breakdown_values_expression:
-            _fields += [
-                f"argMin({self.breakdown_values_expression}, {self._trunc_func}(e.timestamp)) AS breakdown_values"
-            ]
+        if (
+            self._event_query_type != RetentionQueryType.RETURNING
+            and self._filter.breakdown
+            and self._filter.breakdown_type
+        ):
+            breakdown_type = self._filter.breakdown_type
+            table = "events"
+
+            if breakdown_type == "person":
+                table = "person"
+
+            breakdown_values_expression = get_single_or_multi_property_string_expr(
+                breakdown=self._filter.breakdown, table=table, query_alias=None,
+            )
+
+            _fields += [f"argMin({breakdown_values_expression}, {self._trunc_func}(e.timestamp)) AS breakdown_values"]
 
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
