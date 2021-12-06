@@ -96,15 +96,15 @@ export function copyIndexHtml(
 
     fse.writeFileSync(
         path.resolve(__dirname, to),
-        fse.readFileSync(path.resolve(__dirname, from), { encoding: 'utf-8' }).replace(
-            '</head>',
-            `   <script type="application/javascript">
-                    ${scriptCode}
-                    ${Object.keys(chunks).length > 0 ? chunkCode : ''}
-                </script>
-                ${cssLinkTag}
-            </head>`
-        )
+        fse
+            .readFileSync(path.resolve(__dirname, from), { encoding: 'utf-8' })
+            .replace('</head>', `${cssLinkTag}</head>`)
+            .replace(
+                '</body>',
+                `<script type="application/javascript">${scriptCode}${
+                    Object.keys(chunks).length > 0 ? chunkCode : ''
+                }</script></body>`
+            )
     )
 }
 
