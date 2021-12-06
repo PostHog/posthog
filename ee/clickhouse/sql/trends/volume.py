@@ -44,3 +44,48 @@ CUMULATIVE_SQL = """
 SELECT person_id, min(timestamp) as timestamp
 FROM ({event_query}) GROUP BY person_id
 """
+
+
+DAU_SQL = """
+SELECT 
+    COUNT(id) AS data,
+    date
+FROM (
+    SELECT 
+        id,
+        date
+    FROM person 
+    INNER JOIN (
+        SELECT
+            person_id,
+            events.date AS date
+        FROM (
+            SELECT 
+                distinct_id,
+                argMax(person_id, _timestamp) AS person_id 
+            FROM person_distinct_id
+            WHERE team_id = %(team_id)s
+            GROUP BY distinct_id
+            HAVING max(is_deleted) = 0
+        ) AS pdi
+        INNER JOIN (
+            SELECT
+                DISTINCT distinct_id,
+                toDateTime({trunc_func}(timestamp), 'UTC') AS date
+            FROM events
+                WHERE
+                team_id = %(team_id)s 
+                {entity_filter}
+                {date_filter}
+                {prop_filter}
+                group by distinct_id, toDateTime({trunc_func}(timestamp), 'UTC') AS date
+        ) AS events 
+        ON events.distinct_id = pdi.distinct_id
+    ) AS persons_for_event 
+    ON person.id = persons_for_event.person_id
+    WHERE 
+        team_id = %(team_id)s
+    GROUP BY id, date
+    HAVING max(is_deleted) = 0
+) GROUP BY date
+"""

@@ -11,6 +11,7 @@ from ee.clickhouse.sql.trends.volume import (
     ACTIVE_USER_SQL,
     AGGREGATE_SQL,
     CUMULATIVE_SQL,
+    DAU_SQL,
     VOLUME_SQL,
     VOLUME_TOTAL_AGGREGATE_SQL,
 )
@@ -60,6 +61,11 @@ class ClickhouseTrendsTotalVolume:
             elif filter.display == TRENDS_CUMULATIVE and entity.math == "dau":
                 cumulative_sql = CUMULATIVE_SQL.format(event_query=event_query)
                 content_sql = VOLUME_SQL.format(event_query=cumulative_sql, **content_sql_params)
+
+            # EXPERIMENTAL
+            elif entity.math == "dau":
+                content_sql, dau_params = self._dau_query(filter, entity, team_id)
+                params.update(dau_params)
             else:
                 content_sql = VOLUME_SQL.format(event_query=event_query, **content_sql_params)
 
@@ -126,3 +132,23 @@ class ClickhouseTrendsTotalVolume:
                 }
             )
         return persons_url
+
+    # EXPERIMENTAL!!
+    def _dau_query(self, filter: Filter, entity: Entity, team_id: int) -> Tuple[str, Dict]:
+
+        trend_event_query = TrendsEventQuery(
+            filter=filter, entity=entity, team_id=team_id, should_join_distinct_ids=False,
+        )
+
+        entity_filter, entity_params = trend_event_query._get_entity_query()
+        date_filter, date_params = trend_event_query._get_date_filter()
+        prop_filters = [*filter.properties, *entity.properties]
+        prop_filter, prop_params = trend_event_query._get_props(prop_filters)
+        trunc_func = get_trunc_func_ch(filter.interval)
+
+        return (
+            DAU_SQL.format(
+                prop_filter=prop_filter, entity_filter=entity_filter, date_filter=date_filter, trunc_func=trunc_func
+            ),
+            {**date_params, **entity_params, **prop_params},
+        )
