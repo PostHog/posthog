@@ -5,7 +5,7 @@ on:
 
 jobs:
     cypress:
-        name: Cypress E2E tests (${{ matrix.job_index }})
+        name: Cypress E2E tests 2 (${{ matrix.job_index }})
         runs-on: ubuntu-18.04
 
         strategy:
