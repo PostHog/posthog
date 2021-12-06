@@ -24,14 +24,25 @@ class RetentionEventsQuery(ClickhouseEventQuery):
 
     def __init__(self, filter: RetentionFilter, event_query_type: RetentionQueryType, *args, **kwargs):
         self._event_query_type = event_query_type
+
+        if self._event_query_type != RetentionQueryType.RETURNING and filter.breakdown and filter.breakdown_type:
+            breakdown_type = filter.breakdown_type
+            table = "events"
+
+            if breakdown_type == "person":
+                table = "person"
+
+            self.breakdown_values_expression = get_single_or_multi_property_string_expr(
+                breakdown=filter.breakdown,
+                table=table,
+                query_alias=None,
+            )
+        else:
+            self.breakdown_values_expression = None
+
         super().__init__(
             filter=filter,
             *args,
-            extra_person_fields=(
-                ["person_props"]
-                if event_query_type != RetentionQueryType.RETURNING and filter.breakdown_type == "person"
-                else []
-            ),
             **kwargs,
         )
 
@@ -53,29 +64,10 @@ class RetentionEventsQuery(ClickhouseEventQuery):
             ),
         ]
 
-        if self._event_query_type != RetentionQueryType.RETURNING:
-            if self._filter.breakdowns and self._filter.breakdown_type:
-                # NOTE: `get_single_or_multi_property_string_expr` doesn't
-                # support breakdowns with different types e.g. a person property
-                # then an event property, so for now we just take the type of
-                # the self._filter.breakdown_type.
-                # TODO: update 'get_single_or_multi_property_string_expr` to take
-                # `Breakdown` type
-                breakdown_type = self._filter.breakdown_type
-                table = "events"
-
-                if breakdown_type == "person":
-                    table = "person"
-
-                breakdown_values_expression = get_single_or_multi_property_string_expr(
-                    breakdown=[breakdown["property"] for breakdown in self._filter.breakdowns],
-                    table=table,
-                    query_alias=None,
-                )
-
-                _fields += [
-                    f"argMin({breakdown_values_expression}, {self._trunc_func}(e.timestamp)) AS breakdown_values"
-                ]
+        if self.breakdown_values_expression:
+            _fields += [
+                f"argMin({self.breakdown_values_expression}, {self._trunc_func}(e.timestamp)) AS breakdown_values"
+            ]
 
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
@@ -99,14 +91,22 @@ class RetentionEventsQuery(ClickhouseEventQuery):
         self.params.update(groups_params)
 
         query = f"""
-            SELECT {','.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
-            {self._get_distinct_id_query()}
-            {person_query}
-            {groups_query}
-            WHERE team_id = %(team_id)s
-            {f"AND {entity_query}"}
-            {f"AND {date_query}" if self._event_query_type != RetentionQueryType.TARGET_FIRST_TIME else ''}
-            {prop_query}
+            SELECT 
+                {','.join(_fields)} 
+
+            FROM 
+                events AS e
+
+                {self._get_distinct_id_query()}
+                {person_query}
+                {groups_query}
+
+            WHERE 
+                e.team_id = %(team_id)s
+                AND {entity_query}
+                {f"AND {date_query}" if self._event_query_type != RetentionQueryType.TARGET_FIRST_TIME else ''}
+                {prop_query}
+
             {f"GROUP BY target HAVING {date_query}" if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME else ''}
         """
 

@@ -103,10 +103,7 @@ class RetentionTests(TestCase):
                 date_to="2020-01-02",
                 period="Day",
                 retention_type="retention_first_time",
-                breakdowns=[Breakdown(type="person", property="os")],
-                # NOTE: we need to specify breakdown_type as well, as the
-                # breakdown logic currently does not support multiple differing
-                # types
+                breakdown=["os"],
                 breakdown_type="person",
             ),
         )
@@ -166,10 +163,7 @@ class RetentionTests(TestCase):
                 date_to="2020-01-02",
                 period="Day",
                 retention_type="retention_first_time",
-                breakdowns=[Breakdown(type="event", property="os")],
-                # NOTE: we need to specify breakdown_type as well, as the
-                # breakdown logic currently does not support multiple differing
-                # types
+                breakdown=["os"],
                 breakdown_type="event",
             ),
         )
@@ -212,7 +206,9 @@ class RetentionRequest:
     period: Union[Literal["Hour"], Literal["Day"], Literal["Week"], Literal["Month"]]
     retention_type: Literal["retention_first_time"]  # probably not an exhaustive list
 
-    breakdowns: Optional[List[Breakdown]] = None
+    # NOTE: there is a `breakdowns` filter param, but the backend support isn't fully implemented 
+    # for this so we just use the `breakdown` param. For retention we assume it's a list of strings
+    breakdown: Optional[List[str]] = None
     breakdown_type: Optional[Literal["person", "event"]] = None
 
 

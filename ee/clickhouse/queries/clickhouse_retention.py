@@ -163,7 +163,7 @@ class ClickhouseRetention(Retention):
             # change.
             retention_by_cohort = self._get_retention_by_cohort(filter, team)
             return self.process_graph_result(retention_by_cohort, filter)
-        if filter.breakdowns and filter.breakdown_type:
+        if filter.breakdown and filter.breakdown_type:
             retention_by_breakdown = self._get_retention_by_breakdown_values(filter, team)
             return self.process_breakdown_table_result(retention_by_breakdown, filter)
         else:
