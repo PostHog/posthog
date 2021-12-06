@@ -10,17 +10,17 @@ from posthog.version_requirement import ServiceVersionRequirement
 
 class TestSpecialMigrationDefinition(BaseTest):
     @pytest.mark.ee
-    def test_get_special_migrations_without_staff_status(self):
+    def test_get_special_migration_definition(self):
         from ee.clickhouse.sql.person import PERSONS_DISTINCT_ID_TABLE_MV_SQL
 
         modules = import_submodules(SPECIAL_MIGRATIONS_EXAMPLE_MODULE_PATH)
         example_migration = modules["example"].Migration()
 
-        self.assertEqual(isinstance(example_migration, SpecialMigrationDefinition), True)
-        self.assertEqual(isinstance(example_migration.operations[0], SpecialMigrationOperation), True)
+        self.assertTrue(isinstance(example_migration, SpecialMigrationDefinition))
+        self.assertTrue(isinstance(example_migration.operations[0], SpecialMigrationOperation))
         self.assertEqual(example_migration.description, "An example special migration.")
         self.assertEqual(example_migration.posthog_min_version, "1.29.0")
         self.assertEqual(example_migration.posthog_max_version, "1.30.0")
         self.assertEqual(example_migration.operations[-1].sql, PERSONS_DISTINCT_ID_TABLE_MV_SQL)
         self.assertEqual(example_migration.operations[-1].database, AnalyticsDBMS.CLICKHOUSE)
-        self.assertEqual(isinstance(example_migration.service_version_requirements[0], ServiceVersionRequirement), True)
+        self.assertTrue(isinstance(example_migration.service_version_requirements[0], ServiceVersionRequirement))

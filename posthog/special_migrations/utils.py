@@ -71,3 +71,15 @@ def mark_migration_as_successful(migration_instance: SpecialMigration):
     next_migration = DEPENDENCY_TO_SPECIAL_MIGRATION.get(migration_instance.name)
     if next_migration:
         run_next_migration(next_migration)
+
+
+def reset_special_migration(migration_instance: SpecialMigration):
+    migration_instance.last_error = ""
+    migration_instance.current_query_id = ""
+    migration_instance.celery_task_id = ""
+    migration_instance.progress = 0
+    migration_instance.current_operation_index = 0
+    migration_instance.status = MigrationStatus.Running
+    migration_instance.started_at = datetime.now()
+    migration_instance.finished_at = None
+    migration_instance.save()

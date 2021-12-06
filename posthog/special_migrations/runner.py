@@ -3,7 +3,6 @@ from typing import Optional, Tuple
 
 from semantic_version.base import SimpleSpec
 
-from posthog.celery import app
 from posthog.models.special_migration import MigrationStatus, SpecialMigration, get_all_running_special_migrations
 from posthog.models.utils import UUIDT
 from posthog.special_migrations.setup import (
@@ -11,13 +10,19 @@ from posthog.special_migrations.setup import (
     get_special_migration_definition,
     get_special_migration_dependency,
 )
-from posthog.special_migrations.utils import execute_op, mark_migration_as_successful, process_error, trigger_migration
+from posthog.special_migrations.utils import (
+    execute_op,
+    mark_migration_as_successful,
+    process_error,
+    reset_special_migration,
+    trigger_migration,
+)
 
 # important to prevent us taking up too many celery workers
 # and running migrations sequentially
 MAX_CONCURRENT_SPECIAL_MIGRATIONS = 1
 
-# select for update?
+
 def start_special_migration(migration_name: str) -> bool:
     migration_instance = SpecialMigration.objects.get(name=migration_name)
     over_concurrent_migrations_limit = len(get_all_running_special_migrations()) >= MAX_CONCURRENT_SPECIAL_MIGRATIONS
@@ -54,15 +59,8 @@ def start_special_migration(migration_name: str) -> bool:
         process_error(migration_instance, f"Could not trigger migration because it depends on {dependency_name}")
         return False
 
-    migration_instance.last_error = ""
-    migration_instance.current_query_id = ""
-    migration_instance.celery_task_id = ""
-    migration_instance.progress = 0
-    migration_instance.current_operation_index = 0
-    migration_instance.status = MigrationStatus.Running
-    migration_instance.started_at = datetime.now()
-    migration_instance.finished_at = None
-    migration_instance.save()
+    reset_special_migration(migration_instance)
+
     return run_special_migration_next_op(migration_name, migration_instance)
 
 
