@@ -1,9 +1,9 @@
 import { PersonType } from '~/types'
 import React from 'react'
+import { IconPersonFilled } from 'lib/components/icons'
 import './PersonHeader.scss'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
-import { ProfilePicture } from 'lib/components/ProfilePicture'
 
 export interface PersonHeaderProps {
     person?: Partial<Pick<PersonType, 'properties' | 'distinct_ids'>> | null
@@ -34,33 +34,17 @@ export const asLink = (person: Partial<PersonType> | null | undefined): string |
 
 export function PersonHeader(props: PersonHeaderProps): JSX.Element {
     const content = (
-        <div className="flex-center">
-            {props.withIcon && (
-                <span className="mr-025">
-                    <ProfilePicture
-                        name={
-                            props.person?.properties?.email ||
-                            props.person?.properties?.name ||
-                            props.person?.properties?.username ||
-                            'U'
-                        }
-                        size="md"
-                    />
-                </span>
-            )}
+        <div className="person-header">
+            {props.withIcon && <IconPersonFilled className="icon" />}
             <span className="ph-no-capture text-ellipsis">{asDisplay(props.person)}</span>
         </div>
     )
 
-    return (
-        <div className="person-header">
-            {props.noLink ? (
-                content
-            ) : (
-                <Link to={asLink(props.person)} data-attr={`goto-person-email-${props.person?.distinct_ids?.[0]}`}>
-                    {content}
-                </Link>
-            )}
-        </div>
+    return props.noLink ? (
+        content
+    ) : (
+        <Link to={asLink(props.person)} data-attr={`goto-person-email-${props.person?.distinct_ids?.[0]}`}>
+            {content}
+        </Link>
     )
 }
