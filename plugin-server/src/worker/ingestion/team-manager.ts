@@ -49,30 +49,36 @@ export class TeamManager {
     }
 
     async flushLastSeenAtCache(): Promise<void> {
-        const team_ids: string[] = []
-        const event_names: string[] = []
-        const last_seen_at_array: number[] = []
+        let valuesStatement = ''
+        let params: (string | number)[] = []
 
         const events = this.eventLastSeenCache
         this.eventLastSeenCache = new Map()
 
         for (const event of events) {
             const [key, value] = event
-            const [team_id, eventName] = key.split('_', 1)
-            team_ids.push(team_id)
-            event_names.push(eventName)
-            last_seen_at_array.push(value)
+            const teamId = key.split('_', 1)[0]
+            const eventName = key.substring(key.indexOf(teamId) + teamId.length + 1)
+            if (teamId && eventName && value) {
+                valuesStatement += `($${params.length + 1}, $${params.length + 2}, $${params.length + 3}),`
+                params = params.concat([teamId, eventName, value])
+            }
         }
 
         this.lastFlushAt = DateTime.now()
 
-        await this.db.postgresQuery(
-            `UPDATE posthog_eventdefinition t1 SET t1.last_seen_at = GREATEST(t1.last_seen_at, t2.last_seen_at)
-            FROM (UNNEST ($1) as team_id, UNNEST($2) as name, UNNEST($3) as last_seen_at) as t2
-            WHERE t1.name = t2.name AND t1.team_id = t2.team_id`,
-            [team_ids, event_names, last_seen_at_array],
-            'updateEventLastSeen'
-        )
+        if (params.length) {
+            await this.db.postgresQuery(
+                `UPDATE posthog_eventdefinition AS t1 SET last_seen_at = GREATEST(t1.last_seen_at, to_timestamp(t2.last_seen_at::integer))
+                FROM (VALUES ${valuesStatement.substring(
+                    0,
+                    valuesStatement.length - 1
+                )}) AS t2(team_id, name, last_seen_at)
+                WHERE t1.name = t2.name AND t1.team_id = t2.team_id::integer`,
+                [...params],
+                'updateEventLastSeen'
+            )
+        }
     }
 
     public async updateEventNamesAndProperties(
