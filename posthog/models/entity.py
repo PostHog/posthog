@@ -101,8 +101,8 @@ class Entity(PropertyMixin):
         if self.type != other.type:
             return False
 
-        self_properties = sorted([str(prop) for prop in self.properties])
-        other_properties = sorted([str(prop) for prop in other.properties])
+        self_properties = sorted(str(prop) for prop in self.properties)
+        other_properties = sorted(str(prop) for prop in other.properties)
         if self_properties != other_properties:
             return False
 
