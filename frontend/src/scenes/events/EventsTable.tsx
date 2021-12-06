@@ -29,6 +29,7 @@ import { IconSync } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
+import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 
 export interface FixedFilters {
     action_id?: ActionType['id']
@@ -48,7 +49,7 @@ interface EventsTable {
 export function EventsTable({
     fixedFilters,
     filtersEnabled = true,
-    pageKey,
+    pageKey = 'EventsTable',
     hidePersonColumn,
     sceneUrl,
 }: EventsTable = {}): JSX.Element {
@@ -69,6 +70,7 @@ export function EventsTable({
     const { tableWidth, selectedColumns } = useValues(tableConfigLogic)
     const { propertyNames } = useValues(propertyDefinitionsModel)
     const { fetchNextEvents, prependNewEvents, setEventFilter, toggleAutomaticLoad, startDownload } = useActions(logic)
+    const { filters } = useValues(propertyFilterLogic({ pageKey }))
 
     const showLinkToPerson = !fixedFilters?.person_id
 
@@ -316,7 +318,7 @@ export function EventsTable({
                                 setEventFilter(value || '')
                             }}
                         />
-                        {filtersEnabled && <PropertyFilters pageKey="EventsTable" style={{ marginBottom: 0 }} />}
+                        {filtersEnabled && <PropertyFilters pageKey={pageKey} style={{ marginBottom: 0 }} />}
                     </div>
 
                     <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.75rem' }}>
@@ -348,13 +350,16 @@ export function EventsTable({
                     key={selectedColumns === 'DEFAULT' ? 'default' : selectedColumns.join('-')}
                     className="ph-no-capture"
                     emptyState={
-                        isLoading ? (
-                            <span>&nbsp;</span>
+                        isLoading ? undefined : Object.keys(filters).length || eventFilter ? (
+                            'No events matching filters!'
                         ) : (
-                            <span>
-                                You don't have any items here! If you haven't integrated PostHog yet,{' '}
-                                <Link to="/project/settings">click here to set PostHog up on your app</Link>.
-                            </span>
+                            <>
+                                This project doesn't have any events. If you haven't integrated PostHog yet,{' '}
+                                <Link to="/project/settings">
+                                    click here to instrument analytics with PostHog in your product
+                                </Link>
+                                .
+                            </>
                         )
                     }
                     rowKey={(row) =>

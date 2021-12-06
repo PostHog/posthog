@@ -1,7 +1,7 @@
 import { Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
 import { isMobile } from 'lib/utils'
-import React, { useRef } from 'react'
+import React, { ReactNode, RefObject, useMemo, useRef } from 'react'
 import { HotKeys, InsightType } from '~/types'
 import { insightLogic } from './insightLogic'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -10,6 +10,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import clsx from 'clsx'
 import { FunnelsCue } from './InsightTabs/TrendTab/FunnelsCue'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
+import { Link } from 'lib/components/Link'
 
 const { TabPane } = Tabs
 
@@ -17,11 +18,70 @@ function InsightHotkey({ hotkey }: { hotkey: HotKeys }): JSX.Element {
     return !isMobile() ? <span className="hotkey">{hotkey}</span> : <></>
 }
 
+interface Tab {
+    label: string
+    type: InsightType
+    dataAttr: string
+    hotkey: HotKeys
+    ref?: RefObject<HTMLSpanElement>
+    className?: string
+}
+
 export function InsightsNav(): JSX.Element {
-    const { activeView, insightProps } = useValues(insightLogic)
+    const { activeView, insightProps, createInsightUrl } = useValues(insightLogic)
     const { setActiveView } = useActions(insightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const funnelTab = useRef<HTMLSpanElement>(null)
+
+    const tabs: Tab[] = useMemo(
+        () => [
+            {
+                label: 'Trends',
+                type: InsightType.TRENDS,
+                dataAttr: 'insight-trends-tab',
+                hotkey: 't',
+            },
+            {
+                label: 'Funnels',
+                type: InsightType.FUNNELS,
+                dataAttr: 'insight-funnels-tab',
+                hotkey: 'f',
+                ref: funnelTab,
+            },
+            {
+                label: 'Retention',
+                type: InsightType.RETENTION,
+                dataAttr: 'insight-retention-tab',
+                hotkey: 'r',
+            },
+            {
+                label: 'User Paths',
+                type: InsightType.PATHS,
+                dataAttr: 'insight-path-tab',
+                hotkey: 'p',
+            },
+            {
+                label: 'Stickiness',
+                type: InsightType.STICKINESS,
+                dataAttr: 'insight-stickiness-tab',
+                hotkey: 'i',
+            },
+            {
+                label: 'Lifecycle',
+                type: InsightType.LIFECYCLE,
+                dataAttr: 'insight-lifecycle-tab',
+                hotkey: 'i',
+            },
+            {
+                label: 'Sessions',
+                type: InsightType.SESSIONS,
+                dataAttr: 'insight-sessions-tab',
+                hotkey: 'o',
+                className: clsx(featureFlags[FEATURE_FLAGS.SESSION_INSIGHT_REMOVAL] && 'deprecated'),
+            },
+        ],
+        [funnelTab]
+    )
 
     return (
         <>
@@ -38,86 +98,35 @@ export function InsightsNav(): JSX.Element {
                 onChange={(key) => setActiveView(key as InsightType)}
                 animated={false}
             >
-                <TabPane
-                    tab={
-                        <Tooltip placement="top" title={INSIGHT_TYPES_METADATA[InsightType.TRENDS].description}>
-                            <span data-attr="insight-trends-tab">
-                                Trends
-                                <InsightHotkey hotkey="t" />
-                            </span>
-                        </Tooltip>
-                    }
-                    key={InsightType.TRENDS}
-                />
-                <TabPane
-                    tab={
-                        <Tooltip placement="top" title={INSIGHT_TYPES_METADATA[InsightType.FUNNELS].description}>
-                            <span data-attr="insight-funnels-tab" ref={funnelTab}>
-                                Funnels
-                                <InsightHotkey hotkey="f" />
-                            </span>
-                        </Tooltip>
-                    }
-                    key={InsightType.FUNNELS}
-                />
-                <TabPane
-                    tab={
-                        <Tooltip placement="top" title={INSIGHT_TYPES_METADATA[InsightType.RETENTION].description}>
-                            <span data-attr="insight-retention-tab">
-                                Retention
-                                <InsightHotkey hotkey="r" />
-                            </span>
-                        </Tooltip>
-                    }
-                    key={InsightType.RETENTION}
-                />
-                <TabPane
-                    tab={
-                        <Tooltip placement="top" title={INSIGHT_TYPES_METADATA[InsightType.PATHS].description}>
-                            <span data-attr="insight-path-tab">
-                                User Paths
-                                <InsightHotkey hotkey="p" />
-                            </span>
-                        </Tooltip>
-                    }
-                    key={InsightType.PATHS}
-                />
-                <TabPane
-                    tab={
-                        <Tooltip placement="top" title={INSIGHT_TYPES_METADATA[InsightType.STICKINESS].description}>
-                            <span data-attr="insight-stickiness-tab">
-                                Stickiness
-                                <InsightHotkey hotkey="i" />
-                            </span>
-                        </Tooltip>
-                    }
-                    key={InsightType.STICKINESS}
-                />
-                <TabPane
-                    tab={
-                        <Tooltip placement="top" title={INSIGHT_TYPES_METADATA[InsightType.LIFECYCLE].description}>
-                            <span data-attr="insight-lifecycle-tab">
-                                Lifecycle
-                                <InsightHotkey hotkey="l" />
-                            </span>
-                        </Tooltip>
-                    }
-                    key={InsightType.LIFECYCLE}
-                />
-                <TabPane
-                    tab={
-                        <Tooltip placement="top" title={INSIGHT_TYPES_METADATA[InsightType.SESSIONS].description}>
-                            <div
-                                className={clsx(featureFlags[FEATURE_FLAGS.SESSION_INSIGHT_REMOVAL] && 'deprecated')}
-                                data-attr="insight-sessions-tab"
+                {tabs.map(({ label, type, dataAttr, hotkey, ref, className }) => {
+                    const Outer = ({ children }: { children: ReactNode }): JSX.Element =>
+                        INSIGHT_TYPES_METADATA[type]?.description ? (
+                            <Tooltip
+                                placement="top"
+                                title={INSIGHT_TYPES_METADATA[type].description}
+                                data-attr={dataAttr}
                             >
-                                Sessions
-                                <InsightHotkey hotkey="o" />
-                            </div>
-                        </Tooltip>
-                    }
-                    key={InsightType.SESSIONS}
-                />
+                                {children}
+                            </Tooltip>
+                        ) : (
+                            <span data-attr={dataAttr} ref={ref}>
+                                {children}
+                            </span>
+                        )
+                    return (
+                        <TabPane
+                            key={type}
+                            tab={
+                                <Link className={clsx('tab-text', className)} to={createInsightUrl(type)}>
+                                    <Outer>
+                                        {label}
+                                        <InsightHotkey hotkey={hotkey} />
+                                    </Outer>
+                                </Link>
+                            }
+                        />
+                    )
+                })}
             </Tabs>
         </>
     )
