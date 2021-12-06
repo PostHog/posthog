@@ -7,9 +7,7 @@ from posthog.celery import app
 from posthog.models.special_migration import MigrationStatus, SpecialMigration, get_all_running_special_migrations
 from posthog.models.utils import UUIDT
 from posthog.special_migrations.setup import (
-    ALL_SPECIAL_MIGRATIONS,
     POSTHOG_VERSION,
-    SPECIAL_MIGRATION_TO_DEPENDENCY,
     get_special_migration_definition,
     get_special_migration_dependency,
 )
@@ -68,7 +66,9 @@ def start_special_migration(migration_name: str) -> bool:
     return run_special_migration_next_op(migration_name, migration_instance)
 
 
-def run_special_migration_next_op(migration_name: str, migration_instance: Optional[SpecialMigration] = None):
+def run_special_migration_next_op(
+    migration_name: str, migration_instance: Optional[SpecialMigration] = None, run_all=True
+):
     migration_instance = migration_instance or SpecialMigration.objects.get(
         name=migration_name, status=MigrationStatus.Running
     )
@@ -101,7 +101,9 @@ def run_special_migration_next_op(migration_name: str, migration_instance: Optio
 
     update_migration_progress(migration_instance)
 
-    return run_special_migration_next_op(migration_name, migration_instance)
+    # recursively run through all operations
+    if run_all:
+        return run_special_migration_next_op(migration_name, migration_instance)
 
 
 def run_migration_healthcheck(migration_instance: SpecialMigration):
@@ -111,7 +113,9 @@ def run_migration_healthcheck(migration_instance: SpecialMigration):
 def update_migration_progress(migration_instance: SpecialMigration):
     # we don't want to interrupt a migration if the progress check fails, hence try without handling exceptions
     try:
-        migration_instance.progress = get_special_migration_definition(migration_instance.name).progress(migration_instance)  # type: ignore
+        migration_instance.progress = get_special_migration_definition(migration_instance.name).progress(
+            migration_instance
+        )
         migration_instance.save()
     except:
         pass

@@ -2,7 +2,7 @@ from typing import Dict, Optional
 
 from django.core.exceptions import ImproperlyConfigured
 from infi.clickhouse_orm.utils import import_submodules
-from semantic_version.base import SimpleSpec, Version
+from semantic_version.base import Version
 
 from posthog.settings import AUTO_START_SPECIAL_MIGRATIONS, DEBUG, E2E_TESTING, SKIP_SERVICE_VERSION_REQUIREMENTS, TEST
 from posthog.special_migrations.definition import SpecialMigrationDefinition
@@ -83,14 +83,14 @@ def kickstart_migration_if_possible(migration_name: str, applied_migrations: set
     run_next_migration(migration_name)
 
 
-def get_special_migration_definition(migration_name: str):
+def get_special_migration_definition(migration_name: str) -> SpecialMigrationDefinition:
     if TEST:
         return import_submodules(SPECIAL_MIGRATIONS_EXAMPLE_MODULE_PATH)[migration_name].Migration()
 
     return ALL_SPECIAL_MIGRATIONS[migration_name]
 
 
-def get_special_migration_dependency(migration_name: str):
+def get_special_migration_dependency(migration_name: str) -> Optional[str]:
     if TEST:
         return None
 

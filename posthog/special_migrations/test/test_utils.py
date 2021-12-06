@@ -1,7 +1,7 @@
 from datetime import datetime
 from unittest.mock import patch
 
-from infi.clickhouse_orm.utils import import_submodules
+import pytest
 
 from posthog.constants import AnalyticsDBMS
 from posthog.models.special_migration import MigrationStatus
@@ -19,6 +19,7 @@ from posthog.test.base import BaseTest
 
 
 class TestUtils(BaseTest):
+    @pytest.mark.ee
     @patch("ee.clickhouse.client.sync_execute")
     def test_execute_op_clickhouse(self, mock_sync_execute):
         execute_op(AnalyticsDBMS.CLICKHOUSE, "SELECT 1", 10, "some_id")
