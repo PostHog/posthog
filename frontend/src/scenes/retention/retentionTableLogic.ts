@@ -120,7 +120,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         actionFilterReturningEntity: [(s) => [s.filters], (filters) => ({ events: [filters.returning_entity] })],
         retentionReference: [
             (selectors) => [selectors.filters],
-            ({ retention_reference = 'total' }) => retention_reference,
+            ({ retention_reference }) => retention_reference ?? 'total',
         ],
     },
     listeners: ({ actions, values, props }) => ({
