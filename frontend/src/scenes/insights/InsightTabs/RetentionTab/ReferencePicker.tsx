@@ -5,26 +5,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { useActions, useValues } from 'kea'
 import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 
-const options = {
-    total: {
-        value: 'total',
-        icon: <PercentageOutlined />,
-        label: 'Overall cohort',
-        description: 'Display retention values relative to initial cohort size',
-    },
-    previous: {
-        value: 'previous',
-        icon: <PercentageOutlined />,
-        label: 'Relative to previous period',
-        description: `
-            Display retention values relative to previous retention period. When
-            displayed as a line graph, this is what is sometimes called a J-Curve or
-            smile graph, and is intended to identify how quickly the dropoff of
-            users is tending towards zero
-        `,
-    },
-} as const
-
 export function ReferencePicker(): JSX.Element {
     /*
         Reference picker specifies how retention values should be displayed,
@@ -43,7 +23,18 @@ export function ReferencePicker(): JSX.Element {
             data-attr="reference-selector"
             optionLabelProp="label"
         >
-            {Object.values(options).map((option) => (
+            {[
+                {
+                    value: 'total',
+                    icon: <PercentageOutlined />,
+                    label: 'Overall cohort',
+                },
+                {
+                    value: 'previous',
+                    icon: <PercentageOutlined />,
+                    label: 'Relative to previous period',
+                },
+            ].map((option) => (
                 <Select.Option
                     key={option.value}
                     value={option.value}
