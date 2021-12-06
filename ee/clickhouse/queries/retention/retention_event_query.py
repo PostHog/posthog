@@ -90,7 +90,7 @@ class RetentionEventsQuery(ClickhouseEventQuery):
                 {','.join(_fields)} 
 
             FROM 
-                events AS e
+                events AS {self.EVENT_TABLE_ALIAS}
 
                 {self._get_distinct_id_query()}
                 {person_query}
