@@ -114,8 +114,8 @@ def update_migration_progress(migration_instance: SpecialMigration):
     # we don't want to interrupt a migration if the progress check fails, hence try without handling exceptions
     try:
         migration_instance.progress = get_special_migration_definition(migration_instance.name).progress(
-            migration_instance
-        )  # type: ignore
+            migration_instance  # type: ignore
+        )
         migration_instance.save()
     except:
         pass
