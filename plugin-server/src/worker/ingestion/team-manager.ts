@@ -53,8 +53,8 @@ export class TeamManager {
     }
 
     async flushLastSeenAtCache(): Promise<void> {
-        let valuesStatement = ''
-        let params: (string | number)[] = []
+        const valuesStatements = []
+        const params: (string | number)[] = []
 
         const startTime = DateTime.now()
 
@@ -70,8 +70,8 @@ export class TeamManager {
             const [key, value] = event
             const [teamId, eventName] = JSON.parse(key)
             if (teamId && eventName && value) {
-                valuesStatement += `($${params.length + 1}, $${params.length + 2}, $${params.length + 3}),`
-                params = params.concat([teamId, eventName, value])
+                valuesStatements.push(`($${params.length + 1},$${params.length + 2},$${params.length + 3})`)
+                params.push(teamId, eventName, value / 1000)
             }
         }
 
@@ -79,13 +79,10 @@ export class TeamManager {
 
         if (params.length) {
             await this.db.postgresQuery(
-                `UPDATE posthog_eventdefinition AS t1 SET last_seen_at = GREATEST(t1.last_seen_at, to_timestamp(t2.last_seen_at::integer))
-                FROM (VALUES ${valuesStatement.substring(
-                    0,
-                    valuesStatement.length - 1
-                )}) AS t2(team_id, name, last_seen_at)
+                `UPDATE posthog_eventdefinition AS t1 SET last_seen_at = GREATEST(t1.last_seen_at, to_timestamp(t2.last_seen_at::numeric))
+                FROM (VALUES ${valuesStatements.join(',')}) AS t2(team_id, name, last_seen_at)
                 WHERE t1.name = t2.name AND t1.team_id = t2.team_id::integer`,
-                [...params],
+                params,
                 'updateEventLastSeen'
             )
         }
