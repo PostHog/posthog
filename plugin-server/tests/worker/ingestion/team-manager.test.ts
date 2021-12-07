@@ -296,33 +296,34 @@ describe('TeamManager()', () => {
             teamManager.eventLastSeenCache.set(JSON.stringify([2, '$pageview']), 1497307450) // older than currently last_seen_at
             teamManager.eventLastSeenCache.set(JSON.stringify([2, 'new-event']), 1626129850) // regular
             teamManager.eventLastSeenCache.set(JSON.stringify([2, 'another_test_event']), 1623537850)
-            teamManager.eventLastSeenCache.set(JSON.stringify([3, '$autocapture']), 1528843450) // inexistent team
-            teamManager.eventLastSeenCache.set(JSON.stringify([3, '$pageview']), 0) // invalid timestamp (will not be run)
+            teamManager.eventLastSeenCache.set(JSON.stringify([3, '$pageview']), 1528843450) // inexistent team
 
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-03-03T03:03:03Z').getTime())
             jest.spyOn(hub.db, 'postgresQuery')
             await teamManager.flushLastSeenAtCache()
             expect(teamManager.eventLastSeenCache.size).toBe(0)
             expect(teamManager.lastFlushAt.valueOf()).toBe(DateTime.fromISO('2020-03-03T03:03:03Z').valueOf())
-            // expect(hub.db.postgresQuery).toHaveBeenCalledTimes(6) // 4 update queries + begin + commit transaction
-
-            const expectedQueries = [
-                [2, '$pageview', 1497307450],
-                [2, 'new-event', 1626129850],
-                [2, 'another_test_event', 1623537850],
-                [3, '$autocapture', 1528843450],
-            ]
-
-            expect(hub.db.postgresQuery).toHaveBeenNthCalledWith(1, 'BEGIN', undefined, 'updateEventsLastSeenBegin')
-            for (let i = 0; i < expectedQueries.length; i++) {
-                expect(hub.db.postgresQuery).toHaveBeenNthCalledWith(
-                    i + 2,
-                    'UPDATE posthog_eventdefinition AS t1 SET last_seen_at = GREATEST(t1.last_seen_at, to_timestamp($3)) WHERE team_id = $1 AND name = $2',
-                    expectedQueries[i],
-                    'updateEventLastSeen'
-                )
-            }
-            expect(hub.db.postgresQuery).toHaveBeenLastCalledWith('COMMIT', undefined, 'updateEventsLastSeenCommit')
+            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1) // only a single query is fired
+            expect(hub.db.postgresQuery).toHaveBeenCalledWith(
+                `UPDATE posthog_eventdefinition AS t1 SET last_seen_at = GREATEST(t1.last_seen_at, to_timestamp(t2.last_seen_at::integer))
+                FROM (VALUES ($1, $2, $3),($4, $5, $6),($7, $8, $9),($10, $11, $12)) AS t2(team_id, name, last_seen_at)
+                WHERE t1.name = t2.name AND t1.team_id = t2.team_id::integer`,
+                [
+                    2,
+                    '$pageview',
+                    1497307450,
+                    2,
+                    'new-event',
+                    1626129850,
+                    2,
+                    'another_test_event',
+                    1623537850,
+                    3,
+                    '$pageview',
+                    1528843450,
+                ],
+                'updateEventLastSeen'
+            )
 
             const eventDefinitions = await hub.db.fetchEventDefinitions()
             expect(eventDefinitions).toEqual([
