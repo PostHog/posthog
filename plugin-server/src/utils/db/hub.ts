@@ -161,6 +161,7 @@ export async function createHub(
     const db = new DB(postgres, redisPool, kafkaProducer, clickhouse, statsd)
     const teamManager = new TeamManager(
         db,
+        statsd,
         serverConfig.SITE_URL,
         serverConfig.EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED_TEAMS
     )

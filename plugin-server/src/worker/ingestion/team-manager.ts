@@ -1,5 +1,6 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+import { StatsD } from 'hot-shots'
 
 import { Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
@@ -19,10 +20,12 @@ export class TeamManager {
     eventPropertiesCache: Map<TeamId, Set<string>>
     instanceSiteUrl: string
     experimentalLastSeenAtEnabledTeams: number[]
+    statsd: StatsD
 
     // TODO: #7422 Remove temporary parameter
-    constructor(db: DB, instanceSiteUrl?: string | null, experimentalLastSeenAtEnabledTeams?: string) {
+    constructor(db: DB, statsd: StatsD, instanceSiteUrl?: string | null, experimentalLastSeenAtEnabledTeams?: string) {
         this.db = db
+        this.statsd = statsd
         this.teamCache = new Map()
         this.eventNamesCache = new Map()
         this.eventLastSeenCache = new Map()
@@ -86,8 +89,10 @@ export class TeamManager {
                 'updateEventLastSeen'
             )
         }
+        const elapsedTime = DateTime.now().diff(startTime).milliseconds
+        this.statsd?.timing('flushLastSeenAtCache', elapsedTime)
         status.info(
-            `✅ 🚽 flushLastSeenAtCache finished successfully in ${DateTime.now().diff(startTime).milliseconds} ms.`
+            `✅ 🚽 flushLastSeenAtCache finished successfully in ${elapsedTime} ms.`
         )
     }
 
@@ -97,6 +102,7 @@ export class TeamManager {
         properties: Properties,
         eventTimestamp: DateTime
     ): Promise<void> {
+        const startTime = DateTime.now()
         const team: Team | null = await this.fetchTeam(teamId)
 
         if (!team) {
@@ -188,6 +194,8 @@ export class TeamManager {
             }
         }
         clearTimeout(timeout)
+        const statsDEvent = this.experimentalLastSeenAtEnabledTeams.includes(team.id) ? 'updateEventNamesAndProperties.lastSeenAtEnabled' : 'updateEventNamesAndProperties'
+        this.statsd?.timing(statsDEvent, DateTime.now().diff(startTime).milliseconds)
     }
 
     public async cacheEventNamesAndProperties(teamId: number): Promise<void> {
