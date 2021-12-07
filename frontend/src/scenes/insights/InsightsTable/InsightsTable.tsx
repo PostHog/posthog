@@ -1,5 +1,5 @@
 import React from 'react'
-import { Dropdown, Menu, Skeleton, Table } from 'antd'
+import { Dropdown, Menu, Skeleton, Table, Typography } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
@@ -111,24 +111,38 @@ export function InsightsTable({
         })
     }
 
-    if (filters.breakdown) {
+    if (filters.breakdown || filters.compare) {
         columns.push({
             title: (
-                <PropertyKeyInfo disableIcon disablePopover value={filters.breakdown.toString() || 'Breakdown Value'} />
+                <PropertyKeyInfo
+                    disableIcon
+                    disablePopover
+                    value={filters.breakdown ? filters.breakdown.toString() || 'Breakdown Value' : 'Compare Value'}
+                />
             ),
-            render: function RenderBreakdownValue({}, item: IndexedTrendResult) {
-                const label = formatBreakdownLabel(cohorts, item.breakdown_value)
+            render: function RenderBreakdownAndOrCompareValue({}, item: IndexedTrendResult) {
+                const breakdownLabel = filters.breakdown ? formatBreakdownLabel(cohorts, item.breakdown_value) : null
+                const compareLabel = filters.compare ? formatCompareLabel(item) : null
                 return (
                     <SeriesToggleWrapper id={item.id} toggleVisibility={toggleVisibility}>
-                        <div title={label}>{label}</div>
+                        {breakdownLabel && <span title={breakdownLabel}>{breakdownLabel}</span>}
+                        {compareLabel && (
+                            <Typography.Text
+                                type={breakdownLabel ? 'secondary' : undefined}
+                                style={breakdownLabel ? { fontSize: 13, marginLeft: 4 } : undefined}
+                                title={compareLabel}
+                            >
+                                {breakdownLabel ? `(${compareLabel})` : compareLabel}
+                            </Typography.Text>
+                        )}
                     </SeriesToggleWrapper>
                 )
             },
             fixed: 'left',
             width: 150,
             sorter: (a, b) => {
-                const labelA = formatBreakdownLabel(cohorts, a.breakdown_value)
-                const labelB = formatBreakdownLabel(cohorts, b.breakdown_value)
+                const labelA = formatBreakdownLabel(cohorts, a.breakdown_value) + formatCompareLabel(a)
+                const labelB = formatBreakdownLabel(cohorts, b.breakdown_value) + formatCompareLabel(b)
                 return labelA.localeCompare(labelB)
             },
         })
@@ -157,6 +171,7 @@ export function InsightsTable({
                         className={clsx({
                             editable: canEditSeriesNameInline,
                         })}
+                        compareValue={filters.compare ? formatCompareLabel(item) : undefined}
                         hideSeriesSubtitle
                         onLabelClick={canEditSeriesNameInline ? () => handleEditClick(item) : undefined}
                     />
@@ -172,36 +187,36 @@ export function InsightsTable({
         },
     })
 
-    if (filters.compare) {
-        columns.push({
-            title: 'Compare',
-            render: function RenderCompare({}, item: IndexedTrendResult): JSX.Element {
-                return <div>{formatCompareLabel(item)}</div>
-            },
-            fixed: 'left',
-            width: 150,
-            sorter: (a, b) => {
-                const labelA = a.compare_label || a.label || ''
-                const labelB = b.compare_label || b.label || ''
-                return labelA.localeCompare(labelB)
-            },
-        })
-    }
-
     if (indexedResults?.length > 0 && indexedResults[0].data) {
         const valueColumns: ColumnsType<IndexedTrendResult> = indexedResults[0].data.map(({}, index: number) => ({
             title: (
-                <DateDisplay
-                    interval={(filters.interval as IntervalType) || 'day'}
-                    date={(indexedResults[0].dates || indexedResults[0].days)[index]}
-                    hideWeekRange
-                />
+                <div className={clsx('insight-table-count-header', !!filters.compare && 'right')}>
+                    <DateDisplay
+                        interval={(filters.interval as IntervalType) || 'day'}
+                        date={(indexedResults[0].dates || indexedResults[0].days)[index]}
+                        hideDate={!!filters.compare}
+                        hideWeekRange
+                    />
+                </div>
             ),
             render: function RenderPeriod({}, item: IndexedTrendResult) {
-                return maybeAddCommasToInteger(item.data[index])
+                // If comparing, show dates inside of cells
+                return (
+                    <span className={clsx('insight-table-count-cell', !!filters.compare && 'dateworthy')}>
+                        {maybeAddCommasToInteger(item.data[index])}
+                        <DateDisplay
+                            interval={(filters.interval as IntervalType) || 'day'}
+                            date={(item.dates || item.days)[index]}
+                            hideDate={!filters.compare}
+                            dateClassName="dated-highlight"
+                            hideWeekRange
+                            hideDateHighlight
+                        />
+                    </span>
+                )
             },
             sorter: (a, b) => a.data[index] - b.data[index],
-            align: 'center',
+            align: 'center', // doesn't matter since it's overridden in css
         }))
 
         columns.push(...valueColumns)

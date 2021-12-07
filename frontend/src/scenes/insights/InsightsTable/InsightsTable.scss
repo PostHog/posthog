@@ -21,3 +21,19 @@
         }
     }
 }
+
+.insight-table-count-header {
+    width: 100%;
+
+    &.right {
+        text-align: right;
+    }
+}
+
+.insight-table-count-cell {
+    &.dateworthy {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+}
