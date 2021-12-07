@@ -1,6 +1,6 @@
 import { Properties } from '@posthog/plugin-scaffold'
-import { DateTime } from 'luxon'
 import { StatsD } from 'hot-shots'
+import { DateTime } from 'luxon'
 
 import { Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
