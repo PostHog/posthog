@@ -17,7 +17,6 @@ from ee.clickhouse.sql.retention.people_in_period import (
     RETENTION_PEOPLE_PER_PERIOD_SQL,
 )
 from ee.clickhouse.sql.retention.retention import (
-    INITIAL_BREAKDOWN_INTERVAL_SQL,
     INITIAL_INTERVAL_SQL,
     REFERENCE_EVENT_SQL,
     REFERENCE_EVENT_UNIQUE_SQL,
@@ -138,26 +137,7 @@ class ClickhouseRetention(Retention):
             )
         )
 
-        result = [(tuple(res[0]), *res[1:]) for res in result]  # make breakdown hashable, required later
-
-        initial_interval_result = sync_execute(
-            substitute_params(INITIAL_BREAKDOWN_INTERVAL_SQL, all_params).format(
-                reference_event_sql=target_event_query, trunc_func=trunc_func,
-            ),
-        )
-
-        initial_interval_result = [
-            (tuple(res[0]), *res[1:]) for res in initial_interval_result
-        ]  # make breakdown hashable, required later
-
-        result_dict = {}
-        for initial_res in initial_interval_result:
-            result_dict.update({CohortKey(initial_res[0], 0): {"count": initial_res[1], "people": []}})
-
-        for res in result:
-            result_dict.update({CohortKey(res[0], res[1]): {"count": res[2], "people": []}})
-
-        return result_dict
+        return {CohortKey(tuple(res[0]), res[1]): {"count": res[2], "people": []} for res in result}
 
     def run(self, filter: RetentionFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         if filter.display == TRENDS_LINEAR:

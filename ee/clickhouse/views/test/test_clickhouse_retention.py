@@ -201,6 +201,15 @@ class RetentionTests(TestCase, ClickhouseTestMixin):
                     "person 2": [{"event": "target event", "properties": {"os": "Chrome"}},],
                     "person 3": [{"event": "target event", "properties": {"os": "Safari"}}],
                 },
+                #  Include the next day also, to ensure it's not just the initial
+                #  interval that is getting handled. (NOTE: adding this as as of
+                #  the time of writing we do two separate queries one for initial
+                #  event and another for the rest)
+                "2020-01-02": {
+                    "person 1": [{"event": "target event", "properties": {"os": "Chrome"}},],
+                    "person 2": [{"event": "target event", "properties": {"os": "Chrome"}},],
+                    "person 3": [{"event": "target event", "properties": {"os": "Safari"}}],
+                },
             },
             team=team,
         )

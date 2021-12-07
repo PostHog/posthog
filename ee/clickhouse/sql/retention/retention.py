@@ -16,31 +16,59 @@ ORDER BY base_interval, intervals_from_base
 """
 
 RETENTION_BREAKDOWN_SQL = """
+    WITH top_initial_intervals AS (SELECT 
+            target_event.breakdown_values AS breakdown_values,
+            0 AS intervals_from_base,
+            count(DISTINCT target_event.target) AS count
+        FROM ({target_event_query}) AS target_event
+
+        GROUP BY breakdown_values
+        ORDER BY count DESC
+
+        LIMIT %(limit)s
+    )
+
+    -- First get the returning intervals, but make sure to filter by 
+    -- the top breakdown_values from the initial interval
     SELECT
-        target_event.breakdown_values AS breakdown_values,
-        datediff(
-            %(period)s, 
-            target_event.event_date, 
-            dateTrunc(%(period)s, toDateTime(returning_event.event_date))
-        ) AS intervals_from_base,
-        COUNT(DISTINCT returning_event.target) AS count
+        initial.breakdown_values AS breakdown_values,
+        returning.intervals_from_base AS intervals_from_base,
+        returning.count AS count
 
-    FROM
-        ({returning_event_query}) AS returning_event
-        JOIN ({target_event_query}) target_event
-            ON returning_event.target = target_event.target
+    FROM top_initial_intervals AS initial
 
-    WHERE 
-        dateTrunc(%(period)s, returning_event.event_date) >
-        dateTrunc(%(period)s, target_event.event_date)
+    INNER JOIN (
+        SELECT
+            target_event.breakdown_values AS breakdown_values,
+            datediff(
+                %(period)s, 
+                target_event.event_date, 
+                dateTrunc(%(period)s, toDateTime(returning_event.event_date))
+            ) AS intervals_from_base,
+            COUNT(DISTINCT returning_event.target) AS count
 
-    GROUP BY 
-        breakdown_values, 
-        intervals_from_base
+        FROM
+            ({returning_event_query}) AS returning_event
+            JOIN ({target_event_query}) target_event
+                ON returning_event.target = target_event.target
 
-    ORDER BY 
-        breakdown_values, 
-        intervals_from_base
+        WHERE 
+            dateTrunc(%(period)s, returning_event.event_date) >
+            dateTrunc(%(period)s, target_event.event_date)
+
+        GROUP BY 
+            breakdown_values, 
+            intervals_from_base
+
+        ORDER BY 
+            breakdown_values, 
+            intervals_from_base
+    ) AS returning ON returning.breakdown_values = initial.breakdown_values
+
+    UNION ALL
+
+    -- Then add in the initial interval breakdown
+    SELECT * FROM top_initial_intervals
 """
 
 REFERENCE_EVENT_SQL = """
@@ -82,17 +110,4 @@ SELECT datediff(%(period)s, {trunc_func}(toDateTime(%(start_date)s)), event_date
        count(DISTINCT target) FROM (
     {reference_event_sql}
 ) GROUP BY event_date ORDER BY event_date
-"""
-
-
-INITIAL_BREAKDOWN_INTERVAL_SQL = """
-    SELECT 
-        target_event.breakdown_values AS breakdown_values,
-        count(DISTINCT target_event.target) as count
-    FROM ({reference_event_sql}) AS target_event
-
-    GROUP BY breakdown_values
-    ORDER BY count DESC
-
-    LIMIT %(limit)s
 """
