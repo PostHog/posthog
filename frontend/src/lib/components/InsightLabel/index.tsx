@@ -1,6 +1,6 @@
 import React from 'react'
 import { Col, Row, Space, Tag, Typography } from 'antd'
-import { ActionFilter } from '~/types'
+import { ActionFilter, BreakdownKeyType } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, hexToRGBA } from 'lib/utils'
 import './InsightLabel.scss'
@@ -23,7 +23,7 @@ interface InsightsLabelProps {
     action?: ActionFilter
     value?: string
     className?: string
-    breakdownValue?: string | number | Array<string | number>
+    breakdownValue?: BreakdownKeyType
     hideBreakdown?: boolean // Whether to hide the breakdown detail in the label
     hideIcon?: boolean // Whether to hide the icon that showcases the color of the series
     iconSize?: IconSize // Size of the series color icon
@@ -150,13 +150,6 @@ export function InsightLabel({
                                 </Tag>
                             ))}
                         </Space>
-                    )}
-
-                    {breakdownValue && !hideBreakdown && !Array.isArray(breakdownValue) && (
-                        <>
-                            {hasMultipleSeries && <span style={{ padding: '0 2px' }}>-</span>}
-                            {breakdownValue === 'total' ? <i>Total</i> : breakdownValue}
-                        </>
                     )}
                 </div>
             </Col>

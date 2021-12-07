@@ -3,7 +3,6 @@ import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { EventElements } from 'scenes/events/EventElements'
 import { Tabs, Button } from 'antd'
-
 import { createActionFromEvent } from './createActionFromEvent'
 import { EventJSON } from 'scenes/events/EventJSON'
 import { EventType } from '../../types'
@@ -15,7 +14,8 @@ import { dayjs } from 'lib/dayjs'
 const { TabPane } = Tabs
 
 export function EventDetails({ event }: { event: EventType }): JSX.Element {
-    const { currentTeamId } = useValues(teamLogic)
+    const { currentTeamId, currentTeam } = useValues(teamLogic)
+    const dataAttributes = currentTeam?.data_attributes || []
 
     const [showHiddenProps, setShowHiddenProps] = useState(false)
 
@@ -38,8 +38,8 @@ export function EventDetails({ event }: { event: EventType }): JSX.Element {
         <>
             {currentTeamId && (
                 <Button
-                    onClick={() => createActionFromEvent(currentTeamId, event, 0)}
-                    style={{ float: 'right', zIndex: 1 }}
+                    onClick={() => createActionFromEvent(currentTeamId, event, 0, dataAttributes)}
+                    style={{ float: 'right', zIndex: 1, marginTop: 8 }}
                     type="primary"
                 >
                     Create action from event
@@ -47,10 +47,10 @@ export function EventDetails({ event }: { event: EventType }): JSX.Element {
             )}
 
             <Tabs
-                style={{ float: 'left', width: '100%', marginTop: -40 }}
                 data-attr="event-details"
                 defaultActiveKey="properties"
-                animated={false}
+                style={{ float: 'left', width: '100%', marginTop: -38 }}
+                tabBarStyle={{ margin: 0 }}
             >
                 <TabPane tab="Properties" key="properties">
                     <PropertiesTable

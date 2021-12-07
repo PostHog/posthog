@@ -29,11 +29,14 @@ def run_special_migration(migration_name: str, fresh_start: bool = True) -> None
         start_special_migration(migration_name)
         return
 
-    # TODO: Implement resumable operations
+    # Resumable operations
     run_special_migration_next_op(migration_name)
 
 
-@app.task(ignore_result=False, track_started=True, max_retries=0)
+# This task:
+# 1. Checks if the worker crashed and handle the affected migration appropriately
+# 2. Does a periodic healthcheck to make sure it's safe to continue running the migration
+# 3. Updates migration progress
 def check_special_migration_health() -> None:
     from posthog.models.special_migration import MigrationStatus, SpecialMigration
 
@@ -43,7 +46,7 @@ def check_special_migration_health() -> None:
 
     migration_task_celery_state = AsyncResult(migration_instance.celery_task_id).state
 
-    # we only care about "supposedly running" tasks
+    # we only care about "supposedly running" tasks here
     # failures and successes are handled elsewhere
     # pending means we haven't picked up the task yet
     # retry is not possible as max_retries == 0

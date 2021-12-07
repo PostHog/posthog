@@ -109,7 +109,10 @@ function DashboardView(): JSX.Element {
             ) : (
                 <div>
                     <div className="dashboard-items-actions">
-                        <div className="left-item">
+                        <div
+                            className="left-item"
+                            style={dashboardMode === DashboardMode.Public ? { textAlign: 'right' } : undefined}
+                        >
                             {dashboardMode === DashboardMode.Public ? <LastRefreshText /> : <DashboardReloadAction />}
                         </div>
 
