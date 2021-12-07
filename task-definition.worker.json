@@ -119,10 +119,6 @@
                 {
                     "name": "CALCULATE_X_COHORTS_PARALLEL",
                     "value": "50"
-                },
-                {
-                    "name": "EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED_TEAMS",
-                    "value": "2"
                 }
             ],
             "secrets": [
