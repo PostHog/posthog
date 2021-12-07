@@ -50,9 +50,11 @@ export class TeamManager {
     }
 
     async flushLastSeenAtCache(): Promise<void> {
-        let valuesStatement = ''
-        let params: (string | number)[] = []
-
+        if (!this.eventLastSeenCache.size) {
+            status.info('🟠 Skipping flushLastSeenAtCache as it is empty.')
+            this.lastFlushAt = DateTime.now()
+            return
+        }
         const startTime = DateTime.now()
 
         const lastFlushedMinsAgo = DateTime.now().diff(this.lastFlushAt).minutes
@@ -63,29 +65,29 @@ export class TeamManager {
         const events = this.eventLastSeenCache
         this.eventLastSeenCache = new Map()
 
-        for (const event of events) {
-            const [key, value] = event
-            const [teamId, eventName] = JSON.parse(key)
-            if (teamId && eventName && value) {
-                valuesStatement += `($${params.length + 1}, $${params.length + 2}, $${params.length + 3}),`
-                params = params.concat([teamId, eventName, value])
+        await this.db.postgresQuery('BEGIN', undefined, 'updateEventsLastSeenBegin')
+        try {
+            for (const event of events) {
+                const [key, value] = event
+                const [teamId, eventName] = JSON.parse(key)
+                if (teamId && eventName && value) {
+                    await this.db.postgresQuery(
+                        'UPDATE posthog_eventdefinition AS t1 SET last_seen_at = GREATEST(t1.last_seen_at, to_timestamp($3)) WHERE team_id = $1 AND name = $2',
+                        [teamId, eventName, value],
+                        'updateEventLastSeen'
+                    )
+                }
             }
+            await this.db.postgresQuery('COMMIT', undefined, 'updateEventsLastSeenCommit')
+        } catch (e) {
+            await this.db.postgresQuery('COMMIT', undefined, 'updateEventsLastSeenCommitOnError')
+            status.error(
+                `❌ Error executing flushLastSeenAtCache after ${DateTime.now().diff(startTime).milliseconds} ms.`
+            )
+            throw e
         }
 
         this.lastFlushAt = DateTime.now()
-
-        if (params.length) {
-            await this.db.postgresQuery(
-                `UPDATE posthog_eventdefinition AS t1 SET last_seen_at = GREATEST(t1.last_seen_at, to_timestamp(t2.last_seen_at::integer))
-                FROM (VALUES ${valuesStatement.substring(
-                    0,
-                    valuesStatement.length - 1
-                )}) AS t2(team_id, name, last_seen_at)
-                WHERE t1.name = t2.name AND t1.team_id = t2.team_id::integer`,
-                [...params],
-                'updateEventLastSeen'
-            )
-        }
         status.info(
             `✅ 🚽 flushLastSeenAtCache finished successfully in ${DateTime.now().diff(startTime).milliseconds} ms.`
         )
