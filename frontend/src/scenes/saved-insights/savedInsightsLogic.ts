@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { errorToast, objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
-import { DashboardItemType, LayoutView, SavedInsightsTabs } from '~/types'
+import { InsightType, LayoutView, SavedInsightsTabs } from '~/types'
 import { savedInsightsLogicType } from './savedInsightsLogicType'
 import { Dayjs } from 'dayjs'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 export const INSIGHTS_PER_PAGE = 15
 
 export interface InsightsResult {
-    results: DashboardItemType[]
+    results: InsightType[]
     count: number
     previous?: string
     next?: string
@@ -57,9 +57,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
     actions: {
         setSavedInsightsFilters: (filters: Partial<SavedInsightFilters>, merge = true) => ({ filters, merge }),
         addGraph: (type: string) => ({ type }),
-        updateFavoritedInsight: (insight: DashboardItemType, favorited: boolean) => ({ insight, favorited }),
-        renameInsight: (insight: DashboardItemType) => ({ insight }),
-        duplicateInsight: (insight: DashboardItemType) => ({ insight }),
+        updateFavoritedInsight: (insight: InsightType, favorited: boolean) => ({ insight, favorited }),
+        renameInsight: (insight: InsightType) => ({ insight }),
+        duplicateInsight: (insight: InsightType) => ({ insight }),
         loadInsights: true,
     },
     loaders: ({ values }) => ({
@@ -77,7 +77,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
 
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
                     try {
-                        const insight: DashboardItemType = await api.get(
+                        const insight: InsightType = await api.get(
                             `api/projects/${teamLogic.values.currentTeamId}/insights/${filters.search}`
                         )
                         return {
@@ -110,7 +110,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                 )
                 return { ...values.insights, results: updatedInsights }
             },
-            setInsight: (insight: DashboardItemType) => {
+            setInsight: (insight: InsightType) => {
                 const results = values.insights.results.map((i) => (i.short_id === insight.short_id ? insight : i))
                 return { ...values.insights, results }
             },
@@ -253,7 +253,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                 // `fromItem` for legacy /insights url redirect support
                 const insightId = parseInt(hashParams.fromItem)
                 try {
-                    const { short_id }: DashboardItemType = await api.get(
+                    const { short_id }: InsightType = await api.get(
                         `api/projects/${teamLogic.values.currentTeamId}/insights/${insightId}`
                     )
                     if (!short_id) {

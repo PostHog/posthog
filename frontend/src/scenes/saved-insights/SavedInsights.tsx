@@ -5,7 +5,7 @@ import { Link } from 'lib/components/Link'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { deleteWithUndo } from 'lib/utils'
 import React from 'react'
-import { DashboardItemType, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
+import { InsightType, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
 import { AppstoreFilled, StarFilled, StarOutlined, PlusOutlined, UnorderedListOutlined } from '@ant-design/icons'
 import './SavedInsights.scss'
@@ -173,7 +173,7 @@ export function SavedInsights(): JSX.Element {
     const startCount = (page - 1) * INSIGHTS_PER_PAGE + 1
     const endCount = page * INSIGHTS_PER_PAGE < count ? page * INSIGHTS_PER_PAGE : count
 
-    const columns: LemonTableColumns<DashboardItemType> = [
+    const columns: LemonTableColumns<InsightType> = [
         {
             key: 'id',
             className: 'icon-column',
@@ -218,7 +218,7 @@ export function SavedInsights(): JSX.Element {
             ? [
                   {
                       title: 'Tags',
-                      dataIndex: 'tags' as keyof DashboardItemType,
+                      dataIndex: 'tags' as keyof InsightType,
                       key: 'tags',
                       render: function renderTags(tags: string[]) {
                           return <ObjectTags tags={tags} staticOnly />
@@ -228,8 +228,8 @@ export function SavedInsights(): JSX.Element {
             : []),
         ...(tab === SavedInsightsTabs.Yours
             ? []
-            : [createdByColumn() as LemonTableColumn<DashboardItemType, keyof DashboardItemType | undefined>]),
-        createdAtColumn() as LemonTableColumn<DashboardItemType, keyof DashboardItemType | undefined>,
+            : [createdByColumn() as LemonTableColumn<InsightType, keyof InsightType | undefined>]),
+        createdAtColumn() as LemonTableColumn<InsightType, keyof InsightType | undefined>,
         {
             title: 'Last modified',
             sorter: true,
@@ -444,7 +444,7 @@ export function SavedInsights(): JSX.Element {
                     ) : (
                         <Row gutter={[16, 16]}>
                             {insights &&
-                                insights.results.map((insight: DashboardItemType, index: number) => (
+                                insights.results.map((insight: InsightType, index: number) => (
                                     <Col
                                         xs={24}
                                         sm={24}

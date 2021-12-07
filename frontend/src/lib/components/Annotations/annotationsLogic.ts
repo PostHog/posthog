@@ -138,11 +138,11 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
         createAnnotationNow: async ({ content, date_marker, created_at, scope }) => {
             await api.create(`api/projects/${teamLogic.values.currentTeamId}/annotations`, {
                 content,
-                date_marker: dayjs(date_marker),
-                created_at,
+                date_marker: dayjs(date_marker).toISOString(),
+                created_at: created_at.toISOString(),
                 dashboard_item: props.insightId,
                 scope,
-            })
+            } as Partial<AnnotationType>)
             actions.loadAnnotations()
         },
         deleteAnnotation: async ({ id }) => {
