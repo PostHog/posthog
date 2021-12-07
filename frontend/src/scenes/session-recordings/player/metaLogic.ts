@@ -20,7 +20,7 @@ export const metaLogic = kea<metaLogicType>({
             sessionRecordingLogic,
             ['sessionPlayerData'],
             sessionRecordingPlayerLogic,
-            ['snapshots', 'time', 'scale', 'meta'],
+            ['snapshots', 'time', 'scale', 'recordingMetaData'],
         ],
         actions: [sessionRecordingLogic, ['loadRecordingMetaSuccess']],
     },

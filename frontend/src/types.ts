@@ -332,13 +332,31 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
 
 export type SessionRecordingId = string
 
+export interface PlayerPosition {
+    time: number
+    windowId: string
+}
+
+export interface RecordingSegment {
+    startPlayerPosition: PlayerPosition // Player time (for the specific window_id's player) that the segment starts. If the segment starts 10 seconds into a recording, this would be 10000
+    endPlayerPosition: PlayerPosition // Player time (for the specific window_id' player) that the segment ends
+    startTimeEpochMs: number // Epoch time that the segment starts
+    endTimeEpochMs: number // Epoch time that the segment ends
+    durationMs: number
+    windowId: string
+    isActive: boolean
+}
+
 export interface SessionRecordingMeta {
     id: string
     viewed: boolean
-    recording_duration: number
-    start_time: number
-    end_time: number
-    distinct_id: string
+    recordingDurationMs: number
+    segments: RecordingSegment[]
+    startAndEndTimesByWindowId: Record<string, Record<string, number>>
+    startTime: number
+    endTime: number
+    distinctId: string
+    duration: number
 }
 export interface SessionPlayerData {
     snapshots: eventWithTime[]
@@ -540,10 +558,8 @@ export interface EventType {
 }
 
 export interface RecordingEventType extends Omit<EventType, 'timestamp'> {
-    percentage: number
-    timestamp: number
-    queryValue?: string
-    colonTimestamp?: string
+    playerTime: number
+    playerPosition: PlayerPosition
 }
 
 export interface EventsTableRowItem {

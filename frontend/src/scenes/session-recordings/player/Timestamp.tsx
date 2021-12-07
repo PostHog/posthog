@@ -3,11 +3,14 @@ import { Tooltip } from 'antd'
 import { IconSeekBack, IconSeekForward } from 'scenes/session-recordings/player/icons'
 import { colonDelimitedDuration } from 'lib/utils'
 import { useActions, useValues } from 'kea'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import {
+    getPlayerTimeFromPlayerPosition,
+    sessionRecordingPlayerLogic,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 export function Timestamp(): JSX.Element {
     const { seekBackward, seekForward } = useActions(sessionRecordingPlayerLogic)
-    const { jumpTimeMs, meta, zeroOffsetTime } = useValues(sessionRecordingPlayerLogic)
+    const { jumpTimeMs, currentPlayerPosition, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     return (
         <>
             <Tooltip
@@ -29,8 +32,17 @@ export function Timestamp(): JSX.Element {
                 </span>
             </Tooltip>
             <div className="rrweb-timestamp">
-                {colonDelimitedDuration(Math.floor(zeroOffsetTime.current / 1000))} /{' '}
-                {colonDelimitedDuration(Math.floor(meta.totalTime / 1000))}
+                {colonDelimitedDuration(
+                    Math.floor(
+                        currentPlayerPosition
+                            ? getPlayerTimeFromPlayerPosition(
+                                  currentPlayerPosition,
+                                  sessionPlayerData.metadata.segments
+                              ) / 1000
+                            : 0
+                    )
+                )}{' '}
+                / {colonDelimitedDuration(Math.floor((sessionPlayerData?.metadata?.recordingDurationMs ?? 0) / 1000))}
             </div>
         </>
     )

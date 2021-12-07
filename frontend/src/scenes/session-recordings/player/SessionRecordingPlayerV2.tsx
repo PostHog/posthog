@@ -8,24 +8,19 @@ import { PlayerController } from 'scenes/session-recordings/player/PlayerControl
 import { PlayerEvents } from 'scenes/session-recordings/player/PlayerEvents'
 import { Col, Row } from 'antd'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { PlayerMeta } from 'scenes/session-recordings/player/PlayerMeta'
 
 export function SessionRecordingPlayerV2(): JSX.Element {
-    const { togglePlayPause, seekForward, seekBackward, setSpeed, initReplayer, stopAnimation } =
+    const { togglePlayPause, seekForward, seekBackward, setSpeed, setRootFrame } =
         useActions(sessionRecordingPlayerLogic)
-    const { isPlayable, isSmallScreen } = useValues(sessionRecordingPlayerLogic)
+    const { isSmallScreen } = useValues(sessionRecordingPlayerLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const frame = useRef<HTMLDivElement | null>(null)
-
     // Need useEffect to populate replayer on component paint
     useEffect(() => {
-        if (frame.current && isPlayable) {
-            stopAnimation()
-            initReplayer(frame)
-
-            return () => stopAnimation()
+        if (frame.current) {
+            setRootFrame(frame.current)
         }
-    }, [frame, isPlayable])
+    }, [frame])
 
     const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
         // Don't trigger keydown evens if in input box
@@ -68,9 +63,7 @@ export function SessionRecordingPlayerV2(): JSX.Element {
 function PlayerSidebar(): JSX.Element {
     return (
         <Col className="player-sidebar">
-            <div className="player-meta">
-                <PlayerMeta />
-            </div>
+            <div className="player-meta">{/* <PlayerMeta /> */}</div>
             <div className="player-events">
                 <PlayerEvents />
             </div>

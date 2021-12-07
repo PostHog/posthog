@@ -16,6 +16,14 @@ from posthog.queries.session_recordings.session_recording import SessionRecordin
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
 
 
+class SessionRecordingMetadataSerializer(serializers.Serializer):
+    segment_playlist = serializers.ListField(required=False)
+    start_and_end_times_by_window_id = serializers.DictField(required=False)
+    session_id = serializers.CharField()
+    viewed = serializers.BooleanField()
+    distinct_id = serializers.CharField()
+
+
 class SessionRecordingSerializer(serializers.Serializer):
     session_id = serializers.CharField()
     viewed = serializers.BooleanField()
@@ -23,7 +31,6 @@ class SessionRecordingSerializer(serializers.Serializer):
     start_time = serializers.DateTimeField()
     end_time = serializers.DateTimeField()
     distinct_id = serializers.CharField()
-    active_segments_by_window_id = serializers.DictField(required=False)
 
     def to_representation(self, instance):
         return {
@@ -33,7 +40,6 @@ class SessionRecordingSerializer(serializers.Serializer):
             "start_time": instance["start_time"],
             "end_time": instance["end_time"],
             "distinct_id": instance["distinct_id"],
-            "active_segments_by_window_id": instance.get("active_segments_by_window_id"),
         }
 
 
@@ -116,7 +122,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             team=self.team, user=request.user, session_id=session_recording_id
         ).exists()
 
-        session_recording_serializer = SessionRecordingSerializer(
+        session_recording_serializer = SessionRecordingMetadataSerializer(
             data={**session_recording_meta_data, "session_id": session_recording_id, "viewed": viewed_session_recording}
         )
         session_recording_serializer.is_valid(raise_exception=True)
@@ -150,6 +156,4 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         session_recording_id = kwargs["pk"]
         filter = SessionRecordingsFilter(request=request)
         session_recording_snapshots = self._get_session_recording_snapshots(request, filter, session_recording_id)
-        if len(session_recording_snapshots["snapshots"]) == 0:
-            raise exceptions.NotFound("Snapshots not found")
         return response.Response({"result": session_recording_snapshots})
