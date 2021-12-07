@@ -43,6 +43,7 @@ ORDER BY (team_id, toDate(timestamp), distinct_id, uuid)
 ).format(
     table_name=EVENTS_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
+    # :KLUDGE: This is not in sync with reality on cloud! Instead a distributed table engine is used with a sharded_events table.
     engine=table_engine(EVENTS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,

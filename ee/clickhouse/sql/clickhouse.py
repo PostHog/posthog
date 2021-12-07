@@ -9,12 +9,6 @@ REPLACING_TABLE_ENGINE = (
     else "ReplacingMergeTree({ver})"
 )
 
-MERGE_TABLE_ENGINE = (
-    "ReplicatedReplacingMergeTree('/clickhouse/tables/{{shard}}/posthog.{table}', '{{replica}}')"
-    if CLICKHOUSE_REPLICATION
-    else "MergeTree()"
-)
-
 COLLAPSING_TABLE_ENGINE = (
     "ReplicatedCollapsingMergeTree('/clickhouse/tables/noshard/posthog.{table}', '{{replica}}-{{shard}}', {ver})"
     if CLICKHOUSE_REPLICATION
@@ -30,7 +24,7 @@ KAFKA_PROTO_ENGINE = """
     kafka_group_name = '{group}',
     kafka_format = 'Protobuf',
     kafka_schema = '{proto_schema}',
-    kafka_skip_broken_messages = {skip_broken_messages} 
+    kafka_skip_broken_messages = {skip_broken_messages}
     """
 
 GENERATE_UUID_SQL = """
@@ -46,13 +40,13 @@ COLLAPSING_MERGE_TREE = "collapsing_merge_tree"
 REPLACING_MERGE_TREE = "replacing_merge_tree"
 
 
-def table_engine(table: str, ver: Optional[str] = None, engine_type: Optional[str] = None) -> str:
+def table_engine(table: str, ver: str, engine_type: str) -> str:
     if engine_type == COLLAPSING_MERGE_TREE and ver:
         return COLLAPSING_TABLE_ENGINE.format(table=table, ver=ver)
     elif engine_type == REPLACING_MERGE_TREE and ver:
         return REPLACING_TABLE_ENGINE.format(table=table, ver=ver)
     else:
-        return MERGE_TABLE_ENGINE.format(table=table)
+        raise ValueError(f"Unknown engine type {engine_type}")
 
 
 def kafka_engine(
