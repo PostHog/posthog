@@ -337,7 +337,7 @@ class FunnelCorrelationMixin(BaseParamMixin):
         return result_dict
 
 
-class FunnelCorrelationPersonsMixin(BaseParamMixin):
+class FunnelCorrelationActorsMixin(BaseParamMixin):
     @cached_property
     def correlation_person_entity(self) -> Optional["Entity"]:
         # Used for event & event_with_properties correlations persons

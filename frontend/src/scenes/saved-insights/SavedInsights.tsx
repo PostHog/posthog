@@ -31,7 +31,7 @@ import { TZLabel } from 'lib/components/TimezoneAware'
 import { urls } from 'scenes/urls'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dayjs } from 'lib/dayjs'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { LemonSpacer } from 'lib/components/LemonRow'
 import { More } from 'lib/components/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
@@ -121,9 +121,11 @@ function NewInsightButton(): JSX.Element {
                             <Row wrap={false}>
                                 <Col flex="none">
                                     {listedInsightTypeMetadata.icon && (
-                                        <div style={{ fontSize: '2rem' }}>
-                                            <listedInsightTypeMetadata.icon color="var(--muted-alt)" noBackground />
-                                        </div>
+                                        <listedInsightTypeMetadata.icon
+                                            color="var(--muted-alt)"
+                                            noBackground
+                                            style={{ fontSize: '2rem' }}
+                                        />
                                     )}
                                 </Col>
                                 <Col flex="Auto" style={{ paddingLeft: '1rem' }}>
@@ -179,11 +181,7 @@ export function SavedInsights(): JSX.Element {
             render: function renderType(_, insight) {
                 const typeMetadata = INSIGHT_TYPES_METADATA[insight.filters?.insight || InsightType.TRENDS]
                 if (typeMetadata && typeMetadata.icon) {
-                    return (
-                        <span style={{ fontSize: '2rem' }}>
-                            <typeMetadata.icon />
-                        </span>
-                    )
+                    return <typeMetadata.icon style={{ display: 'block', fontSize: '2rem' }} />
                 }
             },
         },

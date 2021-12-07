@@ -17,7 +17,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import './SessionRecordingTable.scss'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
+import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
 
 interface SessionRecordingsTableProps {

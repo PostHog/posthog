@@ -7,6 +7,7 @@ from posthog.models import Filter
 from posthog.models.entity import Entity
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import Property
 
 
@@ -22,14 +23,14 @@ class ClickhousePersonQuery:
     PERSON_PROPERTIES_ALIAS = "person_props"
     ALIASES = {"properties": "person_props"}
 
-    _filter: Union[Filter, PathFilter, RetentionFilter]
+    _filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter]
     _team_id: int
     _column_optimizer: ColumnOptimizer
     _extra_fields: Set[ColumnName]
 
     def __init__(
         self,
-        filter: Union[Filter, PathFilter, RetentionFilter],
+        filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter],
         team_id: int,
         column_optimizer: Optional[ColumnOptimizer] = None,
         *,

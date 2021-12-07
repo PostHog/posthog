@@ -2,10 +2,12 @@ from collections import defaultdict
 
 from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
 from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -20,7 +22,7 @@ class GroupTypeSerializer(serializers.ModelSerializer):
 
 class ClickhouseGroupsTypesView(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = GroupTypeSerializer
-    queryset = GroupTypeMapping.objects.all()
+    queryset = GroupTypeMapping.objects.all().order_by("group_type_index")
     pagination_class = None
 
 
@@ -40,15 +42,31 @@ class GroupSerializer(serializers.HyperlinkedModelSerializer):
         ]
 
 
-class ClickhouseGroupsView(StructuredViewSetMixin, viewsets.ReadOnlyModelViewSet):
+class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = GroupSerializer
     queryset = Group.objects.all()
     pagination_class = GroupCursorPagination
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-    lookup_field = "group_key"
 
     def get_queryset(self):
         return super().get_queryset().filter(group_type_index=self.request.GET["group_type_index"])
+
+    @action(methods=["GET"], detail=False)
+    def find(self, request: request.Request, **kw) -> response.Response:
+        try:
+            group = self.get_queryset().get(group_key=request.GET["group_key"])
+            data = self.get_serializer(group).data
+            return response.Response(data)
+        except Group.DoesNotExist:
+            raise NotFound()
+
+    @action(methods=["GET"], detail=False)
+    def related(self, request: request.Request, pk=None, **kw) -> response.Response:
+        group_type_index = request.GET.get("group_type_index")
+        id = request.GET["id"]
+
+        results = RelatedActorsQuery(self.team.pk, group_type_index, id).run()
+        return response.Response(results)
 
     @action(methods=["GET"], detail=False)
     def property_definitions(self, request: request.Request, **kw):

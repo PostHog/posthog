@@ -88,7 +88,9 @@ export const preflightLogic = kea<preflightLogicType<PreflightMode>>({
                 })
 
                 if (values.preflight.site_url) {
-                    posthog.group('instance', values.preflight.site_url)
+                    posthog.group('instance', values.preflight.site_url, {
+                        site_url: values.preflight.site_url,
+                    })
                 }
             }
         },

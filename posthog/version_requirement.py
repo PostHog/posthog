@@ -48,9 +48,10 @@ class ServiceVersionRequirement:
         return self.version_string_to_semver(version)
 
     def get_clickhouse_version(self):
-        from ee.clickhouse.client import sync_execute
+        from ee.clickhouse.client import default_client
 
-        rows = sync_execute("SELECT version()")
+        client = default_client()
+        rows = client.execute("SELECT version()")
         version = rows[0][0]
 
         return self.version_string_to_semver(version)

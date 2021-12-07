@@ -10,8 +10,8 @@ import {
     ItemMode,
     DashboardMode,
     dateMappingOption,
-    PersonType,
     GroupActorType,
+    ActorType,
 } from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
@@ -1053,13 +1053,14 @@ export function endWithPunctation(text?: string | null): string {
     return trimmedText
 }
 
-export function shortTimeZone(timeZone?: string, atDate: Date = new Date()): string {
+export function shortTimeZone(timeZone?: string, atDate?: Date): string {
     /**
      * Return the short timezone identifier for a specific timezone (e.g. BST, EST, PDT, UTC+2).
      * @param timeZone E.g. 'America/New_York'
      * @param atDate
      */
-    const localeTimeString = new Date(atDate).toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone })
+    const date = atDate ? new Date(atDate) : new Date()
+    const localeTimeString = date.toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone })
     return localeTimeString.split(' ')[2]
 }
 
@@ -1220,6 +1221,6 @@ export function isEllipsisActive(e: HTMLElement | null): boolean {
     return !!e && e.offsetWidth < e.scrollWidth
 }
 
-export function isGroupType(actor: PersonType | GroupActorType): actor is GroupActorType {
+export function isGroupType(actor: ActorType): actor is GroupActorType {
     return actor.type === 'group'
 }

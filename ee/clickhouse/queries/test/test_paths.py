@@ -789,7 +789,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
 
     @snapshot_clickhouse_queries
     def test_path_by_funnel_after_dropoff_with_group_filter(self):
-        # complex case, joins funnel_people and groups
+        # complex case, joins funnel_actors and groups
         self._create_sample_data_multiple_dropoffs(use_groups=True)
         data = {
             "insight": INSIGHT_FUNNELS,
