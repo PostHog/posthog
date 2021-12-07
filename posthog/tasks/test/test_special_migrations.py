@@ -31,7 +31,7 @@ def inspect_mock() -> InspectorMock:
 
 
 # mock to make us run the migration in sync fashion
-def run_special_migration_mock(migration_name, _) -> TaskMock:
+def run_special_migration_mock(migration_name: str, _: Any) -> TaskMock:
     run_special_migration_next_op(migration_name)
     return TaskMock()
 
@@ -45,7 +45,7 @@ class TestSpecialMigrations(BaseTest):
     @patch.object(AsyncResult, "state", CeleryTaskState.Started)
     @patch("posthog.celery.app.control.inspect", side_effect=inspect_mock)
     @patch("posthog.tasks.special_migrations.run_special_migration.delay", side_effect=run_special_migration_mock)
-    def test_check_special_migration_health_during_resumable_op(self, _, __) -> None:
+    def test_check_special_migration_health_during_resumable_op(self, _: Any, __: Any) -> None:
         sm = SpecialMigration.objects.get(name="test")
         sm.status = MigrationStatus.Running
         sm.save()
@@ -69,7 +69,7 @@ class TestSpecialMigrations(BaseTest):
     @patch.object(AsyncResult, "state", CeleryTaskState.Started)
     @patch("posthog.celery.app.control.inspect", side_effect=inspect_mock)
     @patch("posthog.tasks.special_migrations.run_special_migration.delay", side_effect=run_special_migration_mock)
-    def test_check_special_migration_health_during_non_resumable_op(self, _, __) -> None:
+    def test_check_special_migration_health_during_non_resumable_op(self, _: Any, __: Any) -> None:
         sm = SpecialMigration.objects.get(name="test")
         sm.status = MigrationStatus.Running
         sm.save()
