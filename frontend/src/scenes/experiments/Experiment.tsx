@@ -13,7 +13,7 @@ import { experimentLogic } from './experimentLogic'
 export function Experiment(): JSX.Element {
     const { user } = useValues(userLogic)
     const { experiment } = useValues(experimentLogic)
-    const { setExperiment, createExperiment, createDraftExperiment } = useActions(experimentLogic)
+    const { setExperiment, createExperiment } = useActions(experimentLogic)
     const carouselRef = useRef<any>(null)
     const handleNext = (): void => carouselRef.current.next()
     const handlePrev = (): void => carouselRef.current.prev()
@@ -106,7 +106,7 @@ export function Experiment(): JSX.Element {
                                     </ul>
                                 </Col>
                             </Row>
-                            <Button onClick={createDraftExperiment}>Save as draft</Button>
+                            <Button onClick={() => createExperiment(true)}>Save as draft</Button>
                             <Button type="primary" onClick={createExperiment}>
                                 Save and launch
                             </Button>

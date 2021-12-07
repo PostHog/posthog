@@ -1,5 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 import { Experiment } from '~/types'
 
@@ -9,8 +10,7 @@ export const experimentLogic = kea<experimentLogicType>({
     connect: { values: [teamLogic, ['currentTeamId']] },
     actions: {
         setExperiment: (experiment: Experiment) => ({ experiment }),
-        createDraftExperiment: true,
-        createExperiment: true,
+        createExperiment: (draft?: boolean) => ({ draft }),
     },
     reducers: {
         experiment: [
@@ -21,8 +21,12 @@ export const experimentLogic = kea<experimentLogicType>({
         ],
     },
     listeners: ({ values }) => ({
-        createExperiment: async () => {
-            await api.create(`api/projects/${values.currentTeamId}/experiments`, { ...values.experiment })
+        createExperiment: async (draft?: boolean) => {
+            console.log('draft', draft)
+            await api.create(`api/projects/${values.currentTeamId}/experiments`, {
+                ...values.experiment,
+                ...(draft && { start_date: dayjs() }),
+            })
         },
     }),
 })

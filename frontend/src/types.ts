@@ -1335,6 +1335,7 @@ export interface Experiment {
     description: string
     feature_flag: string[]
     filters: Partial<FilterType>
+    start_date?: string
 }
 
 interface RelatedPerson {
