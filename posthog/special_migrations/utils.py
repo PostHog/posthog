@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Optional
 
+from django.db import transaction
+
 from posthog.celery import app
 from posthog.constants import AnalyticsDBMS
 from posthog.models.special_migration import MigrationStatus, SpecialMigration
@@ -29,24 +31,27 @@ def execute_op_postgres(sql: str, query_id: str):
 
 
 def process_error(migration_instance: SpecialMigration, error: Optional[str]):
-    migration_instance.status = MigrationStatus.Errored
-    migration_instance.last_error = error or ""
-    migration_instance.finished_at = datetime.now()
+    update_special_migration(
+        migration_instance=migration_instance,
+        status=MigrationStatus.Errored,
+        last_error=error or "",
+        finished_at=datetime.now(),
+        lock_row=True,
+    )
 
     from posthog.special_migrations.runner import attempt_migration_rollback
 
     attempt_migration_rollback(migration_instance)
-
-    migration_instance.save()
 
 
 def trigger_migration(migration_instance: SpecialMigration, fresh_start=True):
     from posthog.tasks.special_migrations import run_special_migration
 
     task = run_special_migration.delay(migration_instance.name, fresh_start)
-    migration_instance.refresh_from_db()
-    migration_instance.celery_task_id = str(task.id)
-    migration_instance.save()
+
+    update_special_migration(
+        migration_instance=migration_instance, celery_task_id=str(task.id),
+    )
 
 
 # DANGEROUS! Can cause another task to be lost
@@ -61,11 +66,14 @@ def force_rollback_migration(migration_instance: SpecialMigration):
     attempt_migration_rollback(migration_instance, force=True)
 
 
-def mark_migration_as_successful(migration_instance: SpecialMigration):
-    migration_instance.status = MigrationStatus.CompletedSuccessfully
-    migration_instance.finished_at = datetime.now()
-    migration_instance.progress = 100
-    migration_instance.save()
+def complete_migration(migration_instance: SpecialMigration):
+    update_special_migration(
+        migration_instance=migration_instance,
+        status=MigrationStatus.CompletedSuccessfully,
+        finished_at=datetime.now(),
+        progress=100,
+        lock_row=True,
+    )
 
     from posthog.special_migrations.runner import run_next_migration
 
@@ -76,12 +84,57 @@ def mark_migration_as_successful(migration_instance: SpecialMigration):
 
 
 def reset_special_migration(migration_instance: SpecialMigration):
-    migration_instance.last_error = ""
-    migration_instance.current_query_id = ""
-    migration_instance.celery_task_id = ""
-    migration_instance.progress = 0
-    migration_instance.current_operation_index = 0
-    migration_instance.status = MigrationStatus.Running
-    migration_instance.started_at = datetime.now()
-    migration_instance.finished_at = None
-    migration_instance.save()
+    update_special_migration(
+        migration_instance=migration_instance,
+        last_error="",
+        current_query_id="",
+        celery_task_id="",
+        progress=0,
+        current_operation_index=0,
+        status=MigrationStatus.Running,
+        started_at=datetime.now(),
+        finished_at=None,
+    )
+
+
+def update_special_migration(
+    migration_instance: SpecialMigration,
+    last_error: Optional[str] = None,
+    current_query_id: Optional[str] = None,
+    celery_task_id: Optional[str] = None,
+    progress: Optional[int] = None,
+    current_operation_index: Optional[int] = None,
+    status: Optional[MigrationStatus] = None,
+    started_at: Optional[datetime] = None,
+    finished_at: Optional[datetime] = None,
+    lock_row=False,
+):
+    def execute_update():
+        instance = migration_instance
+        if lock_row:
+            instance = SpecialMigration.objects.select_for_update().get(pk=migration_instance.pk)
+        else:
+            instance.refresh_from_db()
+        if last_error:
+            instance.last_error = last_error
+        if current_query_id:
+            instance.current_query_id = current_query_id
+        if celery_task_id:
+            instance.celery_task_id = celery_task_id
+        if progress:
+            instance.progress = progress
+        if current_operation_index:
+            instance.current_operation_index = current_operation_index
+        if status:
+            instance.status = status
+        if started_at:
+            instance.started_at = started_at
+        if finished_at:
+            instance.finished_at = finished_at
+        instance.save()
+
+    if lock_row:
+        with transaction.atomic():
+            execute_update()
+    else:
+        execute_update()

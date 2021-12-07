@@ -1,3 +1,4 @@
+from typing import Any, Dict
 from unittest.mock import patch
 
 import pytest
@@ -21,22 +22,22 @@ class TaskMock:
 
 class InspectorMock:
     @staticmethod
-    def active():
+    def active() -> Any:
         return {"some_node_id": [{"id": MOCK_CELERY_TASK_ID}]}
 
 
-def inspect_mock():
+def inspect_mock() -> InspectorMock:
     return InspectorMock()
 
 
 # mock to make us run the migration in sync fashion
-def run_special_migration_mock(migration_name, _):
+def run_special_migration_mock(migration_name, _) -> TaskMock:
     run_special_migration_next_op(migration_name)
     return TaskMock()
 
 
 class TestSpecialMigrations(BaseTest):
-    def setUp(self):
+    def setUp(self) -> None:
         create_special_migration(name="test", description=TEST_MIGRATION_DESCRIPTION)
         return super().setUp()
 
@@ -44,10 +45,9 @@ class TestSpecialMigrations(BaseTest):
     @patch.object(AsyncResult, "state", CeleryTaskState.Started)
     @patch("posthog.celery.app.control.inspect", side_effect=inspect_mock)
     @patch("posthog.tasks.special_migrations.run_special_migration.delay", side_effect=run_special_migration_mock)
-    def test_check_special_migration_health_during_resumable_op(self, _, __):
+    def test_check_special_migration_health_during_resumable_op(self, _, __) -> None:
         sm = SpecialMigration.objects.get(name="test")
         sm.status = MigrationStatus.Running
-        # sm.celery_task_id = "some_task_id"
         sm.save()
 
         run_special_migration_next_op("test", sm, run_all=False)
@@ -69,7 +69,7 @@ class TestSpecialMigrations(BaseTest):
     @patch.object(AsyncResult, "state", CeleryTaskState.Started)
     @patch("posthog.celery.app.control.inspect", side_effect=inspect_mock)
     @patch("posthog.tasks.special_migrations.run_special_migration.delay", side_effect=run_special_migration_mock)
-    def test_check_special_migration_health_during_non_resumable_op(self, _, __):
+    def test_check_special_migration_health_during_non_resumable_op(self, _, __) -> None:
         sm = SpecialMigration.objects.get(name="test")
         sm.status = MigrationStatus.Running
         sm.save()

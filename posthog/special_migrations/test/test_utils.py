@@ -9,9 +9,9 @@ from posthog.models.team import Team
 from posthog.special_migrations.setup import SPECIAL_MIGRATIONS_EXAMPLE_MODULE_PATH
 from posthog.special_migrations.test.util import create_special_migration
 from posthog.special_migrations.utils import (
+    complete_migration,
     execute_op,
     force_stop_migration,
-    mark_migration_as_successful,
     process_error,
     trigger_migration,
 )
@@ -61,10 +61,10 @@ class TestUtils(BaseTest):
         self.assertEqual(sm.status, MigrationStatus.Errored)
         self.assertEqual(sm.last_error, "Force stopped by user")
 
-    def test_mark_migration_as_successful(self):
+    def test_complete_migration(self):
 
         sm = create_special_migration()
-        mark_migration_as_successful(sm)
+        complete_migration(sm)
 
         sm.refresh_from_db()
 

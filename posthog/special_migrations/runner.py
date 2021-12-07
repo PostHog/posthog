@@ -11,11 +11,12 @@ from posthog.special_migrations.setup import (
     get_special_migration_dependency,
 )
 from posthog.special_migrations.utils import (
+    complete_migration,
     execute_op,
-    mark_migration_as_successful,
     process_error,
     reset_special_migration,
     trigger_migration,
+    update_special_migration,
 )
 
 # important to prevent us taking up too many celery workers
@@ -37,7 +38,7 @@ def start_special_migration(migration_name: str) -> bool:
     migration_definition = get_special_migration_definition(migration_name)
 
     if not migration_definition.is_required():
-        mark_migration_as_successful(migration_instance)
+        complete_migration(migration_instance)
         return False
 
     for service_version_requirement in migration_definition.service_version_requirements:
@@ -67,16 +68,19 @@ def start_special_migration(migration_name: str) -> bool:
 def run_special_migration_next_op(
     migration_name: str, migration_instance: Optional[SpecialMigration] = None, run_all=True
 ):
-    migration_instance = migration_instance or SpecialMigration.objects.get(
-        name=migration_name, status=MigrationStatus.Running
-    )
-
     if not migration_instance:
-        return False
+        try:
+            migration_instance = SpecialMigration.objects.get(name=migration_name, status=MigrationStatus.Running)
+        except SpecialMigration.DoesNotExist:
+            return False
+    else:
+        migration_instance.refresh_from_db()
+
+    assert migration_instance is not None
 
     migration_definition = get_special_migration_definition(migration_name)
     if migration_instance.current_operation_index > len(migration_definition.operations) - 1:
-        mark_migration_as_successful(migration_instance)
+        complete_migration(migration_instance)
         return True
 
     op = migration_definition.operations[migration_instance.current_operation_index]
@@ -86,13 +90,15 @@ def run_special_migration_next_op(
 
     try:
         execute_op(op.database, op.sql, op.timeout_seconds, current_query_id)
-        migration_instance.current_query_id = current_query_id
-        migration_instance.current_operation_index += 1
+        update_special_migration(
+            migration_instance=migration_instance,
+            current_query_id=current_query_id,
+            current_operation_index=migration_instance.current_operation_index + 1,
+        )
+
     except Exception as e:
         error = str(e)
         process_error(migration_instance, error)
-
-    migration_instance.save()
 
     if error:
         return False
@@ -111,10 +117,10 @@ def run_migration_healthcheck(migration_instance: SpecialMigration):
 def update_migration_progress(migration_instance: SpecialMigration):
     # we don't want to interrupt a migration if the progress check fails, hence try without handling exceptions
     try:
-        migration_instance.progress = get_special_migration_definition(migration_instance.name).progress(
+        progress = get_special_migration_definition(migration_instance.name).progress(
             migration_instance  # type: ignore
         )
-        migration_instance.save()
+        update_special_migration(migration_instance=migration_instance, progress=progress, lock_row=True)
     except:
         pass
 
@@ -139,15 +145,15 @@ def attempt_migration_rollback(migration_instance: SpecialMigration, force: bool
         # while rolling back. under normal circumstances, the error is reserved to
         # things that happened during the migration itself
         if force:
-            migration_instance.status = MigrationStatus.Errored
-            migration_instance.last_error = f"Force rollback failed with error: {error}"
-            migration_instance.save()
+            update_special_migration(
+                migration_instance=migration_instance,
+                status=MigrationStatus.Errored,
+                last_error=f"Force rollback failed with error: {error}",
+            )
 
         return
 
-    migration_instance.status = MigrationStatus.RolledBack
-    migration_instance.progress = 0
-    migration_instance.save()
+    update_special_migration(migration_instance=migration_instance, status=MigrationStatus.RolledBack, progress=0)
 
 
 def is_current_operation_resumable(migration_instance: SpecialMigration):
