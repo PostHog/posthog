@@ -185,7 +185,7 @@ describe('TeamManager()', () => {
             )
 
             expect(teamManager.eventLastSeenCache.size).toEqual(1)
-            expect(teamManager.eventLastSeenCache.get('2_another_test_event')).toEqual(1428120244000)
+            expect(teamManager.eventLastSeenCache.get('[2,"another_test_event"]')).toEqual(1428120244000)
 
             // New event
             await teamManager.updateEventNamesAndProperties(
@@ -195,7 +195,7 @@ describe('TeamManager()', () => {
                 DateTime.fromISO('2015-04-04T05:05:05.000Z')
             )
             expect(teamManager.eventLastSeenCache.size).toEqual(1)
-            expect(teamManager.eventLastSeenCache.get('2_another_test_event')).toEqual(1428123905000)
+            expect(teamManager.eventLastSeenCache.get('[2,"another_test_event"]')).toEqual(1428123905000)
         })
 
         it('does not set lastSeenCache on new event', async () => {
@@ -228,7 +228,7 @@ describe('TeamManager()', () => {
             )
 
             expect(teamManager.eventLastSeenCache.size).toEqual(1)
-            expect(teamManager.eventLastSeenCache.get('2_another_test_event')).toEqual(1395617003000)
+            expect(teamManager.eventLastSeenCache.get(JSON.stringify([2, 'another_test_event']))).toEqual(1395617003000)
         })
 
         // TODO: #7422 temporary test
@@ -293,10 +293,10 @@ describe('TeamManager()', () => {
                 undefined,
                 'test'
             )
-            teamManager.eventLastSeenCache.set('2_$pageview', 1497307450) // older than currently last_seen_at
-            teamManager.eventLastSeenCache.set('2_new-event', 1626129850) // regular
-            teamManager.eventLastSeenCache.set('2_another_test_event', 1623537850)
-            teamManager.eventLastSeenCache.set('3_$pageview', 1528843450) // inexistent
+            teamManager.eventLastSeenCache.set(JSON.stringify([2, '$pageview']), 1497307450) // older than currently last_seen_at
+            teamManager.eventLastSeenCache.set(JSON.stringify([2, 'new-event']), 1626129850) // regular
+            teamManager.eventLastSeenCache.set(JSON.stringify([2, 'another_test_event']), 1623537850)
+            teamManager.eventLastSeenCache.set(JSON.stringify([3, '$pageview']), 1528843450) // inexistent team
 
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-03-03T03:03:03Z').getTime())
             jest.spyOn(hub.db, 'postgresQuery')
@@ -309,16 +309,16 @@ describe('TeamManager()', () => {
                 FROM (VALUES ($1, $2, $3),($4, $5, $6),($7, $8, $9),($10, $11, $12)) AS t2(team_id, name, last_seen_at)
                 WHERE t1.name = t2.name AND t1.team_id = t2.team_id::integer`,
                 [
-                    '2',
+                    2,
                     '$pageview',
                     1497307450,
-                    '2',
+                    2,
                     'new-event',
                     1626129850,
-                    '2',
+                    2,
                     'another_test_event',
                     1623537850,
-                    '3',
+                    3,
                     '$pageview',
                     1528843450,
                 ],

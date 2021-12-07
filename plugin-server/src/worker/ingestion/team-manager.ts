@@ -57,8 +57,7 @@ export class TeamManager {
 
         for (const event of events) {
             const [key, value] = event
-            const teamId = key.split('_', 1)[0]
-            const eventName = key.substring(key.indexOf(teamId) + teamId.length + 1)
+            const [teamId, eventName] = JSON.parse(key)
             if (teamId && eventName && value) {
                 valuesStatement += `($${params.length + 1}, $${params.length + 2}, $${params.length + 3}),`
                 params = params.concat([teamId, eventName, value])
@@ -124,8 +123,9 @@ export class TeamManager {
         } else {
             // TODO: #7422 Temporary conditional to test experimental feature
             if (this.experimentalLastSeenAtEnabledTeams.includes(team.id.toString())) {
-                if ((this.eventLastSeenCache.get(`${team.id}_${event}`) ?? 0) < eventTimestamp.valueOf()) {
-                    this.eventLastSeenCache.set(`${team.id}_${event}`, eventTimestamp.valueOf())
+                const eventCacheKey = JSON.stringify([team.id, event])
+                if ((this.eventLastSeenCache.get(eventCacheKey) ?? 0) < eventTimestamp.valueOf()) {
+                    this.eventLastSeenCache.set(eventCacheKey, eventTimestamp.valueOf())
                 }
                 if (this.eventLastSeenCache.size > 100000 || DateTime.now().diff(this.lastFlushAt).minutes > 360) {
                     // to not run out of memory
