@@ -14,7 +14,8 @@ import { dayjs } from 'lib/dayjs'
 const { TabPane } = Tabs
 
 export function EventDetails({ event }: { event: EventType }): JSX.Element {
-    const { currentTeamId } = useValues(teamLogic)
+    const { currentTeamId, currentTeam } = useValues(teamLogic)
+    const dataAttributes = currentTeam?.data_attributes || []
 
     const [showHiddenProps, setShowHiddenProps] = useState(false)
 
@@ -37,7 +38,7 @@ export function EventDetails({ event }: { event: EventType }): JSX.Element {
         <>
             {currentTeamId && (
                 <Button
-                    onClick={() => createActionFromEvent(currentTeamId, event, 0)}
+                    onClick={() => createActionFromEvent(currentTeamId, event, 0, dataAttributes)}
                     style={{ float: 'right', zIndex: 1, marginTop: 8 }}
                     type="primary"
                 >
