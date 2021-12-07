@@ -83,6 +83,10 @@
                 {
                     "name": "NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS",
                     "value": "2"
+                },
+                {
+                    "name": "EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED_TEAMS",
+                    "value": "2"
                 }
             ],
             "secrets": [
