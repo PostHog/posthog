@@ -62,6 +62,7 @@ services:
             PGHOST: db
             PGUSER: posthog
             PGPASSWORD: posthog
+            SKIP_SERVICE_VERSION_REQUIREMENTS: 1
         depends_on:
             - db
             - redis
@@ -77,7 +78,6 @@ services:
         command: '${CH_WEB_SCRIPT:-./ee/bin/docker-ch-dev-web}'
         ports:
             - '8000:8000'
-            - '8234:8234'
     plugins:
         build:
             context: ../
