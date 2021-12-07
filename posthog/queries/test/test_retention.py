@@ -4,6 +4,7 @@ from datetime import datetime
 import pytz
 from rest_framework import status
 
+from ee.clickhouse.util import snapshot_clickhouse_queries
 from posthog.constants import (
     FILTER_TEST_ACCOUNTS,
     RETENTION_FIRST_TIME,
@@ -377,7 +378,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                 ],
             )
 
-        def test_retention_people(self):
+        def test_retention_people_basic(self):
             person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
             person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"])
 

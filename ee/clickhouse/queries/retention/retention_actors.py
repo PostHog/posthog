@@ -3,6 +3,7 @@ from typing import Dict, Tuple
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
+from ee.clickhouse.queries.retention.retention_event_query import RetentionEventsQuery
 from ee.clickhouse.queries.util import get_trunc_func_ch
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.sql.retention.people_in_period import (
@@ -12,8 +13,13 @@ from ee.clickhouse.sql.retention.people_in_period import (
     REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL,
     RETENTION_PEOPLE_PER_PERIOD_SQL,
 )
-from ee.clickhouse.sql.retention.retention import REFERENCE_EVENT_SQL, REFERENCE_EVENT_UNIQUE_SQL, RETENTION_PEOPLE_SQL
-from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from ee.clickhouse.sql.retention.retention import RETENTION_PEOPLE_SQL
+from posthog.constants import (
+    RETENTION_FIRST_TIME,
+    TREND_FILTER_TYPE_ACTIONS,
+    TREND_FILTER_TYPE_EVENTS,
+    RetentionQueryType,
+)
 from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filters import RetentionFilter
@@ -47,34 +53,43 @@ class ClickhouseRetentionActors(ActorBaseQuery):
         return self._filter.aggregation_group_type_index is not None
 
     def actor_query(self) -> Tuple[str, Dict]:
-        period = self._filter.period
         is_first_time_retention = self._filter.retention_type == RETENTION_FIRST_TIME
-        trunc_func = get_trunc_func_ch(period)
         prop_filters, prop_filter_params = parse_prop_clauses(self._filter.properties)
 
         returning_entity = (
             self._filter.returning_entity if self._filter.selected_interval > 0 else self._filter.target_entity
         )
-        target_query, target_params = _get_condition(self._filter.target_entity, table="e")
-        target_query_formatted = "AND {target_query}".format(target_query=target_query)
         return_query, return_params = _get_condition(returning_entity, table="e", prepend="returning")
         return_query_formatted = "AND {return_query}".format(return_query=return_query)
 
-        reference_event_query = (REFERENCE_EVENT_UNIQUE_SQL if is_first_time_retention else REFERENCE_EVENT_SQL).format(
-            target_query=target_query_formatted,
-            filters=prop_filters,
-            trunc_func=trunc_func,
-            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-        )
         reference_date_from = self._filter.date_from
         reference_date_to = self._filter.date_from + self._filter.period_increment
         date_from = self._filter.date_from + self._filter.selected_interval * self._filter.period_increment
         date_to = date_from + self._filter.period_increment
 
+        target_event_query, target_params = RetentionEventsQuery(
+            filter=self._filter,
+            team_id=self._team.pk,
+            event_query_type=RetentionQueryType.TARGET_FIRST_TIME
+            if is_first_time_retention
+            else RetentionQueryType.TARGET,
+        ).get_query()
+
+        target_params.update(
+            {
+                "target_start_date": reference_date_from.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if self._filter.period == "Hour" else " 00:00:00")
+                ),
+                "target_end_date": reference_date_to.strftime(
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if self._filter.period == "Hour" else " 00:00:00")
+                ),
+            }
+        )
+
         return (
             RETENTION_PEOPLE_SQL.format(
-                reference_event_query=reference_event_query,
-                target_query=return_query_formatted,
+                target_event_query=target_event_query,
+                returning_query=return_query_formatted,
                 filters=prop_filters,
                 GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
             ),
@@ -84,12 +99,6 @@ class ClickhouseRetentionActors(ActorBaseQuery):
                     "%Y-%m-%d{}".format(" %H:%M:%S" if self._filter.period == "Hour" else " 00:00:00")
                 ),
                 "end_date": date_to.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if self._filter.period == "Hour" else " 00:00:00")
-                ),
-                "reference_start_date": reference_date_from.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if self._filter.period == "Hour" else " 00:00:00")
-                ),
-                "reference_end_date": reference_date_to.strftime(
                     "%Y-%m-%d{}".format(" %H:%M:%S" if self._filter.period == "Hour" else " 00:00:00")
                 ),
                 "offset": self._filter.offset,
