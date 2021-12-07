@@ -56,8 +56,8 @@ export function ActionsTable(): JSX.Element {
             sorter: (a: ActionType, b: ActionType) => ('' + a.name).localeCompare(b.name),
             render: function RenderName(name, action: ActionType, index: number): JSX.Element {
                 return (
-                    <Link data-attr={'action-link-' + index} to={urls.action(action.id)}>
-                        <h4 className="row-name">{name || <i>Unnnamed action</i>}</h4>
+                    <Link data-attr={'action-link-' + index} to={urls.action(action.id)} className="row-name">
+                        {name || <i>Unnnamed action</i>}
                     </Link>
                 )
             },
