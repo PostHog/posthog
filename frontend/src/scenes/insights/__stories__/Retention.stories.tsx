@@ -2,12 +2,7 @@ import { Meta } from '@storybook/react'
 import { createMemoryHistory } from 'history'
 import { Provider } from 'kea'
 import { mockGetPersonProperties } from 'lib/components/TaxonomicFilter/__stories__/TaxonomicFilter.stories'
-import {
-    ACTIONS_LINE_GRAPH_LINEAR,
-    FEATURE_FLAGS,
-    OrganizationMembershipLevel,
-    TeamMembershipLevel,
-} from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import { rest } from 'msw'
 import React from 'react'
 import { initKea } from '~/initKea'
@@ -18,7 +13,7 @@ export default {
     title: 'PostHog/Scenes/Insights/Retention',
 } as Meta
 
-export const Table = (): JSX.Element => {
+export const Cohort = (): JSX.Element => {
     worker.use(
         rest.get('/api/projects/:projectId/insights/retention/', (_, res, ctx) =>
             res(ctx.json(sampleRetentionResponse))
@@ -71,7 +66,7 @@ export const Table = (): JSX.Element => {
     )
 }
 
-export const TableWithBreakdown = (): JSX.Element => {
+export const Breakdown = (): JSX.Element => {
     worker.use(
         rest.get('/api/projects/:projectId/insights/retention/', (_, res, ctx) =>
             res(ctx.json(sampleBreakdownRetentionResponse))
@@ -102,51 +97,6 @@ export const TableWithBreakdown = (): JSX.Element => {
                 exclusions: JSON.stringify([]),
                 breakdowns: JSON.stringify([{ property: 'browser' }, { property: 'browser_version' }]),
                 breakdown_type: 'person',
-            })}#fromItem=`,
-        ],
-    })
-
-    // @ts-ignore
-    history.pushState = history.push
-    // @ts-ignore
-    history.replaceState = history.replace
-
-    // This is data that is rendered into the html. I tried not to use this and just
-    // use the endoints, but it appears to be difficult to set this up to not have
-    // race conditions.
-    // @ts-ignore
-    window.POSTHOG_APP_CONTEXT = sampleContextData
-
-    initKea({ routerHistory: history, routerLocation: history.location })
-
-    return (
-        <Provider>
-            <Insight />
-        </Provider>
-    )
-}
-
-export const Chart = (): JSX.Element => {
-    worker.use(
-        rest.get('/api/projects/:projectId/insights/retention/', (_, res, ctx) =>
-            res(ctx.json(sampleRetentionResponse))
-        ),
-        rest.get('/api/person/retention', (_, res, ctx) => res(ctx.json(sampleRetentionPeopleResponse))),
-        rest.post('/api/projects/:projectId/cohorts/', (_, res, ctx) => res(ctx.json({ id: 1 })))
-    )
-
-    const history = createMemoryHistory({
-        initialEntries: [
-            `/insights/7OOpo19R/edit?${new URLSearchParams({
-                insight: 'RETENTION',
-                filter_test_accounts: 'false',
-                target_event: JSON.stringify([{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }]),
-                returning_event: JSON.stringify([{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }]),
-                actions: JSON.stringify([]),
-                new_entity: JSON.stringify([]),
-                date_from: '-14d',
-                exclusions: JSON.stringify([]),
-                display: ACTIONS_LINE_GRAPH_LINEAR,
             })}#fromItem=`,
         ],
     })
