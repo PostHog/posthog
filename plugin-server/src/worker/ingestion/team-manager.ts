@@ -1,11 +1,11 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { defaultConfig } from '../../config/config'
 import { Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
 import { posthog } from '../../utils/posthog'
+import { status } from '../../utils/status'
 import { getByAge, UUIDT } from '../../utils/utils'
 
 type TeamCache<T> = Map<TeamId, [T, number]>
@@ -52,6 +52,13 @@ export class TeamManager {
         let valuesStatement = ''
         let params: (string | number)[] = []
 
+        console.time('flushLastSeenAtCache')
+
+        const lastFlushedMinsAgo = DateTime.now().diff(this.lastFlushAt).minutes
+        status.info(
+            `🚽 Starting flushLastSeenAtCache. Cache size: ${this.eventLastSeenCache.size} items. Last flushed: ${lastFlushedMinsAgo} minutes ago.`
+        )
+
         const events = this.eventLastSeenCache
         this.eventLastSeenCache = new Map()
 
@@ -78,6 +85,7 @@ export class TeamManager {
                 'updateEventLastSeen'
             )
         }
+        status.info(`✅ 🚽 flushLastSeenAtCache finished successfully in ${console.timeEnd('flushLastSeenAtCache')}.`)
     }
 
     public async updateEventNamesAndProperties(
@@ -102,6 +110,7 @@ export class TeamManager {
         if (!this.eventNamesCache.get(team.id)?.has(event)) {
             // TODO: #7422 Temporary conditional to test experimental feature
             if (this.experimentalLastSeenAtEnabledTeams.includes(team.id.toString())) {
+                status.info('Inserting new event definition with last_seen_at')
                 await this.db.postgresQuery(
                     `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, last_seen_at, created_at)` +
                         ` VALUES ($1, $2, NULL, NULL, $3, $4, NOW())` +
@@ -127,7 +136,8 @@ export class TeamManager {
                 if ((this.eventLastSeenCache.get(eventCacheKey) ?? 0) < eventTimestamp.valueOf()) {
                     this.eventLastSeenCache.set(eventCacheKey, eventTimestamp.valueOf())
                 }
-                if (this.eventLastSeenCache.size > 100000 || DateTime.now().diff(this.lastFlushAt).minutes > 360) {
+                // TODO: Allow configuring this via env vars
+                if (this.eventLastSeenCache.size > 1000 || DateTime.now().diff(this.lastFlushAt).minutes > 2) {
                     // to not run out of memory
                     await this.flushLastSeenAtCache()
                 }
