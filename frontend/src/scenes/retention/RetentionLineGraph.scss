@@ -1,0 +1,16 @@
+@import '~/vars';
+
+// Here we override based on retention-container the graph-container styling, so
+// as to not change the global styling. We need the extra nesting to ensure we
+// are more specific than the other insights css
+.insights-graph-container {
+    .retention-container {
+        .graph-container {
+            position: relative;
+            margin-top: 0.5rem;
+            margin-bottom: 0.5rem;
+            height: 300px;
+            width: 100%;
+        }
+    }
+}

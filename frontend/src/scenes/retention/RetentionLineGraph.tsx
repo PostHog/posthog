@@ -8,6 +8,7 @@ import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { PersonType } from '~/types'
 import { RetentionTrendPeoplePayload } from 'scenes/retention/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import './RetentionLineGraph.scss'
 
 interface RetentionLineGraphProps {
     dashboardItemId?: number | null

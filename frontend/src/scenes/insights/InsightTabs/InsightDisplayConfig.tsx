@@ -5,10 +5,9 @@ import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import {
     ACTIONS_BAR_CHART_VALUE,
-    ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_PIE_CHART,
     ACTIONS_TABLE,
-    FEATURE_FLAGS,
+    FEATURE_FLAGS
 } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React from 'react'
@@ -52,8 +51,8 @@ const showChartFilter = function (activeView: InsightType): boolean {
         case InsightType.TRENDS:
         case InsightType.STICKINESS:
         case InsightType.SESSIONS:
-        case InsightType.RETENTION:
             return true
+        case InsightType.RETENTION:
         case InsightType.FUNNELS:
             return false
         case InsightType.LIFECYCLE:
@@ -131,7 +130,7 @@ export function InsightDisplayConfig({
 
                 {activeView === InsightType.RETENTION && (
                     <>
-                        {filters.display === ACTIONS_LINE_GRAPH_LINEAR ? <RetentionReferencePicker /> : null}
+                        <RetentionReferencePicker />
                         <RetentionDatePicker />
                     </>
                 )}
