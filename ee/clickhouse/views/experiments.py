@@ -17,6 +17,9 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 
 
 class ExperimentSerializer(serializers.ModelSerializer):
+
+    feature_flag_key = serializers.CharField(source="get_feature_flag_key")
+
     class Meta:
         model = Experiment
         fields = [
@@ -25,7 +28,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "description",
             "start_date",
             "end_date",
-            "feature_flag",
+            "feature_flag_key",
             "parameters",
             "filters",
             "created_by",
@@ -39,16 +42,71 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+    def validate_feature_flag_key(self, value):
+        if FeatureFlag.objects.filter(key=value, team_id=self.context["team_id"], deleted=False).exists():
+            raise ValidationError("Feature Flag key already exists. Please select a unique key")
+
+        return value
+
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
         request = self.context["request"]
         validated_data["created_by"] = request.user
         team = Team.objects.get(id=self.context["team_id"])
 
-        # feature_flag = FeatureFlag.objects.filter(key=validated_data["feature_flag"], team_id=self.context["team_id"], deleted=False).first()
-        # validated_data["feature_flag"] = feature_flag.pk
+        feature_flag_key = validated_data.pop("get_feature_flag_key")
 
-        experiment = Experiment.objects.create(team=team, **validated_data)
+        is_draft = "start_date" in validated_data
+
+        properties = validated_data["filters"].get("properties", [])
+        filters = {
+            "groups": [{"properties": properties, "rollout_percentage": None}],
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "name": "Control Group", "rollout_percentage": 50},
+                    {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
+                ]
+            },
+        }
+
+        feature_flag = FeatureFlag.objects.create(
+            key=feature_flag_key,
+            name=f'Feature Flag for Experiment {validated_data["name"]}',
+            team=team,
+            created_by=request.user,
+            filters=filters,
+            is_experiment=True,
+            active=False if is_draft else True,
+        )
+
+        experiment = Experiment.objects.create(team=team, feature_flag=feature_flag, **validated_data)
         return experiment
+
+    def update(self, instance: Experiment, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
+
+        expected_keys = set(["name", "description", "start_date", "end_date", "parameters"])
+        given_keys = set(validated_data.keys())
+
+        extra_keys = given_keys - expected_keys
+
+        if extra_keys:
+            raise ValidationError(f"Can't update keys: {', '.join(sorted(extra_keys))} on Experiment")
+
+        is_draft = not instance.start_date
+        has_start_date = "start_date" in validated_data
+
+        feature_flag = instance.feature_flag
+
+        if is_draft and has_start_date:
+            feature_flag.active = True
+            feature_flag.save()
+            return super().update(instance, validated_data)
+
+        elif has_start_date:
+            raise ValidationError("Can't change experiment start date after experiment has begun")
+        else:
+            # Not a draft, doesn't have start date
+            # Or draft without start date
+            return super().update(instance, validated_data)
 
 
 class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
@@ -63,7 +121,7 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
     # /projects/:id/experiments/:experiment_id/results
     #
     # Returns current results of an experiment, and graphs
-    #  1. Probability of success
+    # 1. Probability of success
     # 2. Funnel breakdown graph to display
     # 3. (?): Histogram of possible values - bucketed on backend
     # ******************************************
@@ -74,6 +132,7 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
         if not experiment.filters:
             raise ValidationError("Experiment has no target metric")
 
+        print(experiment.end_date)
         result = ClickhouseFunnelExperimentResult(
             Filter(experiment.filters),
             self.team,

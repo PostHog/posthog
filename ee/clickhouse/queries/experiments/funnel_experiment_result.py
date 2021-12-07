@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import datetime
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Type
 
 from numpy.random import default_rng
 from rest_framework.exceptions import ValidationError
@@ -12,7 +12,7 @@ from posthog.models.team import Team
 
 @dataclasses.dataclass
 class Variant:
-    value: str
+    name: str
     success_count: int
     failure_count: int
 
@@ -20,7 +20,7 @@ class Variant:
 SIMULATION_COUNT = 100_000
 
 
-class ClickhouseFunnelExperimentResult(ClickhouseFunnel):
+class ClickhouseFunnelExperimentResult:
     def __init__(
         self,
         filter: Filter,
@@ -28,20 +28,28 @@ class ClickhouseFunnelExperimentResult(ClickhouseFunnel):
         feature_flag: str,
         experiment_start_date: datetime,
         experiment_end_date: Optional[datetime] = None,
+        funnel_class: Type[ClickhouseFunnel] = ClickhouseFunnel,
     ):
+
+        breakdown_key = f"$feature/{feature_flag}"
 
         query_filter = filter.with_data(
             {
                 "date_from": experiment_start_date,
-                "date_end": experiment_end_date,
-                "breakdown": f"$feature/{feature_flag}",
+                "date_to": experiment_end_date,
+                "breakdown": breakdown_key,
                 "breakdown_type": "event",
+                "properties": [
+                    {"key": breakdown_key, "value": ["control", "test"], "operator": "exact", "type": "event"}
+                ],
+                # don't rely on properties used to set filters, taken over by $feature/X event properties
+                # instead, filter by prop names we expect to see: the variant values
             }
         )
-        super().__init__(query_filter, team)
+        self.funnel = funnel_class(query_filter, team)
 
     def get_results(self):
-        funnel_results = self.run()
+        funnel_results = self.funnel.run()
         variants = self.get_variants(funnel_results)
 
         probability = self.calculate_results(variants)
@@ -49,25 +57,28 @@ class ClickhouseFunnelExperimentResult(ClickhouseFunnel):
         return {"funnel": funnel_results, "probability": probability}
 
     def get_variants(self, funnel_results):
-        # TODO: support multivariates
-
         variants = []
         for result in funnel_results:
             total = sum([step["count"] for step in result])
             success = result[-1]["count"]
             failure = total - success
-            variants.append(Variant(result[0]["breakdown_value"][0], success, failure))
+            breakdown_value = result[0]["breakdown_value"][0]
 
-        return variants
+            variants.append(Variant(breakdown_value, success, failure))
+
+        # Default variant names: control and test
+        return sorted(variants, key=lambda variant: variant.name, reverse=True)
 
     @staticmethod
     def calculate_results(
         variants: List[Variant], priors: Tuple[int, int] = (1, 1), simulations: int = SIMULATION_COUNT
     ):
         # Calculates probability that A is better than B
-
-        if len(variants) != 2:
+        if len(variants) > 2:
             raise ValidationError("Can't calculate A/B test results for more than 2 variants")
+
+        if len(variants) < 2:
+            raise ValidationError("Can't calculate A/B test results for less than 2 variants")
 
         prior_success, prior_failure = priors
 

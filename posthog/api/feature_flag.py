@@ -38,6 +38,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             "created_at",
             "is_simple_flag",
             "rollout_percentage",
+            "is_experiment",
         ]
 
     # Simple flags are ones that only have rollout_percentage
@@ -150,7 +151,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
         if self.action == "list":
-            queryset = queryset.filter(deleted=False)
+            queryset = queryset.filter(deleted=False, is_experiment=False)
         return queryset.order_by("-created_at")
 
     @action(methods=["GET"], detail=False)
