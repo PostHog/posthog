@@ -91,9 +91,7 @@ export class TeamManager {
         }
         const elapsedTime = DateTime.now().diff(startTime).milliseconds
         this.statsd?.timing('flushLastSeenAtCache', elapsedTime)
-        status.info(
-            `✅ 🚽 flushLastSeenAtCache finished successfully in ${elapsedTime} ms.`
-        )
+        status.info(`✅ 🚽 flushLastSeenAtCache finished successfully in ${elapsedTime} ms.`)
     }
 
     public async updateEventNamesAndProperties(
@@ -194,7 +192,9 @@ export class TeamManager {
             }
         }
         clearTimeout(timeout)
-        const statsDEvent = this.experimentalLastSeenAtEnabledTeams.includes(team.id) ? 'updateEventNamesAndProperties.lastSeenAtEnabled' : 'updateEventNamesAndProperties'
+        const statsDEvent = this.experimentalLastSeenAtEnabledTeams.includes(team.id)
+            ? 'updateEventNamesAndProperties.lastSeenAtEnabled'
+            : 'updateEventNamesAndProperties'
         this.statsd?.timing(statsDEvent, DateTime.now().diff(startTime).milliseconds)
     }
 

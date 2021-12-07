@@ -69,8 +69,10 @@ const renderItemContents = ({
 }): JSX.Element | string => {
     const { featureFlags } = useValues(featureFlagLogic)
     const parsedLastSeen = (item as EventDefinition).last_seen_at ? dayjs((item as EventDefinition).last_seen_at) : null
-    const isStale = featureFlags[FEATURE_FLAGS.STALE_EVENTS] &&
-        (listGroupType === TaxonomicFilterGroupType.Events && !parsedLastSeen) ||
+    const isStale =
+        (featureFlags[FEATURE_FLAGS.STALE_EVENTS] &&
+            listGroupType === TaxonomicFilterGroupType.Events &&
+            !parsedLastSeen) ||
         dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS
 
     return listGroupType === TaxonomicFilterGroupType.EventProperties ||
@@ -266,20 +268,20 @@ export function InfiniteList(): JSX.Element {
                 </AutoSizer>
             )}
             {isActiveTab &&
-                selectedItemInView &&
-                selectedItemHasPopup(selectedItem, listGroupType, group) &&
-                tooltipDesiredState(referenceElement) !== ListTooltip.None
+            selectedItemInView &&
+            selectedItemHasPopup(selectedItem, listGroupType, group) &&
+            tooltipDesiredState(referenceElement) !== ListTooltip.None
                 ? ReactDOM.createPortal(
-                    <div
-                        className="popper-tooltip click-outside-block Popup"
-                        ref={setPopperElement}
-                        style={styles.popper}
-                        {...attributes.popper}
-                    >
-                        {selectedItem && group ? renderItemPopup(selectedItem, listGroupType, group) : null}
-                    </div>,
-                    document.querySelector('body') as HTMLElement
-                )
+                      <div
+                          className="popper-tooltip click-outside-block Popup"
+                          ref={setPopperElement}
+                          style={styles.popper}
+                          {...attributes.popper}
+                      >
+                          {selectedItem && group ? renderItemPopup(selectedItem, listGroupType, group) : null}
+                      </div>,
+                      document.querySelector('body') as HTMLElement
+                  )
                 : null}
         </div>
     )
