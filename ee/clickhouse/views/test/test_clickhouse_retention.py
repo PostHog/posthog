@@ -1,4 +1,4 @@
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import List, Literal, Optional, TypedDict, Union
 
 from django.test import TestCase
@@ -182,6 +182,64 @@ class RetentionTests(TestCase, ClickhouseTestMixin):
             },
         )
 
+    @test_with_materialized_columns(event_properties=["os"])
+    def test_breakdown_size_is_limited_and_ordered_by_size(self):
+        organization = create_organization(name="test")
+        team = create_team(organization=organization)
+        user = create_user(email="test@posthog.com", password="1234", organization=organization)
+
+        self.client.force_login(user)
+
+        update_or_create_person(distinct_ids=["person 1"], team_id=team.pk)
+        update_or_create_person(distinct_ids=["person 2"], team_id=team.pk)
+        update_or_create_person(distinct_ids=["person 3"], team_id=team.pk)
+
+        setup_user_activity_by_day(
+            daily_activity={
+                "2020-01-01": {
+                    "person 1": [{"event": "target event", "properties": {"os": "Chrome"}},],
+                    "person 2": [{"event": "target event", "properties": {"os": "Chrome"}},],
+                    "person 3": [{"event": "target event", "properties": {"os": "Safari"}}],
+                },
+            },
+            team=team,
+        )
+
+        request_unbounded = RetentionRequest(
+            target_entity={"id": "target event", "type": "events"},
+            returning_entity={"id": "target event", "type": "events"},
+            date_from="2020-01-01",
+            total_intervals=1,
+            date_to="2020-01-01",
+            period="Day",
+            retention_type="retention_first_time",
+            breakdowns=[Breakdown(type="event", property="os")],
+            # NOTE: we need to specify breakdown_type as well, as the
+            # breakdown logic currently does not support multiple differing
+            # types
+            breakdown_type="event",
+        )
+
+        # First make sure that both Chrome and Safari are picked up
+        retention_with_two = get_retention_ok(
+            client=self.client, team_id=team.pk, request=replace(request_unbounded, breakdown_limit=2),
+        )
+
+        retention_with_two_by_cohort = get_by_cohort_by_period_from_response(response=retention_with_two)
+
+        self.assertEqual(
+            retention_with_two_by_cohort, {"Chrome": {"1": 2}, "Safari": {"1": 1},},
+        )
+
+        # Then ensure that Safari is removed with limit 1
+        retention_with_one = get_retention_ok(
+            client=self.client, team_id=team.pk, request=replace(request_unbounded, breakdown_limit=1),
+        )
+
+        retention_with_one_by_cohort = get_by_cohort_by_period_from_response(response=retention_with_one)
+
+        self.assertEqual(retention_with_one_by_cohort, {"Chrome": {"1": 2}})
+
 
 def setup_user_activity_by_day(daily_activity, team):
     _create_all_events(
@@ -212,6 +270,7 @@ class RetentionRequest:
 
     breakdowns: Optional[List[Breakdown]] = None
     breakdown_type: Optional[Literal["person", "event"]] = None
+    breakdown_limit: Optional[int] = None
 
 
 class Value(TypedDict):

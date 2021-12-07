@@ -88,7 +88,11 @@ SELECT datediff(%(period)s, {trunc_func}(toDateTime(%(start_date)s)), event_date
 INITIAL_BREAKDOWN_INTERVAL_SQL = """
     SELECT 
         target_event.breakdown_values AS breakdown_values,
-        count(DISTINCT target_event.target)
+        count(DISTINCT target_event.target) as count
     FROM ({reference_event_sql}) AS target_event
-    GROUP BY breakdown_values ORDER BY breakdown_values
+
+    GROUP BY breakdown_values
+    ORDER BY count DESC
+
+    LIMIT %(limit)s
 """

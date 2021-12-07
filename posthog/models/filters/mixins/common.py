@@ -149,7 +149,7 @@ class BreakdownMixin(BaseParamMixin):
 
     @property
     def breakdown_limit_or_default(self) -> int:
-        return self._breakdown_limit or 10
+        return int(self._breakdown_limit or 10)
 
     @include_dict
     def breakdown_to_dict(self):

@@ -126,6 +126,7 @@ class ClickhouseRetention(Retention):
             "total_intervals": filter.total_intervals,
             "period": period.lower(),
             "breakdown_by": filter.breakdown,
+            "limit": filter.breakdown_limit_or_default,
         }
 
         result = sync_execute(
