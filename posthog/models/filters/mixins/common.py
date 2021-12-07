@@ -408,3 +408,13 @@ class EntityTypeMixin(BaseParamMixin):
     @include_dict
     def entity_type_to_dict(self):
         return {"entity_type": self.target_entity_type} if self.target_entity_type else {}
+
+
+class EntityMathMixin(BaseParamMixin):
+    @cached_property
+    def target_entity_math(self) -> Optional[str]:
+        return self._data.get("entity_math", None)
+
+    @include_dict
+    def entity_math_to_dict(self):
+        return {"entity_math": self.target_entity_math} if self.target_entity_math else {}

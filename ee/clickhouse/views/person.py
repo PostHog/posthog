@@ -37,6 +37,20 @@ def should_paginate(results, limit: Union[str, int]) -> bool:
     return len(results) > int(limit) - 1
 
 
+def get_funnel_actor_class(filter: Filter) -> Callable:
+    if filter.funnel_viz_type == FunnelVizType.TRENDS:
+        funnel_actor_class = ClickhouseFunnelTrendsActors
+    else:
+        if filter.funnel_order_type == "unordered":
+            funnel_actor_class = ClickhouseFunnelUnorderedActors
+        elif filter.funnel_order_type == "strict":
+            funnel_actor_class = ClickhouseFunnelStrictActors
+        else:
+            funnel_actor_class = ClickhouseFunnelActors
+
+    return funnel_actor_class
+
+
 class ClickhousePersonViewSet(PersonViewSet):
     lifecycle_class = ClickhouseLifecycle
     retention_class = ClickhouseRetention
@@ -73,17 +87,7 @@ class ClickhousePersonViewSet(PersonViewSet):
         if not filter.limit:
             filter = filter.with_data({LIMIT: 100})
 
-        funnel_actor_class: Callable
-
-        if filter.funnel_viz_type == FunnelVizType.TRENDS:
-            funnel_actor_class = ClickhouseFunnelTrendsActors
-        else:
-            if filter.funnel_order_type == "unordered":
-                funnel_actor_class = ClickhouseFunnelUnorderedActors
-            elif filter.funnel_order_type == "strict":
-                funnel_actor_class = ClickhouseFunnelStrictActors
-            else:
-                funnel_actor_class = ClickhouseFunnelActors
+        funnel_actor_class = get_funnel_actor_class(filter)
 
         actors, serialized_actors = funnel_actor_class(filter, self.team).get_actors()
         _should_paginate = should_paginate(actors, filter.limit)

@@ -236,7 +236,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if not filter.limit:
             filter = filter.with_data({LIMIT: 100})
 
-        target_entity = get_target_entity(request)
+        target_entity = get_target_entity(filter)
 
         people = self.stickiness_class().people(target_entity, filter, team, request)
         next_url = paginated_result(people, request, filter.offset)

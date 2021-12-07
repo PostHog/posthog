@@ -35,7 +35,7 @@ def _handle_date_interval(filter: Filter) -> Filter:
     return filter.with_data(data)
 
 
-class TrendsPersonQuery(ActorBaseQuery):
+class ClickhouseTrendsActors(ActorBaseQuery):
     entity: Entity
     _filter: Filter
 

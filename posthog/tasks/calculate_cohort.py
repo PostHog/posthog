@@ -86,3 +86,14 @@ def insert_cohort_from_query(
             insert_entity_people_into_cohort(cohort, entity, _filter)
 
         insert_cohort_people_into_pg(cohort=cohort)
+
+
+@shared_task(ignore_result=True, max_retries=1)
+def insert_cohort_from_insight_filter(cohort_id: int, filter_data: Dict[str, Any]) -> None:
+    if is_clickhouse_enabled():
+        from ee.clickhouse.views.cohort import insert_cohort_actors_into_ch, insert_cohort_people_into_pg
+
+        cohort = Cohort.objects.get(pk=cohort_id)
+
+        insert_cohort_actors_into_ch(cohort, filter_data)
+        insert_cohort_people_into_pg(cohort=cohort)
