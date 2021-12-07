@@ -30,6 +30,8 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { createActionFromEvent } from './createActionFromEvent'
 
 export interface FixedFilters {
     action_id?: ActionType['id']
@@ -53,6 +55,7 @@ export function EventsTable({
     hidePersonColumn,
     sceneUrl,
 }: EventsTable = {}): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
     const logic = eventsTableLogic({ fixedFilters, key: pageKey, sceneUrl: sceneUrl || urls.events() })
     const {
         properties,
@@ -233,13 +236,9 @@ export function EventsTable({
                     return { props: { colSpan: 0 } }
                 }
 
-                if (event.event === '$autocapture') {
-                    return null
-                }
-
-                let params: Partial<FilterType>
+                let insightParams: Partial<FilterType> | undefined
                 if (event.event === '$pageview') {
-                    params = {
+                    insightParams = {
                         insight: InsightType.TRENDS,
                         interval: 'day',
                         display: ChartDisplayType.ActionsLineGraphLinear,
@@ -260,8 +259,8 @@ export function EventsTable({
                             },
                         ],
                     }
-                } else {
-                    params = {
+                } else if (event.event !== '$autocapture') {
+                    insightParams = {
                         insight: InsightType.TRENDS,
                         interval: 'day',
                         display: ChartDisplayType.ActionsLineGraphLinear,
@@ -281,14 +280,35 @@ export function EventsTable({
                 return (
                     <More
                         overlay={
-                            <LemonButton
-                                type="stealth"
-                                to={urls.insightNew(params)}
-                                fullWidth
-                                data-attr="events-table-usage"
-                            >
-                                Try out in Insights
-                            </LemonButton>
+                            <>
+                                {currentTeam && (
+                                    <LemonButton
+                                        type="stealth"
+                                        onClick={() =>
+                                            createActionFromEvent(
+                                                currentTeam.id,
+                                                event,
+                                                0,
+                                                currentTeam.data_attributes || []
+                                            )
+                                        }
+                                        fullWidth
+                                        data-attr="events-table-create-action"
+                                    >
+                                        Create action from event
+                                    </LemonButton>
+                                )}
+                                {insightParams && (
+                                    <LemonButton
+                                        type="stealth"
+                                        to={urls.insightNew(insightParams)}
+                                        fullWidth
+                                        data-attr="events-table-usage"
+                                    >
+                                        Try out in Insights
+                                    </LemonButton>
+                                )}
+                            </>
                         }
                     />
                 )
