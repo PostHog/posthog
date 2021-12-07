@@ -190,7 +190,7 @@ export function InsightsTable({
     if (indexedResults?.length > 0 && indexedResults[0].data) {
         const valueColumns: ColumnsType<IndexedTrendResult> = indexedResults[0].data.map(({}, index: number) => ({
             title: (
-                <div className={clsx('insight-table-count-header', filters.compare ? 'compare-header' : 'right')}>
+                <div className={clsx('insight-table-count-header', !!filters.compare && 'compare-header')}>
                     <DateDisplay
                         interval={(filters.interval as IntervalType) || 'day'}
                         date={(indexedResults[0].dates || indexedResults[0].days)[index]}
