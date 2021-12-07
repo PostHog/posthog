@@ -80,15 +80,13 @@ WHERE team_id = %(team_id)s
 """
 
 GET_TEAM_PERSON_DISTINCT_IDS = """
-SELECT distinct_id, argMax(person_id, _timestamp) as person_id
-FROM (
-    SELECT distinct_id, person_id, max(_timestamp) as _timestamp
-    FROM person_distinct_id
-    WHERE team_id = %(team_id)s
-    GROUP BY person_id, distinct_id, team_id
-    HAVING max(is_deleted) = 0
-)
+SELECT 
+    distinct_id,
+    argMax(person_id, _timestamp) as person_id 
+FROM person_distinct_id 
+WHERE team_id = %(team_id)s
 GROUP BY distinct_id
+HAVING max(is_deleted) = 0
 """
 
 GET_LATEST_PERSON_ID_SQL = """

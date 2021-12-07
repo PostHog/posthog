@@ -48,44 +48,25 @@ FROM ({event_query}) GROUP BY person_id
 
 DAU_SQL = """
 SELECT 
-    COUNT(id) AS data,
+    COUNT(DISTINCT id) AS data, -- make sure to not double count actors since person ids will be aligned with distinct ids after distinct is called in the inner query
     date
 FROM (
-    SELECT 
-        id,
-        date
-    FROM person 
+    SELECT
+        person_id as id,
+        events.date AS date
+    FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi
     INNER JOIN (
         SELECT
-            person_id,
-            events.date AS date
-        FROM (
-            SELECT 
-                distinct_id,
-                argMax(person_id, _timestamp) AS person_id 
-            FROM person_distinct_id
-            WHERE team_id = %(team_id)s
-            GROUP BY distinct_id
-            HAVING max(is_deleted) = 0
-        ) AS pdi
-        INNER JOIN (
-            SELECT
-                DISTINCT distinct_id,
-                toDateTime({trunc_func}(timestamp), 'UTC') AS date
-            FROM events
-                WHERE
-                team_id = %(team_id)s 
-                {entity_filter}
-                {date_filter}
-                {prop_filter}
-                group by distinct_id, toDateTime({trunc_func}(timestamp), 'UTC') AS date
-        ) AS events 
-        ON events.distinct_id = pdi.distinct_id
-    ) AS persons_for_event 
-    ON person.id = persons_for_event.person_id
-    WHERE 
-        team_id = %(team_id)s
-    GROUP BY id, date
-    HAVING max(is_deleted) = 0
+            distinct_id,
+            toDateTime({trunc_func}(timestamp), 'UTC') AS date
+        FROM events e
+            WHERE
+            team_id = %(team_id)s 
+            {entity_filter}
+            {date_filter}
+            {prop_filter}
+        GROUP BY distinct_id, toDateTime({trunc_func}(timestamp), 'UTC') AS date
+    ) AS events 
+    ON events.distinct_id = pdi.distinct_id
 ) GROUP BY date
 """

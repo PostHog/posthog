@@ -7,6 +7,7 @@ from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
 from ee.clickhouse.queries.trends.util import enumerate_time_range, parse_response, process_math
 from ee.clickhouse.queries.util import deep_dump_object, get_interval_func_ch, get_time_diff, get_trunc_func_ch
 from ee.clickhouse.sql.events import NULL_SQL
+from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.sql.trends.volume import (
     ACTIVE_USER_SQL,
     AGGREGATE_SQL,
@@ -148,7 +149,11 @@ class ClickhouseTrendsTotalVolume:
 
         return (
             DAU_SQL.format(
-                prop_filter=prop_filter, entity_filter=entity_filter, date_filter=date_filter, trunc_func=trunc_func
+                prop_filter=prop_filter,
+                entity_filter=entity_filter,
+                date_filter=date_filter,
+                trunc_func=trunc_func,
+                GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
             ),
             {**date_params, **entity_params, **prop_params},
         )
