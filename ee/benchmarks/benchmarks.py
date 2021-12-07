@@ -118,6 +118,36 @@ class QuerySuite:
         ClickhouseTrends().run(filter, self.team)
 
     @benchmark_clickhouse
+    def track_trends_dau(self):
+        filter = Filter(data={"events": [{"id": "$pageview", "math": "dau"}], **DATE_RANGE,})
+        ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_trends_dau_person_property_filter(self):
+        filter = Filter(
+            data={
+                "events": [{"id": "$pageview", "math": "dau"}],
+                "properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                **DATE_RANGE,
+            }
+        )
+
+        with no_materialized_columns():
+            ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_trends_dau_person_property_filter_materialized(self):
+        filter = Filter(
+            data={
+                "events": [{"id": "$pageview", "math": "dau"}],
+                "properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                **DATE_RANGE,
+            }
+        )
+
+        ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
     def track_trends_filter_by_cohort_precalculated(self):
         self.cohort.last_calculation = now()
         self.cohort.save()

@@ -90,7 +90,9 @@ class ClickhouseRetention(Retention):
         trunc_func = get_trunc_func_ch(period)
 
         returning_event_query_templated, returning_event_params = RetentionEventsQuery(
-            filter=filter, team_id=team.pk, event_query_type=RetentionQueryType.RETURNING,
+            filter=filter.with_data({"breakdowns": []}),  # Avoid pulling in breakdown values from reterning event query
+            team_id=team.pk,
+            event_query_type=RetentionQueryType.RETURNING,
         ).get_query()
 
         returning_event_query = substitute_params(returning_event_query_templated, returning_event_params)
