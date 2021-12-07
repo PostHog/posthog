@@ -20,10 +20,10 @@ export class TeamManager {
     eventPropertiesCache: Map<TeamId, Set<string>>
     instanceSiteUrl: string
     experimentalLastSeenAtEnabledTeams: number[]
-    statsd: StatsD
+    statsd?: StatsD
 
     // TODO: #7422 Remove temporary parameter
-    constructor(db: DB, statsd: StatsD, instanceSiteUrl?: string | null, experimentalLastSeenAtEnabledTeams?: string) {
+    constructor(db: DB, statsd?: StatsD, instanceSiteUrl?: string | null, experimentalLastSeenAtEnabledTeams?: string) {
         this.db = db
         this.statsd = statsd
         this.teamCache = new Map()
