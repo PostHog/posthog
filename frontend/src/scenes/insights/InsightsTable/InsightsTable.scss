@@ -28,12 +28,19 @@
     &.right {
         text-align: right;
     }
+
+    .compare-header {
+        .dated-highlight {
+            margin-left: 8px;
+            margin-right: 0;
+        }
+    }
 }
 
 .insight-table-count-cell {
-    &.dateworthy {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
+    .dated-highlight {
+        background: unset;
+        border: 0;
+        font-size: 0.85em;
     }
 }
