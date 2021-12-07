@@ -41,7 +41,7 @@ def start_special_migration(migration_name: str) -> bool:
         return False
 
     for service_version_requirement in migration_definition.service_version_requirements:
-        [in_range, version] = service_version_requirement.is_service_in_accepted_version()
+        in_range, version = service_version_requirement.is_service_in_accepted_version()
         if not in_range:
             process_error(
                 migration_instance,

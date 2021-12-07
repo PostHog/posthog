@@ -92,6 +92,7 @@ class Command(BaseCommand):
                     if sm.status == MigrationStatus.NotStarted:
                         print("Applying special migration", migration_name)
                         started_successfully = start_special_migration(migration_name)
+                        sm.refresh_from_db()
                         if not started_successfully or sm.status != MigrationStatus.CompletedSuccessfully:
                             print(f"Unable to complete special migration {migration_name} with error", sm.last_error)
                             return

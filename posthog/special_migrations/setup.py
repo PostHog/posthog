@@ -12,6 +12,8 @@ from posthog.version import VERSION
 ALL_SPECIAL_MIGRATIONS: Dict[str, SpecialMigrationDefinition] = {}
 
 SPECIAL_MIGRATION_TO_DEPENDENCY: Dict[str, Optional[str]] = {}
+
+# inverted mapping of SPECIAL_MIGRATION_TO_DEPENDENCY
 DEPENDENCY_TO_SPECIAL_MIGRATION: Dict[Optional[str], str] = {}
 
 

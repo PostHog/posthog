@@ -35,7 +35,7 @@ class PostHogConfig(AppConfig):
 
         if not settings.SKIP_SERVICE_VERSION_REQUIREMENTS:
             for service_version_requirement in settings.SERVICE_VERSION_REQUIREMENTS:
-                [in_range, version] = service_version_requirement.is_service_in_accepted_version()
+                in_range, version = service_version_requirement.is_service_in_accepted_version()
                 if not in_range:
                     start_anyway = input(
                         f"Service {service_version_requirement.service} is in version {version}. Expected range: {str(service_version_requirement.supported_version)}. PostHog may not work correctly with the current version. Continue? [y/n]"
