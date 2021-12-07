@@ -4,7 +4,6 @@ from datetime import datetime
 import pytz
 from rest_framework import status
 
-from ee.clickhouse.util import snapshot_clickhouse_queries
 from posthog.constants import (
     FILTER_TEST_ACCOUNTS,
     RETENTION_FIRST_TIME,
