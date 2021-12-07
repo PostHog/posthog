@@ -6,6 +6,10 @@ describe('Dashboard', () => {
 
     it('Dashboards loaded', () => {
         cy.get('h1').should('contain', 'Dashboards')
+        // Breadcrumbs work
+        cy.get('[data-attr=breadcrumb-0]').should('contain', 'HogFlix')
+        cy.get('[data-attr=breadcrumb-1]').should('contain', 'HogFlix Demo App')
+        cy.get('[data-attr=breadcrumb-2]').should('have.text', 'Dashboards')
     })
 
     it('Cannot see tags or description (non-FOSS feature)', () => {
@@ -55,15 +59,22 @@ describe('Dashboard', () => {
     })
 
     it('Create dashboard from a template', () => {
+        const TEST_DASHBOARD_NAME = 'XDefault'
+
         cy.get('[data-attr="new-dashboard"]').click()
-        cy.get('[data-attr=dashboard-name-input]').clear().type('XDefault')
+        cy.get('[data-attr=dashboard-name-input]').clear().type(TEST_DASHBOARD_NAME)
         cy.get('[data-attr=copy-from-template]').click()
         cy.get('[data-attr=dashboard-select-default-app]').click()
 
         cy.get('button').contains('Create').click()
 
-        cy.contains('XDefault').should('exist')
+        cy.contains(TEST_DASHBOARD_NAME).should('exist')
         cy.get('.dashboard-item').its('length').should('be.gte', 2)
+        // Breadcrumbs work
+        cy.get('[data-attr=breadcrumb-0]').should('contain', 'HogFlix')
+        cy.get('[data-attr=breadcrumb-1]').should('contain', 'HogFlix Demo App')
+        cy.get('[data-attr=breadcrumb-2]').should('have.text', 'Dashboards')
+        cy.get('[data-attr=breadcrumb-3]').should('have.text', TEST_DASHBOARD_NAME)
     })
 
     it('Click on a dashboard item dropdown and view graph', () => {
