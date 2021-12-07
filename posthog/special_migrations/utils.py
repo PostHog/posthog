@@ -104,7 +104,7 @@ def update_special_migration(
     celery_task_id: Optional[str] = None,
     progress: Optional[int] = None,
     current_operation_index: Optional[int] = None,
-    status: Optional[MigrationStatus] = None,
+    status: Optional[int] = None,
     started_at: Optional[datetime] = None,
     finished_at: Optional[datetime] = None,
     lock_row=False,
@@ -115,21 +115,21 @@ def update_special_migration(
             instance = SpecialMigration.objects.select_for_update().get(pk=migration_instance.pk)
         else:
             instance.refresh_from_db()
-        if last_error:
+        if last_error is not None:
             instance.last_error = last_error
-        if current_query_id:
+        if current_query_id is not None:
             instance.current_query_id = current_query_id
-        if celery_task_id:
+        if celery_task_id is not None:
             instance.celery_task_id = celery_task_id
-        if progress:
+        if progress is not None:
             instance.progress = progress
-        if current_operation_index:
+        if current_operation_index is not None:
             instance.current_operation_index = current_operation_index
-        if status:
+        if status is not None:
             instance.status = status
-        if started_at:
+        if started_at is not None:
             instance.started_at = started_at
-        if finished_at:
+        if finished_at is not None:
             instance.finished_at = finished_at
         instance.save()
 
