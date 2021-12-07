@@ -224,11 +224,35 @@ export const keyMapping: KeyMappingInterface = {
         },
         $identify: {
             label: 'Identify',
-            description: 'Tie a user to their actions',
+            description: 'A user has been identified with properties',
+        },
+        $groupidentify: {
+            label: 'Group Identify',
+            description: 'A group has been identified with properties',
+        },
+        $groups: {
+            label: 'Groups',
+            description: 'Relevant groups',
+        },
+        $group_key: {
+            label: 'Group Key',
+            description: 'Specified group key',
+        },
+        $group_type: {
+            label: 'Group Type',
+            description: 'Specified group type',
+        },
+        $window_id: {
+            label: 'Window ID',
+            description: 'Unique window ID for session recording disambiguation',
+        },
+        $session_id: {
+            label: 'Session ID',
+            description: 'Unique session ID for session recording disambiguation',
         },
         $rageclick: {
             label: 'Rageclick',
-            description: 'When a user repeatedly clicks a targeted area or element over a short period of time',
+            description: 'A user has rapidly and repeatedly clicked in a single place',
         },
         $set: {
             label: 'Set',
