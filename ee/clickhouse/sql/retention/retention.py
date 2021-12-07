@@ -44,11 +44,12 @@ RETENTION_BREAKDOWN_SQL = """
 """
 
 RETENTION_PEOPLE_SQL = """
-SELECT DISTINCT person_id
-FROM events e join ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi on e.distinct_id = pdi.distinct_id
+SELECT DISTINCT {actor_field_name}
+FROM events e 
+{person_join}
 where toDateTime(e.timestamp) >= toDateTime(%(start_date)s) AND toDateTime(e.timestamp) <= toDateTime(%(end_date)s)
-AND e.team_id = %(team_id)s AND person_id IN (
-    SELECT target FROM ({target_event_query}) as persons
+AND e.team_id = %(team_id)s AND actor_id IN (
+    SELECT target FROM ({target_event_query}) as actors
 ) {returning_query} {filters}
 LIMIT 100 OFFSET %(offset)s
 """

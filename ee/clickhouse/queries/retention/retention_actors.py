@@ -1,6 +1,7 @@
 from typing import Dict, Tuple
 
 from ee.clickhouse.models.action import format_action_filter
+from ee.clickhouse.models.group import get_aggregation_target_field
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from ee.clickhouse.queries.retention.retention_event_query import RetentionEventsQuery
@@ -43,6 +44,8 @@ def _get_condition(target_entity: Entity, table: str, prepend: str = "") -> Tupl
 
 
 class ClickhouseRetentionActors(ActorBaseQuery):
+    DISTINCT_ID_TABLE_ALIAS = "pdi"
+    EVENT_TABLE_ALIAS = "e"
     _filter: RetentionFilter
 
     def __init__(self, team: Team, filter: RetentionFilter):
@@ -60,7 +63,7 @@ class ClickhouseRetentionActors(ActorBaseQuery):
             self._filter.returning_entity if self._filter.selected_interval > 0 else self._filter.target_entity
         )
         return_query, return_params = _get_condition(returning_entity, table="e", prepend="returning")
-        return_query_formatted = "AND {return_query}".format(return_query=return_query)
+        return_query_formatted = f"AND {return_query}"
 
         reference_date_from = self._filter.date_from
         reference_date_to = self._filter.date_from + self._filter.period_increment
@@ -74,6 +77,8 @@ class ClickhouseRetentionActors(ActorBaseQuery):
             if is_first_time_retention
             else RetentionQueryType.TARGET,
         ).get_query()
+
+        actor_field_name = f"{get_aggregation_target_field(self._filter.aggregation_group_type_index, self.EVENT_TABLE_ALIAS, self.DISTINCT_ID_TABLE_ALIAS)} AS actor_id"
 
         target_params.update(
             {
@@ -91,7 +96,10 @@ class ClickhouseRetentionActors(ActorBaseQuery):
                 target_event_query=target_event_query,
                 returning_query=return_query_formatted,
                 filters=prop_filters,
-                GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
+                actor_field_name=actor_field_name,
+                person_join=""
+                if self.is_aggregating_by_groups
+                else f"JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi on e.distinct_id = pdi.distinct_id",
             ),
             {
                 "team_id": self._team.pk,
@@ -126,9 +134,9 @@ class ClickhouseRetentionActorsByPeriod(ActorBaseQuery):
         prop_filters, prop_filter_params = parse_prop_clauses(self._filter.properties)
 
         target_query, target_params = _get_condition(self._filter.target_entity, table="e")
-        target_query_formatted = "AND {target_query}".format(target_query=target_query)
+        target_query_formatted = f"AND {target_query}"
         return_query, return_params = _get_condition(self._filter.returning_entity, table="e", prepend="returning")
-        return_query_formatted = "AND {return_query}".format(return_query=return_query)
+        return_query_formatted = f"AND {return_query}"
         first_event_sql = (
             REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL
             if is_first_time_retention

@@ -129,6 +129,10 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
             [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1],],
         )
 
+        actor_result = ClickhouseRetention().people(filter.with_data({"selected_interval": 0}), self.team)
+
+        assert [actor["id"] for actor in actor_result] == ["org:5", "org:6"]
+
         filter = RetentionFilter(
             data={
                 "date_to": self._date(10, month=1, hour=0),
