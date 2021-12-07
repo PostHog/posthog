@@ -1,5 +1,5 @@
 FUNNEL_PERSONS_BY_STEP_SQL = """
-SELECT aggregation_target as person_id {extra_fields}
+SELECT aggregation_target AS actor_id {extra_fields}
 FROM (
     {steps_per_person_query}
 )

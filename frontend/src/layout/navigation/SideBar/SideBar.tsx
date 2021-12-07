@@ -36,6 +36,7 @@ import { navigationLogic } from '../navigationLogic'
 import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { groupsModel } from '~/models/groupsModel'
 
 function ProjectSwitcherInternal(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -113,6 +114,7 @@ function Pages(): JSX.Element {
     const { showToolbarModal } = useActions(navigationLogic)
     const { pinnedDashboards } = useValues(dashboardsModel)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { showGroupsOptions } = useValues(groupsModel)
 
     const [arePinnedDashboardsShown, setArePinnedDashboardsShown] = useState(false)
 
@@ -187,7 +189,12 @@ function Pages(): JSX.Element {
             )}
             <LemonSpacer />
             <PageButton icon={<IconGroupedEvents />} identifier={Scene.Events} to={urls.events()} />
-            <PageButton icon={<IconPerson />} identifier={Scene.Persons} to={urls.persons()} />
+            <PageButton
+                icon={<IconPerson />}
+                identifier={Scene.Persons}
+                to={urls.persons()}
+                title={`Persons${showGroupsOptions ? ' & groups' : ''}`}
+            />
             <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
             <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
             <LemonSpacer />

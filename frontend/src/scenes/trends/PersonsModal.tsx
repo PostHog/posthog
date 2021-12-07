@@ -13,8 +13,8 @@ import { DateDisplay } from 'lib/components/DateDisplay'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { PersonHeader } from '../persons/PersonHeader'
 import api from '../../lib/api'
+import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { GroupActorHeader } from 'scenes/persons/GroupActorHeader'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
 import { IconPersonFilled } from 'lib/components/icons'
 
 export interface PersonsModalProps {
@@ -59,9 +59,8 @@ export function PersonsModal({
             ) : filters.insight === InsightType.FUNNELS ? (
                 <>
                     {(people?.funnelStep ?? 0) >= 0 ? 'Completed' : 'Dropped off at'} step{' '}
-                    {Math.abs(people?.funnelStep ?? 0)} - <PropertyKeyInfo value={people?.label || ''} disablePopover />{' '}
-                    {people?.breakdown_value !== undefined &&
-                        `- ${people.breakdown_value ? people.breakdown_value : 'None'}`}
+                    {Math.abs(people?.funnelStep ?? 0)} • <PropertyKeyInfo value={people?.label || ''} disablePopover />{' '}
+                    {!!people?.breakdown_value ? `• ${people.breakdown_value}` : ''}
                 </>
             ) : filters.insight === InsightType.PATHS ? (
                 <>
