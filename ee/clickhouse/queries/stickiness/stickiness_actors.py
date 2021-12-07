@@ -26,7 +26,7 @@ class ClickhouseStickinessActors(ActorBaseQuery):
 
         return (
             f"""
-        SELECT DISTINCT aggregation_target FROM ({events_query}) WHERE num_intervals = %(stickiness_day)s
+        SELECT DISTINCT aggregation_target AS actor_id FROM ({events_query}) WHERE num_intervals = %(stickiness_day)s
         {'LIMIT %(limit)s' if self._filter.limit > 0 else ''}
         {'OFFSET %(offset)s' if self._filter.limit > 0 else ''}
         """,

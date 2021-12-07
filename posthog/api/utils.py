@@ -41,7 +41,7 @@ def get_target_entity(filter: Union[Filter, StickinessFilter]) -> Entity:
         filter.target_entity_id, filter.target_entity_type, filter.target_entity_math, filter.events, filter.actions
     )
     if possible_entity:
-        return Entity(data=possible_entity)
+        return possible_entity
     elif filter.target_entity_type:
         return Entity(
             {"id": filter.target_entity_id, "type": filter.target_entity_type, "math": filter.target_entity_math}
@@ -52,7 +52,7 @@ def get_target_entity(filter: Union[Filter, StickinessFilter]) -> Entity:
 
 def retrieve_entity_from(
     entity_id: str, entity_type: Optional[str], entity_math: MATH_TYPE, events: List[Entity], actions: List[Entity]
-) -> Optional[Dict]:
+) -> Optional[Entity]:
     """
     Retrieves the entity from the events and actions.
 
