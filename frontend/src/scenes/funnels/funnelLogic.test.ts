@@ -14,6 +14,7 @@ import {
     FunnelVizType,
     InsightShortId,
     InsightType,
+    ItemMode,
     TeamType,
 } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -413,6 +414,11 @@ describe('funnelLogic', () => {
         })
 
         it('setFilters calls personsModalLogic.loadPeople', async () => {
+            await expectLogic().toDispatchActions(preflightLogic, ['loadPreflightSuccess'])
+            await expectLogic(() => {
+                insightLogic({ dashboardItemId: Insight123 }).actions.setInsightMode(ItemMode.Edit, null)
+            })
+
             await expectLogic(logic, () => {
                 logic.actions.openPersonsModalForStep({
                     step: {

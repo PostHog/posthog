@@ -156,7 +156,7 @@ describe('eventsTableLogic', () => {
 
             it('can highlight new events', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.prependNewEvents([makeEvent('potato')])
+                    logic.actions.prependEvents([makeEvent('potato')])
                 }).toMatchValues({
                     highlightEvents: { potato: true },
                 })
@@ -185,7 +185,7 @@ describe('eventsTableLogic', () => {
                 const apiResponse = [makeEvent('potato')]
                 await expectLogic(logic, () => {
                     logic.actions.pollEventsSuccess(apiResponse)
-                    logic.actions.prependNewEvents([])
+                    logic.actions.prependEvents([])
                 }).toMatchValues({
                     newEvents: [],
                 })
@@ -252,7 +252,7 @@ describe('eventsTableLogic', () => {
             it('sets events when preprendNewEvents is called', async () => {
                 const events = [makeEvent('potato'), makeEvent('tomato')]
                 await expectLogic(logic, () => {
-                    logic.actions.prependNewEvents(events)
+                    logic.actions.prependEvents(events)
                 }).toMatchValues({
                     events,
                 })
@@ -495,7 +495,7 @@ describe('eventsTableLogic', () => {
                 await expectLogic(logic, () => {
                     logic.actions.pollEventsSuccess([event])
                     logic.actions.toggleAutomaticLoad(true)
-                }).toDispatchActions([logic.actionCreators.prependNewEvents([event])])
+                }).toDispatchActions([logic.actionCreators.prependEvents([event])])
             })
 
             it('calls error toast on fetch failure', async () => {

@@ -5,7 +5,7 @@ import { PersonType } from '~/types'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { PersonHeader } from './PersonHeader'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 
 interface PersonsTableType {
     people: PersonType[]
