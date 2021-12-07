@@ -58,9 +58,9 @@ export class TeamManager {
 
         const startTime = DateTime.now()
 
-        const lastFlushedMinsAgo = DateTime.now().diff(this.lastFlushAt).minutes
+        const lastFlushedSecondsAgo = DateTime.now().diff(this.lastFlushAt).as('seconds')
         status.info(
-            `🚽 Starting flushLastSeenAtCache. Cache size: ${this.eventLastSeenCache.size} items. Last flushed: ${lastFlushedMinsAgo} minutes ago.`
+            `🚽 Starting flushLastSeenAtCache. Cache size: ${this.eventLastSeenCache.size} items. Last flushed: ${lastFlushedSecondsAgo} conds ago.`
         )
 
         const events = this.eventLastSeenCache
@@ -89,7 +89,7 @@ export class TeamManager {
                 'updateEventLastSeen'
             )
         }
-        const elapsedTime = DateTime.now().diff(startTime).milliseconds
+        const elapsedTime = DateTime.now().diff(startTime).as('milliseconds')
         this.statsd?.timing('flushLastSeenAtCache', elapsedTime)
         status.info(`✅ 🚽 flushLastSeenAtCache finished successfully in ${elapsedTime} ms.`)
     }
@@ -144,7 +144,7 @@ export class TeamManager {
                     this.eventLastSeenCache.set(eventCacheKey, eventTimestamp.valueOf())
                 }
                 // TODO: Allow configuring this via env vars
-                if (this.eventLastSeenCache.size > 1000 || DateTime.now().diff(this.lastFlushAt).minutes > 2) {
+                if (this.eventLastSeenCache.size > 1000 || DateTime.now().diff(this.lastFlushAt).as('seconds') > 60) {
                     // to not run out of memory
                     await this.flushLastSeenAtCache()
                 }
@@ -195,7 +195,7 @@ export class TeamManager {
         const statsDEvent = this.experimentalLastSeenAtEnabledTeams.includes(team.id)
             ? 'updateEventNamesAndProperties.lastSeenAtEnabled'
             : 'updateEventNamesAndProperties'
-        this.statsd?.timing(statsDEvent, DateTime.now().diff(startTime).milliseconds)
+        this.statsd?.timing(statsDEvent, DateTime.now().diff(startTime).as('milliseconds'))
     }
 
     public async cacheEventNamesAndProperties(teamId: number): Promise<void> {
