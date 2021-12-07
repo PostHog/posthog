@@ -669,7 +669,7 @@ export interface DashboardType {
     _highlight?: boolean
 }
 
-export type DashboardLayoutSize = 'lg' | 'sm' | 'xs' | 'xxs'
+export type DashboardLayoutSize = 'sm' | 'xs'
 
 export interface OrganizationInviteType {
     id: string

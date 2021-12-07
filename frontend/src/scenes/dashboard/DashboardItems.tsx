@@ -8,7 +8,7 @@ import { DashboardItem } from 'scenes/dashboard/DashboardItem'
 import { isMobile, triggerResize, triggerResizeAfterADelay } from 'lib/utils'
 import { InsightModel, DashboardMode } from '~/types'
 import { insightsModel } from '~/models/insightsModel'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { dashboardLogic, COLS, BREAKPOINTS } from 'scenes/dashboard/dashboardLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import clsx from 'clsx'
 
@@ -22,8 +22,6 @@ export function DashboardItems(): JSX.Element {
         layoutForItem,
         dashboardMode,
         isRefreshing,
-        breakpoints,
-        cols,
         highlightedInsightId,
         refreshStatus,
     } = useValues(dashboardLogic)
@@ -57,8 +55,8 @@ export function DashboardItems(): JSX.Element {
             isDraggable={dashboardMode === DashboardMode.Edit}
             isResizable={dashboardMode === DashboardMode.Edit}
             layouts={layouts}
-            rowHeight={50}
-            margin={[20, 20]}
+            rowHeight={80}
+            margin={[8, 8]}
             containerPadding={[0, 0]}
             onLayoutChange={(_, newLayouts) => {
                 updateLayouts(newLayouts)
@@ -68,9 +66,9 @@ export function DashboardItems(): JSX.Element {
                 updateContainerWidth(containerWidth, newCols)
             }}
             measureBeforeMount
-            breakpoints={breakpoints}
+            breakpoints={BREAKPOINTS}
             resizeHandles={['s', 'e', 'se']}
-            cols={cols}
+            cols={COLS}
             onResize={(_layout: any, _oldItem: any, newItem: any) => {
                 if (!resizingItem || resizingItem.w !== newItem.w || resizingItem.h !== newItem.h) {
                     setResizingItem(newItem)
