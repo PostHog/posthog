@@ -121,9 +121,11 @@ function NewInsightButton(): JSX.Element {
                             <Row wrap={false}>
                                 <Col flex="none">
                                     {listedInsightTypeMetadata.icon && (
-                                        <div style={{ fontSize: '2rem' }}>
-                                            <listedInsightTypeMetadata.icon color="var(--muted-alt)" noBackground />
-                                        </div>
+                                        <listedInsightTypeMetadata.icon
+                                            color="var(--muted-alt)"
+                                            noBackground
+                                            style={{ fontSize: '2rem' }}
+                                        />
                                     )}
                                 </Col>
                                 <Col flex="Auto" style={{ paddingLeft: '1rem' }}>
@@ -179,11 +181,7 @@ export function SavedInsights(): JSX.Element {
             render: function renderType(_, insight) {
                 const typeMetadata = INSIGHT_TYPES_METADATA[insight.filters?.insight || InsightType.TRENDS]
                 if (typeMetadata && typeMetadata.icon) {
-                    return (
-                        <span style={{ fontSize: '2rem' }}>
-                            <typeMetadata.icon />
-                        </span>
-                    )
+                    return <typeMetadata.icon style={{ display: 'block', fontSize: '2rem' }} />
                 }
             },
         },

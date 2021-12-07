@@ -700,10 +700,11 @@ interface InsightIconProps {
     background?: string
     noBackground?: boolean
     children?: React.ReactNode
+    style: CSSProperties
 }
-function InsightIcon({ background = '#747EA2', noBackground = false, children }: InsightIconProps): JSX.Element {
+function InsightIcon({ background = '#747EA2', noBackground = false, children, style }: InsightIconProps): JSX.Element {
     return (
-        <svg width="1em" height="1em" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg width="1em" height="1em" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style={style}>
             {!noBackground ? <rect width="100%" height="100%" rx="4" fill={background} /> : null}
             {children}
         </svg>
