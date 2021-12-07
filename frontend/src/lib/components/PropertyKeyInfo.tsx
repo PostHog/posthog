@@ -234,6 +234,10 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Groups',
             description: 'Relevant groups',
         },
+        $group_set: {
+            label: 'Group Set',
+            description: 'Group properties to be set',
+        },
         $group_key: {
             label: 'Group Key',
             description: 'Specified group key',
@@ -256,11 +260,11 @@ export const keyMapping: KeyMappingInterface = {
         },
         $set: {
             label: 'Set',
-            description: '',
+            description: 'Person properties to be set',
         },
         $set_once: {
             label: 'Set Once',
-            description: '',
+            description: 'Person properties to be set if not set already (i.e. first-touch)',
         },
         $capture_failed_request: {
             label: 'Capture Failed Request',
