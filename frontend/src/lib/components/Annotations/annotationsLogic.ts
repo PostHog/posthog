@@ -22,11 +22,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
         values: [annotationsModel, ['activeGlobalAnnotations']],
     },
     actions: () => ({
-        createAnnotation: (
-            content: string,
-            date_marker: string,
-            scope: AnnotationScope = AnnotationScope.DashboardItem
-        ) => ({
+        createAnnotation: (content: string, date_marker: string, scope: AnnotationScope = AnnotationScope.Insight) => ({
             content,
             date_marker,
             created_at: dayjs(),
@@ -35,7 +31,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
         createAnnotationNow: (
             content: string,
             date_marker: string,
-            scope: AnnotationScope = AnnotationScope.DashboardItem
+            scope: AnnotationScope = AnnotationScope.Insight
         ) => ({
             content,
             date_marker,
@@ -53,7 +49,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
             loadAnnotations: async () => {
                 const params = {
                     ...(props.insightId ? { dashboardItemId: props.insightId } : {}),
-                    scope: AnnotationScope.DashboardItem,
+                    scope: AnnotationScope.Insight,
                     deleted: false,
                 }
                 const response = await api.get(

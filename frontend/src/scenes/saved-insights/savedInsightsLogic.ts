@@ -5,7 +5,7 @@ import { errorToast, objectDiffShallow, objectsEqual, toParams } from 'lib/utils
 import { InsightModel, LayoutView, SavedInsightsTabs } from '~/types'
 import { savedInsightsLogicType } from './savedInsightsLogicType'
 import { Dayjs } from 'dayjs'
-import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { insightsModel } from '~/models/insightsModel'
 import { teamLogic } from '../teamLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Sorting } from 'lib/components/LemonTable'
@@ -212,7 +212,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
             }
         },
         renameInsight: async ({ insight }) => {
-            dashboardItemsModel.actions.renameDashboardItem(insight)
+            insightsModel.actions.renameInsight(insight)
         },
         duplicateInsight: async ({ insight }) => {
             await api.create(`api/projects/${values.currentTeamId}/insights`, insight)
@@ -221,7 +221,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         setDates: () => {
             actions.loadInsights()
         },
-        [dashboardItemsModel.actionTypes.renameDashboardItemSuccess]: ({ item }) => {
+        [insightsModel.actionTypes.renameInsightSuccess]: ({ item }) => {
             actions.setInsight(item)
         },
     }),

@@ -6,7 +6,7 @@ import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardL
 import _dashboardJson from './__mocks__/dashboard.json'
 import { dashboardLogicType } from 'scenes/dashboard/dashboardLogicType'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { insightsModel } from '~/models/insightsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { InsightModel, DashboardType } from '~/types'
 
@@ -108,7 +108,7 @@ describe('dashboardLogic', () => {
 
         describe('on load', () => {
             it('mounts other logics', async () => {
-                await expectLogic(logic).toMount([dashboardsModel, dashboardItemsModel, eventUsageLogic])
+                await expectLogic(logic).toMount([dashboardsModel, insightsModel, eventUsageLogic])
             })
 
             it('fetches dashboard items on mount', async () => {

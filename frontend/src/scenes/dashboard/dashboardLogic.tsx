@@ -5,7 +5,7 @@ import { prompt } from 'lib/logic/prompt'
 import { router } from 'kea-router'
 import { toast } from 'react-toastify'
 import { clearDOMTextSelection, editingToast, setPageTitle, toParams } from 'lib/utils'
-import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { insightsModel } from '~/models/insightsModel'
 import { ACTIONS_LINE_GRAPH_LINEAR, PATHS_VIZ } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
@@ -38,7 +38,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
     path: (key) => ['scenes', 'dashboard', 'dashboardLogic', key],
     connect: {
         values: [teamLogic, ['currentTeamId']],
-        logic: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
+        logic: [dashboardsModel, insightsModel, eventUsageLogic],
     },
 
     props: {} as DashboardLogicProps,
@@ -150,7 +150,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         allItems: [
             null as DashboardType | null,
             {
-                [dashboardItemsModel.actionTypes.renameDashboardItemSuccess]: (state, { item }) => {
+                [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }) => {
                     return {
                         ...state,
                         items: state?.items.map((i) => (i.short_id === item.short_id ? item : i)) || [],
@@ -217,7 +217,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         items: state?.items.map((i) => (i.id === insightId ? { ...i, dive_dashboard } : i)),
                     } as DashboardType
                 },
-                [dashboardItemsModel.actionTypes.duplicateDashboardItemSuccess]: (state, { item }): DashboardType => {
+                [insightsModel.actionTypes.duplicateInsightSuccess]: (state, { item }): DashboardType => {
                     return {
                         ...state,
                         items:

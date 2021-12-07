@@ -7,7 +7,7 @@ import { Responsive, WidthProvider } from 'react-grid-layout'
 import { DashboardItem } from 'scenes/dashboard/DashboardItem'
 import { isMobile, triggerResize, triggerResizeAfterADelay } from 'lib/utils'
 import { InsightModel, DashboardMode } from '~/types'
-import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { insightsModel } from '~/models/insightsModel'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import clsx from 'clsx'
@@ -20,10 +20,10 @@ export function DashboardItems(): JSX.Element {
         items,
         layouts,
         layoutForItem,
-        breakpoints,
-        cols,
         dashboardMode,
         isRefreshing,
+        breakpoints,
+        cols,
         highlightedInsightId,
         refreshStatus,
     } = useValues(dashboardLogic)
@@ -36,7 +36,7 @@ export function DashboardItems(): JSX.Element {
         setDiveDashboard,
         refreshAllDashboardItems,
     } = useActions(dashboardLogic)
-    const { duplicateDashboardItem } = useActions(dashboardItemsModel)
+    const { duplicateInsight } = useActions(insightsModel)
 
     // make sure the dashboard takes up the right size
     useEffect(() => triggerResizeAfterADelay(), [])
@@ -117,9 +117,9 @@ export function DashboardItems(): JSX.Element {
                         reload={() => refreshAllDashboardItems([item])}
                         loadDashboardItems={loadDashboardItems}
                         setDiveDashboard={setDiveDashboard}
-                        duplicateDashboardItem={duplicateDashboardItem}
+                        duplicateDashboardItem={duplicateInsight}
                         moveDashboardItem={(it: InsightModel, dashboardId: number) =>
-                            duplicateDashboardItem(it, dashboardId, true)
+                            duplicateInsight(it, dashboardId, true)
                         }
                         updateItemColor={updateItemColor}
                         isDraggingRef={isDragging}

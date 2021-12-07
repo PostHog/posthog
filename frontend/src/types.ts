@@ -748,7 +748,7 @@ export interface PluginLogEntry {
 }
 
 export enum AnnotationScope {
-    DashboardItem = 'dashboard_item',
+    Insight = 'insight',
     Project = 'project',
     Organization = 'organization',
 }

@@ -16,7 +16,7 @@ import { usePrevious } from 'lib/hooks/usePrevious'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { SaveModal } from 'scenes/insights/SaveModal'
-import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { insightsModel } from '~/models/insightsModel'
 import {
     InsightModel,
     DashboardMode,
@@ -173,7 +173,7 @@ export function DashboardItem({
     const [showSaveModal, setShowSaveModal] = useState(false)
     const { currentTeamId } = useValues(teamLogic)
     const { nameSortedDashboards } = useValues(dashboardsModel)
-    const { renameDashboardItem } = useActions(dashboardItemsModel)
+    const { renameInsight } = useActions(insightsModel)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const _type = getDisplayedType(item.filters)
@@ -393,7 +393,7 @@ export function DashboardItem({
                                                 </Menu.Item>
                                                 <Menu.Item
                                                     data-attr={'dashboard-item-' + index + '-dropdown-rename'}
-                                                    onClick={() => renameDashboardItem(item)}
+                                                    onClick={() => renameInsight(item)}
                                                 >
                                                     Rename
                                                 </Menu.Item>
