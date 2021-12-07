@@ -18,7 +18,7 @@ export class TeamManager {
     lastFlushAt: DateTime // time when the `eventLastSeenCache` was last flushed
     eventPropertiesCache: Map<TeamId, Set<string>>
     instanceSiteUrl: string
-    experimentalLastSeenAtEnabledTeams: string[]
+    experimentalLastSeenAtEnabledTeams: number[]
 
     // TODO: #7422 Remove temporary parameter
     constructor(db: DB, instanceSiteUrl?: string | null, experimentalLastSeenAtEnabledTeams?: string) {
@@ -29,7 +29,8 @@ export class TeamManager {
         this.eventPropertiesCache = new Map()
         this.instanceSiteUrl = instanceSiteUrl || 'unknown'
         this.lastFlushAt = DateTime.now()
-        this.experimentalLastSeenAtEnabledTeams = experimentalLastSeenAtEnabledTeams?.split(',') ?? []
+        this.experimentalLastSeenAtEnabledTeams =
+            experimentalLastSeenAtEnabledTeams?.split(',').map((val) => parseInt(val)) ?? []
     }
 
     public async fetchTeam(teamId: number): Promise<Team | null> {
@@ -52,7 +53,7 @@ export class TeamManager {
         let valuesStatement = ''
         let params: (string | number)[] = []
 
-        console.time('flushLastSeenAtCache')
+        const startTime = DateTime.now()
 
         const lastFlushedMinsAgo = DateTime.now().diff(this.lastFlushAt).minutes
         status.info(
@@ -85,7 +86,9 @@ export class TeamManager {
                 'updateEventLastSeen'
             )
         }
-        status.info(`✅ 🚽 flushLastSeenAtCache finished successfully in ${console.timeEnd('flushLastSeenAtCache')}.`)
+        status.info(
+            `✅ 🚽 flushLastSeenAtCache finished successfully in ${DateTime.now().diff(startTime).milliseconds} ms.`
+        )
     }
 
     public async updateEventNamesAndProperties(
@@ -109,7 +112,7 @@ export class TeamManager {
 
         if (!this.eventNamesCache.get(team.id)?.has(event)) {
             // TODO: #7422 Temporary conditional to test experimental feature
-            if (this.experimentalLastSeenAtEnabledTeams.includes(team.id.toString())) {
+            if (this.experimentalLastSeenAtEnabledTeams.includes(team.id)) {
                 status.info('Inserting new event definition with last_seen_at')
                 await this.db.postgresQuery(
                     `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, last_seen_at, created_at)` +
@@ -131,7 +134,7 @@ export class TeamManager {
             this.eventNamesCache.get(team.id)?.add(event)
         } else {
             // TODO: #7422 Temporary conditional to test experimental feature
-            if (this.experimentalLastSeenAtEnabledTeams.includes(team.id.toString())) {
+            if (this.experimentalLastSeenAtEnabledTeams.includes(team.id)) {
                 const eventCacheKey = JSON.stringify([team.id, event])
                 if ((this.eventLastSeenCache.get(eventCacheKey) ?? 0) < eventTimestamp.valueOf()) {
                     this.eventLastSeenCache.set(eventCacheKey, eventTimestamp.valueOf())
