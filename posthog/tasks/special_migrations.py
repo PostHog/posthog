@@ -58,13 +58,13 @@ def check_special_migration_health() -> None:
 
     active_task_ids = []
 
-    for _, tasks in active_tasks_per_node:
+    for _, tasks in active_tasks_per_node.items():
         active_task_ids += [task["id"] for task in tasks]
 
     # the worker crashed - this is how we find out and process the error
     if migration_instance.celery_task_id not in active_task_ids:
         if is_current_operation_resumable(migration_instance):
-            trigger_migration(migration_instance.name, fresh_start=False)
+            trigger_migration(migration_instance, fresh_start=False)
         else:
             process_error(migration_instance, "Celery worker crashed while running migration.")
         return

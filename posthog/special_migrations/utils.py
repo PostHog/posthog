@@ -44,6 +44,7 @@ def trigger_migration(migration_instance: SpecialMigration, fresh_start=True):
     from posthog.tasks.special_migrations import run_special_migration
 
     task = run_special_migration.delay(migration_instance.name, fresh_start)
+    migration_instance.refresh_from_db()
     migration_instance.celery_task_id = str(task.id)
     migration_instance.save()
 
@@ -69,6 +70,7 @@ def mark_migration_as_successful(migration_instance: SpecialMigration):
     from posthog.special_migrations.runner import run_next_migration
 
     next_migration = DEPENDENCY_TO_SPECIAL_MIGRATION.get(migration_instance.name)
+
     if next_migration:
         run_next_migration(next_migration)
 

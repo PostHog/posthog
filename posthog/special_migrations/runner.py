@@ -153,7 +153,7 @@ def attempt_migration_rollback(migration_instance: SpecialMigration, force: bool
 def is_current_operation_resumable(migration_instance: SpecialMigration):
     migration_definition = get_special_migration_definition(migration_instance.name)
     index = migration_instance.current_operation_index
-    return migration_definition.operations[index].resumbale
+    return migration_definition.operations[index].resumable
 
 
 def is_migration_in_range(posthog_min_version, posthog_max_version):
