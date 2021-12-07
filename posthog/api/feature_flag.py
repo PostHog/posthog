@@ -190,20 +190,6 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
             )
         return Response(flags)
 
-    @action(methods=["GET"], detail=False)
-    def flags_for_user(self, request: request.Request, **kwargs):
-        if not request.user.is_authenticated:  # for mypy
-            raise exceptions.NotAuthenticated()
-
-        groups = json.loads(request.GET.get("groups", "{}"))
-        distinct_id = request.GET.get("distinct_id")
-
-        if distinct_id is None:
-            raise exceptions.ValidationError("Missing distinctID for getting flags")
-
-        feature_flags = get_overridden_feature_flags(self.team, distinct_id, groups)
-        return Response(feature_flags)
-
 
 class FeatureFlagOverrideSerializer(serializers.ModelSerializer):
     class Meta:

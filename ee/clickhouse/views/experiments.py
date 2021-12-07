@@ -132,7 +132,6 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
         if not experiment.filters:
             raise ValidationError("Experiment has no target metric")
 
-        print(experiment.end_date)
         result = ClickhouseFunnelExperimentResult(
             Filter(experiment.filters),
             self.team,

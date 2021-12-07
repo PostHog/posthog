@@ -10,6 +10,4 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         variant_b = Variant("B", 100, 18)
 
         probability = ClickhouseFunnelExperimentResult.calculate_results([variant_a, variant_b])
-
-        print(probability)
-        self.assertTrue(probability > 0.8)
+        self.assertTrue(probability > 0.9)
