@@ -121,11 +121,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         throw error
                     }
                 },
-                updateDashboard: async (filters: Partial<FilterType>) => {
-                    return await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}`, {
-                        filters,
-                    })
-                },
             },
         ],
     }),
@@ -491,7 +486,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             }
         },
     }),
-    listeners: ({ actions, values, key, cache }) => ({
+    listeners: ({ actions, values, key, cache, props }) => ({
         addNewDashboard: async () => {
             prompt({ key: `new-dashboard-${key}` }).actions.prompt({
                 title: 'New dashboard',
@@ -605,7 +600,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         },
         updateAndRefreshDashboard: async (_, breakpoint) => {
             await breakpoint(200)
-            actions.updateDashboard(values.filters)
+            await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}`, values.filters)
             actions.refreshAllDashboardItems()
         },
         setDates: ({ dateFrom, dateTo, reloadDashboard }) => {
