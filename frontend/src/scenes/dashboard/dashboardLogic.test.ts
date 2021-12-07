@@ -8,7 +8,7 @@ import { dashboardLogicType } from 'scenes/dashboard/dashboardLogicType'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { InsightType, DashboardType } from '~/types'
+import { InsightModel, DashboardType } from '~/types'
 
 const dashboardJson = _dashboardJson as any as DashboardType
 
@@ -225,7 +225,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['loadDashboardItemsSuccess'])
                 .toMatchValues({
-                    allItems: truth(({ items }) => items.filter((i: InsightType) => i.result === null).length === 2),
+                    allItems: truth(({ items }) => items.filter((i: InsightModel) => i.result === null).length === 2),
                     items: truth((items) => items.length === 4),
                 })
                 .toDispatchActions(['refreshAllDashboardItems', 'setRefreshStatuses'])
@@ -243,7 +243,7 @@ describe('dashboardLogic', () => {
                     },
                 })
                 .toMatchValues({
-                    allItems: truth(({ items }) => items.filter((i: InsightType) => i.result === null).length === 0),
+                    allItems: truth(({ items }) => items.filter((i: InsightModel) => i.result === null).length === 0),
                     items: truth((items) => items.length === 4),
                 })
         })

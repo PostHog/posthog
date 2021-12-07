@@ -18,7 +18,7 @@ import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { SaveModal } from 'scenes/insights/SaveModal'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import {
-    InsightType,
+    InsightModel,
     DashboardMode,
     DashboardType,
     ChartDisplayType,
@@ -49,7 +49,7 @@ import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
 interface DashboardItemProps {
-    item: InsightType
+    item: InsightModel
     dashboardId?: number
     receivedErrorFromAPI?: boolean
     updateItemColor?: (insightId: number, itemClassName: string) => void
@@ -65,9 +65,9 @@ interface DashboardItemProps {
     layout?: any
     footer?: JSX.Element
     onClick?: () => void
-    moveDashboardItem?: (it: InsightType, dashboardId: number) => void
-    saveDashboardItem?: (it: InsightType) => void
-    duplicateDashboardItem?: (it: InsightType, dashboardId?: number) => void
+    moveDashboardItem?: (it: InsightModel, dashboardId: number) => void
+    saveDashboardItem?: (it: InsightModel) => void
+    duplicateDashboardItem?: (it: InsightModel, dashboardId?: number) => void
     isHighlighted?: boolean
     doNotLoad?: boolean
 }
@@ -80,7 +80,7 @@ interface DisplayProps {
     viewText: string
 }
 
-// const insightLink = ({ filters, short_id, dashboard, name }: InsightType): string =>
+// const insightLink = ({ filters, short_id, dashboard, name }: InsightModel): string =>
 
 export const displayMap: Record<DisplayedType, DisplayProps> = {
     ActionsLineGraph: {

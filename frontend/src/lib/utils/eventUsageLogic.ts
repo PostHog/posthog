@@ -13,7 +13,7 @@ import {
     HotKeys,
     GlobalHotKeys,
     EntityType,
-    InsightType,
+    InsightModel,
     InsightType,
     PropertyFilter,
     HelpType,
@@ -208,7 +208,7 @@ export const eventUsageLogic = kea<
         reportDashboardViewed: (dashboard: DashboardType, hasShareToken: boolean) => ({ dashboard, hasShareToken }),
         reportDashboardModeToggled: (mode: DashboardMode, source: DashboardEventSource | null) => ({ mode, source }),
         reportDashboardRefreshed: (lastRefreshed?: string | Dayjs | null) => ({ lastRefreshed }),
-        reportDashboardItemRefreshed: (dashboardItem: InsightType) => ({ dashboardItem }),
+        reportDashboardItemRefreshed: (dashboardItem: InsightModel) => ({ dashboardItem }),
         reportDashboardDateRangeChanged: (dateFrom?: string | Dayjs, dateTo?: string | Dayjs | null) => ({
             dateFrom,
             dateTo,

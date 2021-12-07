@@ -622,7 +622,7 @@ export interface PlanInterface {
 // Creating a nominal type: https://github.com/microsoft/TypeScript/issues/202#issuecomment-961853101
 export type InsightShortId = string & { readonly '': unique symbol }
 
-export interface InsightType {
+export interface InsightModel {
     /** The unique key we use when communicating with the user, e.g. in URLs */
     short_id: InsightShortId
     /** The primary key in the database, used as well in API endpoints */
@@ -656,7 +656,7 @@ export interface DashboardType {
     name: string
     description: string
     pinned: boolean
-    items: InsightType[]
+    items: InsightModel[]
     created_at: string
     created_by: UserBasicType | null
     is_shared: boolean

@@ -3,7 +3,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { prompt } from 'lib/logic/prompt'
 import { toast } from 'react-toastify'
-import { InsightType } from '~/types'
+import { InsightModel } from '~/types'
 import { dashboardsModel } from './dashboardsModel'
 import { Link } from 'lib/components/Link'
 import { dashboardItemsModelType } from './dashboardItemsModelType'
@@ -13,14 +13,14 @@ import { teamLogic } from 'scenes/teamLogic'
 export const dashboardItemsModel = kea<dashboardItemsModelType>({
     path: ['models', 'dashboardItemsModel'],
     actions: () => ({
-        renameDashboardItem: (item: InsightType) => ({ item }),
-        renameDashboardItemSuccess: (item: InsightType) => ({ item }),
-        duplicateDashboardItem: (item: InsightType, dashboardId?: number, move: boolean = false) => ({
+        renameDashboardItem: (item: InsightModel) => ({ item }),
+        renameDashboardItemSuccess: (item: InsightModel) => ({ item }),
+        duplicateDashboardItem: (item: InsightModel, dashboardId?: number, move: boolean = false) => ({
             item,
             dashboardId,
             move,
         }),
-        duplicateDashboardItemSuccess: (item: InsightType) => ({ item }),
+        duplicateDashboardItemSuccess: (item: InsightModel) => ({ item }),
     }),
     listeners: ({ actions }) => ({
         renameDashboardItem: async ({ item }) => {

@@ -6,7 +6,7 @@ import { Responsive, WidthProvider } from 'react-grid-layout'
 
 import { DashboardItem } from 'scenes/dashboard/DashboardItem'
 import { isMobile, triggerResize, triggerResizeAfterADelay } from 'lib/utils'
-import { InsightType, DashboardMode } from '~/types'
+import { InsightModel, DashboardMode } from '~/types'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
@@ -104,7 +104,7 @@ export function DashboardItems(): JSX.Element {
             }}
             draggableCancel=".anticon,.ant-dropdown,table,.ant-popover-content"
         >
-            {items?.map((item: InsightType, index: number) => (
+            {items?.map((item: InsightModel, index: number) => (
                 <div key={item.short_id} className="dashboard-item-wrapper">
                     <DashboardItem
                         key={item.short_id}
@@ -118,7 +118,7 @@ export function DashboardItems(): JSX.Element {
                         loadDashboardItems={loadDashboardItems}
                         setDiveDashboard={setDiveDashboard}
                         duplicateDashboardItem={duplicateDashboardItem}
-                        moveDashboardItem={(it: InsightType, dashboardId: number) =>
+                        moveDashboardItem={(it: InsightModel, dashboardId: number) =>
                             duplicateDashboardItem(it, dashboardId, true)
                         }
                         updateItemColor={updateItemColor}

@@ -10,7 +10,7 @@ import { ACTIONS_LINE_GRAPH_LINEAR, PATHS_VIZ } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
     Breadcrumb,
-    InsightType,
+    InsightModel,
     DashboardLayoutSize,
     DashboardMode,
     DashboardType,
@@ -70,7 +70,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         saveLayouts: true,
         updateItemColor: (insightId: number, color: string) => ({ insightId, color }),
         setDiveDashboard: (insightId: number, dive_dashboard: number | null) => ({ insightId, dive_dashboard }),
-        refreshAllDashboardItems: (items?: InsightType[]) => ({ items }),
+        refreshAllDashboardItems: (items?: InsightModel[]) => ({ items }),
         refreshAllDashboardItemsManual: true,
         resetInterval: true,
         updateAndRefreshDashboard: true,
