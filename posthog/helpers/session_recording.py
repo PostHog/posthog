@@ -1,4 +1,5 @@
 import base64
+import dataclasses
 import gzip
 import json
 from collections import defaultdict
@@ -8,13 +9,19 @@ from sentry_sdk.api import capture_exception, capture_message
 
 from posthog.models import utils
 from posthog.models.session_recording_event import SessionRecordingEvent
-from posthog.utils import PaginatedList, paginate_list
+from posthog.utils import paginate_list
 
 Event = Dict
 SnapshotData = Dict
 
 
 FULL_SNAPSHOT = 2
+
+
+@dataclasses.dataclass
+class DecompressedRecordingData:
+    has_next: bool
+    snapshot_data_by_window_id: Dict[str, List[SnapshotData]]
 
 
 def preprocess_session_recording_events(events: List[Event]) -> List[Event]:
@@ -63,29 +70,6 @@ def compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> 
         }
 
 
-def decompress_chunked_snapshot_data(
-    team_id: int, session_recording_id: str, snapshot_list: List[SnapshotData]
-) -> Generator[SnapshotData, None, None]:
-    chunks_collector = defaultdict(list)
-    for snapshot_data in snapshot_list:
-        if "chunk_id" not in snapshot_data:
-            yield snapshot_data
-        else:
-            chunks_collector[snapshot_data["chunk_id"]].append(snapshot_data)
-
-    for chunks in chunks_collector.values():
-        if len(chunks) != chunks[0]["chunk_count"]:
-            capture_message(
-                "Did not find all session recording chunks! Team: {}, Session: {}".format(team_id, session_recording_id)
-            )
-            continue
-
-        b64_compressed_data = "".join(chunk["data"] for chunk in sorted(chunks, key=lambda c: c["chunk_index"]))
-        decompressed_data = json.loads(decompress(b64_compressed_data))
-
-        yield from decompressed_data
-
-
 def chunk_string(string: str, chunk_length: int) -> List[str]:
     """Split a string into chunk_length-sized elements. Reversal operation: `''.join()`."""
     return [string[0 + offset : chunk_length + offset] for offset in range(0, len(string), chunk_length)]
@@ -113,35 +97,50 @@ def decompress(base64data: str) -> str:
     return gzip.decompress(compressed_bytes).decode("utf-16", "surrogatepass")
 
 
-def paginate_chunk_decompression_by_window_id(
+def decompress_chunked_snapshot_data(
     team_id: int,
     session_recording_id: str,
     all_recording_events: List[SessionRecordingEvent],
     limit: Optional[int] = None,
     offset: int = 0,
-) -> PaginatedList:
+    return_only_activity_data: bool = False,
+) -> DecompressedRecordingData:
+    """
+    Before data is stored in clickhouse, it is compressed and then chunked. This function
+    gets back to the original data by unchunking the events and then decompressing the data.
+    
+    If limit + offset is provided, then it will paginate the decompression by chunks (because 
+    you can't decompress an incomplete chunk).
+
+    Depending on the size of the recording, this function can return a lot of data. To decrease the
+    memory used, you should either use the pagination parameters or pass in 'return_only_activity_data' which
+    drastically reduces the size of the data returned if you only want the activity data (which is
+    used for metadata calculation)
+    """
+
     if len(all_recording_events) == 0:
-        return PaginatedList(has_next=False, paginated_list=[])
+        DecompressedRecordingData(has_next=False, snapshot_data_by_window_id={})
 
     snapshot_data_by_window_id: defaultdict(list) = defaultdict(list)
 
-    # Simple case of unchunked and therefore uncompressed snapshots
+    # Handle backward compatibility to the days of uncompressed and unchunked snapshots
     if "chunk_id" not in all_recording_events[0].snapshot_data:
         paginated_list = paginate_list(all_recording_events, limit, offset)
         for event in paginated_list.paginated_list:
             snapshot_data_by_window_id[event.window_id].append(event.snapshot_data)
-        return {
-            "has_next": paginated_list.has_next,
-            "snapshot_data_by_window_id": snapshot_data_by_window_id,
-        }
+        return DecompressedRecordingData(
+            has_next=paginated_list.has_next, snapshot_data_by_window_id=snapshot_data_by_window_id
+        )
 
+    # Split decompressed recording events into their chunks
     chunks_collector: DefaultDict[str, List[SnapshotData]] = defaultdict(list)
-
     for event in all_recording_events:
         chunks_collector[event.snapshot_data["chunk_id"]].append(event)
 
+    # Paginate the list of chunks
     paginated_chunk_list = paginate_list(list(chunks_collector.values()), limit, offset)
 
+    # Decompress the chunks and split the resulting events by window_id
     for chunks in paginated_chunk_list.paginated_list:
         if len(chunks) != chunks[0].snapshot_data["chunk_count"]:
             capture_message(
@@ -156,11 +155,20 @@ def paginate_chunk_decompression_by_window_id(
         )
         decompressed_data = json.loads(decompress(b64_compressed_data))
 
-        snapshot_data_by_window_id[chunks[0].window_id].extend(decompressed_data)
-    return {
-        "has_next": paginated_chunk_list.has_next,
-        "snapshot_data_by_window_id": snapshot_data_by_window_id,
-    }
+        # Decompressed data can be large, and in metadata calculations, we only care if the event is "active"
+        # This pares down the data returned, so we're not passing around a massive object
+        if return_only_activity_data:
+            events_with_only_activity_data = [
+                {"timestamp": event.get("timestamp"), "is_active": is_active_event(event)}
+                for event in decompressed_data
+            ]
+            snapshot_data_by_window_id[chunks[0].window_id].extend(events_with_only_activity_data)
+
+        else:
+            snapshot_data_by_window_id[chunks[0].window_id].extend(decompressed_data)
+    return DecompressedRecordingData(
+        has_next=paginated_chunk_list.has_next, snapshot_data_by_window_id=snapshot_data_by_window_id
+    )
 
 
 def is_active_event(event: SnapshotData) -> bool:

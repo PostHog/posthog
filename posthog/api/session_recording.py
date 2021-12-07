@@ -1,3 +1,4 @@
+import dataclasses
 from typing import Any, Union
 
 from rest_framework import exceptions, request, response, serializers, viewsets
@@ -17,11 +18,10 @@ from posthog.queries.session_recordings.session_recording_list import SessionRec
 
 
 class SessionRecordingMetadataSerializer(serializers.Serializer):
-    segment_playlist = serializers.ListField(required=False)
+    segments = serializers.ListField(required=False)
     start_and_end_times_by_window_id = serializers.DictField(required=False)
     session_id = serializers.CharField()
     viewed = serializers.BooleanField()
-    distinct_id = serializers.CharField()
 
 
 class SessionRecordingSerializer(serializers.Serializer):
@@ -57,7 +57,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     def _get_session_recording_meta_data(self, request, filter, session_recording_id, include_active_segments):
         return SessionRecording(
             request=request, filter=filter, team=self.team, session_recording_id=session_recording_id
-        ).get_metadata(include_active_segments=include_active_segments)
+        ).get_metadata()
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionRecordingsFilter(request=request)
@@ -113,7 +113,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         session_recording_meta_data = self._get_session_recording_meta_data(
             request, filter, session_recording_id, include_active_segments
         )
-        if not session_recording_meta_data.get("session_id"):
+        if not session_recording_meta_data.session_id:
             raise exceptions.NotFound("Session not found")
 
         if not request.user.is_authenticated:  # for mypy
@@ -123,15 +123,20 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         ).exists()
 
         session_recording_serializer = SessionRecordingMetadataSerializer(
-            data={**session_recording_meta_data, "session_id": session_recording_id, "viewed": viewed_session_recording}
+            data={
+                "segments": [dataclasses.asdict(segment) for segment in session_recording_meta_data.segments],
+                "start_and_end_times_by_window_id": session_recording_meta_data.start_and_end_times_by_window_id,
+                "session_id": session_recording_id,
+                "viewed": viewed_session_recording,
+            }
         )
         session_recording_serializer.is_valid(raise_exception=True)
 
-        distinct_id = session_recording_meta_data["distinct_id"]
-
         try:
             person: Union[Person, None] = Person.objects.get(
-                persondistinctid__distinct_id=distinct_id, persondistinctid__team_id=self.team, team=self.team
+                persondistinctid__distinct_id=session_recording_meta_data.distinct_id,
+                persondistinctid__team_id=self.team,
+                team=self.team,
             )
         except Person.DoesNotExist:
             person = None
@@ -156,4 +161,11 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         session_recording_id = kwargs["pk"]
         filter = SessionRecordingsFilter(request=request)
         session_recording_snapshots = self._get_session_recording_snapshots(request, filter, session_recording_id)
-        return response.Response({"result": session_recording_snapshots})
+        return response.Response(
+            {
+                "result": {
+                    "next": session_recording_snapshots.next_url,
+                    "snapshot_data_by_window_id": session_recording_snapshots.snapshot_data_by_window_id,
+                }
+            }
+        )

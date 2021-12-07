@@ -32,7 +32,7 @@ export interface UnparsedRecordingSegment {
 }
 
 export const parseMetadataResponse = (metadata: Record<string, any>): Partial<SessionRecordingMeta> => {
-    const segments: RecordingSegment[] = metadata.segment_playlist.map(
+    const segments: RecordingSegment[] = metadata.segments.map(
         (segment: UnparsedRecordingSegment): RecordingSegment => {
             const windowStartTime = +dayjs(metadata.start_and_end_times_by_window_id[segment.window_id].start_time)
             const startTimeEpochMs = +dayjs(segment?.start_time)
