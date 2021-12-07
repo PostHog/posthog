@@ -4,35 +4,29 @@ on:
     - pull_request
 
 jobs:
-    cypress_prep:
-        name: Cypress E2E preparation
+    cypress_specs: # Job that lists and chunks spec file names
         runs-on: ubuntu-latest
         outputs:
-            matrix: ${{ steps.set-matrix.outputs.matrix }}
+            specs: ${{ steps.set-specs.outputs.specs }}
+
         steps:
-            - name: Check out
-              uses: actions/checkout@v2
-            - id: set-matrix
-              run: |
-                  if ${{github.event.pull_request.head.repo.full_name == github.repository}}; then
-                  matrix=$(jq 'map(.)' .github/workflows/e2e_matrix.json)
-                  else
-                  matrix='[{"containers": [1]}]'
-                  fi
-                  echo ::set-output name=matrix::{\"include\":$(echo $matrix)}\"
+            - uses: actions/checkout@v2
+            - id: set-specs
+              # List cypress/integration and produce a JSON array of the files, in chunks
+              run: echo "::set-output name=specs::$(ls cypress/integration/* | jq --slurp --raw-input -c 'split("\n")[:-1] | _nwise(5) | join("\n")' | jq --slurp -c .)"
 
     cypress:
-        name: Cypress E2E tests
+        name: Cypress E2E tests - (${{ strategy.job-index }})
         runs-on: ubuntu-18.04
-        needs: cypress_prep
+        needs: [cypress_specs]
 
         strategy:
             # when one test fails, DO NOT cancel the other
-            # containers, because this will kill Cypress processes
-            # leaving the Dashboard hanging ...
-            # https://github.com/cypress-io/github-action/issues/48
+            # containers, as there may be other spec failures
+            # we want to know about.
             fail-fast: false
-            matrix: ${{fromJson(needs.cypress_prep.outputs.matrix)}}
+            matrix:
+                specs: ${{ fromJson(needs.cypress_specs.outputs.specs) }}
 
         services:
             postgres:
@@ -60,6 +54,7 @@ jobs:
         steps:
             - name: Checkout
               uses: actions/checkout@v2
+
             - name: Set up Python 3.8
               uses: actions/setup-python@v2
               with:
@@ -127,20 +122,12 @@ jobs:
               uses: cypress-io/github-action@v2
               with:
                   config-file: cypress.e2e.json
-                  record: true
-                  parallel: ${{github.event.pull_request.head.repo.full_name == github.repository}}
-                  group: 'PostHog Frontend'
                   # We're already installing cypress above
                   # We have to install it separately otherwise the tests fail.
                   install: false
                   # We already install cypress separately, we don't need to install it again here
                   install-command: echo "no"
-              env:
-                  # pass the Dashboard record key as an environment variable
-                  CYPRESS_RECORD_KEY: ${{ secrets.CYPRESS_RECORD_KEY }}
-                  # Recommended: pass the GitHub token lets this action correctly
-                  # determine the unique run id necessary to re-run the checks
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  spec: ${{ matrix.specs }}
             - name: Archive test screenshots
               uses: actions/upload-artifact@v1
               with:
