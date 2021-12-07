@@ -10,12 +10,11 @@ import { urls } from 'scenes/urls'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
-import { Groups } from 'scenes/groups/Groups'
 
 const { TabPane } = Tabs
 
 export const scene: SceneExport = {
-    component: Groups,
+    component: Group,
     logic: groupLogic,
 }
 
