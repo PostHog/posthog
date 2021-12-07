@@ -16,6 +16,7 @@ import {
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { Tooltip } from 'lib/components/Tooltip'
 import { Spinner } from 'lib/components/Spinner/Spinner'
+import { userLogic } from 'scenes/userLogic'
 
 export const scene: SceneExport = {
     component: SpecialMigrations,
@@ -30,6 +31,7 @@ export const tooltipMessageForStatus = {
 }
 
 export function SpecialMigrations(): JSX.Element {
+    const { user } = useValues(userLogic)
     const { specialMigrations, specialMigrationsLoading } = useValues(specialMigrationsLogic)
     const { triggerMigration, forceStopMigration, loadSpecialMigrations } = useActions(specialMigrationsLogic)
 
@@ -181,22 +183,42 @@ export function SpecialMigrations(): JSX.Element {
     ]
     return (
         <div className="special-migrations-scene">
-            <PageHeader title="Special Migrations" caption="Manage special migrations in your instance" />
-            <div className="mb float-right">
-                <Button
-                    icon={specialMigrationsLoading ? <Spinner size="sm" /> : <RedoOutlined />}
-                    onClick={loadSpecialMigrations}
-                >
-                    Refresh
-                </Button>
-            </div>
-            <Space />
-            <Table
-                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                loading={specialMigrationsLoading}
-                columns={columns}
-                dataSource={specialMigrations}
-            />
+            {user?.is_staff ? (
+                <>
+                    <PageHeader title="Special Migrations" caption="Manage special migrations in your instance" />
+                    <div className="mb float-right">
+                        <Button
+                            icon={specialMigrationsLoading ? <Spinner size="sm" /> : <RedoOutlined />}
+                            onClick={loadSpecialMigrations}
+                        >
+                            Refresh
+                        </Button>
+                    </div>
+                    <Space />
+                    <Table
+                        pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                        loading={specialMigrationsLoading}
+                        columns={columns}
+                        dataSource={specialMigrations}
+                    />
+                </>
+            ) : (
+                <PageHeader
+                    title="Special Migrations"
+                    caption={
+                        <>
+                            <p>
+                                Only users with staff access can manage special migrations. Please contact your instance
+                                admin.
+                            </p>
+                            <p>
+                                If you're an admin and don't have access, set <code>is_staff=true</code> for your user
+                                on the PostgreSQL <code>posthog_user</code> table.
+                            </p>
+                        </>
+                    }
+                />
+            )}
         </div>
     )
 }

@@ -52,7 +52,7 @@ export const specialMigrationsLogic = kea<specialMigrationsLogicType<SpecialMigr
             {
                 loadSpecialMigrations: async () => {
                     if (!userLogic.values.user?.is_staff) {
-                        return null
+                        return []
                     }
                     return (await api.get('api/special_migrations')).results
                 },
