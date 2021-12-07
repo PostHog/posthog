@@ -60,7 +60,7 @@ export class TeamManager {
 
         const lastFlushedSecondsAgo = DateTime.now().diff(this.lastFlushAt).as('seconds')
         status.info(
-            `🚽 Starting flushLastSeenAtCache. Cache size: ${this.eventLastSeenCache.size} items. Last flushed: ${lastFlushedSecondsAgo} conds ago.`
+            `🚽 Starting flushLastSeenAtCache. Cache size: ${this.eventLastSeenCache.size} items. Last flushed: ${lastFlushedSecondsAgo} seconds ago.`
         )
 
         const events = this.eventLastSeenCache
