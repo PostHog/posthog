@@ -281,8 +281,91 @@ describe('TeamManager()', () => {
             await closeNewHub()
         })
 
-        it('flushes last_seen_cache properly', async () => {
-            // TODO: Test
+        it('flushes lastSeenCache properly', async () => {
+            await teamManager.updateEventNamesAndProperties(
+                2,
+                'new-event',
+                {},
+                DateTime.fromISO('2020-01-01T00:00:00.000Z')
+            )
+            await hub.db.postgresQuery(
+                "UPDATE posthog_eventdefinition SET last_seen_at = to_timestamp(1497307499) WHERE team_id = 2 AND name = '$pageview'",
+                undefined,
+                'test'
+            )
+            teamManager.eventLastSeenCache.set('2_$pageview', 1497307450) // older than currently last_seen_at
+            teamManager.eventLastSeenCache.set('2_new-event', 1626129850) // regular
+            teamManager.eventLastSeenCache.set('2_another_test_event', 1623537850)
+            teamManager.eventLastSeenCache.set('3_$pageview', 1528843450) // inexistent
+
+            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-03-03T03:03:03Z').getTime())
+            jest.spyOn(hub.db, 'postgresQuery')
+            await teamManager.flushLastSeenAtCache()
+            expect(teamManager.eventLastSeenCache.size).toBe(0)
+            expect(teamManager.lastFlushAt.valueOf()).toBe(DateTime.fromISO('2020-03-03T03:03:03Z').valueOf())
+            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1) // only a single query is fired
+            expect(hub.db.postgresQuery).toHaveBeenCalledWith(
+                `UPDATE posthog_eventdefinition AS t1 SET last_seen_at = GREATEST(t1.last_seen_at, to_timestamp(t2.last_seen_at::integer))
+                FROM (VALUES ($1, $2, $3),($4, $5, $6),($7, $8, $9),($10, $11, $12)) AS t2(team_id, name, last_seen_at)
+                WHERE t1.name = t2.name AND t1.team_id = t2.team_id::integer`,
+                [
+                    '2',
+                    '$pageview',
+                    1497307450,
+                    '2',
+                    'new-event',
+                    1626129850,
+                    '2',
+                    'another_test_event',
+                    1623537850,
+                    '3',
+                    '$pageview',
+                    1528843450,
+                ],
+                'updateEventLastSeen'
+            )
+
+            const eventDefinitions = await hub.db.fetchEventDefinitions()
+            expect(eventDefinitions).toEqual([
+                {
+                    id: expect.any(String),
+                    name: '$pageview',
+                    query_usage_30_day: 2,
+                    team_id: 2,
+                    volume_30_day: 3,
+                    last_seen_at: '2017-06-12T22:44:59.000Z', // previously existing value
+                    created_at: expect.any(String),
+                },
+                {
+                    id: expect.any(String),
+                    name: 'new-event',
+                    query_usage_30_day: null,
+                    team_id: 2,
+                    volume_30_day: null,
+                    last_seen_at: '2021-07-12T22:44:10.000Z',
+                    created_at: expect.any(String),
+                },
+                {
+                    id: expect.any(String),
+                    name: 'another_test_event',
+                    query_usage_30_day: null,
+                    team_id: 2,
+                    volume_30_day: null,
+                    last_seen_at: '2021-06-12T22:44:10.000Z',
+                    created_at: expect.any(String),
+                },
+            ])
+        })
+
+        it('empty lastSeenCache does not query postgres', async () => {
+            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-04-04T04:04:04Z').getTime())
+            jest.spyOn(hub.db, 'postgresQuery')
+            await teamManager.flushLastSeenAtCache()
+            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(0)
+
+            expect(teamManager.eventLastSeenCache.size).toBe(0)
+            // lastFlushAt does get updated
+            expect(teamManager.lastFlushAt.valueOf()).toBe(DateTime.fromISO('2020-04-04T04:04:04Z').valueOf())
         })
 
         it('does not capture event', async () => {
