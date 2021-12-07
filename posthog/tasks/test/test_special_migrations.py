@@ -1,19 +1,11 @@
-from datetime import datetime
-from time import sleep
 from unittest.mock import patch
 
 import pytest
 from celery.result import AsyncResult
-from django.db import connection
 
 from posthog.models.special_migration import MigrationStatus, SpecialMigration
-from posthog.models.utils import UUIDT
 from posthog.special_migrations.examples.test import Migration
-from posthog.special_migrations.runner import (
-    attempt_migration_rollback,
-    run_special_migration_next_op,
-    start_special_migration,
-)
+from posthog.special_migrations.runner import run_special_migration_next_op
 from posthog.special_migrations.setup import get_special_migration_definition
 from posthog.special_migrations.test.util import create_special_migration
 from posthog.tasks.special_migrations import CeleryTaskState, check_special_migration_health
