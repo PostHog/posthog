@@ -1,5 +1,3 @@
-import json
-import numbers
 from dataclasses import asdict, dataclass
 from typing import List, Literal, Optional, TypedDict, Union
 
@@ -7,14 +5,16 @@ from django.test import TestCase
 from django.test.client import Client
 
 from ee.clickhouse.test.test_journeys import _create_all_events, update_or_create_person
+from ee.clickhouse.util import ClickhouseTestMixin
 from ee.clickhouse.views.test.funnel.util import EventPattern
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.test.base import test_with_materialized_columns
 from posthog.utils import encode_get_request_params
 
 
-class RetentionTests(TestCase):
+class RetentionTests(TestCase, ClickhouseTestMixin):
     def test_can_get_retention_cohort_breakdown(self):
         organization = create_organization(name="test")
         team = create_team(organization=organization)
@@ -59,6 +59,7 @@ class RetentionTests(TestCase):
             },
         )
 
+    @test_with_materialized_columns(person_properties=["os"])
     def test_can_specify_breakdown_person_property(self):
         """
         By default, we group users together by the first time they perform the
@@ -118,6 +119,7 @@ class RetentionTests(TestCase):
             },
         )
 
+    @test_with_materialized_columns(event_properties=["os"])
     def test_can_specify_breakdown_event_property(self):
         """
         By default, we group users together by the first time they perform the
