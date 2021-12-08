@@ -13,7 +13,6 @@ from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthenticat
 from posthog.event_usage import report_user_action
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import FeatureFlag
-from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
