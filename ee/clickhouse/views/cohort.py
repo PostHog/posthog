@@ -71,10 +71,10 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
         path_filter = PathFilter(data=filter_data)
         query, params = ClickhousePathsActors(path_filter, cohort.team, funnel_filter=None).actor_query()
 
-    insert_entity_people_into_cohort(cohort, substitute_params(query, params))
+    insert_actors_into_cohort_by_query(cohort, substitute_params(query, params))
 
 
-def insert_entity_people_into_cohort(cohort: Cohort, query: str):
+def insert_actors_into_cohort_by_query(cohort: Cohort, query: str):
     try:
         sync_execute(
             INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
