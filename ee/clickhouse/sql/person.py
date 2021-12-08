@@ -295,9 +295,7 @@ GET_DISTINCT_IDS_BY_PERSON_ID_FILTER = """
 SELECT distinct_id
 FROM ({GET_TEAM_PERSON_DISTINCT_IDS})
 WHERE {filters}
-""".format(
-    filters="{filters}", GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-)
+"""
 
 GET_PERSON_PROPERTIES_COUNT = """
 SELECT tupleElement(keysAndValues, 1) as key, count(*) as count
