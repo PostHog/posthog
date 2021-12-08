@@ -3,6 +3,7 @@ import dataclasses
 import gzip
 import json
 from collections import defaultdict
+from datetime import datetime, timedelta
 from typing import DefaultDict, Dict, Generator, List, Optional
 
 from sentry_sdk.api import capture_exception, capture_message
@@ -16,6 +17,14 @@ SnapshotData = Dict
 
 
 FULL_SNAPSHOT = 2
+
+
+@dataclasses.dataclass
+class RecordingSegment:
+    start_time: datetime
+    end_time: datetime
+    window_id: str
+    is_active: bool
 
 
 @dataclasses.dataclass
@@ -109,13 +118,12 @@ def decompress_chunked_snapshot_data(
     Before data is stored in clickhouse, it is compressed and then chunked. This function
     gets back to the original data by unchunking the events and then decompressing the data.
     
-    If limit + offset is provided, then it will paginate the decompression by chunks (because 
+    If limit + offset is provided, then it will paginate the decompression by chunks (not by events, because 
     you can't decompress an incomplete chunk).
 
     Depending on the size of the recording, this function can return a lot of data. To decrease the
     memory used, you should either use the pagination parameters or pass in 'return_only_activity_data' which
-    drastically reduces the size of the data returned if you only want the activity data (which is
-    used for metadata calculation)
+    drastically reduces the size of the data returned if you only want the activity data (used for metadata calculation)
     """
 
     if len(all_recording_events) == 0:
@@ -172,7 +180,9 @@ def decompress_chunked_snapshot_data(
 
 
 def is_active_event(event: SnapshotData) -> bool:
-    # Determines which rr-web events are "active" - meaning user generated
+    """
+    Determines which rr-web events are "active" - meaning user generated
+    """
     # Event type 3 means incremental_update (not a full snapshot, metadata etc)
     # And the following are the defined source types:
     # Mutation = 0
@@ -190,3 +200,84 @@ def is_active_event(event: SnapshotData) -> bool:
     # Drag = 12
     # StyleDeclaration = 13
     return event.get("type") == 3 and event.get("data", {}).get("source") in [1, 2, 3, 4, 5, 6, 7, 12]
+
+
+ACTIVITY_THRESHOLD_SECONDS = 60
+
+
+def get_active_segments_from_event_list(event_list, window_id) -> List[RecordingSegment]:
+    """
+    Processes a list of events for a specific window_id to determine
+    the segments of the recording where the user is "active". And active segment ends 
+    when there isn't another active event for ACTIVITY_THRESHOLD_SECONDS seconds
+    """
+    active_event_timestamps = [event.get("timestamp") for event in event_list if event.get("is_active")]
+
+    active_recording_segments: List[RecordingSegment] = []
+    current_active_segment: Optional[RecordingSegment] = None
+    for current_timestamp in active_event_timestamps:
+        # If the time since the last active event is less than the threshold, continue the existing segment
+        if current_active_segment and (current_timestamp - current_active_segment.end_time) <= timedelta(
+            seconds=ACTIVITY_THRESHOLD_SECONDS
+        ):
+            current_active_segment.end_time = current_timestamp
+
+        # Otherwise, start a new segment
+        else:
+            if current_active_segment:
+                active_recording_segments.append(current_active_segment)
+            current_active_segment = RecordingSegment(
+                start_time=current_timestamp, end_time=current_timestamp, window_id=window_id, is_active=True,
+            )
+
+    # Add the active last segment if it hasn't already been added
+    if current_active_segment and (
+        len(active_recording_segments) == 0 or active_recording_segments[-1] != current_active_segment
+    ):
+        active_recording_segments.append(current_active_segment)
+
+    return active_recording_segments
+
+
+def generate_inactive_segments_for_range(
+    segment_start_time: datetime,
+    segment_end_time: datetime,
+    start_window_id: Optional[str],
+    start_and_end_times_by_window_id: Dict[str, Dict],
+    is_last_segment: bool = False,
+) -> List[RecordingSegment]:
+    """
+    Given the start and end times of a known period of inactivity,
+    this function will try create recording segments to fill the gap based on the
+    start and end times of the given window_ids
+    """
+
+    window_ids_by_start_time = sorted(
+        start_and_end_times_by_window_id, key=lambda x: start_and_end_times_by_window_id[x]["start_time"]
+    )
+
+    # Order of window_ids to use for generating inactive segments. Start with the window_id of the
+    # last active segment, then try the other window_ids in order of start_time
+    window_id_priority_list = (
+        [start_window_id] + window_ids_by_start_time if start_window_id else window_ids_by_start_time
+    )
+
+    inactive_segments = []
+    current_time = segment_start_time
+
+    for window_id in window_id_priority_list:
+        window_start_time = start_and_end_times_by_window_id[window_id]["start_time"]
+        window_end_time = start_and_end_times_by_window_id[window_id]["end_time"]
+        if window_end_time > current_time and current_time < segment_end_time:
+            # Add/subtract a millisecond to make sure the segments don't exactly overlap
+            segment_start_time = max(window_start_time, current_time) + timedelta(milliseconds=1)
+            segment_end_time = min(segment_end_time, window_end_time) - timedelta(
+                milliseconds=0 if is_last_segment else 1
+            )
+            inactive_segments.append(
+                RecordingSegment(
+                    start_time=segment_start_time, end_time=segment_end_time, window_id=window_id, is_active=False,
+                )
+            )
+            current_time = min(segment_end_time, window_end_time)
+    return inactive_segments

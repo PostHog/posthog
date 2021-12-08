@@ -8,13 +8,16 @@ from rest_framework.response import Response
 
 from posthog.api.person import PersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models import PersonDistinctId
+from posthog.models import Filter, PersonDistinctId
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person import Person
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.session_recordings.session_recording import SessionRecording
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
+from posthog.utils import format_query_params_absolute_url
+
+DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
 
 
 class SessionRecordingMetadataSerializer(serializers.Serializer):
@@ -49,14 +52,14 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     def _get_session_recording_list(self, filter):
         return SessionRecordingList(filter=filter, team_id=self.team.pk).run()
 
-    def _get_session_recording_snapshots(self, request, filter, session_recording_id):
+    def _get_session_recording_snapshots(self, request, session_recording_id, limit, offset):
         return SessionRecording(
-            request=request, filter=filter, team=self.team, session_recording_id=session_recording_id
-        ).get_snapshots()
+            request=request, team=self.team, session_recording_id=session_recording_id
+        ).get_snapshots(limit, offset)
 
-    def _get_session_recording_meta_data(self, request, filter, session_recording_id, include_active_segments):
+    def _get_session_recording_meta_data(self, request, filter, session_recording_id):
         return SessionRecording(
-            request=request, filter=filter, team=self.team, session_recording_id=session_recording_id
+            request=request, team=self.team, session_recording_id=session_recording_id
         ).get_metadata()
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -159,13 +162,24 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     @action(methods=["GET"], detail=True)
     def snapshots(self, request: request.Request, **kwargs):
         session_recording_id = kwargs["pk"]
-        filter = SessionRecordingsFilter(request=request)
-        session_recording_snapshots = self._get_session_recording_snapshots(request, filter, session_recording_id)
+        filter = Filter(request=request)
+        limit = filter.limit if filter.limit else DEFAULT_RECORDING_CHUNK_LIMIT
+        offset = filter.offset if filter.offset else 0
+
+        session_recording_snapshot_data = self._get_session_recording_snapshots(
+            request, filter, session_recording_id, limit, offset
+        )
+        next_url = (
+            format_query_params_absolute_url(request, offset + limit, limit)
+            if session_recording_snapshot_data.has_next
+            else None
+        )
+
         return response.Response(
             {
                 "result": {
-                    "next": session_recording_snapshots.next_url,
-                    "snapshot_data_by_window_id": session_recording_snapshots.snapshot_data_by_window_id,
+                    "next": next_url,
+                    "snapshot_data_by_window_id": session_recording_snapshot_data.snapshot_data_by_window_id,
                 }
             }
         )
