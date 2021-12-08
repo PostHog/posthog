@@ -10,6 +10,7 @@ from posthog.models import EventDefinition
 from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessPermission
 
 
+# If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
 class EventDefinitionSerializer(serializers.ModelSerializer):
     class Meta:
         model = EventDefinition
@@ -55,7 +56,7 @@ class EventDefinitionViewSet(
                     FROM ee_enterpriseeventdefinition
                     FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
                     WHERE team_id = %(team_id)s {search_query}
-                    ORDER BY query_usage_30_day DESC NULLS LAST, name ASC
+                    ORDER BY query_usage_30_day DESC NULLS LAST, last_seen_at DESC NULLS LAST, name ASC
                     """,
                     params={"team_id": self.team_id, **search_kwargs},
                 )
