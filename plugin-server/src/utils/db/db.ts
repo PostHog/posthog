@@ -22,6 +22,7 @@ import {
     ClickhouseGroup,
     ClickHousePerson,
     ClickHousePersonDistinctId,
+    ClickHousePersonDistinctId2,
     Cohort,
     CohortPeople,
     Database,
@@ -626,14 +627,20 @@ export class DB {
     public async fetchDistinctIds(person: Person, database: Database.ClickHouse): Promise<ClickHousePersonDistinctId[]>
     public async fetchDistinctIds(
         person: Person,
-        database: Database = Database.Postgres
-    ): Promise<PersonDistinctId[] | ClickHousePersonDistinctId[]> {
+        database: Database.ClickHouse,
+        clichouseTable: 'person_distinct_id2'
+    ): Promise<ClickHousePersonDistinctId2[]>
+    public async fetchDistinctIds(
+        person: Person,
+        database: Database = Database.Postgres,
+        clickhouseTable = 'person_distinct_id'
+    ): Promise<PersonDistinctId[] | ClickHousePersonDistinctId[] | ClickHousePersonDistinctId2[]> {
         if (database === Database.ClickHouse) {
             return (
                 await this.clickhouseQuery(
                     `
                         SELECT *
-                        FROM person_distinct_id
+                        FROM ${clickhouseTable}
                         FINAL
                         WHERE person_id='${escapeClickHouseString(person.uuid)}'
                           AND team_id='${person.team_id}'
