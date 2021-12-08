@@ -10,6 +10,7 @@ from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
+from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
 from ee.clickhouse.sql.cohort import (
     CALCULATE_COHORT_PEOPLE_SQL,
     GET_COHORT_SIZE_SQL,
@@ -22,7 +23,6 @@ from ee.clickhouse.sql.cohort import (
 from ee.clickhouse.sql.person import (
     GET_LATEST_PERSON_ID_SQL,
     GET_PERSON_IDS_BY_FILTER,
-    GET_TEAM_PERSON_DISTINCT_IDS,
     INSERT_PERSON_STATIC_COHORT,
     PERSON_STATIC_COHORT_TABLE,
 )
@@ -143,7 +143,7 @@ def get_entity_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: in
             entity_query=entity_query,
             date_query=date_query,
             count_operator=count_operator,
-            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
+            GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(cohort.team_id),
         )
         params: Dict[str, Union[str, int]] = {"count": int(count), **entity_params, **date_params}
         return f"person_id IN ({extract_person})", params
@@ -233,7 +233,9 @@ def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distin
     )
 
     person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
-        query=person_query, id_column=id_column, GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
+        query=person_query,
+        id_column=id_column,
+        GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(cohort.team_id),
     )
     return person_id_query, params
 

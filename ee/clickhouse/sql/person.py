@@ -79,18 +79,6 @@ WHERE team_id = %(team_id)s
   {query}
 """
 
-GET_TEAM_PERSON_DISTINCT_IDS = """
-SELECT distinct_id, argMax(person_id, _timestamp) as person_id
-FROM (
-    SELECT distinct_id, person_id, max(_timestamp) as _timestamp
-    FROM person_distinct_id
-    WHERE team_id = %(team_id)s
-    GROUP BY person_id, distinct_id, team_id
-    HAVING max(is_deleted) = 0
-)
-GROUP BY distinct_id
-"""
-
 GET_LATEST_PERSON_ID_SQL = """
 (select id from (
     {latest_person_sql}
@@ -201,6 +189,27 @@ INSERT_PERSON_STATIC_COHORT = (
 # Other queries
 #
 
+GET_TEAM_PERSON_DISTINCT_IDS = """
+SELECT distinct_id, argMax(person_id, _timestamp) as person_id
+FROM (
+    SELECT distinct_id, person_id, max(_timestamp) as _timestamp
+    FROM person_distinct_id
+    WHERE team_id = %(team_id)s
+    GROUP BY person_id, distinct_id, team_id
+    HAVING max(is_deleted) = 0
+)
+GROUP BY distinct_id
+"""
+
+# Query to query distinct ids using the new table, will be used if PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS applies
+GET_TEAM_PERSON_DISTINCT_IDS_NEW_TABLE = """
+SELECT distinct_id, argMax(person_id, version) as person_id
+FROM person_distinct_id2
+WHERE team_id = %(team_id)s
+GROUP BY distinct_id
+HAVING argMax(is_deleted, version) = 0
+"""
+
 GET_PERSON_IDS_BY_FILTER = """
 SELECT DISTINCT p.id
 FROM ({latest_person_sql}) AS p
@@ -300,7 +309,7 @@ ORDER BY count DESC, key ASC
 """
 
 GET_ACTORS_FROM_EVENT_QUERY = """
-SELECT 
+SELECT
     {id_field} AS actor_id
 FROM ({events_query})
 GROUP BY actor_id
