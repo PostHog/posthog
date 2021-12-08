@@ -549,14 +549,24 @@ export interface PersonDistinctId {
     team_id: number
     person_id: number
     distinct_id: string
+    version: string | null
 }
 
-/** ClickHouse PersonDistinctId model. */
+/** ClickHouse PersonDistinctId model. (person_distinct_id table) */
 export interface ClickHousePersonDistinctId {
     team_id: number
     person_id: string
     distinct_id: string
     is_deleted: 0 | 1
+}
+
+/** ClickHouse PersonDistinctId model. (person_distinct_id2 table) */
+export interface ClickHousePersonDistinctId2 {
+    team_id: number
+    person_id: string
+    distinct_id: string
+    is_deleted: 0 | 1
+    version: number
 }
 
 /** Usable Cohort model. */
