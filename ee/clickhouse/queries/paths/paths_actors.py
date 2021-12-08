@@ -44,7 +44,7 @@ class ClickhousePathsActors(ClickhousePaths, ActorBaseQuery):  # type: ignore
         return (
             f"""
             {paths_funnel_cte}
-            SELECT DISTINCT person_id
+            SELECT DISTINCT person_id AS actor_id
             FROM (
                 {paths_per_person_query}
             )

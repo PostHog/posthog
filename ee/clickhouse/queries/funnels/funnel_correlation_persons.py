@@ -27,6 +27,12 @@ class FunnelCorrelationActors:
         if not self._filter.correlation_person_limit:
             self._filter = self._filter.with_data({FUNNEL_CORRELATION_PERSON_LIMIT: 100})
 
+    def actor_query(self,):
+        if self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
+            return _FunnelPropertyCorrelationActors(self._filter, self._team, self._base_uri).actor_query()
+        else:
+            return _FunnelEventsCorrelationActors(self._filter, self._team, self._base_uri).actor_query()
+
     def get_actors(
         self,
     ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]]]:

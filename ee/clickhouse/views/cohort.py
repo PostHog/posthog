@@ -8,6 +8,7 @@ from rest_framework.request import Request
 from sentry_sdk.api import capture_exception
 
 from ee.clickhouse.client import substitute_params, sync_execute
+from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 from ee.clickhouse.queries.paths.paths_actors import ClickhousePathsActors
 from ee.clickhouse.queries.stickiness.stickiness_actors import ClickhouseStickinessActors
 from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
@@ -60,8 +61,12 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
         query, params = ClickhouseStickinessActors(cohort.team, entity, stickiness_filter).actor_query()
     elif insight_type == INSIGHT_FUNNELS:
         funnel_filter = Filter(data=filter_data)
-        funnel_actor_class = get_funnel_actor_class(funnel_filter)
-        query, params = funnel_actor_class(funnel_filter, cohort.team).actor_query()
+        funnel_actor_class = (
+            FunnelCorrelationActors
+            if funnel_filter.correlation_person_entity
+            else get_funnel_actor_class(funnel_filter)
+        )
+        query, params = funnel_actor_class(filter=funnel_filter, team=cohort.team).actor_query()
     elif insight_type == INSIGHT_PATHS:
         path_filter = PathFilter(data=filter_data)
         query, params = ClickhousePathsActors(path_filter, cohort.team, funnel_filter=None).actor_query()
