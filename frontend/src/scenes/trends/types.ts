@@ -6,9 +6,10 @@ export interface TrendResponse {
     next?: string
 }
 export interface DatasetType {
+    seriesId: number
     action: ActionFilter
     day: string
-    label: string
+    //TODO: label: string
     breakdown_value?: string
 }
 
@@ -27,5 +28,5 @@ export interface TrendActors {
     loadingMore?: boolean
     funnelStep?: number
     pathsDropoff?: boolean
-    crossDataset?: DatasetType
+    crossDataset?: DatasetType[]
 }

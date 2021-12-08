@@ -405,11 +405,13 @@ export function LineGraph({
                     const crossDataset = datasets
                         .filter((_dt) => !_dt.dotted)
                         .map((_dt) => ({
+                            seriesId: _dt.id,
                             action: _dt.action,
-                            label:
-                                typeof point._index !== 'undefined' && _dt.labels
-                                    ? _dt.labels[point._index]
-                                    : undefined,
+                            // TODO
+                            // label:
+                            //     typeof point._index !== 'undefined' && _dt.labels
+                            //         ? _dt.labels[point._index]
+                            //         : undefined,
                             day: typeof point._index !== 'undefined' && _dt.days ? _dt.days[point._index] : undefined,
                             breakdown_value: _dt.breakdown_value,
                         }))

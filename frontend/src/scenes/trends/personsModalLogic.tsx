@@ -38,7 +38,7 @@ export interface PersonsModalParams {
     funnelStep?: number
     pathsDropoff?: boolean
     pointValue?: number // The y-axis value of the data point (i.e. count, unique persons, ...)
-    crossDataset?: DatasetType // `crossDataset` contains the data set for all the points in the same x-axis point; allows switching between matching points
+    crossDataset?: DatasetType[] // `crossDataset` contains the data set for all the points in the same x-axis point; allows switching between matching points
 }
 
 export interface PeopleParamType {

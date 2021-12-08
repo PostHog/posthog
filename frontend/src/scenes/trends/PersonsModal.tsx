@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
-import { Modal, Button, Input, Skeleton } from 'antd'
+import { Modal, Button, Input, Skeleton, Select } from 'antd'
 import { FilterType, InsightType, ActorType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -16,6 +16,8 @@ import api from '../../lib/api'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { GroupActorHeader } from 'scenes/persons/GroupActorHeader'
 import { IconPersonFilled } from 'lib/components/icons'
+import { InsightLabel } from 'lib/components/InsightLabel'
+import { getChartColors } from 'lib/colors'
 
 export interface PersonsModalProps {
     visible: boolean
@@ -82,6 +84,9 @@ export function PersonsModal({
         (view === InsightType.TRENDS || view === InsightType.STICKINESS) &&
         showModalActions
 
+    const colorList = getChartColors('white')
+    const showCountedByTag = !!people?.crossDataset?.find(({ action }) => action?.math && action.math !== 'total')
+    const hasMultipleSeries = !!people?.crossDataset?.find(({ action }) => action?.order)
     return (
         <Modal
             title={title}
@@ -175,6 +180,33 @@ export function PersonsModal({
                                 .
                             </span>
                         </div>
+                        {people.crossDataset && (
+                            <div className="data-point-selector">
+                                <b>Data point</b>
+                                <Select>
+                                    {people.crossDataset.map((dataPoint) => (
+                                        <Select.Option
+                                            value={`${dataPoint.action.id}${dataPoint.breakdown_value}`}
+                                            key={`${dataPoint.action.id}${dataPoint.breakdown_value}`}
+                                        >
+                                            <InsightLabel
+                                                seriesColor={colorList[dataPoint.seriesId]}
+                                                action={dataPoint.action}
+                                                breakdownValue={
+                                                    dataPoint.breakdown_value === ''
+                                                        ? 'None'
+                                                        : dataPoint.breakdown_value?.toString()
+                                                }
+                                                useCustomName
+                                                showCountedByTag={showCountedByTag}
+                                                hasMultipleSeries={hasMultipleSeries}
+                                                hideSeriesSubtitle
+                                            />
+                                        </Select.Option>
+                                    ))}
+                                </Select>
+                            </div>
+                        )}
                         {people.count > 0 ? (
                             <LemonTable
                                 columns={

@@ -133,23 +133,34 @@ export function InsightLabel({
                     )}
 
                     {((action?.math && action.math !== 'total') || showCountedByTag) && (
-                        <MathTag
-                            math={action?.math}
-                            mathProperty={action?.math_property}
-                            mathGroupTypeIndex={action?.math_group_type_index}
-                        />
+                        <span style={{ marginRight: 4 }}>
+                            <MathTag
+                                math={action?.math}
+                                mathProperty={action?.math_property}
+                                mathGroupTypeIndex={action?.math_group_type_index}
+                            />
+                        </span>
                     )}
 
-                    {breakdownValue && !hideBreakdown && Array.isArray(breakdownValue) && (
-                        <Space direction={'horizontal'} wrap={true}>
-                            {breakdownValue.map((bv) => (
-                                <Tag className="tag-pill" key={bv} closable={false}>
-                                    <Typography.Text ellipsis={{ tooltip: bv }} style={{ maxWidth: 400 }}>
-                                        {bv}
-                                    </Typography.Text>
-                                </Tag>
-                            ))}
-                        </Space>
+                    {breakdownValue && !hideBreakdown && (
+                        <>
+                            {Array.isArray(breakdownValue) ? (
+                                <Space direction={'horizontal'} wrap={true}>
+                                    {breakdownValue.map((bv) => (
+                                        <Tag className="tag-pill" key={bv} closable={false}>
+                                            <Typography.Text ellipsis={{ tooltip: bv }} style={{ maxWidth: 400 }}>
+                                                {bv}
+                                            </Typography.Text>
+                                        </Tag>
+                                    ))}
+                                </Space>
+                            ) : (
+                                <>
+                                    {hasMultipleSeries && <span style={{ padding: '0 2px' }}>-</span>}
+                                    {breakdownValue === 'total' ? <i>Total</i> : breakdownValue}
+                                </>
+                            )}
+                        </>
                     )}
                 </div>
             </Col>
