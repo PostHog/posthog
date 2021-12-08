@@ -107,16 +107,15 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     # Returns meta data about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         session_recording_id = kwargs["pk"]
-        filter = SessionRecordingsFilter(request=request)
 
         include_active_segments = (
             True if request.query_params.get("include_active_segments", "false").lower() == "true" else False
         )
 
         session_recording_meta_data = self._get_session_recording_meta_data(
-            request, filter, session_recording_id, include_active_segments
+            request, session_recording_id, include_active_segments
         )
-        if not session_recording_meta_data.session_id:
+        if not session_recording_meta_data:
             raise exceptions.NotFound("Session not found")
 
         if not request.user.is_authenticated:  # for mypy
@@ -167,7 +166,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         offset = filter.offset if filter.offset else 0
 
         session_recording_snapshot_data = self._get_session_recording_snapshots(
-            request, filter, session_recording_id, limit, offset
+            request, session_recording_id, limit, offset
         )
         next_url = (
             format_query_params_absolute_url(request, offset + limit, limit)

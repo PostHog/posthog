@@ -129,7 +129,7 @@ def decompress_chunked_snapshot_data(
     if len(all_recording_events) == 0:
         DecompressedRecordingData(has_next=False, snapshot_data_by_window_id={})
 
-    snapshot_data_by_window_id: defaultdict(list) = defaultdict(list)
+    snapshot_data_by_window_id = defaultdict(list)
 
     # Handle backward compatibility to the days of uncompressed and unchunked snapshots
     if "chunk_id" not in all_recording_events[0].snapshot_data:

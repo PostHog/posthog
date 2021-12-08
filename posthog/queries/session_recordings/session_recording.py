@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, cast
 
 from django.db.models import QuerySet
 from django.utils import timezone
@@ -45,10 +45,10 @@ class SessionRecording:
             self._team.pk, self._session_recording_id, all_recording_events, limit, offset
         )
 
-    def get_metadata(self) -> RecordingMetadata:
+    def get_metadata(self) -> Optional[RecordingMetadata]:
         all_snapshots = self._query_recording_snapshots()
         if len(all_snapshots) == 0:
-            return RecordingMetadata(start_time=None, end_time=None, duration=None, session_id=None, distinct_id=None,)
+            return None
 
         segments, start_and_end_times_by_window_id = self._process_snapshots_for_metadata(all_snapshots)
 
@@ -66,13 +66,10 @@ class SessionRecording:
             self._team.pk, self._session_recording_id, all_snapshots, return_only_activity_data=True
         )
 
-        # Start and end times are used to make sure the segments span the entire recording
-        first_start_time: Optional[datetime] = None
-        last_end_time: Optional[datetime] = None
-
-        all_active_segments: List[RecordingSegment] = []
         start_and_end_times_by_window_id = {}
 
+        # Get the active segments for each window_id
+        all_active_segments: List[RecordingSegment] = []
         for window_id, event_list in decompressed_recording_data.snapshot_data_by_window_id.items():
             events_with_processed_timestamps = [
                 {
@@ -82,29 +79,26 @@ class SessionRecording:
                 for event in event_list
             ]
             # Not sure why, but events are sometimes slightly out of order
-            events_with_processed_timestamps.sort(key=lambda x: x.get("timestamp"))
+            events_with_processed_timestamps.sort(key=lambda x: cast(datetime, x["timestamp"]))
 
             active_segments_for_window_id = get_active_segments_from_event_list(
                 events_with_processed_timestamps, window_id
             )
 
             all_active_segments.extend(active_segments_for_window_id)
-            window_id_start_time = events_with_processed_timestamps[0].get("timestamp")
-            window_id_end_time = events_with_processed_timestamps[-1].get("timestamp")
 
             start_and_end_times_by_window_id[window_id] = {
-                "start_time": window_id_start_time,
-                "end_time": window_id_end_time,
+                "start_time": events_with_processed_timestamps[0].get("timestamp"),
+                "end_time": events_with_processed_timestamps[-1].get("timestamp"),
             }
-
-            if not first_start_time or window_id_start_time < first_start_time:
-                first_start_time = window_id_start_time
-            if not last_end_time or window_id_end_time > last_end_time:
-                last_end_time = window_id_end_time
 
         # Sort the active segments by start time. This will interleave active segments
         # from different windows
         all_active_segments.sort(key=lambda segment: segment.start_time)
+
+        # These start and end times are used to make sure the segments span the entire recording
+        first_start_time = min([cast(datetime, x["start_time"]) for x in start_and_end_times_by_window_id.values()])
+        last_end_time = max([cast(datetime, x["end_time"]) for x in start_and_end_times_by_window_id.values()])
 
         # Now, we fill in the gaps between the active segments with inactive segments
         all_segments = []
