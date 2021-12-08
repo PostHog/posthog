@@ -89,6 +89,7 @@ export class TeamManager {
         }
         const elapsedTime = DateTime.now().diff(startTime).as('milliseconds')
         this.statsd?.set('flushLastSeenAtCache.Size', cacheSize)
+        this.statsd?.set('flushLastSeenAtCache.QuerySize', params.length)
         this.statsd?.timing('flushLastSeenAtCache', elapsedTime)
         status.info(`✅ 🚽 flushLastSeenAtCache finished successfully in ${elapsedTime} ms.`)
     }
