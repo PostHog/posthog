@@ -137,6 +137,7 @@ describe('postgres parity', () => {
                     is_deleted: 0,
                     _timestamp: expect.any(String),
                     _offset: expect.any(Number),
+                    _partition: expect.any(Number),
                 },
                 {
                     distinct_id: 'distinct2',
@@ -146,6 +147,7 @@ describe('postgres parity', () => {
                     is_deleted: 0,
                     _timestamp: expect.any(String),
                     _offset: expect.any(Number),
+                    _partition: expect.any(Number),
                 },
             ])
         )
@@ -290,6 +292,7 @@ describe('postgres parity', () => {
                 is_deleted: 0,
                 _timestamp: expect.any(String),
                 _offset: expect.any(Number),
+                _partition: expect.any(Number),
             },
         ])
 
@@ -375,6 +378,7 @@ describe('postgres parity', () => {
                     is_deleted: 0,
                     _timestamp: expect.any(String),
                     _offset: expect.any(Number),
+                    _partition: expect.any(Number),
                 },
                 {
                     distinct_id: 'distinct1',
@@ -384,6 +388,7 @@ describe('postgres parity', () => {
                     is_deleted: 0,
                     _timestamp: expect.any(String),
                     _offset: expect.any(Number),
+                    _partition: expect.any(Number),
                 },
             ])
         )

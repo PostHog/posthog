@@ -182,7 +182,7 @@ PERSON_DISTINCT_ID2_TABLE_SQL = lambda: (
     table_name=PERSON_DISTINCT_ID2_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=table_engine(PERSON_DISTINCT_ID2_TABLE, "version", REPLACING_MERGE_TREE, sharded=False),
-    extra_fields=KAFKA_COLUMNS,
+    extra_fields=KAFKA_COLUMNS + "\n, _partition UInt64",
 )
 
 KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL = PERSON_DISTINCT_ID2_TABLE_BASE_SQL.format(
@@ -204,7 +204,8 @@ person_id,
 is_deleted,
 version,
 _timestamp,
-_offset
+_offset,
+_partition
 FROM {database}.kafka_{table_name}
 """.format(
     table_name=PERSON_DISTINCT_ID2_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE,
