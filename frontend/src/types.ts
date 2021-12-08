@@ -1330,11 +1330,15 @@ export interface Group {
 }
 
 export interface Experiment {
-    id: string
+    id: number | null
     name: string
-    description: string
+    description?: string
     feature_flag: string[]
     filters: Partial<FilterType>
+    start_date?: string
+    end_date?: string
+    created_at: string
+    created_by: UserBasicType | null
 }
 
 interface RelatedPerson {

@@ -9,6 +9,7 @@ from rest_framework.response import Response
 
 from ee.clickhouse.queries.experiments.funnel_experiment_result import ClickhouseFunnelExperimentResult
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.shared import UserBasicSerializer
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
@@ -19,6 +20,7 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 class ExperimentSerializer(serializers.ModelSerializer):
 
     feature_flag_key = serializers.CharField(source="get_feature_flag_key")
+    created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
         model = Experiment

@@ -10,22 +10,23 @@ export const experimentsLogic = kea<experimentsLogicType>({
     path: ['scenes', 'experiments', 'experimentsLogic'],
     connect: { values: [teamLogic, ['currentTeamId']] },
     actions: {
-        setOpenExperiment: (experiment) => ({ experiment }),
+        setOpenExperiment: (experiment: Experiment) => ({ experiment }),
     },
     loaders: ({ values }) => ({
         experiments: [
-            null as Experiment | null,
+            [] as Experiment[],
             {
                 loadExperiments: async () => {
-                    const url = `api/projects/${values.currentTeamId}/experiments`
-                    return await api.get(url)
+                    const response = await api.get(`api/projects/${values.currentTeamId}/experiments`)
+                    console.log(response)
+                    return response.results as Experiment
                 },
             },
         ],
     }),
     reducers: {
         openExperiment: [
-            null,
+            null as Experiment | null,
             {
                 setOpenExperiment: (_, { experiment }) => experiment,
             },
@@ -35,5 +36,10 @@ export const experimentsLogic = kea<experimentsLogicType>({
         setOpenExperiment: () =>
             combineUrl(values.openExperiment ? urls.experiment('new') : urls.experiments(), router.values.searchParams)
                 .url,
+    }),
+    events: ({ actions }) => ({
+        afterMount: () => {
+            actions.loadExperiments()
+        },
     }),
 })
