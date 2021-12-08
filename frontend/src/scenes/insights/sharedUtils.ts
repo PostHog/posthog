@@ -12,9 +12,7 @@ import { FilterType, InsightLogicProps, InsightType } from '~/types'
 export const keyForInsightLogicProps =
     (defaultKey = 'new', sceneKey = 'scene') =>
     (props: InsightLogicProps): string | number => {
-        if (!props.dashboardItemId) {
-            props = { dashboardItemId: undefined, syncWithUrl: true }
-        }
+        props = { dashboardItemId: undefined, syncWithUrl: true }
         if (!('dashboardItemId' in props)) {
             throw new Error('Must init with dashboardItemId, even if undefined')
         }

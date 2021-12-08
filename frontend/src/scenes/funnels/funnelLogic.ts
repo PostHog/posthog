@@ -407,8 +407,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         results: [
             (s) => [s.insight],
             ({ filters, result }): FunnelAPIResponse => {
-                console.log('funnel result', filters, result)
-                if (filters?.insight === InsightType.FUNNELS || true) {
+                if (filters?.insight === InsightType.FUNNELS) {
                     if (Array.isArray(result) && Array.isArray(result[0]) && result[0][0].breakdowns) {
                         // in order to stop the UI having to check breakdowns and breakdown
                         // this collapses breakdowns onto the breakdown property
