@@ -8,7 +8,12 @@ import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
 
-import { KAFKA_GROUPS, KAFKA_PERSON_UNIQUE_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
+import {
+    KAFKA_GROUPS,
+    KAFKA_PERSON_DISTINCT_ID,
+    KAFKA_PERSON_UNIQUE_ID,
+    KAFKA_PLUGIN_LOG_ENTRIES,
+} from '../../config/kafka-topics'
 import {
     Action,
     ActionEventPair,
@@ -666,8 +671,8 @@ export class DB {
         client?: PoolClient
     ): Promise<ProducerRecord[]> {
         const insertResult = await this.postgresQuery(
-            'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3) RETURNING *',
-            [distinctId, person.id, person.team_id, 0],
+            'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, 0) RETURNING *',
+            [distinctId, person.id, person.team_id],
             'addDistinctIdPooled',
             client
         )
@@ -677,6 +682,16 @@ export class DB {
             return [
                 {
                     topic: KAFKA_PERSON_UNIQUE_ID,
+                    messages: [
+                        {
+                            value: Buffer.from(
+                                JSON.stringify({ ...personDistinctIdCreated, person_id: person.uuid, is_deleted: 0 })
+                            ),
+                        },
+                    ],
+                },
+                {
+                    topic: KAFKA_PERSON_DISTINCT_ID,
                     messages: [
                         {
                             value: Buffer.from(
@@ -745,6 +760,16 @@ export class DB {
                         {
                             value: Buffer.from(
                                 JSON.stringify({ ...usefulColumns, person_id: source.uuid, is_deleted: 1 })
+                            ),
+                        },
+                    ],
+                })
+                kafkaMessages.push({
+                    topic: KAFKA_PERSON_DISTINCT_ID,
+                    messages: [
+                        {
+                            value: Buffer.from(
+                                JSON.stringify({ ...usefulColumns, person_id: target.uuid, is_deleted: 0 })
                             ),
                         },
                     ],
