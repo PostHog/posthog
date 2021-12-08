@@ -666,8 +666,8 @@ export class DB {
         client?: PoolClient
     ): Promise<ProducerRecord[]> {
         const insertResult = await this.postgresQuery(
-            'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id) VALUES ($1, $2, $3) RETURNING *',
-            [distinctId, person.id, person.team_id],
+            'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3) RETURNING *',
+            [distinctId, person.id, person.team_id, 0],
             'addDistinctIdPooled',
             client
         )
@@ -697,7 +697,7 @@ export class DB {
             movedDistinctIdResult = await this.postgresQuery(
                 `
                     UPDATE posthog_persondistinctid
-                    SET person_id = $1
+                    SET person_id = $1, version = COALESCE(version, 0)::numeric + 1
                     WHERE person_id = $2
                       AND team_id = $3
                     RETURNING *
