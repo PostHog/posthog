@@ -328,11 +328,14 @@ class ClickhouseTrendsBreakdown:
 
     def _person_join_condition(self) -> Tuple[str, Dict]:
         person_query = ClickhousePersonQuery(self.filter, self.team_id, self.column_optimizer, entity=self.entity)
+        event_join = EVENT_JOIN_PERSON_SQL.format(
+            GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(self.team_id)
+        )
         if person_query.is_used:
             query, params = person_query.get_query()
             return (
                 f"""
-            {EVENT_JOIN_PERSON_SQL}
+            {event_join}
             INNER JOIN ({query}) person
             ON person.id = pdi.person_id
             """,
@@ -340,6 +343,6 @@ class ClickhouseTrendsBreakdown:
             )
         elif self.entity.math == "dau":
             # Only join distinct_ids
-            return EVENT_JOIN_PERSON_SQL, {}
+            return event_join, {}
         else:
             return "", {}
