@@ -651,7 +651,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             self.assertEqual(
                 sqlparse.format(sql, reindent=True),
                 sqlparse.format(
-                    """
+                    f"""
                 SELECT distinct_id
                 FROM
                 (SELECT distinct_id,
@@ -661,7 +661,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                             person_id,
                             max(_timestamp) as _timestamp
                     FROM person_distinct_id
-                    WHERE team_id = %(team_id)s
+                    WHERE team_id = {self.team.pk}
                     GROUP BY person_id,
                             distinct_id,
                             team_id
