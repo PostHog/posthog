@@ -4,10 +4,6 @@ import { EntityTypes, FilterType, Entity, EntityType, ActionFilter, EntityFilter
 import { entityFilterLogicType } from './entityFilterLogicType'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { eventUsageLogic, GraphSeriesAddedSource } from 'lib/utils/eventUsageLogic'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { experimentLogic } from 'scenes/experiments/experimentLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export type LocalFilter = EntityFilter & {
     order: number
@@ -240,11 +236,7 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
         },
         setFilters: async ({ filters }) => {
             if (typeof props.setFilters === 'function') {
-                if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.EXPERIMENTATION]) {
-                    funnelLogic(experimentLogic.values.funnelProps).actions.setFilters(toFilters(filters))
-                } else {
-                    props.setFilters(toFilters(filters))
-                }
+                props.setFilters(toFilters(filters))
             }
             const sanitizedFilters = filters?.map(({ id, type }) => ({ id, type }))
             eventUsageLogic.actions.reportInsightFilterSet(sanitizedFilters)
