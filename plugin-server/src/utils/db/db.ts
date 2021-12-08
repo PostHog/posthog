@@ -684,9 +684,9 @@ export class DB {
             client
         )
 
-        const personDistinctIdCreated = insertResult.rows[0] as PersonDistinctId
+        const { id, version: versionStr, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId
         if (this.kafkaProducer) {
-            const version = Number(personDistinctIdCreated.version || 0)
+            const version = Number(versionStr || 0)
             return [
                 {
                     topic: KAFKA_PERSON_UNIQUE_ID,
@@ -695,7 +695,6 @@ export class DB {
                             value: Buffer.from(
                                 JSON.stringify({
                                     ...personDistinctIdCreated,
-                                    version,
                                     person_id: person.uuid,
                                     is_deleted: 0,
                                 })
@@ -766,19 +765,19 @@ export class DB {
         const kafkaMessages = []
         if (this.kafkaProducer) {
             for (const row of movedDistinctIdResult.rows) {
-                const { id, ...usefulColumns } = row
-                const version = Number(row.version || 0)
+                const { id, version: versionStr, ...usefulColumns } = row as PersonDistinctId
+                const version = Number(versionStr || 0)
                 kafkaMessages.push({
                     topic: KAFKA_PERSON_UNIQUE_ID,
                     messages: [
                         {
                             value: Buffer.from(
-                                JSON.stringify({ ...usefulColumns, version, person_id: target.uuid, is_deleted: 0 })
+                                JSON.stringify({ ...usefulColumns, person_id: target.uuid, is_deleted: 0 })
                             ),
                         },
                         {
                             value: Buffer.from(
-                                JSON.stringify({ ...usefulColumns, version, person_id: source.uuid, is_deleted: 1 })
+                                JSON.stringify({ ...usefulColumns, person_id: source.uuid, is_deleted: 1 })
                             ),
                         },
                     ],
