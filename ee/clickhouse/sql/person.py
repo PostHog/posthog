@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 ) ENGINE = {engine}
 """
 
-PERSONS_TABLE_SQL = (
+PERSONS_TABLE_SQL = lambda: (
     PERSONS_TABLE_BASE_SQL
     + """Order By (team_id, id)
 {storage_policy}
@@ -41,7 +41,7 @@ PERSONS_TABLE_SQL = (
     cluster=CLICKHOUSE_CLUSTER,
     engine=table_engine(PERSONS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
     extra_fields=KAFKA_COLUMNS,
-    storage_policy=STORAGE_POLICY,
+    storage_policy=STORAGE_POLICY(),
 )
 
 KAFKA_PERSONS_TABLE_SQL = PERSONS_TABLE_BASE_SQL.format(
@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 ) ENGINE = {engine}
 """
 
-PERSONS_DISTINCT_ID_TABLE_SQL = (
+PERSONS_DISTINCT_ID_TABLE_SQL = lambda: (
     PERSONS_DISTINCT_ID_TABLE_BASE_SQL
     + """Order By (team_id, distinct_id, person_id)
 {storage_policy}
@@ -111,7 +111,7 @@ PERSONS_DISTINCT_ID_TABLE_SQL = (
     cluster=CLICKHOUSE_CLUSTER,
     engine=table_engine(PERSONS_DISTINCT_ID_TABLE, "_sign", COLLAPSING_MERGE_TREE),
     extra_fields=KAFKA_COLUMNS,
-    storage_policy=STORAGE_POLICY,
+    storage_policy=STORAGE_POLICY(),
 )
 
 # :KLUDGE: We default is_deleted to 0 for backwards compatibility for when we drop `is_deleted` from message schema.
@@ -164,7 +164,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 ) ENGINE = {engine}
 """
 
-PERSON_STATIC_COHORT_TABLE_SQL = (
+PERSON_STATIC_COHORT_TABLE_SQL = lambda: (
     PERSON_STATIC_COHORT_BASE_SQL
     + """Order By (team_id, cohort_id, person_id, id)
 {storage_policy}
@@ -173,7 +173,7 @@ PERSON_STATIC_COHORT_TABLE_SQL = (
     table_name=PERSON_STATIC_COHORT_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=table_engine(PERSON_STATIC_COHORT_TABLE, "_timestamp", REPLACING_MERGE_TREE),
-    storage_policy=STORAGE_POLICY,
+    storage_policy=STORAGE_POLICY(),
     extra_fields=KAFKA_COLUMNS,
 )
 

@@ -1,3 +1,5 @@
+// Keep this in sync with ee/kafka_client/topics.py
+
 import { determineNodeEnv, NodeEnv } from '../utils/utils'
 
 const isTestEnv = determineNodeEnv() === NodeEnv.Test

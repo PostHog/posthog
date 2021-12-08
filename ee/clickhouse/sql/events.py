@@ -33,7 +33,8 @@ EVENTS_TABLE_MATERIALIZED_COLUMNS = """
     , $group_4 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_4')) COMMENT 'column_materializer::$group_4'
 """
 
-EVENTS_TABLE_SQL = (
+# :KLUDGE: This is not in sync with reality on cloud! Instead a distributed table engine is used with a sharded_events table.
+EVENTS_TABLE_SQL = lambda: (
     EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, toDate(timestamp), distinct_id, uuid)
@@ -47,7 +48,7 @@ ORDER BY (team_id, toDate(timestamp), distinct_id, uuid)
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
     sample_by_uuid="SAMPLE BY uuid" if not DEBUG else "",  # https://github.com/PostHog/posthog/issues/5684
-    storage_policy=STORAGE_POLICY,
+    storage_policy=STORAGE_POLICY(),
 )
 
 KAFKA_EVENTS_TABLE_SQL = EVENTS_TABLE_BASE_SQL.format(
