@@ -132,6 +132,7 @@
         "@storybook/addon-essentials": "^6.3.11",
         "@storybook/addon-links": "^6.3.11",
         "@storybook/react": "^6.3.11",
+        "@testing-library/jest-dom": "^5.16.1",
         "@testing-library/react": "^12.1.2",
         "@testing-library/user-event": "^13.5.0",
         "@types/chart.js": "^2.9.32",
