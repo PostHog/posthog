@@ -532,19 +532,15 @@ export class DB {
             }
 
             for (const distinctId of distinctIds || []) {
-                const kafkaMessage = await this.addDistinctIdPooled(person, distinctId, client)
-                if (kafkaMessage) {
-                    kafkaMessages.push(kafkaMessage)
-                }
+                const kafkaMessages = await this.addDistinctIdPooled(person, distinctId, client)
+                kafkaMessages.push(...kafkaMessages)
             }
 
             return person
         })
 
         if (this.kafkaProducer) {
-            for (const kafkaMessage of kafkaMessages) {
-                await this.kafkaProducer.queueMessage(kafkaMessage)
-            }
+            await this.kafkaProducer.queueMessages(kafkaMessages)
         }
 
         return person
@@ -658,9 +654,9 @@ export class DB {
     }
 
     public async addDistinctId(person: Person, distinctId: string): Promise<void> {
-        const kafkaMessage = await this.addDistinctIdPooled(person, distinctId)
-        if (this.kafkaProducer && kafkaMessage) {
-            await this.kafkaProducer.queueMessage(kafkaMessage)
+        const kafkaMessages = await this.addDistinctIdPooled(person, distinctId)
+        if (this.kafkaProducer && kafkaMessages.length) {
+            await this.kafkaProducer.queueMessages(kafkaMessages)
         }
     }
 
@@ -668,7 +664,7 @@ export class DB {
         person: Person,
         distinctId: string,
         client?: PoolClient
-    ): Promise<ProducerRecord | void> {
+    ): Promise<ProducerRecord[]> {
         const insertResult = await this.postgresQuery(
             'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id) VALUES ($1, $2, $3) RETURNING *',
             [distinctId, person.id, person.team_id],
@@ -678,16 +674,20 @@ export class DB {
 
         const personDistinctIdCreated = insertResult.rows[0] as PersonDistinctId
         if (this.kafkaProducer) {
-            return {
-                topic: KAFKA_PERSON_UNIQUE_ID,
-                messages: [
-                    {
-                        value: Buffer.from(
-                            JSON.stringify({ ...personDistinctIdCreated, person_id: person.uuid, is_deleted: 0 })
-                        ),
-                    },
-                ],
-            }
+            return [
+                {
+                    topic: KAFKA_PERSON_UNIQUE_ID,
+                    messages: [
+                        {
+                            value: Buffer.from(
+                                JSON.stringify({ ...personDistinctIdCreated, person_id: person.uuid, is_deleted: 0 })
+                            ),
+                        },
+                    ],
+                },
+            ]
+        } else {
+            return []
         }
     }
 
@@ -894,10 +894,10 @@ export class DB {
             result = (
                 await this.postgresQuery(
                     `
-                SELECT text, tag_name, href, attr_id, nth_child, nth_of_type, attributes, attr_class 
+                SELECT text, tag_name, href, attr_id, nth_child, nth_of_type, attributes, attr_class
                 FROM posthog_element
                 LEFT JOIN posthog_elementgroup on posthog_element.group_id = posthog_elementgroup.id
-                WHERE 
+                WHERE
                     posthog_elementgroup.team_id=$1 AND
                     posthog_elementgroup.hash=$2
                 ORDER BY posthog_element.order
