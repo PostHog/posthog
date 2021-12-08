@@ -5,12 +5,12 @@ import { prompt } from 'lib/logic/prompt'
 import { router } from 'kea-router'
 import { toast } from 'react-toastify'
 import { clearDOMTextSelection, editingToast, setPageTitle, toParams } from 'lib/utils'
-import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { insightsModel } from '~/models/insightsModel'
 import { ACTIONS_LINE_GRAPH_LINEAR, PATHS_VIZ } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
     Breadcrumb,
-    DashboardItemType,
+    InsightModel,
     DashboardLayoutSize,
     DashboardMode,
     DashboardType,
@@ -38,7 +38,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
     path: (key) => ['scenes', 'dashboard', 'dashboardLogic', key],
     connect: {
         values: [teamLogic, ['currentTeamId']],
-        logic: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
+        logic: [dashboardsModel, insightsModel, eventUsageLogic],
     },
 
     props: {} as DashboardLogicProps,
@@ -70,7 +70,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         saveLayouts: true,
         updateItemColor: (insightId: number, color: string) => ({ insightId, color }),
         setDiveDashboard: (insightId: number, dive_dashboard: number | null) => ({ insightId, dive_dashboard }),
-        refreshAllDashboardItems: (items?: DashboardItemType[]) => ({ items }),
+        refreshAllDashboardItems: (items?: InsightModel[]) => ({ items }),
         refreshAllDashboardItemsManual: true,
         resetInterval: true,
         updateAndRefreshDashboard: true,
@@ -121,11 +121,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         throw error
                     }
                 },
-                updateDashboard: async (filters: Partial<FilterType>) => {
-                    return await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}`, {
-                        filters,
-                    })
-                },
             },
         ],
     }),
@@ -150,7 +145,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         allItems: [
             null as DashboardType | null,
             {
-                [dashboardItemsModel.actionTypes.renameDashboardItemSuccess]: (state, { item }) => {
+                [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }) => {
                     return {
                         ...state,
                         items: state?.items.map((i) => (i.short_id === item.short_id ? item : i)) || [],
@@ -217,7 +212,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         items: state?.items.map((i) => (i.id === insightId ? { ...i, dive_dashboard } : i)),
                     } as DashboardType
                 },
-                [dashboardItemsModel.actionTypes.duplicateDashboardItemSuccess]: (state, { item }): DashboardType => {
+                [insightsModel.actionTypes.duplicateInsightSuccess]: (state, { item }): DashboardType => {
                     return {
                         ...state,
                         items:
@@ -491,7 +486,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             }
         },
     }),
-    listeners: ({ actions, values, key, cache }) => ({
+    listeners: ({ actions, values, key, cache, props }) => ({
         addNewDashboard: async () => {
             prompt({ key: `new-dashboard-${key}` }).actions.prompt({
                 title: 'New dashboard',
@@ -605,7 +600,9 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         },
         updateAndRefreshDashboard: async (_, breakpoint) => {
             await breakpoint(200)
-            actions.updateDashboard(values.filters)
+            await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}`, {
+                filters: values.filters,
+            })
             actions.refreshAllDashboardItems()
         },
         setDates: ({ dateFrom, dateTo, reloadDashboard }) => {

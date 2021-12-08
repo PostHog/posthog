@@ -623,7 +623,7 @@ export interface PlanInterface {
 // Creating a nominal type: https://github.com/microsoft/TypeScript/issues/202#issuecomment-961853101
 export type InsightShortId = string & { readonly '': unique symbol }
 
-export interface DashboardItemType {
+export interface InsightModel {
     /** The unique key we use when communicating with the user, e.g. in URLs */
     short_id: InsightShortId
     /** The primary key in the database, used as well in API endpoints */
@@ -657,7 +657,7 @@ export interface DashboardType {
     name: string
     description: string
     pinned: boolean
-    items: DashboardItemType[]
+    items: InsightModel[]
     created_at: string
     created_by: UserBasicType | null
     is_shared: boolean
@@ -749,7 +749,7 @@ export interface PluginLogEntry {
 }
 
 export enum AnnotationScope {
-    DashboardItem = 'dashboard_item',
+    Insight = 'insight',
     Project = 'project',
     Organization = 'organization',
 }
@@ -1244,10 +1244,6 @@ export enum DashboardMode { // Default mode is null
     Internal = 'internal', // When embedded into another page (e.g. /instance/status)
 }
 
-export enum DashboardItemMode {
-    Edit = 'edit',
-}
-
 // Reserved hotkeys globally available
 export type GlobalHotKeys = 'g'
 
@@ -1297,6 +1293,8 @@ export interface EventDefinition {
     volume_30_day: number | null
     query_usage_30_day: number | null
     owner?: UserBasicType | null
+    created_at?: string
+    last_seen_at?: string
     updated_at?: string
     updated_by?: UserBasicType | null
 }
