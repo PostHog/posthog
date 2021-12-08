@@ -87,7 +87,7 @@ class EventDefinitionViewSet(
         serializer_class = self.serializer_class
         if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
             try:
-                from ee.api.enterprise_event_definition import EnterpriseEventDefinitionSerializer
+                from ee.api.ee_event_definition import EnterpriseEventDefinitionSerializer
             except ImportError:
                 pass
             else:
