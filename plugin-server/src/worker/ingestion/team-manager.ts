@@ -145,7 +145,7 @@ export class TeamManager {
                 }
                 // TODO: Allow configuring this via env vars
                 if (this.eventLastSeenCache.size > 1000 || DateTime.now().diff(this.lastFlushAt).as('seconds') > 60) {
-                    // to not run out of memory
+                    // flush to not run out of memory
                     await this.flushLastSeenAtCache()
                 }
             }
