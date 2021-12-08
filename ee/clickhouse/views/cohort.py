@@ -71,7 +71,6 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
 
 def insert_entity_people_into_cohort(cohort: Cohort, query: str):
     try:
-        print(INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query))
         sync_execute(
             INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
             {"cohort_id": cohort.pk, "_timestamp": datetime.now(), "team_id": cohort.team.pk},

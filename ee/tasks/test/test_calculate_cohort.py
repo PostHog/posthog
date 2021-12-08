@@ -1,3 +1,5 @@
+import json
+import urllib.parse
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -170,3 +172,86 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
                 ),
             },
         )
+
+    @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
+    def test_create_funnels_cohort(self, _insert_cohort_from_insight_filter):
+        _create_person(team_id=self.team.pk, distinct_ids=["blabla"])
+        with freeze_time("2021-01-01 00:06:34"):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="blabla",
+                properties={"$math_prop": 1},
+                timestamp="2021-01-01T12:00:00Z",
+            )
+
+        with freeze_time("2021-01-02 00:06:34"):
+            _create_event(
+                team=self.team,
+                event="$another_view",
+                distinct_id="blabla",
+                properties={"$math_prop": 4},
+                timestamp="2021-01-02T12:00:00Z",
+            )
+
+        params = {
+            "insight": "FUNNELS",
+            "events": json.dumps(
+                [
+                    {
+                        "id": "$pageview",
+                        "math": None,
+                        "name": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": None,
+                    },
+                    {
+                        "id": "$another_view",
+                        "math": None,
+                        "name": "$another_view",
+                        "type": "events",
+                        "order": 1,
+                        "properties": [],
+                        "math_property": None,
+                    },
+                ]
+            ),
+            "display": "FunnelViz",
+            "interval": "day",
+            "layout": "horizontal",
+            "date_from": "2021-01-01",
+            "date_to": "2021-01-07",
+            "funnel_step": 1,
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/?{urllib.parse.urlencode(params)}",
+            {"name": "test", "is_static": True},
+        ).json()
+
+        cohort_id = response["id"]
+
+        _insert_cohort_from_insight_filter.assert_called_once_with(
+            cohort_id,
+            {
+                "insight": "FUNNELS",
+                "events": '[{"id": "$pageview", "math": null, "name": "$pageview", "type": "events", "order": 0, "properties": [], "math_property": null}, {"id": "$another_view", "math": null, "name": "$another_view", "type": "events", "order": 1, "properties": [], "math_property": null}]',
+                "display": "FunnelViz",
+                "interval": "day",
+                "layout": "horizontal",
+                "date_from": "2021-01-01",
+                "date_to": "2021-01-07",
+                "funnel_step": "1",
+            },
+        )
+
+        insert_cohort_from_insight_filter(
+            cohort_id, params,
+        )
+
+        cohort = Cohort.objects.get(pk=cohort_id)
+        people = Person.objects.filter(cohort__id=cohort.pk)
+        self.assertEqual(cohort.errors_calculating, 0)
+        self.assertEqual(len(people), 1)
