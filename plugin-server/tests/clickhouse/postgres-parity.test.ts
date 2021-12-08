@@ -118,6 +118,34 @@ describe('postgres parity', () => {
         const postgresDistinctIds = await hub.db.fetchDistinctIdValues(person, Database.Postgres)
         expect(postgresDistinctIds).toEqual(['distinct1', 'distinct2'])
 
+        const newClickHouseDistinctIdValues = await hub.db.fetchDistinctIds(
+            person,
+            Database.ClickHouse,
+            'person_distinct_id2'
+        )
+        expect(newClickHouseDistinctIdValues).toEqual(
+            expect.arrayContaining([
+                {
+                    distinct_id: 'distinct1',
+                    person_id: person.uuid,
+                    team_id: team.id,
+                    version: 0,
+                    is_deleted: 0,
+                    _timestamp: expect.any(String),
+                    _offset: expect.any(Number),
+                },
+                {
+                    distinct_id: 'distinct2',
+                    person_id: person.uuid,
+                    team_id: team.id,
+                    version: 0,
+                    is_deleted: 0,
+                    _timestamp: expect.any(String),
+                    _offset: expect.any(Number),
+                },
+            ])
+        )
+
         expect(person).toEqual(postgresPersons[0])
     })
 
@@ -246,17 +274,19 @@ describe('postgres parity', () => {
                 distinct_id: 'distinct1',
                 person_id: person.id,
                 team_id: team.id,
-                version: 0,
+                version: '0',
             }),
         ])
         expect(newClickHouseDistinctIdValues).toEqual([
-            expect.objectContaining({
+            {
                 distinct_id: 'distinct1',
-                person_id: person.id,
+                person_id: person.uuid,
                 team_id: team.id,
                 version: 0,
                 is_deleted: 0,
-            }),
+                _timestamp: expect.any(String),
+                _offset: expect.any(Number),
+            },
         ])
 
         // add 'anotherOne' to person
@@ -320,17 +350,39 @@ describe('postgres parity', () => {
 
         // it got added
 
+        // :TODO: Update version
         const clickHouseDistinctIdValuesMoved = await hub.db.fetchDistinctIdValues(anotherPerson, Database.ClickHouse)
         const postgresDistinctIdValuesMoved = await hub.db.fetchDistinctIdValues(anotherPerson, Database.Postgres)
         const newClickHouseDistinctIdValues = await hub.db.fetchDistinctIds(
-            postgresPerson,
+            anotherPerson,
             Database.ClickHouse,
             'person_distinct_id2'
         )
 
-        expect(clickHouseDistinctIdValuesMoved).toEqual(expect.arrayContaining(['distinct1', 'another_distinct_id']))
         expect(postgresDistinctIdValuesMoved).toEqual(expect.arrayContaining(['distinct1', 'another_distinct_id']))
-        expect(newClickHouseDistinctIdValues).toEqual([])
+        expect(clickHouseDistinctIdValuesMoved).toEqual(expect.arrayContaining(['distinct1', 'another_distinct_id']))
+        expect(newClickHouseDistinctIdValues).toEqual(
+            expect.arrayContaining([
+                {
+                    distinct_id: 'another_distinct_id',
+                    person_id: anotherPerson.uuid,
+                    team_id: team.id,
+                    version: 0,
+                    is_deleted: 0,
+                    _timestamp: expect.any(String),
+                    _offset: expect.any(Number),
+                },
+                {
+                    distinct_id: 'distinct1',
+                    person_id: anotherPerson.uuid,
+                    team_id: team.id,
+                    version: 1,
+                    is_deleted: 0,
+                    _timestamp: expect.any(String),
+                    _offset: expect.any(Number),
+                },
+            ])
+        )
 
         // it got removed
 

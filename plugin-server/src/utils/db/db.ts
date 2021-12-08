@@ -538,8 +538,8 @@ export class DB {
             }
 
             for (const distinctId of distinctIds || []) {
-                const kafkaMessages = await this.addDistinctIdPooled(person, distinctId, client)
-                kafkaMessages.push(...kafkaMessages)
+                const messages = await this.addDistinctIdPooled(person, distinctId, client)
+                kafkaMessages.push(...messages)
             }
 
             return person
