@@ -600,7 +600,9 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         },
         updateAndRefreshDashboard: async (_, breakpoint) => {
             await breakpoint(200)
-            await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}`, values.filters)
+            await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}`, {
+                filters: values.filters,
+            })
             actions.refreshAllDashboardItems()
         },
         setDates: ({ dateFrom, dateTo, reloadDashboard }) => {
