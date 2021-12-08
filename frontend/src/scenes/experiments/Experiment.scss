@@ -9,4 +9,15 @@
         background-color: lighten($primary, 15%);
         height: 100%;
     }
+
+    .metrics-selection,
+    .person-selection {
+        border-top: 1px solid $border;
+        padding-top: $default_spacing * 2;
+
+        label {
+            font-size: 16px;
+            font-weight: 600;
+        }
+    }
 }

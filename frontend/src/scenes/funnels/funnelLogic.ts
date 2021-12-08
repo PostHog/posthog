@@ -63,6 +63,7 @@ import { userLogic } from 'scenes/userLogic'
 import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilitySensorLogic'
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { groupsModel } from '~/models/groupsModel'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 // Chosen via heuristics by eyeballing some values
@@ -406,7 +407,8 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         results: [
             (s) => [s.insight],
             ({ filters, result }): FunnelAPIResponse => {
-                if (filters?.insight === InsightType.FUNNELS) {
+                console.log('funnel result', filters, result)
+                if (filters?.insight === InsightType.FUNNELS || true) {
                     if (Array.isArray(result) && Array.isArray(result[0]) && result[0][0].breakdowns) {
                         // in order to stop the UI having to check breakdowns and breakdown
                         // this collapses breakdowns onto the breakdown property
@@ -1191,10 +1193,22 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         },
         setFilters: ({ filters, mergeWithExisting }) => {
             const cleanedParams = cleanFilters(
-                mergeWithExisting ? { ...values.filters, ...filters } : filters,
+                mergeWithExisting
+                    ? {
+                          ...values.filters,
+                          ...filters,
+                          ...(values.featureFlags[FEATURE_FLAGS.EXPERIMENTATION] && { insight: InsightType.FUNNELS }),
+                      }
+                    : filters,
                 values.filters
             )
             insightLogic(props).actions.setFilters(cleanedParams)
+            if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTATION]) {
+                experimentLogic.actions.setFunnelProps({
+                    ...experimentLogic.values.funnelProps,
+                    filters: cleanedParams,
+                })
+            }
         },
         setEventExclusionFilters: ({ filters }) => {
             actions.setFilters({
