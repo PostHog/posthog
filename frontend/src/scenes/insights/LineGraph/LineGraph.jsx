@@ -140,7 +140,7 @@ export function LineGraph({
     }
 
     function processDataset(dataset, index) {
-        const colorList = getChartColors(color || 'white', dataset.data.length, isCompare)
+        const colorList = getChartColors(color || 'white', datasets.length, isCompare)
         const mainColor = dataset?.status ? getBarColorFromStatus(dataset.status) : colorList[index % colorList.length]
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
 

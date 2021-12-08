@@ -176,28 +176,19 @@ export function InsightContainer(): JSX.Element {
                         align="middle"
                         justify="space-between"
                     >
-                        {activeView === InsightType.FUNNELS ||
-                            (activeView === InsightType.PATHS && (
-                                <Col>
-                                    <FunnelCanvasLabel />
-                                    <PathCanvasLabel />
-                                </Col>
-                            ))}
-                        {lastRefresh && (
-                            <Col>
-                                <ComputationTimeWithRefresh />
-                            </Col>
-                        )}
-                        {(activeView === InsightType.TRENDS || activeView === InsightType.STICKINESS) &&
-                            featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS] && (
-                                <Col>
-                                    <InsightLegendButton />
-                                </Col>
-                            )}
+                        {/*Don't add more than two columns in this row.*/}
+                        <Col>{lastRefresh && <ComputationTimeWithRefresh />}</Col>
+                        <Col>
+                            <FunnelCanvasLabel />
+                            <PathCanvasLabel />
+                            <InsightLegendButton />
+                        </Col>
                     </Row>
                     {!!BlockingEmptyState ? (
                         BlockingEmptyState
-                    ) : featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS] && !filters.legend_hidden ? (
+                    ) : featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS] &&
+                      (activeView === InsightType.TRENDS || activeView === InsightType.STICKINESS) &&
+                      !filters.legend_hidden ? (
                         <Row className="insights-graph-container-row" wrap={false}>
                             <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>
                             <Col className="insights-graph-container-row-right">

@@ -139,7 +139,7 @@ export function DateFilter({
             {...selectProps}
         >
             {[
-                ...Object.entries(dateOptions).map(([key, { inactive }]) => {
+                ...Object.entries(dateOptions).map(([key, { values, inactive }]) => {
                     if (key === 'Custom' && !showCustom) {
                         return null
                     }
@@ -148,19 +148,11 @@ export function DateFilter({
                         return null
                     }
 
+                    const dateValue = dateFilterToText(values[0], values[1], defaultValue, dateOptions, isDateFormatted)
+
                     return (
-                        <Select.Option
-                            key={key}
-                            value={key}
-                            label={
-                                makeLabel
-                                    ? makeLabel(
-                                          dateFilterToText(dateFrom, dateTo, defaultValue, dateOptions, isDateFormatted)
-                                      )
-                                    : undefined
-                            }
-                        >
-                            {key}
+                        <Select.Option key={key} value={key} label={makeLabel ? makeLabel(dateValue) : undefined}>
+                            {key} {isDateFormatted && key !== 'All time' ? `(${dateValue})` : ''}
                         </Select.Option>
                     )
                 }),

@@ -934,7 +934,7 @@ export function IconMagnifier(props: React.SVGProps<SVGSVGElement>): JSX.Element
     )
 }
 
-export function LegendIcon({ style }: { style?: CSSProperties }): JSX.Element {
+export function IconLegend({ style }: { style?: CSSProperties }): JSX.Element {
     return (
         <svg width="1em" height="1em" viewBox="0 0 18 18" fill="none" style={style} xmlns="http://www.w3.org/2000/svg">
             <path

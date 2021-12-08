@@ -3,9 +3,14 @@ import { useValues, useActions } from 'kea'
 import { Checkbox } from 'antd'
 import { compareFilterLogic } from './compareFilterLogic'
 
-export function CompareFilter(): JSX.Element {
+export function CompareFilter(): JSX.Element | null {
     const { compare, disabled } = useValues(compareFilterLogic)
     const { setCompare } = useActions(compareFilterLogic)
+
+    // Hide compare filter control when disabled to avoid states where control is "disabled but checked"
+    if (disabled) {
+        return null
+    }
 
     return (
         <Checkbox

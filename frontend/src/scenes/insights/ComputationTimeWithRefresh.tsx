@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { dayjs } from 'lib/dayjs'
 
-export function ComputationTimeWithRefresh(): JSX.Element {
+export function ComputationTimeWithRefresh(): JSX.Element | null {
     const { lastRefresh } = useValues(insightLogic)
     const { loadResults } = useActions(insightLogic)
     const [, setRerenderCounter] = useState(0)

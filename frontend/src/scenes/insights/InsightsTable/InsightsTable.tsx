@@ -62,7 +62,6 @@ export function InsightsTable({
     const { calcColumnState } = useValues(logic)
     const { setCalcColumnState } = useActions(logic)
 
-    const isSingleEntity = indexedResults.length === 1
     const colorList = getChartColors('white', indexedResults.length, !!filters.compare)
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
 
@@ -100,9 +99,7 @@ export function InsightsTable({
                     <PHCheckbox
                         color={colorList[item.id]}
                         checked={visibilityMap[item.id]}
-                        showIcon={indexedResults.length > 1}
                         onChange={() => toggleVisibility(item.id)}
-                        disabled={isSingleEntity}
                     />
                 )
             },

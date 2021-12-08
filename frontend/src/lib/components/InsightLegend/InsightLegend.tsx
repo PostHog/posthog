@@ -3,22 +3,35 @@ import React from 'react'
 import { Button, Row, Col } from 'antd'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { LegendIcon } from 'lib/components/icons'
+import { IconLegend } from 'lib/components/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { getChartColors } from 'lib/colors'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { formatCompareLabel } from 'scenes/insights/InsightsTable/InsightsTable'
+import { InsightType } from '~/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-export function InsightLegendButton(): JSX.Element {
-    const { filters } = useValues(insightLogic)
+export function InsightLegendButton(): JSX.Element | null {
+    const { filters, activeView } = useValues(insightLogic)
     const { toggleInsightLegend } = useActions(insightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (
+        !(
+            (activeView === InsightType.TRENDS || activeView === InsightType.STICKINESS) &&
+            featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS]
+        )
+    ) {
+        return null
+    }
 
     return (
         <Button className="insight-legend-button" onClick={toggleInsightLegend}>
-            <LegendIcon />
-            <span className="insight-legend-button-title">{filters.legend_hidden ? 'Show' : 'Hide'} Legend</span>
+            <IconLegend />
+            <span className="insight-legend-button-title">{filters.legend_hidden ? 'Show' : 'Hide'} legend</span>
         </Button>
     )
 }
@@ -40,9 +53,7 @@ export function InsightLegend(): JSX.Element {
                                 <PHCheckbox
                                     color={colorList[item.id]}
                                     checked={visibilityMap[item.id]}
-                                    showIcon={indexedResults.length > 1}
                                     onChange={() => toggleVisibility(item.id)}
-                                    disabled={indexedResults.length === 1}
                                 />
                             </Col>
                             <Col>
