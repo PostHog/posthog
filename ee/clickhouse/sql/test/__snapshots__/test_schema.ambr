@@ -62,6 +62,23 @@
   
   '
 ---
+# name: test_create_table_query[\nCREATE MATERIALIZED VIEW person_distinct_id2_mv ON CLUSTER posthog\nTO posthog_test.person_distinct_id2\nAS SELECT\nteam_id,\ndistinct_id,\nperson_id,\nis_deleted,\nversion,\n_timestamp,\n_offset\nFROM posthog_test.kafka_person_distinct_id2\n]
+  '
+  
+  CREATE MATERIALIZED VIEW person_distinct_id2_mv ON CLUSTER posthog
+  TO posthog_test.person_distinct_id2
+  AS SELECT
+  team_id,
+  distinct_id,
+  person_id,
+  is_deleted,
+  version,
+  _timestamp,
+  _offset
+  FROM posthog_test.kafka_person_distinct_id2
+  
+  '
+---
 # name: test_create_table_query[\nCREATE MATERIALIZED VIEW person_distinct_id_mv ON CLUSTER posthog\nTO posthog_test.person_distinct_id\nAS SELECT\ndistinct_id,\nperson_id,\nteam_id,\ncoalesce(_sign, if(is_deleted==0, 1, -1)) AS _sign,\n_timestamp,\n_offset\nFROM posthog_test.kafka_person_distinct_id\n]
   '
   
@@ -318,6 +335,21 @@
   
   '
 ---
+# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS kafka_person_distinct_id2 ON CLUSTER posthog\n(\n    team_id Int64,\n    distinct_id VARCHAR,\n    person_id UUID,\n    is_deleted Boolean,\n    version Int64 DEFAULT 1\n    \n) ENGINE = Kafka('kafka', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')\n]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id2 ON CLUSTER posthog
+  (
+      team_id Int64,
+      distinct_id VARCHAR,
+      person_id UUID,
+      is_deleted Boolean,
+      version Int64 DEFAULT 1
+      
+  ) ENGINE = Kafka('kafka', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')
+  
+  '
+---
 # name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS kafka_plugin_log_entries ON CLUSTER posthog\n(\n    id UUID,\n    team_id Int64,\n    plugin_id Int64,\n    plugin_config_id Int64,\n    timestamp DateTime64(6, 'UTC'),\n    source VARCHAR,\n    type VARCHAR,\n    message VARCHAR,\n    instance_id UUID\n    \n) ENGINE = Kafka('kafka', 'plugin_log_entries_test', 'group1', 'JSONEachRow')\n]
   '
   
@@ -395,6 +427,27 @@
   Order By (team_id, distinct_id, person_id)
   
   
+  '
+---
+# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS person_distinct_id2 ON CLUSTER posthog\n(\n    team_id Int64,\n    distinct_id VARCHAR,\n    person_id UUID,\n    is_deleted Boolean,\n    version Int64 DEFAULT 1\n    \n, _timestamp DateTime\n, _offset UInt64\n\n) ENGINE = ReplacingMergeTree(version)\n\n    ORDER BY (team_id, distinct_id)\n    SETTINGS index_granularity = 512\n    ]
+  '
+  
+  CREATE TABLE IF NOT EXISTS person_distinct_id2 ON CLUSTER posthog
+  (
+      team_id Int64,
+      distinct_id VARCHAR,
+      person_id UUID,
+      is_deleted Boolean,
+      version Int64 DEFAULT 1
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = ReplacingMergeTree(version)
+  
+      ORDER BY (team_id, distinct_id)
+      SETTINGS index_granularity = 512
+      
   '
 ---
 # name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS person_static_cohort ON CLUSTER posthog\n(\n    id UUID,\n    person_id UUID,\n    cohort_id Int64,\n    team_id Int64\n    \n, _timestamp DateTime\n, _offset UInt64\n\n) ENGINE = ReplacingMergeTree(_timestamp)\nOrder By (team_id, cohort_id, person_id, id)\n\n]
@@ -620,6 +673,27 @@
   Order By (team_id, distinct_id, person_id)
   SETTINGS storage_policy = 'hot_to_cold'
   
+  '
+---
+# name: test_create_table_query_replicated_and_storage[\nCREATE TABLE IF NOT EXISTS person_distinct_id2 ON CLUSTER posthog\n(\n    team_id Int64,\n    distinct_id VARCHAR,\n    person_id UUID,\n    is_deleted Boolean,\n    version Int64 DEFAULT 1\n    \n, _timestamp DateTime\n, _offset UInt64\n\n) ENGINE = ReplacingMergeTree(version)\n\n    ORDER BY (team_id, distinct_id)\n    SETTINGS index_granularity = 512\n    ]
+  '
+  
+  CREATE TABLE IF NOT EXISTS person_distinct_id2 ON CLUSTER posthog
+  (
+      team_id Int64,
+      distinct_id VARCHAR,
+      person_id UUID,
+      is_deleted Boolean,
+      version Int64 DEFAULT 1
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.person_distinct_id2', '{replica}', version)
+  
+      ORDER BY (team_id, distinct_id)
+      SETTINGS index_granularity = 512
+      
   '
 ---
 # name: test_create_table_query_replicated_and_storage[\nCREATE TABLE IF NOT EXISTS person_static_cohort ON CLUSTER posthog\n(\n    id UUID,\n    person_id UUID,\n    cohort_id Int64,\n    team_id Int64\n    \n, _timestamp DateTime\n, _offset UInt64\n\n) ENGINE = ReplacingMergeTree(_timestamp)\nOrder By (team_id, cohort_id, person_id, id)\n\n]
