@@ -7,7 +7,7 @@ import { insightLogicType } from './insightLogicType'
 import {
     AvailableFeature,
     Breadcrumb,
-    DashboardItemType,
+    InsightModel,
     FilterType,
     InsightLogicProps,
     InsightShortId,
@@ -93,7 +93,7 @@ export const insightLogic = kea<insightLogicType>({
         setNotFirstLoad: true,
         saveNewTag: (tag: string) => ({ tag }),
         deleteTag: (tag: string) => ({ tag }),
-        setInsight: (insight: Partial<DashboardItemType>, options: SetInsightOptions) => ({
+        setInsight: (insight: Partial<InsightModel>, options: SetInsightOptions) => ({
             insight,
             options,
         }),
@@ -107,12 +107,12 @@ export const insightLogic = kea<insightLogicType>({
         loadInsight: (shortId: InsightShortId) => ({
             shortId,
         }),
-        updateInsight: (
-            insight: Partial<DashboardItemType>,
-            callback?: (insight: Partial<DashboardItemType>) => void
-        ) => ({ insight, callback }),
+        updateInsight: (insight: Partial<InsightModel>, callback?: (insight: Partial<InsightModel>) => void) => ({
+            insight,
+            callback,
+        }),
         loadResults: (refresh = false) => ({ refresh, queryId: uuid() }),
-        setInsightMetadata: (metadata: Partial<DashboardItemType>) => ({ metadata }),
+        setInsightMetadata: (metadata: Partial<InsightModel>) => ({ metadata }),
         createAndRedirectToNewInsight: (filters?: Partial<FilterType>) => ({ filters }),
     }),
     loaders: ({ actions, cache, values, props }) => ({
@@ -122,7 +122,7 @@ export const insightLogic = kea<insightLogicType>({
                 tags: [],
                 filters: props.cachedResults ? props.filters || {} : {},
                 result: props.cachedResults || null,
-            } as Partial<DashboardItemType>,
+            } as Partial<InsightModel>,
             {
                 loadInsight: async ({ shortId }) => {
                     return (
@@ -142,7 +142,7 @@ export const insightLogic = kea<insightLogicType>({
                         insight
                     )
                     breakpoint()
-                    const updatedInsight: Partial<DashboardItemType> = {
+                    const updatedInsight: Partial<InsightModel> = {
                         ...response,
                         result: response.result || values.insight.result,
                     }
@@ -163,7 +163,7 @@ export const insightLogic = kea<insightLogicType>({
                     breakpoint()
 
                     // only update the fields that we changed
-                    const updatedInsight: Partial<DashboardItemType> = { ...values.insight }
+                    const updatedInsight: Partial<InsightModel> = { ...values.insight }
                     for (const key of Object.keys(metadata)) {
                         updatedInsight[key] = response[key]
                     }
@@ -280,7 +280,7 @@ export const insightLogic = kea<insightLogicType>({
                         result: response.result,
                         next: response.next,
                         filters,
-                    } as Partial<DashboardItemType>
+                    } as Partial<InsightModel>
                 },
             },
         ],
@@ -580,7 +580,7 @@ export const insightLogic = kea<insightLogicType>({
             if (!insightId) {
                 throw new Error('Can only save saved insights whose id is known.')
             }
-            const savedInsight: DashboardItemType = await api.update(
+            const savedInsight: InsightModel = await api.update(
                 `api/projects/${teamLogic.values.currentTeamId}/insights/${insightId}`,
                 { ...values.insight, saved: true }
             )
@@ -610,14 +610,11 @@ export const insightLogic = kea<insightLogicType>({
             })
         },
         saveAsNamingSuccess: async ({ name }) => {
-            const insight: DashboardItemType = await api.create(
-                `api/projects/${teamLogic.values.currentTeamId}/insights/`,
-                {
-                    name,
-                    filters: values.filters,
-                    saved: true,
-                }
-            )
+            const insight: InsightModel = await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, {
+                name,
+                filters: values.filters,
+                saved: true,
+            })
             toast(`You're now working on a copy of ${values.insight.name}`)
             actions.setInsight(insight, { fromPersistentApi: true })
             savedInsightsLogic.findMounted()?.actions.loadInsights()
@@ -638,12 +635,9 @@ export const insightLogic = kea<insightLogicType>({
                 return
             }
             if (!insight.short_id) {
-                const createdInsight: DashboardItemType = await api.create(
-                    `api/projects/${values.currentTeamId}/insights`,
-                    {
-                        filters: insight.filters,
-                    }
-                )
+                const createdInsight: InsightModel = await api.create(`api/projects/${values.currentTeamId}/insights`, {
+                    filters: insight.filters,
+                })
                 breakpoint()
                 actions.setInsight(
                     { ...insight, ...createdInsight, result: createdInsight.result || insight.result },
@@ -666,7 +660,7 @@ export const insightLogic = kea<insightLogicType>({
                 filters: cleanFilters(filters || {}),
                 result: null,
             }
-            const createdInsight: DashboardItemType = await api.create(
+            const createdInsight: InsightModel = await api.create(
                 `api/projects/${teamLogic.values.currentTeamId}/insights`,
                 newInsight
             )

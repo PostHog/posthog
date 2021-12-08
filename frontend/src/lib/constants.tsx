@@ -31,7 +31,7 @@ export enum PluginsAccessLevel {
 }
 
 export const annotationScopeToName = new Map<string, string>([
-    [AnnotationScope.DashboardItem, 'insight'],
+    [AnnotationScope.Insight, 'insight'],
     [AnnotationScope.Project, 'project'],
     [AnnotationScope.Organization, 'organization'],
 ])
