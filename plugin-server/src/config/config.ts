@@ -77,6 +77,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         PISCINA_ATOMICS_TIMEOUT: 5000,
         SITE_URL: null,
         NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS: '',
+        EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED_TEAMS: '', // e.g. 2,3
     }
 }
 

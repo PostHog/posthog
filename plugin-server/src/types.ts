@@ -103,6 +103,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     PISCINA_ATOMICS_TIMEOUT: number
     SITE_URL: string | null
     NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS: string
+    EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED_TEAMS: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -737,6 +738,8 @@ export interface EventDefinitionType {
     volume_30_day: number | null
     query_usage_30_day: number | null
     team_id: number
+    last_seen_at: string // DateTime
+    created_at: string // DateTime
 }
 
 export interface PropertyDefinitionType {

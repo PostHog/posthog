@@ -18,6 +18,8 @@ class EventDefinitionSerializer(serializers.ModelSerializer):
             "name",
             "volume_30_day",
             "query_usage_30_day",
+            "created_at",
+            "last_seen_at",
         )
 
     def update(self, event_definition: EventDefinition, validated_data):
