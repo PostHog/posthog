@@ -1,3 +1,5 @@
+# Note for the vary: these engine definitions (and many table definitions) are not in sync with cloud!
+
 from django.conf import settings
 
 STORAGE_POLICY = lambda: "SETTINGS storage_policy = 'hot_to_cold'" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
