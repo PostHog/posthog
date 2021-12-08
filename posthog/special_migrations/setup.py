@@ -24,6 +24,14 @@ SPECIAL_MIGRATIONS_EXAMPLE_MODULE_PATH = "posthog.special_migrations.examples"
 
 
 def setup_special_migrations():
+    """
+    Execute the necessary setup for special migrations to work:
+    1. Import all the migration definitions 
+    2. Create a database record for each
+    3. Check if all migrations necessary for this PostHog version have completed (else don't start)
+    4. Populate a dependencies map and in-memory record of migration definitions
+    """
+
     from posthog.models.special_migration import SpecialMigration, get_all_completed_special_migrations
 
     if TEST or E2E_TESTING or SKIP_SERVICE_VERSION_REQUIREMENTS:
@@ -74,7 +82,10 @@ def setup_special_migrations():
 
 
 def kickstart_migration_if_possible(migration_name: str, applied_migrations: set):
-    # look for an unapplied migration an try to run it
+    """
+    Find the last completed migration, look for a migration that depends on it, and try to run it
+    """
+
     while migration_name in applied_migrations:
         migration_name = DEPENDENCY_TO_SPECIAL_MIGRATION.get(migration_name) or ""
         if not migration_name:

@@ -19,12 +19,25 @@ from posthog.special_migrations.utils import (
     update_special_migration,
 )
 
-# important to prevent us taking up too many celery workers
-# and running migrations sequentially
+"""
+Important to prevent us taking up too many celery workers and also to enable running migrations sequentially
+"""
 MAX_CONCURRENT_SPECIAL_MIGRATIONS = 1
 
 
 def start_special_migration(migration_name: str) -> bool:
+    """
+    Performs some basic checks to ensure the migration can indeed run, and then kickstarts the chain of operations
+    Checks:
+    1. We're not over the concurrent migrations limit
+    2. The migration can be run with the current PostHog version
+    3. The migration is not already running
+    4. The migration is required given the instance configuration
+    5. The service version requirements are met (e.g. X < ClickHouse version < Y)
+    6. The migration's healthcheck passes
+    7. The migration's dependency has been completed
+    """
+
     migration_instance = SpecialMigration.objects.get(name=migration_name)
     over_concurrent_migrations_limit = len(get_all_running_special_migrations()) >= MAX_CONCURRENT_SPECIAL_MIGRATIONS
     if (
@@ -68,6 +81,14 @@ def start_special_migration(migration_name: str) -> bool:
 def run_special_migration_next_op(
     migration_name: str, migration_instance: Optional[SpecialMigration] = None, run_all=True
 ):
+    """
+    Runs the next operation specified by the currently running migration
+    If `run_all=True`, we run through all operations recursively, else we run one and return
+    Terminology:
+    - migration_instance: The migration object as stored in the DB 
+    - migration_definition: The actual migration class outlining the operations (e.g. special_migrations/examples/example.py)
+    """
+
     if not migration_instance:
         try:
             migration_instance = SpecialMigration.objects.get(name=migration_name, status=MigrationStatus.Running)
@@ -115,7 +136,11 @@ def run_migration_healthcheck(migration_instance: SpecialMigration):
 
 
 def update_migration_progress(migration_instance: SpecialMigration):
-    # we don't want to interrupt a migration if the progress check fails, hence try without handling exceptions
+    """
+    We don't want to interrupt a migration if the progress check fails, hence try without handling exceptions
+    Progress is a nice-to-have bit of feedback about how the migration is doing, but not essential
+    """
+
     try:
         progress = get_special_migration_definition(migration_instance.name).progress(
             migration_instance  # type: ignore
@@ -126,6 +151,11 @@ def update_migration_progress(migration_instance: SpecialMigration):
 
 
 def attempt_migration_rollback(migration_instance: SpecialMigration, force: bool = False):
+    """
+    Cycle through the operations in reverse order starting from the last completed op and run
+    the specified rollback statements.
+    """
+
     try:
         ops = get_special_migration_definition(migration_instance.name).operations
         start = migration_instance.current_operation_index

@@ -54,8 +54,18 @@ def trigger_migration(migration_instance: SpecialMigration, fresh_start=True):
     )
 
 
-# DANGEROUS! Can cause another task to be lost
 def force_stop_migration(migration_instance: SpecialMigration, error: str = "Force stopped by user"):
+    """
+    In theory this is dangerous, as it can cause another task to be lost 
+    `revoke` with `terminate=True` kills the process that's working on the task
+    and there's no guarantee the task will not already be done by the time this happens.
+    See: https://docs.celeryproject.org/en/stable/reference/celery.app.control.html#celery.app.control.Control.revoke
+    However, this is generally ok for us because:
+    1. Given these are long-running migrations, it is statistically unlikely it will complete during in between 
+    this call and the time the process is killed
+    2. Our Celery tasks are not essential for the functioning of PostHog, meaning losing a task is not the end of the world
+    """
+
     app.control.revoke(migration_instance.celery_task_id, terminate=True)
     process_error(migration_instance, error)
 
