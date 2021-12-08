@@ -549,6 +549,7 @@ export interface PersonDistinctId {
     team_id: number
     person_id: number
     distinct_id: string
+    version: string | null
 }
 
 /** ClickHouse PersonDistinctId model. */

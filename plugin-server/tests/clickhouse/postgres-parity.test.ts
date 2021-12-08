@@ -237,6 +237,7 @@ describe('postgres parity', () => {
                 distinct_id: 'distinct1',
                 person_id: person.id,
                 team_id: team.id,
+                version: null,
             }),
         ])
 
