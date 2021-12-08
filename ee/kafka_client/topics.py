@@ -1,3 +1,5 @@
+# Keep this in sync with plugin-server/src/config/kafka-topics.ts
+
 from posthog.settings import TEST
 
 suffix = "_test" if TEST else ""

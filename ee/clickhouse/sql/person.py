@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 ) ENGINE = {engine}
 """
 
-PERSONS_TABLE_SQL = (
+PERSONS_TABLE_SQL = lambda: (
     PERSONS_TABLE_BASE_SQL
     + """Order By (team_id, id)
 {storage_policy}
@@ -41,7 +41,7 @@ PERSONS_TABLE_SQL = (
     cluster=CLICKHOUSE_CLUSTER,
     engine=table_engine(PERSONS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
     extra_fields=KAFKA_COLUMNS,
-    storage_policy=STORAGE_POLICY,
+    storage_policy=STORAGE_POLICY(),
 )
 
 KAFKA_PERSONS_TABLE_SQL = PERSONS_TABLE_BASE_SQL.format(
@@ -79,18 +79,6 @@ WHERE team_id = %(team_id)s
   {query}
 """
 
-GET_TEAM_PERSON_DISTINCT_IDS = """
-SELECT distinct_id, argMax(person_id, _timestamp) as person_id
-FROM (
-    SELECT distinct_id, person_id, max(_timestamp) as _timestamp
-    FROM person_distinct_id
-    WHERE team_id = %(team_id)s
-    GROUP BY person_id, distinct_id, team_id
-    HAVING max(is_deleted) = 0
-)
-GROUP BY distinct_id
-"""
-
 GET_LATEST_PERSON_ID_SQL = """
 (select id from (
     {latest_person_sql}
@@ -113,7 +101,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 ) ENGINE = {engine}
 """
 
-PERSONS_DISTINCT_ID_TABLE_SQL = (
+PERSONS_DISTINCT_ID_TABLE_SQL = lambda: (
     PERSONS_DISTINCT_ID_TABLE_BASE_SQL
     + """Order By (team_id, distinct_id, person_id)
 {storage_policy}
@@ -123,7 +111,7 @@ PERSONS_DISTINCT_ID_TABLE_SQL = (
     cluster=CLICKHOUSE_CLUSTER,
     engine=table_engine(PERSONS_DISTINCT_ID_TABLE, "_sign", COLLAPSING_MERGE_TREE),
     extra_fields=KAFKA_COLUMNS,
-    storage_policy=STORAGE_POLICY,
+    storage_policy=STORAGE_POLICY(),
 )
 
 # :KLUDGE: We default is_deleted to 0 for backwards compatibility for when we drop `is_deleted` from message schema.
@@ -176,7 +164,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 ) ENGINE = {engine}
 """
 
-PERSON_STATIC_COHORT_TABLE_SQL = (
+PERSON_STATIC_COHORT_TABLE_SQL = lambda: (
     PERSON_STATIC_COHORT_BASE_SQL
     + """Order By (team_id, cohort_id, person_id, id)
 {storage_policy}
@@ -185,7 +173,7 @@ PERSON_STATIC_COHORT_TABLE_SQL = (
     table_name=PERSON_STATIC_COHORT_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=table_engine(PERSON_STATIC_COHORT_TABLE, "_timestamp", REPLACING_MERGE_TREE),
-    storage_policy=STORAGE_POLICY,
+    storage_policy=STORAGE_POLICY(),
     extra_fields=KAFKA_COLUMNS,
 )
 
@@ -201,6 +189,27 @@ INSERT_PERSON_STATIC_COHORT = (
 # Other queries
 #
 
+GET_TEAM_PERSON_DISTINCT_IDS = """
+SELECT distinct_id, argMax(person_id, _timestamp) as person_id
+FROM (
+    SELECT distinct_id, person_id, max(_timestamp) as _timestamp
+    FROM person_distinct_id
+    WHERE team_id = %(team_id)s
+    GROUP BY person_id, distinct_id, team_id
+    HAVING max(is_deleted) = 0
+)
+GROUP BY distinct_id
+"""
+
+# Query to query distinct ids using the new table, will be used if PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS applies
+GET_TEAM_PERSON_DISTINCT_IDS_NEW_TABLE = """
+SELECT distinct_id, argMax(person_id, version) as person_id
+FROM person_distinct_id2
+WHERE team_id = %(team_id)s
+GROUP BY distinct_id
+HAVING argMax(is_deleted, version) = 0
+"""
+
 GET_PERSON_IDS_BY_FILTER = """
 SELECT DISTINCT p.id
 FROM ({latest_person_sql}) AS p
@@ -210,7 +219,7 @@ WHERE team_id = %(team_id)s
 """.format(
     latest_person_sql=GET_LATEST_PERSON_SQL,
     distinct_query="{distinct_query}",
-    GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
+    GET_TEAM_PERSON_DISTINCT_IDS="{GET_TEAM_PERSON_DISTINCT_IDS}",
 )
 
 INSERT_PERSON_SQL = """
@@ -278,17 +287,13 @@ WHERE person_id IN
     )
     WHERE 1 = 1 {filters}
 )
-""".format(
-    filters="{filters}", GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-)
+"""
 
 GET_DISTINCT_IDS_BY_PERSON_ID_FILTER = """
 SELECT distinct_id
 FROM ({GET_TEAM_PERSON_DISTINCT_IDS})
 WHERE {filters}
-""".format(
-    filters="{filters}", GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-)
+"""
 
 GET_PERSON_PROPERTIES_COUNT = """
 SELECT tupleElement(keysAndValues, 1) as key, count(*) as count
@@ -300,7 +305,7 @@ ORDER BY count DESC, key ASC
 """
 
 GET_ACTORS_FROM_EVENT_QUERY = """
-SELECT 
+SELECT
     {id_field} AS actor_id
 FROM ({events_query})
 GROUP BY actor_id

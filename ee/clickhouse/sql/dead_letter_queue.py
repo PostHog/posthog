@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 ) ENGINE = {engine}
 """
 
-DEAD_LETTER_QUEUE_TABLE_SQL = (
+DEAD_LETTER_QUEUE_TABLE_SQL = lambda: (
     DEAD_LETTER_QUEUE_TABLE_BASE_SQL
     + """ORDER BY (id, event_uuid, distinct_id, team_id)
 {ttl_period}

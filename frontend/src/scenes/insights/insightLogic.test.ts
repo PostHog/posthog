@@ -406,7 +406,6 @@ describe('insightLogic', () => {
                     filters: partial({ insight: InsightType.FUNNELS }),
                     insight: partial({ id: 43, result: null }),
                 })
-                .toNotHaveDispatchedActions(['loadResults']) // don't load twice!
                 .toDispatchActions(['loadResultsSuccess'])
                 .toMatchValues({
                     insight: partial({ id: 43, result: ['result from api'] }),
