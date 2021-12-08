@@ -252,7 +252,6 @@ export function InsightsTable({
                     </>
                 )
             },
-            defaultSortOrder: 'descend',
             sorter: (a, b) => (a.count || a.aggregated_value) - (b.count || b.aggregated_value),
             dataIndex: 'count',
             fixed: 'right',
