@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Dict
+from typing import Callable, Dict
 
 from django.conf import settings
 from django.db.models.expressions import F
@@ -61,12 +61,11 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
         query, params = ClickhouseStickinessActors(cohort.team, entity, stickiness_filter).actor_query()
     elif insight_type == INSIGHT_FUNNELS:
         funnel_filter = Filter(data=filter_data)
-        funnel_actor_class = (
-            FunnelCorrelationActors
-            if funnel_filter.correlation_person_entity
-            else get_funnel_actor_class(funnel_filter)
-        )
-        query, params = funnel_actor_class(filter=funnel_filter, team=cohort.team).actor_query()
+        if funnel_filter.correlation_person_entity:
+            query, params = FunnelCorrelationActors(filter=funnel_filter, team=cohort.team).actor_query()
+        else:
+            funnel_actor_class = get_funnel_actor_class(funnel_filter)
+            query, params = funnel_actor_class(filter=funnel_filter, team=cohort.team).actor_query()
     elif insight_type == INSIGHT_PATHS:
         path_filter = PathFilter(data=filter_data)
         query, params = ClickhousePathsActors(path_filter, cohort.team, funnel_filter=None).actor_query()

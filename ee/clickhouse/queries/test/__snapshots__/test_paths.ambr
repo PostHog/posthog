@@ -315,7 +315,7 @@
      WHERE steps = 1
      ORDER BY aggregation_target
      OFFSET 0 SETTINGS allow_experimental_window_functions = 1)
-  SELECT DISTINCT person_id
+  SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
             path,
@@ -518,7 +518,7 @@
      WHERE steps = 1
      ORDER BY aggregation_target
      OFFSET 0 SETTINGS allow_experimental_window_functions = 1)
-  SELECT DISTINCT person_id
+  SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
             path,
@@ -721,7 +721,7 @@
      WHERE steps = 1
      ORDER BY aggregation_target
      OFFSET 0 SETTINGS allow_experimental_window_functions = 1)
-  SELECT DISTINCT person_id
+  SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
             path,
@@ -924,7 +924,7 @@
      WHERE steps = 1
      ORDER BY aggregation_target
      OFFSET 0 SETTINGS allow_experimental_window_functions = 1)
-  SELECT DISTINCT person_id
+  SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
             path,
