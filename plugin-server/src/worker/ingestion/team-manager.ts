@@ -57,10 +57,11 @@ export class TeamManager {
         const params: (string | number)[] = []
 
         const startTime = DateTime.now()
+        const cacheSize = this.eventLastSeenCache.size
 
         const lastFlushedSecondsAgo = DateTime.now().diff(this.lastFlushAt).as('seconds')
         status.info(
-            `🚽 Starting flushLastSeenAtCache. Cache size: ${this.eventLastSeenCache.size} items. Last flushed: ${lastFlushedSecondsAgo} seconds ago.`
+            `🚽 Starting flushLastSeenAtCache. Cache size: ${cacheSize} items. Last flushed: ${lastFlushedSecondsAgo} seconds ago.`
         )
 
         const events = this.eventLastSeenCache
@@ -87,6 +88,7 @@ export class TeamManager {
             )
         }
         const elapsedTime = DateTime.now().diff(startTime).as('milliseconds')
+        this.statsd?.set('flushLastSeenAtCache.Size', cacheSize)
         this.statsd?.timing('flushLastSeenAtCache', elapsedTime)
         status.info(`✅ 🚽 flushLastSeenAtCache finished successfully in ${elapsedTime} ms.`)
     }
