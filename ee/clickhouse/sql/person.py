@@ -219,7 +219,7 @@ WHERE team_id = %(team_id)s
 """.format(
     latest_person_sql=GET_LATEST_PERSON_SQL,
     distinct_query="{distinct_query}",
-    GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
+    GET_TEAM_PERSON_DISTINCT_IDS="{GET_TEAM_PERSON_DISTINCT_IDS}",
 )
 
 INSERT_PERSON_SQL = """

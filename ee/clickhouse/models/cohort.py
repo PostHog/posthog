@@ -247,7 +247,10 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int):
     filter_query, filter_params = parse_prop_clauses(filters.properties, table_name="pdi")
 
     results = sync_execute(
-        GET_PERSON_IDS_BY_FILTER.format(distinct_query=filter_query, query=""), {**filter_params, "team_id": team.pk}
+        GET_PERSON_IDS_BY_FILTER.format(
+            distinct_query=filter_query, query="", GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team.pk),
+        ),
+        {**filter_params, "team_id": team.pk},
     )
 
     return [str(row[0]) for row in results]
@@ -278,7 +281,11 @@ def recalculate_cohortpeople(cohort: Cohort):
         size_before=before_count[0][0],
     )
 
-    cohort_filter = GET_PERSON_IDS_BY_FILTER.format(distinct_query="AND " + cohort_filter, query="")
+    cohort_filter = GET_PERSON_IDS_BY_FILTER.format(
+        distinct_query="AND " + cohort_filter,
+        query="",
+        GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(cohort.team_id),
+    )
 
     insert_cohortpeople_sql = INSERT_PEOPLE_MATCHING_COHORT_ID_SQL.format(cohort_filter=cohort_filter)
     sync_execute(insert_cohortpeople_sql, {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id})
