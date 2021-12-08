@@ -82,7 +82,9 @@ def parse_prop_clauses(
             else:
                 final.append(
                     "AND {table_name}distinct_id IN ({filter_query})".format(
-                        filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(filters=filter_query),
+                        filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(
+                            filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
+                        ),
                         table_name=table_name,
                     )
                 )
@@ -137,7 +139,7 @@ def parse_prop_clauses(
                 final.append(f" AND {filter_query}")
             else:
                 # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
-                # :TODO: Use get_team_distinct_ids_query instead when possible
+                # :TODO: Use get_team_distinct_ids_query instead when possible instead of GET_TEAM_PERSON_DISTINCT_IDS
                 subquery = GET_DISTINCT_IDS_BY_PERSON_ID_FILTER.format(
                     filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
                 )

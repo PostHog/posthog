@@ -287,9 +287,7 @@ WHERE person_id IN
     )
     WHERE 1 = 1 {filters}
 )
-""".format(
-    filters="{filters}", GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-)
+"""
 
 GET_DISTINCT_IDS_BY_PERSON_ID_FILTER = """
 SELECT distinct_id
