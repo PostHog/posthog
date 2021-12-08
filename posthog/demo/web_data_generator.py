@@ -199,3 +199,6 @@ class WebDataGenerator(DataGenerator):
     def demo_recording(self):
         with open(get_absolute_path("demo/demo_session_recording.json"), "r") as demo_session_file:
             return json.load(demo_session_file)
+
+
+#  test
