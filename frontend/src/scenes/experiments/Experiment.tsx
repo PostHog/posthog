@@ -24,8 +24,8 @@ export function Experiment(): JSX.Element {
     const handlePrev = (): void => carouselRef.current.prev()
     const [form] = Form.useForm()
 
-    const { isStepsEmpty, filterSteps, areFiltersValid } = useValues(funnelLogic(insightProps))
-    const { setFilters } = useActions(funnelLogic(insightProps))
+    const { isStepsEmpty, filterSteps, areFiltersValid } = useValues(funnelLogic(funnelProps))
+    const { setFilters } = useActions(funnelLogic(funnelProps))
 
     return (
         <BindLogic logic={insightLogic} props={funnelProps}>
