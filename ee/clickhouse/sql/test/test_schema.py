@@ -10,8 +10,9 @@ from ee.clickhouse.sql.session_recording_events import *
 
 CREATE_TABLE_QUERIES = [
     CREATE_COHORTPEOPLE_TABLE_SQL,
-    DEAD_LETTER_QUEUE_TABLE_MV_SQL,
+    PERSON_STATIC_COHORT_TABLE_SQL,
     DEAD_LETTER_QUEUE_TABLE_SQL,
+    DEAD_LETTER_QUEUE_TABLE_MV_SQL,
     KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
     EVENTS_TABLE_SQL,
     KAFKA_EVENTS_TABLE_SQL,
@@ -26,14 +27,30 @@ CREATE_TABLE_QUERIES = [
     KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL,
     PERSONS_DISTINCT_ID_TABLE_MV_SQL,
     KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL,
-    PLUGIN_LOG_ENTRIES_TABLE_MV_SQL,
     PLUGIN_LOG_ENTRIES_TABLE_SQL,
-    KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL,
-    SESSION_RECORDING_EVENTS_TABLE_MV_SQL,
+    PLUGIN_LOG_ENTRIES_TABLE_MV_SQL,
     SESSION_RECORDING_EVENTS_TABLE_SQL,
+    SESSION_RECORDING_EVENTS_TABLE_MV_SQL,
+    KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL,
 ]
 
+idfn = lambda query: query if isinstance(query, str) else query()
 
-@pytest.mark.parametrize("query", CREATE_TABLE_QUERIES)
+
+@pytest.mark.parametrize("query", CREATE_TABLE_QUERIES, ids=idfn)
 def test_create_table_query(query, snapshot):
+    if not isinstance(query, str):
+        query = query()
     assert query == snapshot
+
+
+@pytest.mark.parametrize("query", CREATE_TABLE_QUERIES, ids=idfn)
+def test_create_table_query_replicated_and_storage(query, snapshot, settings):
+    settings.CLICKHOUSE_REPLICATION = True
+    settings.CLICKHOUSE_ENABLE_STORAGE_POLICY = True
+
+    if not isinstance(query, str):
+        query = query()
+
+    if "Replicated" in query:
+        assert query == snapshot

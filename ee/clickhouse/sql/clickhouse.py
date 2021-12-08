@@ -1,15 +1,15 @@
-from posthog.settings import CLICKHOUSE_ENABLE_STORAGE_POLICY, CLICKHOUSE_REPLICATION, KAFKA_HOSTS, TEST
+from django.conf import settings
 
-STORAGE_POLICY = "SETTINGS storage_policy = 'hot_to_cold'" if CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
-REPLACING_TABLE_ENGINE = (
+STORAGE_POLICY = lambda: "SETTINGS storage_policy = 'hot_to_cold'" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
+REPLACING_TABLE_ENGINE = lambda: (
     "ReplicatedReplacingMergeTree('/clickhouse/tables/{{shard}}/posthog.{table}', '{{replica}}', {ver})"
-    if CLICKHOUSE_REPLICATION
+    if settings.CLICKHOUSE_REPLICATION
     else "ReplacingMergeTree({ver})"
 )
 
-COLLAPSING_TABLE_ENGINE = (
+COLLAPSING_TABLE_ENGINE = lambda: (
     "ReplicatedCollapsingMergeTree('/clickhouse/tables/noshard/posthog.{table}', '{{replica}}-{{shard}}', {ver})"
-    if CLICKHOUSE_REPLICATION
+    if settings.CLICKHOUSE_REPLICATION
     else "CollapsingMergeTree({ver})"
 )
 
@@ -40,21 +40,23 @@ REPLACING_MERGE_TREE = "replacing_merge_tree"
 
 def table_engine(table: str, ver: str, engine_type: str) -> str:
     if engine_type == COLLAPSING_MERGE_TREE and ver:
-        return COLLAPSING_TABLE_ENGINE.format(table=table, ver=ver)
+        return COLLAPSING_TABLE_ENGINE().format(table=table, ver=ver)
     elif engine_type == REPLACING_MERGE_TREE and ver:
-        return REPLACING_TABLE_ENGINE.format(table=table, ver=ver)
+        return REPLACING_TABLE_ENGINE().format(table=table, ver=ver)
     else:
         raise ValueError(f"Unknown engine type {engine_type}")
 
 
 def kafka_engine(
     topic: str,
-    kafka_host=KAFKA_HOSTS,
+    kafka_host=None,
     group="group1",
     serialization="JSONEachRow",
     proto_schema=None,
     skip_broken_messages=100,
 ):
+    if kafka_host is None:
+        kafka_host = settings.KAFKA_HOSTS
     if serialization == "JSONEachRow":
         return KAFKA_ENGINE.format(topic=topic, kafka_host=kafka_host, group=group, serialization=serialization)
     elif serialization == "Protobuf":
@@ -68,4 +70,4 @@ def kafka_engine(
 
 
 def ttl_period(field: str = "created_at", weeks: int = 3):
-    return "" if TEST else f"TTL toDate({field}) + INTERVAL {weeks} WEEK"
+    return "" if settings.TEST else f"TTL toDate({field}) + INTERVAL {weeks} WEEK"
