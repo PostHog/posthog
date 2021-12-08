@@ -182,7 +182,12 @@ export function FunnelTabWithSimpleMode(): JSX.Element {
                             </Tooltip>
                         </h4>
                         <Row align="middle">
-                            <BreakdownFilter filters={filters} setFilters={setFilters} buttonType="default" />
+                            <BreakdownFilter
+                                filters={filters}
+                                setFilters={setFilters}
+                                buttonType="default"
+                                useMultiBreakdown={!!featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]}
+                            />
                         </Row>
                     </>
                 )}
