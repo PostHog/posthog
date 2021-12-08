@@ -37,15 +37,15 @@ def get_target_entity(filter: Union[Filter, StickinessFilter]) -> Entity:
     if not filter.target_entity_id:
         raise ValueError("An entity id and the entity type must be provided to determine an entity")
 
+    entity_math = filter.target_entity_math or "total"  # make math explicit
+
     possible_entity = retrieve_entity_from(
-        filter.target_entity_id, filter.target_entity_type, filter.target_entity_math, filter.events, filter.actions
+        filter.target_entity_id, filter.target_entity_type, entity_math, filter.events, filter.actions
     )
     if possible_entity:
         return possible_entity
     elif filter.target_entity_type:
-        return Entity(
-            {"id": filter.target_entity_id, "type": filter.target_entity_type, "math": filter.target_entity_math}
-        )
+        return Entity({"id": filter.target_entity_id, "type": filter.target_entity_type, "math": entity_math})
     else:
         raise ValueError("An entity must be provided for target entity to be determined")
 
