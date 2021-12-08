@@ -391,6 +391,6 @@
                                        FROM JSONExtractRaw(group_properties_0, 'industry'))) )
         GROUP BY toStartOfDay(timestamp))
      group by day_start
-     order by day_start)
+     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
