@@ -74,6 +74,10 @@ describe('postgres parity', () => {
         )
         await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))
         await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(person, Database.ClickHouse), 2)
+        await delayUntilEventIngested(
+            () => hub.db.fetchDistinctIds(person, Database.ClickHouse, 'person_distinct_id2'),
+            2
+        )
 
         const clickHousePersons = await hub.db.fetchPersons(Database.ClickHouse)
         expect(clickHousePersons).toEqual([
