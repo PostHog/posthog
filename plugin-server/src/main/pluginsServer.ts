@@ -148,7 +148,6 @@ export async function startPluginsServer(
         piscina.on('drain', () => {
             void queue?.resume()
             void redisQueueForPluginJobs?.resume()
-
             void jobQueueConsumer?.resume()
         })
 
@@ -257,7 +256,11 @@ export async function startPluginsServer(
 export async function stopPiscina(piscina: Piscina): Promise<void> {
     // Wait *up to* 5 seconds to shut down VMs.
     await Promise.race([piscina.broadcastTask({ task: 'teardownPlugins' }), delay(5000)])
-    // Wait 2 seconds to flush the last queues.
-    await Promise.all([piscina.broadcastTask({ task: 'flushKafkaMessages' }), delay(2000)])
+    // Wait 2 seconds to flush the last queues and caches
+    await Promise.all([
+        piscina.broadcastTask({ task: 'flushKafkaMessages' }),
+        piscina.broadcastTask({ task: 'flushLastSeenAtCache' }),
+        delay(2000),
+    ])
     await piscina.destroy()
 }

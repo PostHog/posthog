@@ -18,6 +18,8 @@ class EventDefinitionSerializer(serializers.ModelSerializer):
             "name",
             "volume_30_day",
             "query_usage_30_day",
+            "created_at",
+            "last_seen_at",
         )
 
     def update(self, event_definition: EventDefinition, validated_data):
@@ -85,7 +87,7 @@ class EventDefinitionViewSet(
         serializer_class = self.serializer_class
         if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
             try:
-                from ee.api.enterprise_event_definition import EnterpriseEventDefinitionSerializer
+                from ee.api.ee_event_definition import EnterpriseEventDefinitionSerializer
             except ImportError:
                 pass
             else:
