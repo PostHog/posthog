@@ -38,7 +38,7 @@ from posthog.constants import (
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_EVENTS,
 )
-from posthog.models.entity import Entity, ExclusionEntity
+from posthog.models.entity import MATH_TYPE, Entity, ExclusionEntity
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType, IntervalType
 from posthog.models.filters.mixins.utils import cached_property, include_dict, process_bool
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
@@ -412,7 +412,7 @@ class EntityTypeMixin(BaseParamMixin):
 
 class EntityMathMixin(BaseParamMixin):
     @cached_property
-    def target_entity_math(self) -> Optional[str]:
+    def target_entity_math(self) -> Optional[MATH_TYPE]:
         return self._data.get("entity_math", None)
 
     @include_dict

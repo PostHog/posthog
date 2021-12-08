@@ -1,5 +1,5 @@
 import json
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Tuple, Type, Union
 
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -11,6 +11,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.person import delete_person
 from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
+from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 from ee.clickhouse.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
@@ -38,6 +39,7 @@ def should_paginate(results, limit: Union[str, int]) -> bool:
 
 
 def get_funnel_actor_class(filter: Filter) -> Callable:
+    funnel_actor_class: Type[ClickhouseFunnelBase]
     if filter.funnel_viz_type == FunnelVizType.TRENDS:
         funnel_actor_class = ClickhouseFunnelTrendsActors
     else:

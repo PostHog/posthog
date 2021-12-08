@@ -18,6 +18,7 @@ from posthog.api.cohort import CohortSerializer, CohortViewSet
 from posthog.api.utils import get_target_entity
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_STICKINESS, INSIGHT_TRENDS
 from posthog.models.cohort import Cohort
+from posthog.models.filters import stickiness_filter
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -54,16 +55,16 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
         entity = get_target_entity(filter)
         query, params = ClickhouseTrendsActors(cohort.team, entity, filter).actor_query()
     elif insight_type == INSIGHT_STICKINESS:
-        filter = StickinessFilter(data=filter_data, team=cohort.team)
-        entity = get_target_entity(filter)
-        query, params = ClickhouseStickinessActors(cohort.team, entity, filter).actor_query()
+        stickiness_filter = StickinessFilter(data=filter_data, team=cohort.team)
+        entity = get_target_entity(stickiness_filter)
+        query, params = ClickhouseStickinessActors(cohort.team, entity, stickiness_filter).actor_query()
     elif insight_type == INSIGHT_FUNNELS:
-        filter = Filter(data=filter_data)
-        funnel_actor_class = get_funnel_actor_class(filter)
-        query, params = funnel_actor_class(filter, cohort.team).actor_query()
+        funnel_filter = Filter(data=filter_data)
+        funnel_actor_class = get_funnel_actor_class(funnel_filter)
+        query, params = funnel_actor_class(funnel_filter, cohort.team).actor_query()
     elif insight_type == INSIGHT_PATHS:
-        filter = PathFilter(data=filter_data)
-        query, params = ClickhousePathsActors(filter, cohort.team, funnel_filter=None).actor_query()
+        path_filter = PathFilter(data=filter_data)
+        query, params = ClickhousePathsActors(path_filter, cohort.team, funnel_filter=None).actor_query()
 
     insert_entity_people_into_cohort(cohort, substitute_params(query, params))
 
