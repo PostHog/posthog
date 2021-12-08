@@ -295,8 +295,8 @@ export const createProcessEventTests = (
             )
             expect((await hub.db.fetchPersons(Database.ClickHouse)).length).toEqual(1)
 
-            // moveDistinctIds 2x, deletePerson 1x
-            expect(hub!.db.kafkaProducer!.queueMessage).toHaveBeenCalledTimes(3)
+            // moveDistinctIds 3x, deletePerson 1x
+            expect(hub!.db.kafkaProducer!.queueMessage).toHaveBeenCalledTimes(4)
         }
 
         expect((await hub.db.fetchPersons()).length).toEqual(1)

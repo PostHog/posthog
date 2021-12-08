@@ -686,13 +686,19 @@ export class DB {
 
         const personDistinctIdCreated = insertResult.rows[0] as PersonDistinctId
         if (this.kafkaProducer) {
+            const version = Number(personDistinctIdCreated.version || 0)
             return [
                 {
                     topic: KAFKA_PERSON_UNIQUE_ID,
                     messages: [
                         {
                             value: Buffer.from(
-                                JSON.stringify({ ...personDistinctIdCreated, person_id: person.uuid, is_deleted: 0 })
+                                JSON.stringify({
+                                    ...personDistinctIdCreated,
+                                    version,
+                                    person_id: person.uuid,
+                                    is_deleted: 0,
+                                })
                             ),
                         },
                     ],
@@ -702,7 +708,12 @@ export class DB {
                     messages: [
                         {
                             value: Buffer.from(
-                                JSON.stringify({ ...personDistinctIdCreated, person_id: person.uuid, is_deleted: 0 })
+                                JSON.stringify({
+                                    ...personDistinctIdCreated,
+                                    version,
+                                    person_id: person.uuid,
+                                    is_deleted: 0,
+                                })
                             ),
                         },
                     ],
@@ -756,17 +767,18 @@ export class DB {
         if (this.kafkaProducer) {
             for (const row of movedDistinctIdResult.rows) {
                 const { id, ...usefulColumns } = row
+                const version = Number(row.version || 0)
                 kafkaMessages.push({
                     topic: KAFKA_PERSON_UNIQUE_ID,
                     messages: [
                         {
                             value: Buffer.from(
-                                JSON.stringify({ ...usefulColumns, person_id: target.uuid, is_deleted: 0 })
+                                JSON.stringify({ ...usefulColumns, version, person_id: target.uuid, is_deleted: 0 })
                             ),
                         },
                         {
                             value: Buffer.from(
-                                JSON.stringify({ ...usefulColumns, person_id: source.uuid, is_deleted: 1 })
+                                JSON.stringify({ ...usefulColumns, version, person_id: source.uuid, is_deleted: 1 })
                             ),
                         },
                     ],
@@ -776,7 +788,7 @@ export class DB {
                     messages: [
                         {
                             value: Buffer.from(
-                                JSON.stringify({ ...usefulColumns, person_id: target.uuid, is_deleted: 0 })
+                                JSON.stringify({ ...usefulColumns, version, person_id: target.uuid, is_deleted: 0 })
                             ),
                         },
                     ],
