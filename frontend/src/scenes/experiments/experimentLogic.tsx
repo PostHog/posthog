@@ -2,6 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { generateRandomAnimal } from 'lib/utils/randomAnimal'
+import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { DashboardItemType, Experiment, InsightType } from '~/types'
@@ -14,38 +15,21 @@ export const experimentLogic = kea<experimentLogicType>({
         setExperiment: (experiment: Experiment) => ({ experiment }),
         createExperiment: (draft?: boolean) => ({ draft }),
         setFunnelProps: (funnelProps: any) => ({ funnelProps }),
+        setExperimentFunnel: (funnel: DashboardItemType) => ({ funnel }),
+        createNewExperimentFunnel: true,
+        setFilters: (filters) => ({ filters }),
     },
-    loaders: ({ actions }) => ({
-        funnelInsight: [
-            null,
-            {
-                loadFunnelInsight: async () => {
-                    const filters = { insight: InsightType.FUNNELS }
-                    const newInsight = {
-                        name: generateRandomAnimal(),
-                        description: '',
-                        tags: [],
-                        filters: cleanFilters(filters || {}),
-                        result: null,
-                    }
-                    const createdInsight: DashboardItemType = await api.create(
-                        `api/projects/${teamLogic.values.currentTeamId}/insights`,
-                        newInsight
-                    )
-                    actions.setFunnelProps({
-                        dashboardItemId: createdInsight.short_id,
-                        filters: createdInsight.filters,
-                    })
-                    return createdInsight
-                },
-            },
-        ],
-    }),
     reducers: {
         experiment: [
             null as Experiment | null,
             {
                 setExperiment: (_, { experiment }) => experiment,
+            },
+        ],
+        experimentFunnel: [
+            null as DashboardItemType | null,
+            {
+                setExperimentFunnel: (_, { funnel }) => funnel,
             },
         ],
         funnelProps: [
@@ -55,15 +39,29 @@ export const experimentLogic = kea<experimentLogicType>({
             },
         ],
     },
-    listeners: ({ values }) => ({
+    listeners: ({ values, actions }) => ({
         createExperiment: async ({ draft }) => {
             await api.create(`api/projects/${values.currentTeamId}/experiments`, {
                 ...values.experiment,
                 ...(draft && { start_date: dayjs() }),
             })
         },
-    }),
-    events: ({ actions }) => ({
-        afterMount: [actions.loadFunnelInsight],
+        createNewExperimentFunnel: async () => {
+            const newInsight = {
+                name: generateRandomAnimal(),
+                description: '',
+                tags: [],
+                filters: cleanFilters({ insight: InsightType.FUNNELS }),
+                result: null,
+            }
+            const createdInsight: DashboardItemType = await api.create(
+                `api/projects/${teamLogic.values.currentTeamId}/insights`,
+                newInsight
+            )
+            actions.setExperimentFunnel(createdInsight)
+        },
+        setFilters: ({ filters }) => {
+            funnelLogic.findMounted({ dashboardItemId: values.experimentFunnel.short_id })?.actions.setFilters(filters)
+        },
     }),
 })

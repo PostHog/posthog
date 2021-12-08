@@ -5,10 +5,10 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React, { useRef } from 'react'
-import { FunnelBarGraph } from 'scenes/funnels/FunnelBarGraph'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 import { FunnelSingleStepState } from 'scenes/insights/EmptyStates'
+import { FunnelInsight } from 'scenes/insights/FunnelInsight'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { PropertyFilter } from '~/types'
@@ -17,19 +17,32 @@ import { experimentLogic } from './experimentLogic'
 
 export function Experiment(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { experiment, funnelProps } = useValues(experimentLogic)
-    const { setExperiment, createExperiment } = useActions(experimentLogic)
+    const { experiment, experimentFunnel } = useValues(experimentLogic)
+    const { setExperiment, createExperiment, setFilters } = useActions(experimentLogic)
     const carouselRef = useRef<any>(null)
     const handleNext = (): void => carouselRef.current.next()
     const handlePrev = (): void => carouselRef.current.prev()
     const [form] = Form.useForm()
 
-    const { insightProps } = insightLogic(funnelProps)
-    const { isStepsEmpty, filterSteps, areFiltersValid } = useValues(funnelLogic(insightProps))
-    const { setFilters } = useActions(funnelLogic(insightProps))
-
+    const { insightProps } = useValues(
+        insightLogic({
+            dashboardItemId: experimentFunnel?.short_id,
+            filters: experimentFunnel?.filters,
+            syncWithUrl: false,
+        })
+    )
+    const { isStepsEmpty, filterSteps, filters, areFiltersValid } = useValues(funnelLogic(insightProps))
+    // const { setFilters } = useActions(funnelLogic(insightProps))
+    console.log('experiment page setfilters', filters, setFilters)
     return (
-        <BindLogic logic={insightLogic} props={funnelProps}>
+        <BindLogic
+            logic={insightLogic}
+            props={{
+                dashboardItemId: experimentFunnel?.short_id,
+                filters: experimentFunnel?.filters,
+                syncWithUrl: false,
+            }}
+        >
             <PageHeader title={experiment?.name || 'New Experiment'} />
             <Form
                 name="new-experiment"
@@ -93,34 +106,35 @@ export function Experiment(): JSX.Element {
                                     of your experiment.
                                 </span>
                                 <Row>
-                                    <Col span={12}>
-                                        {funnelProps.filters && (
-                                            <ActionFilter
-                                                filters={funnelProps.filters}
-                                                setFilters={setFilters}
-                                                typeKey={`EditFunnel-action`}
-                                                hideMathSelector={true}
-                                                hideDeleteBtn={filterSteps.length === 1}
-                                                buttonCopy="Add funnel step"
-                                                showSeriesIndicator={!isStepsEmpty}
-                                                seriesIndicatorType="numeric"
-                                                fullWidth
-                                                sortable
-                                                showNestedArrow={true}
-                                                propertiesTaxonomicGroupTypes={[
-                                                    TaxonomicFilterGroupType.EventProperties,
-                                                    TaxonomicFilterGroupType.PersonProperties,
-                                                    // ...groupsTaxonomicTypes,
-                                                    TaxonomicFilterGroupType.Cohorts,
-                                                    TaxonomicFilterGroupType.Elements,
-                                                ]}
-                                                rowClassName="action-filters-bordered"
-                                            />
-                                        )}
-                                    </Col>
-                                    <Col span={12}>
-                                        {areFiltersValid ? <FunnelBarGraph /> : <FunnelSingleStepState />}
-                                    </Col>
+                                    <BindLogic
+                                        logic={insightLogic}
+                                        props={{
+                                            dashboardItemId: experimentFunnel?.short_id,
+                                            filters: experimentFunnel?.filters,
+                                            syncWithUrl: false,
+                                        }}
+                                    >
+                                        <ActionFilter
+                                            filters={filters}
+                                            setFilters={setFilters}
+                                            typeKey={`EditFunnel-action`}
+                                            hideMathSelector={true}
+                                            hideDeleteBtn={filterSteps.length === 1}
+                                            buttonCopy="Add funnel step"
+                                            showSeriesIndicator={!isStepsEmpty}
+                                            seriesIndicatorType="numeric"
+                                            fullWidth
+                                            sortable
+                                            showNestedArrow={true}
+                                            propertiesTaxonomicGroupTypes={[
+                                                TaxonomicFilterGroupType.EventProperties,
+                                                TaxonomicFilterGroupType.PersonProperties,
+                                                TaxonomicFilterGroupType.Cohorts,
+                                                TaxonomicFilterGroupType.Elements,
+                                            ]}
+                                        />
+                                        {areFiltersValid ? <FunnelInsight /> : <FunnelSingleStepState />}
+                                    </BindLogic>
                                 </Row>
                             </Form.Item>
                         </Form.Item>

@@ -5,6 +5,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { experimentsLogic } from './experimentsLogic'
 import { PlusOutlined } from '@ant-design/icons'
 import { useActions } from 'kea'
+import { experimentLogic } from './experimentLogic'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -17,6 +18,7 @@ const NEW_EXPERIMENT = {
 
 export function Experiments(): JSX.Element {
     const { setOpenExperiment } = useActions(experimentsLogic)
+    const { createNewExperimentFunnel } = useActions(experimentLogic)
 
     return (
         <div>
@@ -25,7 +27,10 @@ export function Experiments(): JSX.Element {
                 <Button
                     type="primary"
                     data-attr="create-experiment"
-                    onClick={() => setOpenExperiment(NEW_EXPERIMENT)}
+                    onClick={() => {
+                        setOpenExperiment(NEW_EXPERIMENT)
+                        createNewExperimentFunnel()
+                    }}
                     icon={<PlusOutlined />}
                 >
                     New Experiment
