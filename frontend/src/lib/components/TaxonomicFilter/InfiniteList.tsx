@@ -63,16 +63,15 @@ const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
 const renderItemContents = ({
     item,
     listGroupType,
+    featureFlagEnabled,
 }: {
     item: EventDefinition | CohortType
     listGroupType: TaxonomicFilterGroupType
+    featureFlagEnabled: boolean
 }): JSX.Element | string => {
-    const { featureFlags } = useValues(featureFlagLogic)
     const parsedLastSeen = (item as EventDefinition).last_seen_at ? dayjs((item as EventDefinition).last_seen_at) : null
     const isStale =
-        (featureFlags[FEATURE_FLAGS.STALE_EVENTS] &&
-            listGroupType === TaxonomicFilterGroupType.Events &&
-            !parsedLastSeen) ||
+        (featureFlagEnabled && listGroupType === TaxonomicFilterGroupType.Events && !parsedLastSeen) ||
         dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS
 
     return listGroupType === TaxonomicFilterGroupType.EventProperties ||
@@ -179,6 +178,7 @@ const selectedItemHasPopup = (
 export function InfiniteList(): JSX.Element {
     const { mouseInteractionsEnabled, activeTab, searchQuery, value, groupType } = useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { isLoading, results, totalCount, index, listGroupType, group, selectedItem, selectedItemInView } =
         useValues(infiniteListLogic)
@@ -218,7 +218,11 @@ export function InfiniteList(): JSX.Element {
                 data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
                 ref={isHighlighted ? setReferenceElement : null}
             >
-                {renderItemContents({ item, listGroupType })}
+                {renderItemContents({
+                    item,
+                    listGroupType,
+                    featureFlagEnabled: !!featureFlags[FEATURE_FLAGS.STALE_EVENTS],
+                })}
             </div>
         ) : (
             <div
