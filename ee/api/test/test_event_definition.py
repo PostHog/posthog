@@ -28,7 +28,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response_data["owner"]["id"], self.user.id)
 
         self.assertAlmostEqual(
-            (dateutil.parser.isoparse(response_data["created_at"]) - timezone.now()).total_seconds(), 0
+            (timezone.now() - dateutil.parser.isoparse(response_data["created_at"])).total_seconds(), 0, delta=1
         )
         self.assertIn("last_seen_at", response_data)
 
