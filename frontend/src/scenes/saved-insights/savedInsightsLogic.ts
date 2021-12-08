@@ -1,20 +1,20 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
-import { DashboardItemType, LayoutView, SavedInsightsTabs } from '~/types'
+import { errorToast, objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
+import { InsightModel, LayoutView, SavedInsightsTabs } from '~/types'
 import { savedInsightsLogicType } from './savedInsightsLogicType'
-import { prompt } from 'lib/logic/prompt'
-import { toast } from 'react-toastify'
 import { Dayjs } from 'dayjs'
-import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { insightsModel } from '~/models/insightsModel'
 import { teamLogic } from '../teamLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { Sorting } from 'lib/components/LemonTable'
+import { urls } from 'scenes/urls'
 
 export const INSIGHTS_PER_PAGE = 15
 
 export interface InsightsResult {
-    results: DashboardItemType[]
+    results: InsightModel[]
     count: number
     previous?: string
     next?: string
@@ -57,9 +57,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
     actions: {
         setSavedInsightsFilters: (filters: Partial<SavedInsightFilters>, merge = true) => ({ filters, merge }),
         addGraph: (type: string) => ({ type }),
-
-        renameInsight: (id: number) => ({ id }),
-        duplicateInsight: (insight: DashboardItemType) => ({ insight }),
+        updateFavoritedInsight: (insight: InsightModel, favorited: boolean) => ({ insight, favorited }),
+        renameInsight: (insight: InsightModel) => ({ insight }),
+        duplicateInsight: (insight: InsightModel) => ({ insight }),
         loadInsights: true,
     },
     loaders: ({ values }) => ({
@@ -77,7 +77,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
 
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
                     try {
-                        const insight = await api.get(
+                        const insight: InsightModel = await api.get(
                             `api/projects/${teamLogic.values.currentTeamId}/insights/${filters.search}`
                         )
                         return {
@@ -98,17 +98,20 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
 
                 return { ...response, filters }
             },
-            updateFavoritedInsight: async ({ id, favorited }) => {
-                const response = await api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${id}`, {
-                    favorited,
-                })
-                const updatedInsights = values.insights.results.map((insight) =>
-                    insight.id === id ? response : insight
+            updateFavoritedInsight: async ({ insight, favorited }) => {
+                const response = await api.update(
+                    `api/projects/${teamLogic.values.currentTeamId}/insights/${insight.id}`,
+                    {
+                        favorited,
+                    }
+                )
+                const updatedInsights = values.insights.results.map((i) =>
+                    i.short_id === insight.short_id ? response : i
                 )
                 return { ...values.insights, results: updatedInsights }
             },
-            setInsight: (insight: DashboardItemType) => {
-                const results = values.insights.results.map((i) => (i.id === insight.id ? insight : i))
+            setInsight: (insight: InsightModel) => {
+                const results = values.insights.results.map((i) => (i.short_id === insight.short_id ? insight : i))
                 return { ...values.insights, results }
             },
         },
@@ -135,6 +138,23 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         usingFilters: [
             (s) => [s.filters],
             (filters) => !objectsEqual(cleanFilters({ ...filters, tab: SavedInsightsTabs.All }), cleanFilters({})),
+        ],
+        sorting: [
+            (s) => [s.filters],
+            (filters): Sorting | null => {
+                if (!filters.order) {
+                    return null
+                }
+                return filters.order.startsWith('-')
+                    ? {
+                          columnKey: filters.order.substr(1),
+                          order: -1,
+                      }
+                    : {
+                          columnKey: filters.order,
+                          order: 1,
+                      }
+            },
         ],
         paramsFromFilters: [
             (s) => [s.filters],
@@ -191,20 +211,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                 }
             }
         },
-        renameInsight: async ({ id }) => {
-            prompt({ key: `rename-insight-${id}` }).actions.prompt({
-                title: 'Rename panel',
-                placeholder: 'Please enter the new name',
-                value: name,
-                error: 'You must enter name',
-                success: async (name: string) => {
-                    const insight = await api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${id}`, {
-                        name,
-                    })
-                    toast('Successfully renamed item')
-                    actions.setInsight(insight)
-                },
-            })
+        renameInsight: async ({ insight }) => {
+            insightsModel.actions.renameInsight(insight)
         },
         duplicateInsight: async ({ insight }) => {
             await api.create(`api/projects/${values.currentTeamId}/insights`, insight)
@@ -213,16 +221,25 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         setDates: () => {
             actions.loadInsights()
         },
-        [dashboardItemsModel.actionTypes.renameDashboardItemSuccess]: ({ item }) => {
+        [insightsModel.actionTypes.renameInsightSuccess]: ({ item }) => {
             actions.setInsight(item)
         },
     }),
     actionToUrl: ({ values }) => {
-        const changeUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] | void => {
+        const changeUrl = ():
+            | [
+                  string,
+                  Record<string, any>,
+                  Record<string, any>,
+                  {
+                      replace: boolean
+                  }
+              ]
+            | void => {
             const nextValues = cleanFilters(values.filters)
             const urlValues = cleanFilters(router.values.searchParams)
             if (!objectsEqual(nextValues, urlValues)) {
-                return ['/saved_insights', objectDiffShallow(cleanFilters({}), nextValues), {}, { replace: false }]
+                return [urls.savedInsights(), objectDiffShallow(cleanFilters({}), nextValues), {}, { replace: false }]
             }
         }
         return {
@@ -231,7 +248,37 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         }
     },
     urlToAction: ({ actions, values }) => ({
-        '/saved_insights': (_, searchParams) => {
+        [urls.savedInsights()]: async (_, searchParams, hashParams) => {
+            if (hashParams.fromItem && String(hashParams.fromItem).match(/^[0-9]+$/)) {
+                // `fromItem` for legacy /insights url redirect support
+                const insightId = parseInt(hashParams.fromItem)
+                try {
+                    const { short_id }: InsightModel = await api.get(
+                        `api/projects/${teamLogic.values.currentTeamId}/insights/${insightId}`
+                    )
+                    if (!short_id) {
+                        throw new Error('Could not find short_id')
+                    }
+                    router.actions.replace(
+                        hashParams.edit
+                            ? urls.insightEdit(short_id, searchParams)
+                            : urls.insightView(short_id, searchParams)
+                    )
+                } catch (e) {
+                    errorToast(
+                        'Could not find insight',
+                        `The insight with the id "${insightId}" could not be retrieved.`,
+                        ' ' // adding a " " removes "Unknown Exception" from the toast
+                    )
+                    router.actions.push(urls.savedInsights())
+                }
+                return
+            } else if (searchParams.insight) {
+                // old URL with `?insight=TRENDS` in query
+                router.actions.replace(urls.insightNew(searchParams))
+                return
+            }
+
             const currentFilters = cleanFilters(values.filters)
             const nextFilters = cleanFilters(searchParams)
             if (values.rawFilters === null || !objectsEqual(currentFilters, nextFilters)) {

@@ -1,7 +1,7 @@
 @import '~/vars';
 
 .dashboard {
-    margin-top: $default_spacing * 2;
+    margin-top: 1rem;
 
     .dashboard-items-actions {
         margin-bottom: $default_spacing;
@@ -106,10 +106,7 @@
 .dashboard-header {
     display: flex;
     justify-content: space-between;
-
-    margin-top: -1rem;
-    margin-bottom: $default_spacing;
-
+    margin-bottom: 1rem;
     width: 100%;
 
     &.full-screen {
@@ -143,7 +140,6 @@
 
                     .anticon-share-alt {
                         font-size: 16px;
-                        color: $success;
                         margin-left: 6px !important;
                         margin-right: 4px;
                     }

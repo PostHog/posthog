@@ -4,7 +4,7 @@ import { Col, Popover, Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { ProjectOutlined, LaptopOutlined, GlobalOutlined, SettingOutlined } from '@ant-design/icons'
 import { Link } from '../Link'
-import { humanTzOffset, shortTimeZone } from 'lib/utils'
+import { humanFriendlyDetailedTime, humanTzOffset, shortTimeZone } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import { teamLogic } from '../../../scenes/teamLogic'
@@ -26,7 +26,15 @@ function TZConversionHeader(): JSX.Element {
 }
 
 /** Return a simple label component with timezone conversion UI. */
-export function TZLabel({ time, showSeconds }: { time: string | dayjs.Dayjs; showSeconds?: boolean }): JSX.Element {
+function TZLabelRaw({
+    time,
+    showSeconds,
+    formatString,
+}: {
+    time: string | dayjs.Dayjs
+    showSeconds?: boolean
+    formatString?: string
+}): JSX.Element {
     const parsedTime = dayjs.isDayjs(time) ? time : dayjs(time)
     const { currentTeam } = useValues(teamLogic)
 
@@ -83,13 +91,17 @@ export function TZLabel({ time, showSeconds }: { time: string | dayjs.Dayjs; sho
 
     return (
         <Popover content={PopoverContent} onVisibleChange={handleVisibleChange}>
-            <span className="tz-label">{parsedTime.fromNow()}</span>
+            <span className="tz-label">
+                {formatString ? humanFriendlyDetailedTime(parsedTime, undefined, formatString) : parsedTime.fromNow()}
+            </span>
         </Popover>
     )
 }
+// Timezone calculations are quite expensive, so the component is memoized to reduce them.
+export const TZLabel = React.memo(TZLabelRaw) as typeof TZLabelRaw
 
 /** Return an explainer component for analytics visualization pages. */
-export function TZIndicator({
+function TZIndicatorRaw({
     style,
     placement,
 }: {
@@ -148,3 +160,5 @@ export function TZIndicator({
         </Popover>
     )
 }
+// Timezone calculations are quite expensive, so the component is memoized to reduce them.
+export const TZIndicator = React.memo(TZIndicatorRaw) as typeof TZIndicatorRaw

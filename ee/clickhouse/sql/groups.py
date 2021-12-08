@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 ) ENGINE = {engine}
 """
 
-GROUPS_TABLE_SQL = (
+GROUPS_TABLE_SQL = lambda: (
     GROUPS_TABLE_BASE_SQL
     + """Order By (team_id, group_type_index, group_key)
 {storage_policy}
@@ -29,7 +29,7 @@ GROUPS_TABLE_SQL = (
     cluster=CLICKHOUSE_CLUSTER,
     engine=table_engine(GROUPS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
     extra_fields=KAFKA_COLUMNS,
-    storage_policy=STORAGE_POLICY,
+    storage_policy=STORAGE_POLICY(),
 )
 
 KAFKA_GROUPS_TABLE_SQL = GROUPS_TABLE_BASE_SQL.format(
@@ -59,4 +59,10 @@ TRUNCATE_GROUPS_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {GROUPS_TABLE} ON CLUSTER
 
 INSERT_GROUP_SQL = """
 INSERT INTO groups (group_type_index, group_key, team_id, group_properties, created_at, _timestamp, _offset) SELECT %(group_type_index)s, %(group_key)s, %(team_id)s, %(group_properties)s, %(created_at)s, %(_timestamp)s, 0
+"""
+
+GET_GROUP_IDS_BY_PROPERTY_SQL = """
+SELECT DISTINCT group_key
+FROM groups
+WHERE team_id = %(team_id)s AND group_type_index = %({group_type_index_var})s {filters}
 """

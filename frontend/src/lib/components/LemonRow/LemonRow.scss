@@ -7,7 +7,7 @@
     align-items: start;
     justify-content: center;
     min-height: 2.5rem;
-    padding: 0 0.5rem;
+    padding: 0.25rem 0.5rem;
     background: none;
     border-radius: var(--radius);
     border: none;
@@ -65,6 +65,15 @@
     }
 }
 
+.LemonRow--center {
+    .LemonRow__main-area {
+        justify-content: center !important;
+    }
+    .LemonRow__content {
+        flex-grow: 0;
+    }
+}
+
 .LemonRow--compact {
     display: block;
     min-height: 1.5rem;
@@ -72,6 +81,7 @@
 }
 
 .LemonRow__icon {
+    width: 1.5rem;
     transition: background-color 200ms ease, color 200ms ease;
     display: flex;
     font-size: 1.5rem;

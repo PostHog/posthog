@@ -16,7 +16,6 @@ import { InsightsTable } from 'scenes/insights/InsightsTable'
 import React from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { annotationsLogic } from 'lib/components/Annotations'
-import { router } from 'kea-router'
 import {
     FunnelInvalidExclusionState,
     FunnelSingleStepState,
@@ -46,11 +45,7 @@ export function InsightContainer(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const {
-        hashParams: { fromItem },
-    } = useValues(router)
-    const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
-    const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
-    const {
+        insight,
         insightProps,
         lastRefresh,
         isLoading,
@@ -60,14 +55,22 @@ export function InsightContainer(): JSX.Element {
         insightMode,
         showTimeoutMessage,
         showErrorMessage,
-        insightLoading,
     } = useValues(insightLogic)
-    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
+    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
+        funnelLogic(insightProps)
+    )
+    const { clearAnnotationsToCreate } = useActions(annotationsLogic({ insightId: insight.id }))
+    const { annotationsToCreate } = useValues(annotationsLogic({ insightId: insight.id }))
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (activeView !== loadedView) {
-            return <Loading />
+        if (activeView !== loadedView || isLoading) {
+            return (
+                <>
+                    <div style={{ minHeight: 'min(calc(90vh - 16rem), 36rem)' }} />
+                    <Loading />
+                </>
+            )
         }
         // Insight specific empty states - note order is important here
         if (loadedView === InsightType.FUNNELS) {
@@ -77,7 +80,7 @@ export function InsightContainer(): JSX.Element {
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionState />
             }
-            if (!isValidFunnel && !(insightLoading || isLoading)) {
+            if (!isValidFunnel && !isLoading) {
                 return <InsightEmptyState />
             }
         }
@@ -90,14 +93,6 @@ export function InsightContainer(): JSX.Element {
             return <InsightTimeoutState isLoading={isLoading} />
         }
 
-        return null
-    })()
-
-    // Empty states that can coexist with the graph (e.g. Loading)
-    const CoexistingEmptyState = (() => {
-        if (isLoading || insightLoading) {
-            return <Loading />
-        }
         return null
     })()
 
@@ -122,7 +117,12 @@ export function InsightContainer(): JSX.Element {
             filters.funnel_viz_type === FunnelVizType.Steps &&
             (!featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] || filters?.layout === FunnelLayout.horizontal)
         ) {
-            return <FunnelStepTable />
+            return (
+                <Card>
+                    <h3 className="l3">Details table</h3>
+                    <FunnelStepTable />
+                </Card>
+            )
         }
         if (
             (!filters.display ||
@@ -181,17 +181,12 @@ export function InsightContainer(): JSX.Element {
                         </Col>
                         {lastRefresh && <ComputationTimeWithRefresh />}
                     </Row>
-                    {!BlockingEmptyState && CoexistingEmptyState}
                     {!!BlockingEmptyState ? BlockingEmptyState : VIEW_MAP[activeView]}
                 </div>
             </Card>
             {renderTable()}
 
-            {preflight?.is_clickhouse_enabled &&
-            activeView === InsightType.FUNNELS &&
-            featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] ? (
-                <FunnelCorrelation />
-            ) : null}
+            {correlationAnalysisAvailable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>
     )
 }

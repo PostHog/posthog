@@ -10,6 +10,7 @@ from posthog.models.filters.mixins.common import (
     EntitiesMixin,
     FilterTestAccountsMixin,
     InsightMixin,
+    LimitMixin,
     OffsetMixin,
     ShownAsMixin,
 )
@@ -30,6 +31,7 @@ class StickinessFilter(
     ShownAsMixin,
     InsightMixin,
     SimplifyFilterMixin,
+    LimitMixin,
     BaseFilter,
 ):
     get_earliest_timestamp: Optional[Callable]

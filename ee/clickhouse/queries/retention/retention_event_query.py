@@ -2,6 +2,7 @@ from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.group import get_aggregation_target_field
+from ee.clickhouse.models.property import get_single_or_multi_property_string_expr
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from ee.clickhouse.queries.util import get_trunc_func_ch
 from posthog.constants import (
@@ -21,9 +22,11 @@ class RetentionEventsQuery(ClickhouseEventQuery):
     _event_query_type: RetentionQueryType
     _trunc_func: str
 
-    def __init__(self, event_query_type: RetentionQueryType, *args, **kwargs):
+    def __init__(self, filter: RetentionFilter, event_query_type: RetentionQueryType, *args, **kwargs):
         self._event_query_type = event_query_type
-        super().__init__(*args, **kwargs)
+        super().__init__(
+            filter=filter, *args, **kwargs,
+        )
 
         self._trunc_func = get_trunc_func_ch(self._filter.period)
 
@@ -42,7 +45,31 @@ class RetentionEventsQuery(ClickhouseEventQuery):
                 else f"{self.EVENT_TABLE_ALIAS}.event AS event"
             ),
         ]
-        _fields = list(filter(None, _fields))
+
+        if (
+            self._event_query_type != RetentionQueryType.RETURNING
+            and self._filter.breakdowns
+            and self._filter.breakdown_type
+        ):
+            # NOTE: `get_single_or_multi_property_string_expr` doesn't
+            # support breakdowns with different types e.g. a person property
+            # then an event property, so for now we just take the type of
+            # the self._filter.breakdown_type.
+            # TODO: update 'get_single_or_multi_property_string_expr` to take
+            # `Breakdown` type
+            breakdown_type = self._filter.breakdown_type
+            table = "events"
+
+            if breakdown_type == "person":
+                table = "person"
+
+            breakdown_values_expression = get_single_or_multi_property_string_expr(
+                breakdown=[breakdown["property"] for breakdown in self._filter.breakdowns],
+                table=table,
+                query_alias=None,
+            )
+
+            _fields += [f"argMin({breakdown_values_expression}, {self._trunc_func}(e.timestamp)) AS breakdown_values"]
 
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)

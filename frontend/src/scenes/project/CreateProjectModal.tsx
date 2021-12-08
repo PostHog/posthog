@@ -10,11 +10,13 @@ export function CreateProjectModal({
     onClose,
     title,
     caption,
+    mask,
 }: {
     isVisible: boolean
     onClose?: () => void
     title?: string
     caption?: JSX.Element
+    mask?: boolean
 }): JSX.Element {
     const { createTeam } = useActions(teamLogic)
     const { currentOrganization, isProjectCreationForbidden } = useValues(organizationLogic)
@@ -67,10 +69,12 @@ export function CreateProjectModal({
                     ? `You cannot create a project in ${currentOrganization.name}`
                     : 'You cannot create a project'
             }
-            cancelButtonProps={onClose ? undefined : { style: { display: 'none' } }}
-            closable={!!onClose}
+            okButtonProps={onClose ? undefined : { style: { display: 'none' } }}
             onCancel={closeModal}
             visible={isVisible}
+            mask={mask}
+            wrapProps={isVisible && !mask ? { style: { pointerEvents: 'none' } } : undefined}
+            closeIcon={null}
         >
             Your organization access level is insufficient for creating a new project.
             <br />
@@ -84,10 +88,12 @@ export function CreateProjectModal({
             }
             okText="Create project"
             cancelButtonProps={onClose ? undefined : { style: { display: 'none' } }}
-            closable={!!onClose}
             onOk={handleSubmit}
             onCancel={closeModal}
             visible={isVisible}
+            mask={mask}
+            wrapProps={isVisible && !mask ? { style: { pointerEvents: 'none' } } : undefined}
+            closeIcon={null}
         >
             {caption || defaultCaption}
             <div className="input-set">

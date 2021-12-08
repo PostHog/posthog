@@ -1,16 +1,17 @@
 import React, { useState } from 'react'
 import { Button } from 'antd'
 import { SaveToDashboardModal } from './SaveToDashboardModal'
-import { DashboardItemType } from '~/types'
+import { InsightModel } from '~/types'
 import { CheckSquareOutlined } from '@ant-design/icons'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { useValues } from 'kea'
 import { LinkButton } from '../LinkButton'
 import { urls } from '../../../scenes/urls'
 import { Tooltip } from '../Tooltip'
+import { combineUrl } from 'kea-router'
 
 interface Props {
-    insight: Partial<DashboardItemType>
+    insight: Partial<InsightModel>
 }
 
 export function SaveToDashboard({ insight }: Props): JSX.Element {
@@ -24,7 +25,7 @@ export function SaveToDashboard({ insight }: Props): JSX.Element {
             {dashboard ? (
                 <Tooltip title={`Go to dashboard "${dashboard?.name}"`} placement="bottom">
                     <LinkButton
-                        to={`${urls.dashboard(dashboard.id)}?highlightInsightId=${insight.id}`}
+                        to={combineUrl(urls.dashboard(dashboard.id), { highlightInsightId: insight.short_id }).url}
                         type="default"
                         style={{ color: 'var(--primary)' }}
                         icon={<CheckSquareOutlined />}

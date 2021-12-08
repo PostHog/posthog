@@ -1,17 +1,17 @@
-import { DurationFilterLogicType } from './DurationFilterLogicType'
 import { BuiltLogic } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { PropertyOperator } from '~/types'
-import { DurationFilterLogic, DurationFilterProps, TimeUnit } from './DurationFilterLogic'
+import { durationFilterLogic, DurationFilterProps, TimeUnit } from './durationFilterLogic'
+import { durationFilterLogicType } from './durationFilterLogicType'
 
 jest.mock('lib/api')
 
 describe('durationFilterLogic', () => {
-    let logic: BuiltLogic<DurationFilterLogicType<DurationFilterProps, TimeUnit>>
+    let logic: BuiltLogic<durationFilterLogicType<DurationFilterProps, TimeUnit>>
     let filterValue = {}
     initKeaTestLogic({
-        logic: DurationFilterLogic,
+        logic: durationFilterLogic,
         props: {
             initialFilter: {
                 type: 'recording',

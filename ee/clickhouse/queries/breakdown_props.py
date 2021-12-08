@@ -20,14 +20,14 @@ from ee.clickhouse.models.property import (
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
+from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.util import parse_timestamps
-from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters.filter import Filter
-from posthog.models.property import TableWithProperties
+from posthog.models.filters.utils import GroupTypeIndex
 
 ALL_USERS_COHORT_ID = 0
 
@@ -50,7 +50,6 @@ def get_breakdown_prop_values(
     parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team_id=team_id)
     prop_filters, prop_filter_params = parse_prop_clauses(
         filter.properties + entity.properties,
-        team_id,
         table_name="e",
         prepend="e_brkdwn",
         person_properties_mode=PersonPropertiesMode.EXCLUDE,
@@ -67,7 +66,7 @@ def get_breakdown_prop_values(
     if person_query.is_used:
         person_subquery, person_join_params = person_query.get_query()
         person_join_clauses = f"""
-            INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi ON e.distinct_id = pdi.distinct_id
+            INNER JOIN ({get_team_distinct_ids_query(team_id)}) AS pdi ON e.distinct_id = pdi.distinct_id
             INNER JOIN ({person_subquery}) person ON pdi.person_id = person.id
         """
 
@@ -104,7 +103,7 @@ def get_breakdown_prop_values(
 def _to_value_expression(
     breakdown_type: Union[Literal["event", "person", "cohort", "group"], None],
     breakdown: Union[str, List[Union[str, int]], None],
-    breakdown_group_type_index: Optional[int],
+    breakdown_group_type_index: Optional[GroupTypeIndex],
 ) -> str:
     if breakdown_type == "person":
         return get_single_or_multi_property_string_expr(breakdown, table="person", query_alias="value")
@@ -132,7 +131,7 @@ def _format_all_query(team_id: int, filter: Filter, **kwargs) -> Tuple[str, Dict
         props_to_filter = [*props_to_filter, *entity.properties]
 
     prop_filters, prop_filter_params = parse_prop_clauses(
-        props_to_filter, team_id, prepend="all_cohort_", table_name="all_events"
+        props_to_filter, prepend="all_cohort_", table_name="all_events"
     )
     query = f"""
             SELECT DISTINCT distinct_id, {ALL_USERS_COHORT_ID} as value

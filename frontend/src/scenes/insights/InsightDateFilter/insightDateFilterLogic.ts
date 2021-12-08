@@ -53,7 +53,7 @@ export const insightDateFilterLogic = kea<insightDateFilterLogicType>({
             searchParams.date_to = values.dates.dateTo
 
             if (
-                (pathname === '/insights' && !objectsEqual(date_from, values.dates.dateFrom)) ||
+                (pathname.startsWith('/insights/') && !objectsEqual(date_from, values.dates.dateFrom)) ||
                 !objectsEqual(date_to, values.dates.dateTo)
             ) {
                 router.actions.replace(pathname, searchParams, router.values.hashParams)
@@ -65,7 +65,7 @@ export const insightDateFilterLogic = kea<insightDateFilterLogicType>({
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/insights': (_: any, { date_from, date_to }: UrlParams) => {
+        '/insights/:shortId(/edit)': (_: any, { date_from, date_to }: UrlParams) => {
             if (!values.initialLoad && !objectsEqual(date_from, values.dates.dateFrom)) {
                 actions.dateAutomaticallyChanged()
             }

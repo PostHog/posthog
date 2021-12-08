@@ -17,13 +17,12 @@ import { DangerZone } from './DangerZone'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Link } from 'lib/components/Link'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
-import { RestrictedArea, RestrictionScope } from '../../../lib/components/RestrictedArea'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from '../../../lib/constants'
+import { RestrictedArea, RestrictionScope } from 'lib/components/RestrictedArea'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
 import { TimezoneConfig } from './TimezoneConfig'
 import { DataAttributes } from 'scenes/project/Settings/DataAttributes'
-import { featureFlagLogic } from '../../../lib/logic/featureFlagLogic'
-import { AvailableFeature, InsightType } from '../../../types'
+import { AvailableFeature, InsightType } from '~/types'
 import { TeamMembers } from './TeamMembers'
 import { teamMembersLogic } from './teamMembersLogic'
 import { AccessControl } from './AccessControl'
@@ -80,7 +79,6 @@ export function ProjectSettings(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
     const { location } = useValues(router)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { user, hasAvailableFeature } = useValues(userLogic)
 
     useAnchor(location.hash)
@@ -201,8 +199,8 @@ export function ProjectSettings(): JSX.Element {
                     Path cleaning rules
                 </h2>
                 <p>
-                    Make your <Link to={urls.newInsight(InsightType.PATHS)}>Paths</Link> clearer by aliasing one or
-                    multiple URLs.{' '}
+                    Make your <Link to={urls.insightNew({ insight: InsightType.PATHS })}>Paths</Link> clearer by
+                    aliasing one or multiple URLs.{' '}
                     <i>
                         Example: <code>htttp://client1.mydomain.com/accounts</code> and{' '}
                         <code>htttp://tenant2.mydomain.com/accounts</code> can become a single <code>accounts</code>{' '}
@@ -222,12 +220,13 @@ export function ProjectSettings(): JSX.Element {
                 </p>
                 <PathCleaningFiltersConfig />
                 <Divider />
+                <div id="permitted-domains" />
                 <h2 className="subtitle" id="urls">
                     Permitted domains/URLs
                 </h2>
                 <p>
                     These are the domains and URLs where the <b>Toolbar will automatically launch</b> (if you're logged
-                    in) and where we'll <a href="#session-recording">record sessions</a> (if enabled).
+                    in) and where we'll <b>record sessions</b> (if <a href="#session-recording">enabled</a>).
                 </p>
                 <p>
                     Wilcard subdomains are permitted: <pre>https://*.example.com</pre>. You cannot wildcard domains or
@@ -261,12 +260,11 @@ export function ProjectSettings(): JSX.Element {
                     </Tag>
                 </h2>
                 <p>
-                    Watch replays to see how users interact with your app and find out what can be improved. Recordings
-                    are found in the{' '}
-                    <Link to={featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS] ? '/recordings' : '/sessions'}>
-                        {featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS] ? 'recordings' : 'sessions'} page
-                    </Link>
-                    . Please note <b>your website needs to have</b> the <a href="#snippet">PostHog snippet</a> or the
+                    Watch recordings of how users interact with your web app to see what can be improved. Recordings are
+                    found in the <Link to={urls.sessionRecordings()}>recordings page</Link>.
+                </p>
+                <p>
+                    Please note <b>your website needs to have</b> the <a href="#snippet">PostHog snippet</a> or the
                     latest version of{' '}
                     <a
                         href="https://posthog.com/docs/integrations/js-integration?utm_campaign=session-recording&utm_medium=in-product"
@@ -274,7 +272,8 @@ export function ProjectSettings(): JSX.Element {
                     >
                         posthog-js
                     </a>{' '}
-                    <b>directly</b> installed. For more details, check out our{' '}
+                    <b>directly</b> installed, and the domains you wish to record must be set in{' '}
+                    <a href="#permitted-domains">Permitted domains/URLs</a>. For more details, check out our{' '}
                     <a
                         href="https://posthog.com/docs/user-guides/recordings?utm_campaign=session-recording&utm_medium=in-product"
                         target="_blank"

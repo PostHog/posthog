@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 import { parsePeopleParams, PeopleParamType } from '../scenes/trends/personsModalLogic'
-import { ActionType, CohortType, FilterType, PersonType, PluginLogEntry, TeamType } from '../types'
+import { ActionType, ActorType, CohortType, FilterType, PluginLogEntry, TeamType } from '../types'
 import { getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 import { LOGS_PORTION_LIMIT } from 'scenes/plugins/plugin/pluginLogsLogic'
@@ -127,6 +127,17 @@ class ApiRequest {
     }
 }
 
+const normalise_url = (url: string): string => {
+    if (url.indexOf('http') !== 0) {
+        if (!url.startsWith('/')) {
+            url = '/' + url
+        }
+
+        url = url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
+    }
+    return url
+}
+
 const api = {
     actions: {
         async get(actionId: ActionType['id']): Promise<ActionType> {
@@ -155,7 +166,7 @@ const api = {
             peopleParams: PeopleParamType,
             filters: Partial<FilterType>,
             searchTerm?: string
-        ): Promise<PaginatedResponse<{ people: PersonType[]; count: number }>> {
+        ): Promise<PaginatedResponse<{ people: ActorType[]; count: number }>> {
             return await new ApiRequest()
                 .actions()
                 .withAction('people')
@@ -236,10 +247,7 @@ const api = {
     },
 
     async get(url: string, signal?: AbortSignal): Promise<any> {
-        if (url.indexOf('http') !== 0) {
-            url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
-        }
-
+        url = normalise_url(url)
         let response
         const startTime = new Date().getTime()
         try {
@@ -257,9 +265,7 @@ const api = {
     },
 
     async update(url: string, data: any): Promise<any> {
-        if (url.indexOf('http') !== 0) {
-            url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
-        }
+        url = normalise_url(url)
         const isFormData = data instanceof FormData
         const startTime = new Date().getTime()
         const response = await fetch(url, {
@@ -270,6 +276,7 @@ const api = {
             },
             body: isFormData ? data : JSON.stringify(data),
         })
+
         if (!response.ok) {
             reportError('PATCH', url, response, startTime)
             const jsonData = await getJSONOrThrow(response)
@@ -282,9 +289,7 @@ const api = {
     },
 
     async create(url: string, data?: any): Promise<any> {
-        if (url.indexOf('http') !== 0) {
-            url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
-        }
+        url = normalise_url(url)
         const isFormData = data instanceof FormData
         const startTime = new Date().getTime()
         const response = await fetch(url, {
@@ -295,6 +300,7 @@ const api = {
             },
             body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
         })
+
         if (!response.ok) {
             reportError('POST', url, response, startTime)
             const jsonData = await getJSONOrThrow(response)
@@ -307,9 +313,7 @@ const api = {
     },
 
     async delete(url: string): Promise<any> {
-        if (url.indexOf('http') !== 0) {
-            url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
-        }
+        url = normalise_url(url)
         const startTime = new Date().getTime()
         const response = await fetch(url, {
             method: 'DELETE',
@@ -318,6 +322,7 @@ const api = {
                 'X-CSRFToken': getCookie('csrftoken') || '',
             },
         })
+
         if (!response.ok) {
             reportError('DELETE', url, response, startTime)
             const data = await getJSONOrThrow(response)

@@ -7,15 +7,27 @@ from rest_framework.exceptions import ValidationError
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.funnels.funnel_correlation import EventContingencyTable, EventStats, FunnelCorrelation
-from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationPersons
+from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
+from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS
+from posthog.models.action import Action
+from posthog.models.action_step import ActionStep
 from posthog.models.element import Element
 from posthog.models.filters import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
 from posthog.models.property import Property
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
+
+
+def _create_action(**kwargs):
+    team = kwargs.pop("team")
+    name = kwargs.pop("name")
+    properties = kwargs.pop("properties", {})
+    action = Action.objects.create(team=team, name=name)
+    ActionStep.objects.create(action=action, event=name, properties=properties)
+    return action
 
 
 def _create_person(**kwargs):
@@ -32,27 +44,29 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
     maxDiff = None
 
-    def _get_people_for_event(self, filter: Filter, event_name: str, properties=None, success=True):
-        person_filter = filter.with_data(
+    def _get_actors_for_event(self, filter: Filter, event_name: str, properties=None, success=True):
+        actor_filter = filter.with_data(
             {
                 "funnel_correlation_person_entity": {"id": event_name, "type": "events", "properties": properties},
                 "funnel_correlation_person_converted": "TrUe" if success else "falSE",
             }
         )
-        results, _ = FunnelCorrelationPersons(person_filter, self.team).run()
-        return [row["uuid"] for row in results]
 
-    def _get_people_for_property(self, filter: Filter, property_values: list, success=True):
-        person_filter = filter.with_data(
+        _, serialized_actors = FunnelCorrelationActors(actor_filter, self.team).get_actors()
+        return [str(row["id"]) for row in serialized_actors]
+
+    def _get_actors_for_property(self, filter: Filter, property_values: list, success=True):
+        actor_filter = filter.with_data(
             {
                 "funnel_correlation_property_values": [
-                    {"key": prop, "value": value, "type": "person"} for prop, value in property_values
+                    {"key": prop, "value": value, "type": type, "group_type_index": group_type_index}
+                    for prop, value, type, group_type_index in property_values
                 ],
                 "funnel_correlation_person_converted": "TrUe" if success else "falSE",
             }
         )
-        results, _ = FunnelCorrelationPersons(person_filter, self.team).run()
-        return [row["uuid"] for row in results]
+        _, serialized_actors = FunnelCorrelationActors(actor_filter, self.team).get_actors()
+        return [str(row["id"]) for row in serialized_actors]
 
     def test_basic_funnel_correlation_with_events(self):
         filters = {
@@ -126,10 +140,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        self.assertEqual(len(self._get_people_for_event(filter, "positively_related")), 5)
-        self.assertEqual(len(self._get_people_for_event(filter, "positively_related", success=False)), 0)
-        self.assertEqual(len(self._get_people_for_event(filter, "negatively_related", success=False)), 5)
-        self.assertEqual(len(self._get_people_for_event(filter, "negatively_related")), 0)
+        self.assertEqual(len(self._get_actors_for_event(filter, "positively_related")), 5)
+        self.assertEqual(len(self._get_actors_for_event(filter, "positively_related", success=False)), 0)
+        self.assertEqual(len(self._get_actors_for_event(filter, "negatively_related", success=False)), 5)
+        self.assertEqual(len(self._get_actors_for_event(filter, "negatively_related")), 0)
 
         # Now exclude positively_related
         filter = filter.with_data({"funnel_correlation_exclude_event_names": ["positively_related"]})
@@ -155,10 +169,77 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
         # Getting specific people isn't affected by exclude_events
-        self.assertEqual(len(self._get_people_for_event(filter, "positively_related")), 5)
-        self.assertEqual(len(self._get_people_for_event(filter, "positively_related", success=False)), 0)
-        self.assertEqual(len(self._get_people_for_event(filter, "negatively_related", success=False)), 5)
-        self.assertEqual(len(self._get_people_for_event(filter, "negatively_related")), 0)
+        self.assertEqual(len(self._get_actors_for_event(filter, "positively_related")), 5)
+        self.assertEqual(len(self._get_actors_for_event(filter, "positively_related", success=False)), 0)
+        self.assertEqual(len(self._get_actors_for_event(filter, "negatively_related", success=False)), 5)
+        self.assertEqual(len(self._get_actors_for_event(filter, "negatively_related")), 0)
+
+    @snapshot_clickhouse_queries
+    def test_action_events_are_excluded_from_correlations(self):
+
+        journey = {}
+
+        for i in range(3):
+            person_id = f"user_{i}"
+            events = [
+                {"event": "user signed up", "timestamp": "2020-01-02T14:00:00", "properties": {"key": "val"},},
+                # same event, but missing property, so not part of action.
+                {"event": "user signed up", "timestamp": "2020-01-02T14:10:00",},
+            ]
+            if i % 2 == 0:
+                events.append(
+                    {"event": "positively_related", "timestamp": "2020-01-03T14:00:00",}
+                )
+            events.append(
+                {"event": "paid", "timestamp": "2020-01-04T14:00:00", "properties": {"key": "val"},}
+            )
+
+            journey[person_id] = events
+
+        # one failure needed
+        journey["failure"] = [
+            {"event": "user signed up", "timestamp": "2020-01-02T14:00:00", "properties": {"key": "val"},},
+        ]
+
+        journeys_for(events_by_person=journey, team=self.team)  # type: ignore
+
+        sign_up_action = _create_action(
+            name="user signed up",
+            team=self.team,
+            properties=[{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
+        )
+
+        paid_action = _create_action(
+            name="paid",
+            team=self.team,
+            properties=[{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
+        )
+        filters = {
+            "events": [],
+            "actions": [{"id": sign_up_action.id, "order": 0}, {"id": paid_action.id, "order": 1},],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+            "funnel_correlation_type": "events",
+        }
+
+        filter = Filter(data=filters)
+        correlation = FunnelCorrelation(filter, self.team)
+        result = correlation._run()[0]
+
+        #  missing user signed up and paid from result set, as expected
+        self.assertEqual(
+            result,
+            [
+                {
+                    "event": "positively_related",
+                    "success_count": 2,
+                    "failure_count": 0,
+                    "odds_ratio": 3,
+                    "correlation_type": "success",
+                }
+            ],
+        )
 
     @snapshot_clickhouse_queries
     def test_funnel_correlation_with_events_and_groups(self):
@@ -167,6 +248,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         create_group(team_id=self.team.pk, group_type_index=0, group_key="org:7", properties={"industry": "finance"})
 
         for i in range(10, 20):
+            create_group(team_id=self.team.pk, group_type_index=0, group_key=f"org:{i}", properties={})
             _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
             _create_event(
                 team=self.team,
@@ -280,6 +362,11 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+        self.assertEqual(len(self._get_actors_for_event(filter, "positively_related")), 5)
+        self.assertEqual(len(self._get_actors_for_event(filter, "positively_related", success=False)), 0)
+        self.assertEqual(len(self._get_actors_for_event(filter, "negatively_related")), 1)
+        self.assertEqual(len(self._get_actors_for_event(filter, "negatively_related", success=False)), 1)
+
         # Now exclude all groups in positive
         filter = filter.with_data(
             {"properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],}
@@ -304,6 +391,9 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 },
             ],
         )
+
+        self.assertEqual(len(self._get_actors_for_event(filter, "negatively_related")), 1)
+        self.assertEqual(len(self._get_actors_for_event(filter, "negatively_related", success=False)), 1)
 
     @test_with_materialized_columns(event_properties=[], person_properties=["$browser"])
     @snapshot_clickhouse_queries
@@ -403,10 +493,14 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        self.assertEqual(len(self._get_people_for_property(filter, [("$browser", "Positive")])), 10)
-        self.assertEqual(len(self._get_people_for_property(filter, [("$browser", "Positive")], False)), 1)
-        self.assertEqual(len(self._get_people_for_property(filter, [("$browser", "Negative")])), 1)
-        self.assertEqual(len(self._get_people_for_property(filter, [("$browser", "Negative")], False)), 10)
+        self.assertEqual(len(self._get_actors_for_property(filter, [("$browser", "Positive", "person", None)])), 10)
+        self.assertEqual(
+            len(self._get_actors_for_property(filter, [("$browser", "Positive", "person", None)], False)), 1
+        )
+        self.assertEqual(len(self._get_actors_for_property(filter, [("$browser", "Negative", "person", None)])), 1)
+        self.assertEqual(
+            len(self._get_actors_for_property(filter, [("$browser", "Negative", "person", None)], False)), 10
+        )
 
     @test_with_materialized_columns(event_properties=[], person_properties=["$browser"])
     @snapshot_clickhouse_queries
@@ -544,6 +638,11 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 },
             ],
         )
+
+        self.assertEqual(len(self._get_actors_for_property(filter, [("industry", "positive", "group", 0)])), 10)
+        self.assertEqual(len(self._get_actors_for_property(filter, [("industry", "positive", "group", 0)], False)), 1)
+        self.assertEqual(len(self._get_actors_for_property(filter, [("industry", "negative", "group", 0)])), 1)
+        self.assertEqual(len(self._get_actors_for_property(filter, [("industry", "negative", "group", 0)], False)), 10)
 
         # test with `$all` as property
         # _run property correlation with filter on all properties
@@ -832,9 +931,9 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(new_result, new_expected_result)
 
-        self.assertEqual(len(self._get_people_for_property(filter, [("$nice", "not")])), 10)
-        self.assertEqual(len(self._get_people_for_property(filter, [("$nice", "")], False)), 1)
-        self.assertEqual(len(self._get_people_for_property(filter, [("$nice", "very")])), 5)
+        self.assertEqual(len(self._get_actors_for_property(filter, [("$nice", "not", "person", None)])), 10)
+        self.assertEqual(len(self._get_actors_for_property(filter, [("$nice", "", "person", None)], False)), 1)
+        self.assertEqual(len(self._get_actors_for_property(filter, [("$nice", "very", "person", None)])), 5)
 
     def test_discarding_insignificant_events(self):
         filters = {
@@ -1049,15 +1148,15 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        self.assertEqual(len(self._get_people_for_event(filter, "positively_related", {"blah": "value_bleh"})), 5)
+        self.assertEqual(len(self._get_actors_for_event(filter, "positively_related", {"blah": "value_bleh"})), 5)
         self.assertEqual(
-            len(self._get_people_for_event(filter, "positively_related", {"signup_source": "facebook"})), 3
+            len(self._get_actors_for_event(filter, "positively_related", {"signup_source": "facebook"})), 3
         )
         self.assertEqual(
-            len(self._get_people_for_event(filter, "positively_related", {"signup_source": "facebook"}, False)), 0
+            len(self._get_actors_for_event(filter, "positively_related", {"signup_source": "facebook"}, False)), 0
         )
         self.assertEqual(
-            len(self._get_people_for_event(filter, "negatively_related", {"signup_source": "email"}, False)), 3
+            len(self._get_actors_for_event(filter, "negatively_related", {"signup_source": "email"}, False)), 3
         )
 
     @test_with_materialized_columns(["blah", "signup_source"], verify_no_jsonextract=False)
@@ -1226,11 +1325,11 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        self.assertEqual(len(self._get_people_for_event(filter, "positively_related", {"blah": "value_bleh"})), 3)
+        self.assertEqual(len(self._get_actors_for_event(filter, "positively_related", {"blah": "value_bleh"})), 3)
 
         # If you search for persons with a specific property, even if excluded earlier, you should get them
         self.assertEqual(
-            len(self._get_people_for_event(filter, "positively_related", {"signup_source": "facebook"})), 3
+            len(self._get_actors_for_event(filter, "positively_related", {"signup_source": "facebook"})), 3
         )
 
     @test_with_materialized_columns(["$event_type", "signup_source"])
@@ -1308,11 +1407,11 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        self.assertEqual(len(self._get_people_for_event(filter, "$autocapture", {"signup_source": "facebook"})), 3)
-        self.assertEqual(len(self._get_people_for_event(filter, "$autocapture", {"$event_type": "click"})), 6)
+        self.assertEqual(len(self._get_actors_for_event(filter, "$autocapture", {"signup_source": "facebook"})), 3)
+        self.assertEqual(len(self._get_actors_for_event(filter, "$autocapture", {"$event_type": "click"})), 6)
         self.assertEqual(
             len(
-                self._get_people_for_event(
+                self._get_actors_for_event(
                     filter,
                     "$autocapture",
                     [
@@ -1325,7 +1424,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             len(
-                self._get_people_for_event(
+                self._get_actors_for_event(
                     filter,
                     "$autocapture",
                     [

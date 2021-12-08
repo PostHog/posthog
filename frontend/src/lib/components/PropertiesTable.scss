@@ -11,8 +11,9 @@
 }
 
 .properties-table-value {
-    display: 'flex';
-    align-items: 'center';
+    max-width: fit-content;
+    display: flex;
+    align-items: center;
 
     .editable {
         text-decoration: underline dotted;

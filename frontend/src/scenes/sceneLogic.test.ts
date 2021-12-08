@@ -4,33 +4,23 @@ import { expectLogic, partial, truth } from 'kea-test-utils'
 import { LoadedScene, Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
+import { defaultAPIMocks, MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { appScenes } from 'scenes/appScenes'
 
 jest.mock('lib/api')
 
-const expectedAnnotation = partial({
-    name: Scene.Annotations,
-    component: expect.any(Function),
-    logic: expect.any(Function),
-    sceneParams: { hashParams: {}, params: {}, searchParams: {} },
-    lastTouch: expect.any(Number),
-})
-
-const expectedDashboard = partial({
-    name: Scene.Dashboard,
-    component: expect.any(Function),
-    logic: expect.any(Function),
-    sceneParams: { hashParams: {}, params: { id: '123' }, searchParams: {} },
-    lastTouch: expect.any(Number),
-})
-
 describe('sceneLogic', () => {
     let logic: ReturnType<typeof sceneLogic.build>
 
-    mockAPI(defaultAPIMocks)
+    mockAPI(async (url) => {
+        const { pathname } = url
+        if (pathname === `api/projects/${MOCK_TEAM_ID}/insights/`) {
+            return { result: null, next: null }
+        }
+        return defaultAPIMocks(url)
+    })
 
     beforeEach(async () => {
         initKeaTests()
@@ -56,13 +46,28 @@ describe('sceneLogic', () => {
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
             scene: Scene.Annotations,
         })
-        router.actions.push(urls.dashboard(123))
+        router.actions.push(urls.mySettings())
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
-            scene: Scene.Dashboard,
+            scene: Scene.MySettings,
         })
     })
 
     it('persists the loaded scenes', async () => {
+        const expectedAnnotation = partial({
+            name: Scene.Annotations,
+            component: expect.any(Function),
+            logic: expect.any(Function),
+            sceneParams: { hashParams: {}, params: {}, searchParams: {} },
+            lastTouch: expect.any(Number),
+        })
+
+        const expectedMySettings = partial({
+            name: Scene.MySettings,
+            component: expect.any(Function),
+            sceneParams: { hashParams: {}, params: {}, searchParams: {} },
+            lastTouch: expect.any(Number),
+        })
+
         await expectLogic(logic)
             .delay(1)
             .toMatchValues({
@@ -70,13 +75,13 @@ describe('sceneLogic', () => {
                     [Scene.Annotations]: expectedAnnotation,
                 }),
             })
-        router.actions.push(urls.dashboard(123))
+        router.actions.push(urls.mySettings())
         await expectLogic(logic)
             .delay(1)
             .toMatchValues({
                 loadedScenes: partial({
                     [Scene.Annotations]: expectedAnnotation,
-                    [Scene.Dashboard]: expectedDashboard,
+                    [Scene.MySettings]: expectedMySettings,
                 }),
             })
     })

@@ -11,7 +11,7 @@ interface Props {
 export const PHCheckbox = ({
     checked,
     indeterminate,
-    color = 'blue',
+    color = 'var(--primary)',
     disabled = false,
     ...props
 }: Props): JSX.Element => (

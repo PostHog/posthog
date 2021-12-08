@@ -1,21 +1,23 @@
-import re
 from contextlib import contextmanager
 from functools import wraps
 from typing import Any
 from unittest.mock import patch
 
-import pytest
 import sqlparse
 from django.db import DEFAULT_DB_ALIAS
 
 from ee.clickhouse.client import ch_pool, sync_execute
 from ee.clickhouse.sql.events import DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
 from ee.clickhouse.sql.person import DROP_PERSON_TABLE_SQL, PERSONS_TABLE_SQL
-from posthog.test.base import BaseTest
+from ee.clickhouse.sql.session_recording_events import (
+    DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
+    SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL,
+    SESSION_RECORDING_EVENTS_TABLE_SQL,
+)
+from posthog.test.base import BaseTest, QueryMatchingTest
 
 
-@pytest.mark.usefixtures("unittest_snapshot")
-class ClickhouseTestMixin:
+class ClickhouseTestMixin(QueryMatchingTest):
     RUN_MATERIALIZED_COLUMN_TESTS = True
     # overrides the basetest in posthog/test/base.py
     #  this way the team id will increment so we don't have to destroy all clickhouse tables on each test
@@ -30,16 +32,6 @@ class ClickhouseTestMixin:
     # Ignore assertNumQueries in clickhouse tests
     def assertNumQueries(self, num, func=None, *args, using=DEFAULT_DB_ALIAS, **kwargs):
         return self._assertNumQueries(func)
-
-    # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
-    def assertQueryMatchesSnapshot(self, query, params=None):
-        # :TRICKY: team_id changes every test, avoid it messing with snapshots.
-        query = re.sub(r"(team|cohort)_id = \d+", r"\1_id = 2", query)
-
-        assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
-        if params is not None:
-            del params["team_id"]  # Changes every run
-            assert params == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
 
     @contextmanager
     def capture_select_queries(self):
@@ -75,16 +67,22 @@ class ClickhouseDestroyTablesMixin(BaseTest):
     def setUp(self):
         super().setUp()
         sync_execute(DROP_EVENTS_TABLE_SQL)
-        sync_execute(EVENTS_TABLE_SQL)
+        sync_execute(EVENTS_TABLE_SQL())
         sync_execute(DROP_PERSON_TABLE_SQL)
-        sync_execute(PERSONS_TABLE_SQL)
+        sync_execute(PERSONS_TABLE_SQL())
+        sync_execute(DROP_SESSION_RECORDING_EVENTS_TABLE_SQL)
+        sync_execute(SESSION_RECORDING_EVENTS_TABLE_SQL())
+        sync_execute(SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL)
 
     def tearDown(self):
         super().tearDown()
         sync_execute(DROP_EVENTS_TABLE_SQL)
-        sync_execute(EVENTS_TABLE_SQL)
+        sync_execute(EVENTS_TABLE_SQL())
         sync_execute(DROP_PERSON_TABLE_SQL)
-        sync_execute(PERSONS_TABLE_SQL)
+        sync_execute(PERSONS_TABLE_SQL())
+        sync_execute(DROP_SESSION_RECORDING_EVENTS_TABLE_SQL)
+        sync_execute(SESSION_RECORDING_EVENTS_TABLE_SQL())
+        sync_execute(SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL)
 
 
 def snapshot_clickhouse_queries(fn):

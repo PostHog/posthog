@@ -9,7 +9,7 @@ import { Select, Row, Col } from 'antd'
 import { FilterType, RetentionType } from '~/types'
 import { TestAccountFilter } from '../TestAccountFilter'
 import './RetentionTab.scss'
-import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_LINEAR, FEATURE_FLAGS, RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { IconExternalLink } from 'lib/components/icons'
 import { GlobalFiltersTitle } from '../common'
@@ -19,9 +19,12 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { AggregationSelect } from 'scenes/insights/AggregationSelect'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { BreakdownFilter } from '../BreakdownFilter'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function RetentionTab(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { insightProps, clickhouseFeaturesEnabled } = useValues(insightLogic)
     const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
     const { filters, actionFilterTargetEntity, actionFilterReturningEntity } = useValues(
         retentionTableLogic(insightProps)
@@ -168,6 +171,26 @@ export function RetentionTab(): JSX.Element {
                         ]}
                     />
                     <TestAccountFilter filters={filters} onChange={setFilters} />
+
+                    {clickhouseFeaturesEnabled &&
+                    featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
+                    filters.display !== ACTIONS_LINE_GRAPH_LINEAR ? (
+                        <>
+                            <hr />
+                            <h4 className="secondary">
+                                Breakdown by
+                                <Tooltip
+                                    placement="right"
+                                    title="Use breakdown to see the aggregation (total volume, active users, etc.) for each value of that property. For example, breaking down by Current URL with total volume will give you the event volume for each URL your users have visited."
+                                >
+                                    <InfoCircleOutlined className="info-indicator" />
+                                </Tooltip>
+                            </h4>
+                            <Row align="middle">
+                                <BreakdownFilter filters={filters} setFilters={setFilters} useMultiBreakdown />
+                            </Row>
+                        </>
+                    ) : null}
                 </Col>
             </Row>
         </div>

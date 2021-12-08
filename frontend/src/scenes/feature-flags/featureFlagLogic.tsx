@@ -1,7 +1,13 @@
 import { kea } from 'kea'
 import React from 'react'
 import { featureFlagLogicType } from './featureFlagLogicType'
-import { AnyPropertyFilter, FeatureFlagType, MultivariateFlagOptions, MultivariateFlagVariant } from '~/types'
+import {
+    AnyPropertyFilter,
+    Breadcrumb,
+    FeatureFlagType,
+    MultivariateFlagOptions,
+    MultivariateFlagVariant,
+} from '~/types'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { router } from 'kea-router'
@@ -9,6 +15,8 @@ import { deleteWithUndo } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { teamLogic } from '../teamLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { groupsModel } from '~/models/groupsModel'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 const NEW_FLAG: FeatureFlagType = {
     id: null,
@@ -40,14 +48,16 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
 export const featureFlagLogic = kea<featureFlagLogicType>({
     path: ['scenes', 'feature-flags', 'featureFlagLogic'],
     connect: {
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes', 'groupsTaxonomicTypes']],
     },
     actions: {
         setFeatureFlagId: (id: number | 'new') => ({ id }),
         setFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
-        addMatchGroup: true,
-        removeMatchGroup: (index: number) => ({ index }),
-        updateMatchGroup: (
+        addConditionSet: true,
+        setAggregationGroupTypeIndex: (value: number | null) => ({ value }),
+        removeConditionSet: (index: number) => ({ index }),
+        duplicateConditionSet: (index: number) => ({ index }),
+        updateConditionSet: (
             index: number,
             newRolloutPercentage?: number | null,
             newProperties?: AnyPropertyFilter[]
@@ -75,14 +85,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
             null as FeatureFlagType | null,
             {
                 setFeatureFlag: (_, { featureFlag }) => featureFlag,
-                addMatchGroup: (state) => {
+                addConditionSet: (state) => {
                     if (!state) {
                         return state
                     }
                     const groups = [...state?.filters.groups, { properties: [], rollout_percentage: null }]
                     return { ...state, filters: { ...state.filters, groups } }
                 },
-                updateMatchGroup: (state, { index, newRolloutPercentage, newProperties }) => {
+                updateConditionSet: (state, { index, newRolloutPercentage, newProperties }) => {
                     if (!state) {
                         return state
                     }
@@ -98,12 +108,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
 
                     return { ...state, filters: { ...state.filters, groups } }
                 },
-                removeMatchGroup: (state, { index }) => {
+                removeConditionSet: (state, { index }) => {
                     if (!state) {
                         return state
                     }
                     const groups = [...state.filters.groups]
                     groups.splice(index, 1)
+                    return { ...state, filters: { ...state.filters, groups } }
+                },
+                duplicateConditionSet: (state, { index }) => {
+                    if (!state) {
+                        return state
+                    }
+                    const groups = state.filters.groups.concat([state.filters.groups[index]])
                     return { ...state, filters: { ...state.filters, groups } }
                 },
                 setMultivariateOptions: (state, { multivariateOptions }) => {
@@ -200,6 +217,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                         },
                     }
                 },
+                setAggregationGroupTypeIndex: (state, { value }) => {
+                    if (!state || state.filters.aggregation_group_type_index == value) {
+                        return state
+                    }
+
+                    return {
+                        ...state,
+                        filters: {
+                            ...state.filters,
+                            aggregation_group_type_index: value,
+                            // :TRICKY: We reset property filters after changing what you're aggregating by.
+                            groups: [{ properties: [], rollout_percentage: null }],
+                        },
+                    }
+                },
             },
         ],
     },
@@ -272,6 +304,40 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
             (variants, variantRolloutSum) =>
                 variants.every(({ rollout_percentage }) => rollout_percentage >= 0 && rollout_percentage <= 100) &&
                 variantRolloutSum === 100,
+        ],
+        aggregationTargetName: [
+            (s) => [s.featureFlag, s.groupTypes],
+            (featureFlag, groupTypes): string => {
+                if (featureFlag && featureFlag.filters.aggregation_group_type_index != null && groupTypes.length > 0) {
+                    const groupType = groupTypes[featureFlag.filters.aggregation_group_type_index]
+                    return `${groupType.group_type}(s)`
+                }
+                return 'users'
+            },
+        ],
+        taxonomicGroupTypes: [
+            (s) => [s.featureFlag, s.groupsTaxonomicTypes],
+            (featureFlag, groupsTaxonomicTypes): TaxonomicFilterGroupType[] => {
+                if (
+                    featureFlag &&
+                    featureFlag.filters.aggregation_group_type_index != null &&
+                    groupsTaxonomicTypes.length > 0
+                ) {
+                    return [groupsTaxonomicTypes[featureFlag.filters.aggregation_group_type_index]]
+                }
+
+                return [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]
+            },
+        ],
+        breadcrumbs: [
+            (s) => [s.featureFlag],
+            (featureFlag): Breadcrumb[] => [
+                {
+                    name: 'Feature flags',
+                    path: urls.featureFlags(),
+                },
+                ...(featureFlag ? [{ name: featureFlag.key || 'Unnamed' }] : []),
+            ],
         ],
     },
     actionToUrl: () => ({

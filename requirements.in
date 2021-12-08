@@ -22,7 +22,7 @@ django-statsd==2.5.2
 django-structlog==2.1.3
 djangorestframework==3.12.2
 djangorestframework-csv==2.1.0
-drf-exceptions-hog==0.0.4
+drf-exceptions-hog==0.1.0
 drf-extensions==0.7.0
 gunicorn==20.1.0
 grpcio==1.33.1
@@ -36,7 +36,7 @@ lzstring==1.0.4
 parso==0.8.1
 pexpect==4.7.0
 pickleshare==0.7.5
-posthoganalytics==1.4.3
+posthoganalytics==1.4.4
 protobuf==3.13.0
 psycopg2-binary==2.8.6
 python-dateutil==2.8.1

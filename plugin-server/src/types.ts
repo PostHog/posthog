@@ -103,6 +103,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     PISCINA_ATOMICS_TIMEOUT: number
     SITE_URL: string | null
     NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS: string
+    EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED_TEAMS: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -319,6 +320,7 @@ export interface PluginTask {
 
 export type WorkerMethods = {
     onEvent: (event: PluginEvent) => Promise<void>
+    onAction: (action: Action, event: PluginEvent) => Promise<void>
     onSnapshot: (event: PluginEvent) => Promise<void>
     processEvent: (event: PluginEvent) => Promise<PluginEvent | null>
     ingestEvent: (event: PluginEvent) => Promise<IngestEventResponse>
@@ -328,6 +330,7 @@ export type VMMethods = {
     setupPlugin?: () => Promise<void>
     teardownPlugin?: () => Promise<void>
     onEvent?: (event: PluginEvent) => Promise<void>
+    onAction?: (action: Action, event: PluginEvent) => Promise<void>
     onSnapshot?: (event: PluginEvent) => Promise<void>
     exportEvents?: (events: PluginEvent[]) => Promise<void>
     processEvent?: (event: PluginEvent) => Promise<PluginEvent>
@@ -546,14 +549,24 @@ export interface PersonDistinctId {
     team_id: number
     person_id: number
     distinct_id: string
+    version: string | null
 }
 
-/** ClickHouse PersonDistinctId model. */
+/** ClickHouse PersonDistinctId model. (person_distinct_id table) */
 export interface ClickHousePersonDistinctId {
     team_id: number
     person_id: string
     distinct_id: string
     is_deleted: 0 | 1
+}
+
+/** ClickHouse PersonDistinctId model. (person_distinct_id2 table) */
+export interface ClickHousePersonDistinctId2 {
+    team_id: number
+    person_id: string
+    distinct_id: string
+    is_deleted: 0 | 1
+    version: number
 }
 
 /** Usable Cohort model. */
@@ -727,7 +740,7 @@ export interface JobQueueConsumerControl {
     resume: () => Promise<void> | void
 }
 
-export type IngestEventResponse = { success?: boolean; error?: string }
+export type IngestEventResponse = { success?: boolean; error?: string; actionMatches?: Action[] }
 
 export interface EventDefinitionType {
     id: string
@@ -735,6 +748,8 @@ export interface EventDefinitionType {
     volume_30_day: number | null
     query_usage_30_day: number | null
     team_id: number
+    last_seen_at: string // DateTime
+    created_at: string // DateTime
 }
 
 export interface PropertyDefinitionType {
@@ -746,7 +761,7 @@ export interface PropertyDefinitionType {
     team_id: number
 }
 
-export type PluginFunction = 'onEvent' | 'processEvent' | 'onSnapshot' | 'pluginTask'
+export type PluginFunction = 'onEvent' | 'onAction' | 'processEvent' | 'onSnapshot' | 'pluginTask'
 
 export enum CeleryTriggeredJobOperation {
     Start = 'start',

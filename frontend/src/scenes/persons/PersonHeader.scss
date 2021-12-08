@@ -1,27 +1,9 @@
 @import '~/vars';
 
 .person-header {
-    display: flex;
-    align-items: center;
-    @extend .text-ellipsis;
-
-    .profile-picture {
-        margin-right: 4px;
-    }
-
-    &.anonymous {
-        color: $text_muted;
+    a:hover {
         .profile-picture {
-            color: $primary_alt;
-            background-color: $yellow_100;
+            opacity: 0.75;
         }
-    }
-
-    &.identified {
-        color: $text_default;
-    }
-
-    &:hover {
-        text-decoration: underline;
     }
 }

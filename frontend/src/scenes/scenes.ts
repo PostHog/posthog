@@ -3,6 +3,7 @@ import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { urls } from 'scenes/urls'
+import { InsightShortId } from '~/types'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -33,7 +34,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Dashboard]: {
         projectBased: true,
     },
-    [Scene.Insights]: {
+    [Scene.Insight]: {
         projectBased: true,
         name: 'Insights',
     },
@@ -61,10 +62,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Events & actions',
     },
-    [Scene.Sessions]: {
-        projectBased: true,
-        name: 'Sessions',
-    },
     [Scene.SessionRecordings]: {
         projectBased: true,
         name: 'Recordings',
@@ -83,6 +80,18 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Groups]: {
         projectBased: true,
         name: 'Persons & groups',
+    },
+    [Scene.Group]: {
+        projectBased: true,
+        name: 'Persons & groups',
+    },
+    [Scene.Experiments]: {
+        projectBased: true,
+        name: 'Experiments',
+    },
+    [Scene.Experiment]: {
+        projectBased: true,
+        name: 'Experiment',
     },
     [Scene.FeatureFlags]: {
         projectBased: true,
@@ -111,7 +120,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Personalization]: {
         projectBased: true,
         plain: true,
-        hideTopNav: true,
     },
     [Scene.Ingestion]: {
         projectBased: true,
@@ -123,13 +131,13 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     // Organization-based routes
     [Scene.OrganizationCreateFirst]: {
-        plain: true,
+        name: 'Organization creation',
     },
     [Scene.OrganizationSettings]: {
         organizationBased: true,
     },
     [Scene.ProjectCreateFirst]: {
-        plain: true,
+        name: 'Project creation',
         organizationBased: true,
     },
     // Onboarding/setup routes
@@ -170,13 +178,13 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.BillingSubscribed]: {
         plain: true,
-        hideTopNav: true,
         allowUnauthenticated: true,
     },
 }
 
 export const redirects: Record<string, string | ((params: Params) => string)> = {
     '/': urls.savedInsights(),
+    '/saved_insights': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
     '/plugins': urls.plugins(),
     '/actions': '/events/actions',
@@ -188,20 +196,24 @@ export const routes: Record<string, Scene> = {
     [urls.dashboard(':id')]: Scene.Dashboard,
     [urls.createAction()]: Scene.Action,
     [urls.action(':id')]: Scene.Action,
-    [urls.newInsight()]: Scene.InsightRouter,
-    [urls.insights()]: Scene.Insights,
-    [urls.insightRouter(':id')]: Scene.InsightRouter,
+    [urls.insightNew()]: Scene.Insight,
+    [urls.insightEdit(':shortId' as InsightShortId)]: Scene.Insight,
+    [urls.insightView(':shortId' as InsightShortId)]: Scene.Insight,
+    [urls.savedInsights()]: Scene.SavedInsights,
+    [urls.insightRouter(':shortId')]: Scene.InsightRouter,
     [urls.actions()]: Scene.Actions,
     [urls.eventStats()]: Scene.EventStats,
     [urls.eventPropertyStats()]: Scene.EventPropertyStats,
     [urls.events()]: Scene.Events,
-    [urls.sessions()]: Scene.Sessions,
     [urls.sessionRecordings()]: Scene.SessionRecordings,
-    [urls.person('*')]: Scene.Person,
+    [urls.person('*', false)]: Scene.Person,
     [urls.persons()]: Scene.Persons,
     [urls.groups(':groupTypeIndex')]: Scene.Groups,
+    [urls.group(':groupTypeIndex', ':groupKey', false)]: Scene.Group,
     [urls.cohort(':id')]: Scene.Cohorts,
     [urls.cohorts()]: Scene.Cohorts,
+    [urls.experiments()]: Scene.Experiments,
+    [urls.experiment(':id')]: Scene.Experiment,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
     [urls.annotations()]: Scene.Annotations,
@@ -216,7 +228,6 @@ export const routes: Record<string, Scene> = {
     [urls.systemStatus()]: Scene.SystemStatus,
     [urls.systemStatusPage(':id')]: Scene.SystemStatus,
     [urls.mySettings()]: Scene.MySettings,
-    [urls.savedInsights()]: Scene.SavedInsights,
     // Onboarding / setup routes
     [urls.login()]: Scene.Login,
     [urls.preflight()]: Scene.PreflightCheck,

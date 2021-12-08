@@ -1,4 +1,8 @@
-import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import {
+    TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
+    TaxonomicFilterValue,
+} from 'lib/components/TaxonomicFilter/types'
 import React, { useState } from 'react'
 import { Popup } from 'lib/components/Popup/Popup'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
@@ -7,17 +11,20 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PlusCircleOutlined } from '@ant-design/icons'
 import { useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
+import { ButtonType } from 'antd/lib/button'
 
 export interface TaxonomicBreakdownButtonProps {
     breakdownType?: TaxonomicFilterGroupType
-    onChange: (breakdown: string | number, groupType: TaxonomicFilterGroup) => void
+    onChange: (breakdown: TaxonomicFilterValue, taxonomicGroup: TaxonomicFilterGroup) => void
     onlyCohorts?: boolean
+    buttonType?: ButtonType
 }
 
 export function TaxonomicBreakdownButton({
     breakdownType,
     onChange,
     onlyCohorts,
+    buttonType = 'link',
 }: TaxonomicBreakdownButtonProps): JSX.Element {
     const [open, setOpen] = useState(false)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
@@ -52,7 +59,7 @@ export function TaxonomicBreakdownButton({
         >
             {({ setRef }) => (
                 <Button
-                    type={'link'}
+                    type={buttonType}
                     icon={<PlusCircleOutlined />}
                     data-attr="add-breakdown-button"
                     onClick={() => setOpen(!open)}

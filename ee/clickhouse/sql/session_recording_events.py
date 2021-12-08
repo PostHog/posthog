@@ -16,11 +16,24 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
     window_id VARCHAR,
     snapshot_data VARCHAR,
     created_at DateTime64(6, 'UTC')
+    {materialized_columns}
     {extra_fields}
 ) ENGINE = {engine}
 """
 
-SESSION_RECORDING_EVENTS_TABLE_SQL = (
+SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMNS = """
+    , has_full_snapshot BOOLEAN materialized JSONExtractBool(snapshot_data, 'has_full_snapshot')
+"""
+
+SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL = """
+    ALTER TABLE {table_name}
+    ON CLUSTER {cluster}
+    COMMENT COLUMN has_full_snapshot 'column_materializer::has_full_snapshot'
+""".format(
+    table_name=SESSION_RECORDING_EVENTS_TABLE, cluster=CLICKHOUSE_CLUSTER,
+)
+
+SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: (
     SESSION_RECORDING_EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMMDD(timestamp)
 ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
@@ -30,6 +43,7 @@ SETTINGS index_granularity=512
 ).format(
     table_name=SESSION_RECORDING_EVENTS_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
+    materialized_columns=SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMNS,
     extra_fields=KAFKA_COLUMNS,
     engine=table_engine(SESSION_RECORDING_EVENTS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
     ttl_period=ttl_period(),
@@ -39,6 +53,7 @@ KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL = SESSION_RECORDING_EVENTS_TABLE_BASE_S
     table_name="kafka_" + SESSION_RECORDING_EVENTS_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_SESSION_RECORDING_EVENTS),
+    materialized_columns="",
     extra_fields="",
 )
 
@@ -63,9 +78,15 @@ FROM {database}.kafka_{table_name}
 
 
 INSERT_SESSION_RECORDING_EVENT_SQL = """
-INSERT INTO session_recording_events SELECT %(uuid)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(session_id)s, %(window_id)s, %(snapshot_data)s, %(created_at)s, now(), 0
+INSERT INTO session_recording_events (uuid, timestamp, team_id, distinct_id, session_id, window_id, snapshot_data, created_at, _timestamp, _offset)
+SELECT %(uuid)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(session_id)s, %(window_id)s, %(snapshot_data)s, %(created_at)s, now(), 0
 """
+
 
 TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL = (
     f"TRUNCATE TABLE IF EXISTS {SESSION_RECORDING_EVENTS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
+)
+
+DROP_SESSION_RECORDING_EVENTS_TABLE_SQL = (
+    f"DROP TABLE IF EXISTS {SESSION_RECORDING_EVENTS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
 )

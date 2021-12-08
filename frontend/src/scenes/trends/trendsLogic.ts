@@ -110,7 +110,7 @@ export const trendsLogic = kea<trendsLogicType>({
                 return results.map((result, index) => ({ ...result, id: index }))
             },
         ],
-        showPersonsModal: [
+        showModalActions: [
             (s) => [s.filters],
             (filters): boolean => {
                 const isNotAggregatingByGroup = (entity: Record<string, any>): boolean =>
@@ -141,6 +141,7 @@ export const trendsLogic = kea<trendsLogicType>({
             const { filters } = values
             const response = await api.get(values.loadMoreBreakdownUrl)
             insightLogic(props).actions.loadResultsSuccess({
+                ...values.insight,
                 result: [...values.results, ...(response.result ? response.result : [])],
                 filters: filters,
                 next: response.next,

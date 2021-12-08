@@ -10,6 +10,7 @@ from rest_hooks.signals import raw_hook_event
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.event_usage import report_user_action
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Annotation, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
@@ -79,7 +80,7 @@ class AnnotationsViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
                 queryset = queryset.filter(scope=request.GET["scope"])
             elif key == "apply_all":
                 queryset_method = queryset.exclude if str_to_bool(request.GET["apply_all"]) else queryset.filter
-                queryset = queryset_method(scope="dashboard_item")
+                queryset = queryset_method(scope=Annotation.Scope.INSIGHT)
             elif key == "deleted":
                 queryset = queryset.filter(deleted=str_to_bool(request.GET["deleted"]))
 
@@ -101,9 +102,7 @@ def annotation_created(sender, instance, created, raw, using, **kwargs):
 
     if instance.created_by:
         event_name: str = "annotation created" if created else "annotation updated"
-        posthoganalytics.capture(
-            instance.created_by.distinct_id, event_name, instance.get_analytics_metadata(),
-        )
+        report_user_action(instance.created_by, event_name, instance.get_analytics_metadata())
 
 
 class LegacyAnnotationsViewSet(AnnotationsViewSet):

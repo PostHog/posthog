@@ -7,15 +7,16 @@ import { useValues } from 'kea'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { metaLogic } from 'scenes/session-recordings/player/metaLogic'
 import { formatDisplayPercentage } from 'scenes/funnels/funnelUtils'
+import { TZLabel } from 'lib/components/TimezoneAware'
 
 export function PlayerMeta(): JSX.Element {
-    const { sessionPerson, description, resolution, scale, meta, isMetaLoading } = useValues(metaLogic)
+    const { sessionPerson, description, resolution, scale, meta, loading } = useValues(metaLogic)
 
     return (
         <Col className="player-meta-container">
             <Row className="player-meta-person" align="middle" justify="space-between" wrap={false}>
                 <Row className="player-meta-person-title" align="middle" wrap={false}>
-                    {isMetaLoading ? (
+                    {loading ? (
                         <Space>
                             <Skeleton.Avatar active size="small" shape="circle" />
                             <Skeleton title={false} active paragraph={{ rows: 1, width: 160 }} />
@@ -35,33 +36,31 @@ export function PlayerMeta(): JSX.Element {
                     )}
                 </Row>
                 <Col>
-                    {isMetaLoading ? (
+                    {loading ? (
                         <Skeleton title={false} active paragraph={{ rows: 1, width: 80 }} />
                     ) : (
-                        <span className="time text-small">{meta.startTime && dayjs(meta.startTime).fromNow()}</span>
+                        <span className="time text-muted">
+                            {meta.startTime && <TZLabel time={dayjs(meta.startTime)} />}
+                        </span>
                     )}
                 </Col>
             </Row>
             <Row className="player-meta-other" align="middle" justify="start">
                 <Row className="player-meta-other-description">
-                    {isMetaLoading ? (
-                        <Skeleton title={false} active paragraph={{ rows: 1 }} />
-                    ) : (
-                        <span className="text-small">{description}</span>
-                    )}
+                    {loading ? <Skeleton title={false} active paragraph={{ rows: 1 }} /> : <span>{description}</span>}
                 </Row>
-                <Row className="player-meta-other-resolution">
-                    {isMetaLoading ? (
+                <Row className="player-meta-other-resolution mt-05">
+                    {loading ? (
                         <Skeleton title={false} active paragraph={{ rows: 1, width: '100%' }} />
                     ) : (
-                        <span className="text-small">
+                        <span>
                             {resolution ? (
                                 <>
                                     Resolution: {resolution.width} x {resolution.height} (
                                     {formatDisplayPercentage(scale)}%)
                                 </>
                             ) : (
-                                <>Resolution not found</>
+                                <>Resolution: ...</>
                             )}
                         </span>
                     )}
