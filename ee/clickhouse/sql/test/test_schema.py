@@ -34,17 +34,17 @@ CREATE_TABLE_QUERIES = [
     KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL,
 ]
 
-idfn = lambda query: query if isinstance(query, str) else query()
+param_to_test_name = lambda query: query if isinstance(query, str) else query()
 
 
-@pytest.mark.parametrize("query", CREATE_TABLE_QUERIES, ids=idfn)
+@pytest.mark.parametrize("query", CREATE_TABLE_QUERIES, ids=param_to_test_name)
 def test_create_table_query(query, snapshot):
     if not isinstance(query, str):
         query = query()
     assert query == snapshot
 
 
-@pytest.mark.parametrize("query", CREATE_TABLE_QUERIES, ids=idfn)
+@pytest.mark.parametrize("query", CREATE_TABLE_QUERIES, ids=param_to_test_name)
 def test_create_table_query_replicated_and_storage(query, snapshot, settings):
     settings.CLICKHOUSE_REPLICATION = True
     settings.CLICKHOUSE_ENABLE_STORAGE_POLICY = True
