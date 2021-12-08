@@ -5,6 +5,12 @@ export interface TrendResponse {
     filters: FilterType
     next?: string
 }
+export interface DatasetType {
+    action: ActionFilter
+    day: string
+    label: string
+    breakdown_value?: string
+}
 
 export interface IndexedTrendResult extends TrendResult {
     id: number
@@ -21,4 +27,5 @@ export interface TrendActors {
     loadingMore?: boolean
     funnelStep?: number
     pathsDropoff?: boolean
+    crossDataset?: DatasetType
 }

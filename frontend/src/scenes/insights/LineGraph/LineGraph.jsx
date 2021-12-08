@@ -402,6 +402,18 @@ export function LineGraph({
             onClick: (_, [point]) => {
                 if (point && onClick) {
                     const dataset = datasets[point._datasetIndex]
+                    const crossDataset = datasets
+                        .filter((_dt) => !_dt.dotted)
+                        .map((_dt) => ({
+                            action: _dt.action,
+                            label:
+                                typeof point._index !== 'undefined' && _dt.labels
+                                    ? _dt.labels[point._index]
+                                    : undefined,
+                            day: typeof point._index !== 'undefined' && _dt.days ? _dt.days[point._index] : undefined,
+                            breakdown_value: _dt.breakdown_value,
+                        }))
+
                     onClick({
                         point,
                         dataset,
@@ -418,6 +430,7 @@ export function LineGraph({
                             typeof point._index !== 'undefined' && dataset.data
                                 ? dataset.data[point._index]
                                 : undefined,
+                        crossDataset,
                     })
                 }
             },
