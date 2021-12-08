@@ -3,7 +3,7 @@ from django.utils import timezone
 
 
 class Experiment(models.Model):
-    name: models.CharField = models.CharField(max_length=80)
+    name: models.CharField = models.CharField(max_length=400)
     description: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -24,3 +24,7 @@ class Experiment(models.Model):
 
     def get_feature_flag_key(self):
         return self.feature_flag.key
+
+    @property
+    def is_draft(self):
+        return not self.start_date

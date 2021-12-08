@@ -21,6 +21,23 @@ SIMULATION_COUNT = 100_000
 
 
 class ClickhouseFunnelExperimentResult:
+    """
+    This class calculates Experiment Results.
+    It returns two things:
+    1. A Funnel Breakdown based on Feature Flag values
+    2. Probability that Feature Flag value 1 has better conversion rate then FeatureFlag value 2
+
+    Currently, it only supports two feature flag values: control and test
+
+    The passed in Filter determines which funnel to create, along with the experiment start & end date values
+
+    Calculating (2) uses sampling from a Beta distribution. If `control` value for the feature flag has 10 successes and 12 conversion failures,
+    we assume the conversion rate follows a Beta(10, 12) distribution. Same for `test` variant.
+
+    Then, we calculcate how many times a sample from `test` variant is higher than a sample from the `control` variant. This becomes the
+    probability.
+    """
+
     def __init__(
         self,
         filter: Filter,
@@ -42,8 +59,7 @@ class ClickhouseFunnelExperimentResult:
                 "properties": [
                     {"key": breakdown_key, "value": ["control", "test"], "operator": "exact", "type": "event"}
                 ],
-                # don't rely on properties used to set filters, taken over by $feature/X event properties
-                # instead, filter by prop names we expect to see: the variant values
+                # :TRICKY: We don't use properties set on filters, instead using experiment variant options
             }
         )
         self.funnel = funnel_class(query_filter, team)
@@ -71,9 +87,22 @@ class ClickhouseFunnelExperimentResult:
 
     @staticmethod
     def calculate_results(
-        variants: List[Variant], priors: Tuple[int, int] = (1, 1), simulations: int = SIMULATION_COUNT
+        variants: List[Variant], priors: Tuple[int, int] = (1, 1), simulations_count: int = SIMULATION_COUNT
     ):
+        """
         # Calculates probability that A is better than B
+        # Only supports 2 variants today
+
+        For each variant, we create a Beta distribution of conversion rates, 
+        where alpha (successes) = success count of variant + prior success
+        beta (failures) = failure count + variant + prior failures
+
+        The prior is information about the world we already know. For example, a stronger prior for failures implies
+        you'd need extra evidence of successes to confirm that the variant is indeed better.
+
+        By default, we choose a non-informative prior. That is, both success & failure are equally likely.
+        
+        """
         if len(variants) > 2:
             raise ValidationError("Can't calculate A/B test results for more than 2 variants")
 
@@ -88,13 +117,10 @@ class ClickhouseFunnelExperimentResult:
             # Get `N=simulations` samples from a Beta distribution with alpha = prior_success + variant_sucess,
             # and beta = prior_failure + variant_failure
             samples = random_sampler.beta(
-                variant.success_count + prior_success, variant.failure_count + prior_failure, simulations
+                variant.success_count + prior_success, variant.failure_count + prior_failure, simulations_count
             )
-            # print(samples)
             variant_samples.append(samples)
 
-        probability = sum([int(sample_a > sample_b) for (sample_a, sample_b) in zip(*variant_samples)]) / simulations
-
-        # histogram_values = [ sample_a / sample_b for (sample_a, sample_b) in zip(*variant_samples)]
+        probability = sum(sample_a > sample_b for (sample_a, sample_b) in zip(*variant_samples)) / simulations_count
 
         return probability

@@ -74,7 +74,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
             team=team,
             created_by=request.user,
             filters=filters,
-            is_experiment=True,
             active=False if is_draft else True,
         )
 
@@ -91,12 +90,11 @@ class ExperimentSerializer(serializers.ModelSerializer):
         if extra_keys:
             raise ValidationError(f"Can't update keys: {', '.join(sorted(extra_keys))} on Experiment")
 
-        is_draft = not instance.start_date
         has_start_date = "start_date" in validated_data
 
         feature_flag = instance.feature_flag
 
-        if is_draft and has_start_date:
+        if instance.is_draft and has_start_date:
             feature_flag.active = True
             feature_flag.save()
             return super().update(instance, validated_data)
@@ -123,7 +121,6 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
     # Returns current results of an experiment, and graphs
     # 1. Probability of success
     # 2. Funnel breakdown graph to display
-    # 3. (?): Histogram of possible values - bucketed on backend
     # ******************************************
     @action(methods=["GET"], detail=True)
     def results(self, request: Request, *args: Any, **kwargs: Any) -> Response:

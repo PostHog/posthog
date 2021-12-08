@@ -11,3 +11,12 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
 
         probability = ClickhouseFunnelExperimentResult.calculate_results([variant_a, variant_b])
         self.assertTrue(probability > 0.9)
+
+    def test_calculate_results_again(self):
+
+        variant_a = Variant("A", 38, 31)
+        variant_b = Variant("B", 36, 34)
+
+        probability = ClickhouseFunnelExperimentResult.calculate_results([variant_a, variant_b])
+        print(probability)
+        self.assertTrue(probability > 0.9)

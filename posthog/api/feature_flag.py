@@ -13,7 +13,8 @@ from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthenticat
 from posthog.event_usage import report_user_action
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import FeatureFlag
-from posthog.models.feature_flag import FeatureFlagOverride, get_overridden_feature_flags
+from posthog.models.experiment import Experiment
+from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
@@ -38,7 +39,6 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             "created_at",
             "is_simple_flag",
             "rollout_percentage",
-            "is_experiment",
         ]
 
     # Simple flags are ones that only have rollout_percentage
@@ -151,7 +151,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
         if self.action == "list":
-            queryset = queryset.filter(deleted=False, is_experiment=False)
+            queryset = queryset.filter(deleted=False, experiment__isnull=True)
         return queryset.order_by("-created_at")
 
     @action(methods=["GET"], detail=False)
