@@ -170,7 +170,9 @@ def factory_session_recording_test(session_recording: SessionRecording, session_
                 req, filt = create_recording_request_and_filter("1")
                 recording = session_recording(
                     team=self.team, session_recording_id="1", request=req, filter=filt
-                ).get_metadata(include_active_segments=True)  # type: ignore
+                ).get_metadata(
+                    include_active_segments=True
+                )  # type: ignore
                 self.assertEqual(
                     recording,
                     {
