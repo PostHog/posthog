@@ -19,7 +19,7 @@ export const scene: SceneExport = {
 }
 
 export function Groups(): JSX.Element {
-    const { groups, groupsLoading } = useValues(groupsListLogic)
+    const { currentTabName, groups, groupsLoading } = useValues(groupsListLogic)
     const { loadGroups } = useActions(groupsListLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
@@ -38,7 +38,7 @@ export function Groups(): JSX.Element {
 
     const columns: LemonTableColumns<Group> = [
         {
-            title: 'Key',
+            title: currentTabName,
             key: 'group_key',
             render: function Render(_, group: Group) {
                 return (
