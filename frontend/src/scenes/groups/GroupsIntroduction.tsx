@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues } from 'kea'
-import { IconExternalLink } from 'lib/components/icons'
+import { IconExternalLink, IconGroups } from 'lib/components/icons'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import './GroupsIntroduction.scss'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -21,13 +21,13 @@ export function GroupsIntroduction({ access }: Props): JSX.Element {
             data-attr="group-analytics-upgrade"
             className="groups-introduction__action-button"
         >
-            Upgrade to get Group Analytics
+            Upgrade to get Group analytics
         </LemonButton>
     )
 
     const learnMoreButton = (
         <LemonButton
-            type={access === GroupsAccessStatus.HasAccess ? 'primary' : undefined}
+            type={access === GroupsAccessStatus.HasAccess ? 'primary' : 'highlighted'}
             to="https://posthog.com/docs/user-guides/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-page"
             target="_blank"
             rel="noopener"
@@ -65,6 +65,7 @@ export function GroupsIntroduction({ access }: Props): JSX.Element {
 
     return (
         <div className="groups-introduction">
+            <IconGroups style={{ fontSize: 52, color: 'var(--muted-alt)' }} />
             <h2>{title}</h2>
             <div className="groups-introduction__subtext">{subtext}</div>
             {primaryButton}
