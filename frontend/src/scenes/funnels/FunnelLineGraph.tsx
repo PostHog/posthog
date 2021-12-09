@@ -5,6 +5,8 @@ import { useActions, useValues } from 'kea'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { ChartParams } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { groupsModel } from '~/models/groupsModel'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 export function FunnelLineGraph({
     dashboardItemId,
@@ -15,7 +17,13 @@ export function FunnelLineGraph({
     const logic = funnelLogic(insightProps)
     const { steps, filters } = useValues(logic)
     const { loadPeople } = useActions(personsModalLogic)
+    const { groupTypes } = useValues(groupsModel)
 
+    const actorLabel =
+        filters.aggregation_group_type_index != undefined
+            ? capitalizeFirstLetter(`${groupTypes[filters.aggregation_group_type_index]?.group_type}` || 'Group') +
+              '(s)'
+            : 'Persons'
     return (
         <LineGraph
             data-attr="trend-line-graph-funnel"
@@ -31,9 +39,10 @@ export function FunnelLineGraph({
                 dashboardItemId
                     ? null
                     : (point) => {
+                          console.log(point)
                           loadPeople({
                               action: { id: point.index, name: point.label, properties: [], type: 'actions' },
-                              label: `Persons converted on ${point.label}`,
+                              label: `${actorLabel} converted on ${point.label}`,
                               date_from: point.day,
                               date_to: point.day,
                               filters: filters,

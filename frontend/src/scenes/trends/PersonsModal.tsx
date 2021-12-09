@@ -42,6 +42,7 @@ export function PersonsModal({
         peopleParams,
         actorLabel,
         pluralActorLabel,
+        aggregationGroupTypeIndex,
     } = useValues(personsModalLogic)
     const { hidePeople, loadMorePeople, setFirstLoadedActors, setPersonsModalFilters, setSearchTerm } =
         useActions(personsModalLogic)
@@ -166,7 +167,8 @@ export function PersonsModal({
                                     (!peopleParams.action.math || peopleParams.action.math === 'total') && (
                                         <>
                                             {' '}
-                                            who performed the event{' '}
+                                            {aggregationGroupTypeIndex != undefined ? 'that' : 'who'} performed the
+                                            event{' '}
                                             <b>
                                                 {peopleParams.pointValue} total{' '}
                                                 {pluralize(peopleParams.pointValue, 'time', undefined, false)}

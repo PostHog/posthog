@@ -209,15 +209,20 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             () => [preflightLogic.selectors.preflight],
             (preflight) => !!preflight?.is_clickhouse_enabled,
         ],
+        aggregationGroupTypeIndex: [
+            (s) => [s.people],
+            (result) => {
+                return result?.aggregationGroupTypeIndex
+            },
+        ],
         actorLabel: [
             (s) => [s.people, s.groupTypes],
             (result, groupTypes) => {
                 const aggregationGroupTypeIndex = result?.aggregationGroupTypeIndex
                 if (aggregationGroupTypeIndex != undefined) {
-                    return (
-                        aggregationGroupTypeIndex != undefined &&
-                        `${groupTypes[aggregationGroupTypeIndex].group_type}(s)`
-                    )
+                    return aggregationGroupTypeIndex != undefined && groupTypes?.[aggregationGroupTypeIndex]
+                        ? `${groupTypes[aggregationGroupTypeIndex].group_type}(s)`
+                        : 'group(s)'
                 } else {
                     return pluralize(result?.count || 0, 'user', undefined, false)
                 }
@@ -228,10 +233,9 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             (result, groupTypes) => {
                 const aggregationGroupTypeIndex = result?.aggregationGroupTypeIndex
                 if (aggregationGroupTypeIndex != undefined) {
-                    return (
-                        aggregationGroupTypeIndex != undefined &&
-                        `${groupTypes[aggregationGroupTypeIndex].group_type}(s)`
-                    )
+                    return aggregationGroupTypeIndex != undefined && groupTypes?.[aggregationGroupTypeIndex]
+                        ? `${groupTypes[aggregationGroupTypeIndex].group_type}(s)`
+                        : 'group(s)'
                 } else {
                     return 'people'
                 }
