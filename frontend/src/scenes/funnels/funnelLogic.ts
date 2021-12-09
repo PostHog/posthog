@@ -1127,9 +1127,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         ],
         isModalActive: [
             (s) => [s.clickhouseFeaturesEnabled, s.isViewedOnDashboard],
-            (clickhouseFeaturesEnabled, isViewedOnDashboard) => {
-                return clickhouseFeaturesEnabled && !isViewedOnDashboard
-            },
+            (clickhouseFeaturesEnabled, isViewedOnDashboard) => clickhouseFeaturesEnabled && !isViewedOnDashboard,
         ],
     }),
 
