@@ -30,6 +30,7 @@ export function ActionsBarValueGraph({
     const { insightProps } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
+    const { pluralActorLabel } = useValues(personsModalLogic)
     const { results } = useValues(logic)
 
     function updateData(): void {
@@ -68,6 +69,7 @@ export function ActionsBarValueGraph({
 
     return data && total > 0 ? (
         <LineGraph
+            actorLabel={pluralActorLabel}
             data-attr="trend-bar-value-graph"
             type="horizontalBar"
             color={color}

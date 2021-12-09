@@ -41,6 +41,7 @@ export function PersonsModal({
         clickhouseFeaturesEnabled,
         peopleParams,
         actorLabel,
+        pluralActorLabel,
     } = useValues(personsModalLogic)
     const { hidePeople, loadMorePeople, setFirstLoadedActors, setPersonsModalFilters, setSearchTerm } =
         useActions(personsModalLogic)
@@ -49,7 +50,7 @@ export function PersonsModal({
     const title = useMemo(
         () =>
             isInitialLoad ? (
-                'Loading persons…'
+                `Loading ${pluralActorLabel}…`
             ) : filters.shown_as === 'Stickiness' ? (
                 <>
                     <PropertyKeyInfo value={people?.label || ''} disablePopover /> stickiness on day {people?.day}
@@ -222,7 +223,7 @@ export function PersonsModal({
                                     onClick={loadMorePeople}
                                     loading={loadingMorePeople}
                                 >
-                                    Load more people
+                                    Load more {pluralActorLabel}
                                 </Button>
                             </div>
                         )}

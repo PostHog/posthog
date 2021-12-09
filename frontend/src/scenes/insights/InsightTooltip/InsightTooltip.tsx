@@ -10,6 +10,7 @@ interface BodyLine {
 }
 
 interface InsightTooltipProps {
+    actorLabel: string
     altTitle?: string | JSX.Element | null // Alternate string to display as title (in case date reference is not available or not desired)
     referenceDate?: string
     interval?: IntervalType
@@ -21,6 +22,7 @@ interface InsightTooltipProps {
 }
 
 export function InsightTooltip({
+    actorLabel,
     altTitle,
     referenceDate,
     interval,
@@ -52,7 +54,7 @@ export function InsightTooltip({
             {inspectPersonsLabel && (
                 <div className="inspect-persons-label">
                     <IconHandClick />
-                    Click on data point to view persons
+                    Click on data point to view {actorLabel}
                 </div>
             )}
         </div>

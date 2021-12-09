@@ -25,6 +25,7 @@ Chart.defaults.global.elements.line.tension = 0
 const noop = () => {}
 
 export function LineGraph({
+    actorLabel,
     datasets,
     visibilityMap = null,
     labels,
@@ -326,6 +327,7 @@ export function LineGraph({
                     ReactDOM.render(
                         <Provider store={getContext().store}>
                             <InsightTooltip
+                                actorLabel={actorLabel}
                                 altTitle={altTitle}
                                 referenceDate={referenceDate}
                                 interval={interval}

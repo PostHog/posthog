@@ -42,6 +42,7 @@ export function RetentionLineGraph({
     return results ? (
         <>
             <LineGraph
+                actorLabel={'persons'}
                 data-attr="trend-line-graph"
                 type="line"
                 color={color}

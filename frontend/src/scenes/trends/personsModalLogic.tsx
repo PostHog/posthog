@@ -223,6 +223,16 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                 }
             },
         ],
+        pluralActorLabel: [
+            (s) => [s.people, s.isGroupType, s.groupTypes],
+            (result, _isGroupType, groupTypes) => {
+                if (_isGroupType && result?.action !== 'session') {
+                    return `${groupTypes[result?.action.math_group_type_index].group_type}(s)`
+                } else {
+                    return 'people'
+                }
+            },
+        ],
     },
     loaders: ({ actions, values }) => ({
         people: {
