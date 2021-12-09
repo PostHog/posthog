@@ -115,7 +115,10 @@ class RetentionEventsQuery(ClickhouseEventQuery):
             return f"{self.EVENT_TABLE_ALIAS}.timestamp AS event_date"
 
     def _determine_should_join_distinct_ids(self) -> None:
-        self._should_join_distinct_ids = True
+        if self._filter.aggregation_group_type_index is not None:
+            self._should_join_distinct_ids = False
+        else:
+            self._should_join_distinct_ids = True
 
     def _get_entity_query(self, entity: Entity):
         prepend = self._event_query_type
