@@ -5,6 +5,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import React from 'react'
 import { groupsModel } from '~/models/groupsModel'
 import { groupsListLogic } from './groupsListLogic'
+import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 
 export function GroupsTabs(): JSX.Element {
     const { setTab } = useActions(groupsListLogic)
@@ -23,7 +24,17 @@ export function GroupsTabs(): JSX.Element {
             <Tabs.TabPane tab="Persons" key="-1" />
 
             {showGroupsIntroductionPage ? (
-                <Tabs.TabPane tab="Introducing group analytics" key="0" />
+                <Tabs.TabPane
+                    tab={
+                        <>
+                            Introducing Group analytics
+                            <LemonTag type="success" style={{ marginLeft: 4 }}>
+                                New
+                            </LemonTag>
+                        </>
+                    }
+                    key="0"
+                />
             ) : (
                 groupTypes.map((groupType) => (
                     <Tabs.TabPane tab={capitalizeFirstLetter(groupType.group_type)} key={groupType.group_type_index} />

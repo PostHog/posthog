@@ -1,9 +1,10 @@
 import React from 'react'
 import { useValues } from 'kea'
-import { LockOutlined } from '@ant-design/icons'
+import { LockOutlined, QuestionCircleOutlined } from '@ant-design/icons'
 import Select from 'rc-select'
 import { Link } from 'lib/components/Link'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function GroupsIntroductionOption({ value }: { value: any }): JSX.Element | null {
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
@@ -30,15 +31,26 @@ export function GroupsIntroductionOption({ value }: { value: any }): JSX.Element
                 color: 'var(--text-muted)',
             }}
         >
-            <LockOutlined style={{ marginRight: 4, color: 'var(--warning)' }} />
+            <Tooltip title="This is a premium feature. Click to learn more.">
+                <Link
+                    to="https://posthog.com/docs/user-guides/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-math-selector-lock"
+                    target="_blank"
+                    rel="noopener"
+                    data-attr="group-analytics-learn-more"
+                    style={{ marginRight: 4 }}
+                >
+                    <LockOutlined style={{ color: 'var(--warning)' }} />
+                </Link>
+            </Tooltip>
             Unique groups
             <Link
                 to="https://posthog.com/docs/user-guides/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-math-selector"
                 target="_blank"
+                rel="noopener"
                 data-attr="group-analytics-learn-more"
                 style={{ marginLeft: 8, fontWeight: 'bold' }}
             >
-                Learn more
+                <QuestionCircleOutlined />
             </Link>
         </Select.Option>
     )
