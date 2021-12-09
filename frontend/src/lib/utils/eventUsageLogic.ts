@@ -406,6 +406,8 @@ export const eventUsageLogic = kea<
                 properties.path_type = filters.path_type
                 properties.has_start_point = !!filters.start_point
                 properties.has_end_point = !!filters.end_point
+                properties.has_funnel_filter = !!filters.funnel_filter
+                properties.funnel_paths = filters.funnel_paths
             } else if (insight === 'STICKINESS') {
                 properties.stickiness_days = filters.stickiness_days
             }
