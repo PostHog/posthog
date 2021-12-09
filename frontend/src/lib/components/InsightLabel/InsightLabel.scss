@@ -12,6 +12,7 @@ $inter_items_padding: 0.3rem;
 
     .protect-width {
         @extend .text-ellipsis;
+        display: flex;
     }
 
     .value {

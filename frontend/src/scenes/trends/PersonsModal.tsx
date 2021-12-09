@@ -5,7 +5,7 @@ import { Modal, Button, Input, Skeleton, Select } from 'antd'
 import { FilterType, InsightType, ActorType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { isGroupType, midEllipsis, pluralize } from 'lib/utils'
+import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
 import './PersonsModal.scss'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
@@ -71,7 +71,7 @@ export function PersonsModal({
                 </>
             ) : (
                 <>
-                    <PropertyKeyInfo value={people?.label || ''} disablePopover /> on{' '}
+                    {capitalizeFirstLetter(actorLabel)} list on{' '}
                     <DateDisplay interval={filters.interval || 'day'} date={people?.day?.toString() || ''} />
                 </>
             ),
@@ -158,31 +158,8 @@ export function PersonsModal({
                                 }
                             />
                         )}
-                        <div className="user-count-subheader">
-                            <IconPersonFilled style={{ fontSize: '1.125rem', marginRight: '0.5rem' }} />
-                            <span>
-                                This list contains{' '}
-                                <b>
-                                    {people.count} unique {actorLabel}
-                                </b>
-                                {peopleParams?.pointValue !== undefined &&
-                                    peopleParams.action !== 'session' &&
-                                    (!peopleParams.action.math || peopleParams.action.math === 'total') && (
-                                        <>
-                                            {' '}
-                                            who performed the event{' '}
-                                            <b>
-                                                {peopleParams.pointValue} total{' '}
-                                                {pluralize(peopleParams.pointValue, 'time', undefined, false)}
-                                            </b>
-                                        </>
-                                    )}
-                                .
-                            </span>
-                        </div>
                         {people.crossDataset && (
                             <div className="data-point-selector">
-                                <b>Data point</b>
                                 <Select value={people.seriesId}>
                                     {people.crossDataset.map((dataPoint) => (
                                         <Select.Option
@@ -207,6 +184,28 @@ export function PersonsModal({
                                 </Select>
                             </div>
                         )}
+                        <div className="user-count-subheader">
+                            <IconPersonFilled style={{ fontSize: '1.125rem', marginRight: '0.5rem' }} />
+                            <span>
+                                This list contains{' '}
+                                <b>
+                                    {people.count} unique {actorLabel}
+                                </b>
+                                {peopleParams?.pointValue !== undefined &&
+                                    peopleParams.action !== 'session' &&
+                                    (!peopleParams.action.math || peopleParams.action.math === 'total') && (
+                                        <>
+                                            {' '}
+                                            who performed the event{' '}
+                                            <b>
+                                                {peopleParams.pointValue} total{' '}
+                                                {pluralize(peopleParams.pointValue, 'time', undefined, false)}
+                                            </b>
+                                        </>
+                                    )}
+                                .
+                            </span>
+                        </div>
                         {people.count > 0 ? (
                             <LemonTable
                                 columns={

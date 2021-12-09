@@ -231,7 +231,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                         ? `${groupTypes[result?.action.math_group_type_index].group_type}(s)`
                         : ''
                 } else {
-                    return pluralize(result?.count || 0, 'user', undefined, false)
+                    return pluralize(result?.count || 0, 'person', undefined, false)
                 }
             },
         ],
