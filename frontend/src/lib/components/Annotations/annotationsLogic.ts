@@ -22,11 +22,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
         values: [annotationsModel, ['activeGlobalAnnotations']],
     },
     actions: () => ({
-        createAnnotation: (
-            content: string,
-            date_marker: string,
-            scope: AnnotationScope = AnnotationScope.DashboardItem
-        ) => ({
+        createAnnotation: (content: string, date_marker: string, scope: AnnotationScope = AnnotationScope.Insight) => ({
             content,
             date_marker,
             created_at: dayjs(),
@@ -35,7 +31,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
         createAnnotationNow: (
             content: string,
             date_marker: string,
-            scope: AnnotationScope = AnnotationScope.DashboardItem
+            scope: AnnotationScope = AnnotationScope.Insight
         ) => ({
             content,
             date_marker,
@@ -53,7 +49,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
             loadAnnotations: async () => {
                 const params = {
                     ...(props.insightId ? { dashboardItemId: props.insightId } : {}),
-                    scope: AnnotationScope.DashboardItem,
+                    scope: AnnotationScope.Insight,
                     deleted: false,
                 }
                 const response = await api.get(
@@ -138,11 +134,11 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
         createAnnotationNow: async ({ content, date_marker, created_at, scope }) => {
             await api.create(`api/projects/${teamLogic.values.currentTeamId}/annotations`, {
                 content,
-                date_marker: dayjs(date_marker),
-                created_at,
+                date_marker: dayjs(date_marker).toISOString(),
+                created_at: created_at.toISOString(),
                 dashboard_item: props.insightId,
                 scope,
-            })
+            } as Partial<AnnotationType>)
             actions.loadAnnotations()
         },
         deleteAnnotation: async ({ id }) => {
