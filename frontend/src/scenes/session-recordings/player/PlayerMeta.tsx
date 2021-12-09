@@ -10,7 +10,7 @@ import { formatDisplayPercentage } from 'scenes/funnels/funnelUtils'
 import { TZLabel } from 'lib/components/TimezoneAware'
 
 export function PlayerMeta(): JSX.Element {
-    const { sessionPerson, description, resolution, scale, recordingMetaData, loading } = useValues(metaLogic)
+    const { sessionPerson, description, resolution, scale, recordingStartTime, loading } = useValues(metaLogic)
 
     return (
         <Col className="player-meta-container">
@@ -40,7 +40,7 @@ export function PlayerMeta(): JSX.Element {
                         <Skeleton title={false} active paragraph={{ rows: 1, width: 80 }} />
                     ) : (
                         <span className="time text-muted">
-                            {recordingMetaData.startTime && <TZLabel time={dayjs(recordingMetaData.startTime)} />}
+                            {recordingStartTime && <TZLabel time={dayjs(recordingStartTime)} />}
                         </span>
                     )}
                 </Col>

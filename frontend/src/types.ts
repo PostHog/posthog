@@ -364,9 +364,10 @@ export interface SessionRecordingMeta {
     recordingDurationMs: number
 }
 export interface SessionPlayerData {
-    snapshots: eventWithTime[]
+    snapshotsByWindowId: Record<string, eventWithTime[]>
     person: PersonType | null
     session_recording: SessionRecordingMeta
+    bufferedTo: PlayerPosition
     next?: string
 }
 
