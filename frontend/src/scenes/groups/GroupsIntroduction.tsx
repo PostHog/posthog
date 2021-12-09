@@ -28,7 +28,7 @@ export function GroupsIntroduction({ access }: Props): JSX.Element {
     const learnMoreButton = (
         <LemonButton
             type={access === GroupsAccessStatus.HasAccess ? 'primary' : undefined}
-            to="https://posthog.com/docs/user-guides/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-learn-more"
+            to="https://posthog.com/docs/user-guides/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-page"
             target="_blank"
             data-attr="group-analytics-learn-more"
             className="groups-introduction__action-button"

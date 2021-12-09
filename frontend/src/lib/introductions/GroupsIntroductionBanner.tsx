@@ -33,7 +33,7 @@ export function GroupsIntroductionBanner(): JSX.Element | null {
                 </LinkButton>
             )}
             <Link
-                to="https://posthog.com/docs/user-guides/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-learn-more"
+                to="https://posthog.com/docs/user-guides/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-site-banner"
                 target="_blank"
                 data-attr="group-analytics-learn-more"
                 style={{ marginLeft: 8 }}

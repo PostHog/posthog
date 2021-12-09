@@ -33,7 +33,7 @@ export function GroupsIntroductionOption({ value }: { value: any }): JSX.Element
             <LockOutlined style={{ marginRight: 4, color: 'var(--warning)' }} />
             Unique groups
             <Link
-                to="https://posthog.com/docs/user-guides/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-learn-more"
+                to="https://posthog.com/docs/user-guides/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-math-selector"
                 target="_blank"
                 data-attr="group-analytics-learn-more"
                 style={{ marginLeft: 8, fontWeight: 'bold' }}
