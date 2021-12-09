@@ -18,7 +18,7 @@ export interface IndexedTrendResult extends TrendResult {
 }
 
 export interface TrendActors {
-    seriesId: number // The series identifier for this particular point (i.e. index of series)
+    seriesId?: number // The series identifier for this particular point (i.e. index of series)
     people: ActorType[]
     count: number
     day: string | number

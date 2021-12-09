@@ -72,7 +72,7 @@ export function ActionsPie({
                             dashboardItemId || filtersParam.formula || !showPersonsModal
                                 ? null
                                 : (point) => {
-                                      const { dataset, index } = point
+                                      const { dataset, index, seriesId } = point
                                       const action = dataset.actions[point.index]
                                       const label = dataset.labels[point.index]
                                       const date_from = filtersParam.date_from || ''
@@ -87,6 +87,7 @@ export function ActionsPie({
                                           date_to,
                                           filters: filtersParam,
                                           breakdown_value,
+                                          seriesId,
                                       }
                                       if (dataset.persons_urls?.[index].url) {
                                           loadPeopleFromUrl({

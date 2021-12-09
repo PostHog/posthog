@@ -165,29 +165,31 @@ export function PersonsModal({
                                 }
                             />
                         )}
-                        {people.crossDataset && (
+                        {people.crossDataset && people.seriesId && (
                             <div className="data-point-selector">
                                 <Select value={people.seriesId} onChange={(seriesId) => switchToDataPoint(seriesId)}>
-                                    {people.crossDataset.map((dataPoint) => (
-                                        <Select.Option
-                                            value={dataPoint.seriesId}
-                                            key={`${dataPoint.action.id}${dataPoint.breakdown_value}`}
-                                        >
-                                            <InsightLabel
-                                                seriesColor={colorList[dataPoint.seriesId % colorList.length]}
-                                                action={dataPoint.action}
-                                                breakdownValue={
-                                                    dataPoint.breakdown_value === ''
-                                                        ? 'None'
-                                                        : dataPoint.breakdown_value?.toString()
-                                                }
-                                                useCustomName
-                                                showCountedByTag={showCountedByTag}
-                                                hasMultipleSeries={hasMultipleSeries}
-                                                hideSeriesSubtitle
-                                            />
-                                        </Select.Option>
-                                    ))}
+                                    {people.crossDataset
+                                        .filter((dp) => dp.seriesId)
+                                        .map((dataPoint) => (
+                                            <Select.Option
+                                                value={dataPoint.seriesId}
+                                                key={`${dataPoint.action.id}${dataPoint.breakdown_value}`}
+                                            >
+                                                <InsightLabel
+                                                    seriesColor={colorList[dataPoint.seriesId % colorList.length]}
+                                                    action={dataPoint.action}
+                                                    breakdownValue={
+                                                        dataPoint.breakdown_value === ''
+                                                            ? 'None'
+                                                            : dataPoint.breakdown_value?.toString()
+                                                    }
+                                                    useCustomName
+                                                    showCountedByTag={showCountedByTag}
+                                                    hasMultipleSeries={hasMultipleSeries}
+                                                    hideSeriesSubtitle
+                                                />
+                                            </Select.Option>
+                                        ))}
                                 </Select>
                             </div>
                         )}

@@ -39,7 +39,7 @@ export interface PersonsModalParams {
     pathsDropoff?: boolean
     pointValue?: number // The y-axis value of the data point (i.e. count, unique persons, ...)
     crossDataset?: DatasetType[] // `crossDataset` contains the data set for all the points in the same x-axis point; allows switching between matching points
-    seriesId: number
+    seriesId?: number
 }
 
 export interface PeopleParamType {
@@ -94,7 +94,7 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
 // NOTE: this interface isn't particularly clean. Separation of concerns of load
 // and displaying of people and the display of the modal would be helpful to
 // keep this interfaces smaller.
-type LoadPeopleFromUrlProps = {
+interface LoadPeopleFromUrlProps {
     // The url from which we can load urls
     url: string
     // The funnel step the dialog should display as the complete/dropped step.
@@ -118,7 +118,7 @@ type LoadPeopleFromUrlProps = {
     // Contains the data set for all the points in the same x-axis point; allows switching between matching points
     crossDataset?: DatasetType[]
     // The frontend ID that identifies this particular series (i.e. if breakdowns are applied, each breakdown value is its own series)
-    seriesId: number
+    seriesId?: number
 }
 
 export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProps, PersonsModalParams>>({
@@ -210,10 +210,16 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             },
         ],
         peopleParams: [
-            null as PersonsModalParams | LoadPeopleFromUrlProps | null,
+            null as PersonsModalParams | null,
             {
                 loadPeople: (_, { peopleParams }) => peopleParams,
-                loadPeopleFromUrl: (_, params) => params,
+            },
+        ],
+        peopleUrlParams: [
+            // peopleParams when loaded from URL
+            null as LoadPeopleFromUrlProps | null,
+            {
+                loadPeopleFromUrl: (_, props) => props,
             },
         ],
     }),
@@ -462,9 +468,9 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     action: data.action,
                     pointValue: data.pointValue,
                 }
-                if (data.personUrl) {
+                if (data.personUrl && values.peopleUrlParams) {
                     actions.loadPeopleFromUrl({
-                        ...params,
+                        ...values.peopleUrlParams,
                         url: data.personUrl,
                     })
                 } else {

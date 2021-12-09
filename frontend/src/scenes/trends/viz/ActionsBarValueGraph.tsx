@@ -80,7 +80,7 @@ export function ActionsBarValueGraph({
                 dashboardItemId || filtersParam.formula || !showPersonsModal
                     ? null
                     : (point) => {
-                          const { dataset, value: pointValue, index } = point
+                          const { dataset, value: pointValue, index, seriesId } = point
                           const action = dataset.actions[point.index]
                           const label = dataset.labels[point.index]
                           const date_from = filtersParam?.date_from || ''
@@ -96,6 +96,7 @@ export function ActionsBarValueGraph({
                               filters: filtersParam,
                               breakdown_value,
                               pointValue,
+                              seriesId,
                           }
                           if (dataset.persons_urls?.[index].url) {
                               loadPeopleFromUrl({
