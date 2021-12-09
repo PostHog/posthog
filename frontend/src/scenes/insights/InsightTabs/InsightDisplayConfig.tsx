@@ -111,7 +111,9 @@ export function InsightDisplayConfig({
                 )}
                 {showIntervalFilter(activeView, filters) && (
                     <span className="filter">
-                        <span className="head-title-item">grouped by</span>
+                        <span className="head-title-item">
+                            <span className="hide-lte-md">grouped </span>by
+                        </span>
                         <IntervalFilter view={activeView} />
                     </span>
                 )}
