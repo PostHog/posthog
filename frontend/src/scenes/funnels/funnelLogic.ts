@@ -28,7 +28,6 @@ import {
     FunnelVizType,
     InsightLogicProps,
     InsightType,
-    ItemMode,
     PersonType,
     PropertyFilter,
     PropertyOperator,
@@ -106,7 +105,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
     connect: (props: InsightLogicProps) => ({
         values: [
             insightLogic(props),
-            ['filters', 'insight', 'insightLoading', 'insightMode'],
+            ['filters', 'insight', 'insightLoading', 'insightMode', 'isViewedOnDashboard'],
             teamLogic,
             ['currentTeamId', 'currentTeam'],
             personPropertiesModel,
@@ -1127,8 +1126,10 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             },
         ],
         isModalActive: [
-            (s) => [s.insightMode, s.clickhouseFeaturesEnabled, s.filters],
-            (insightMode, clickhouseFeaturesEnabled) => clickhouseFeaturesEnabled && insightMode === ItemMode.Edit,
+            (s) => [s.clickhouseFeaturesEnabled, s.isViewedOnDashboard],
+            (clickhouseFeaturesEnabled, isViewedOnDashboard) => {
+                return clickhouseFeaturesEnabled && !isViewedOnDashboard
+            },
         ],
     }),
 
