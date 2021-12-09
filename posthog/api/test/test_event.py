@@ -109,7 +109,6 @@ def factory_test_event_api(event_factory, person_factory, _):
                     f"/api/projects/{self.team.id}/events/?properties=%s"
                     % (json.dumps([{"key": "$browser", "value": "Safari"}]))
                 ).json()
-
             self.assertEqual(response["results"][0]["id"], event2.pk)
 
             properties = "invalid_json"
