@@ -45,6 +45,7 @@ interface EventsTable {
     filtersEnabled?: boolean
     pageKey?: string
     hidePersonColumn?: boolean
+    hideTableConfig?: boolean
     sceneUrl?: string
 }
 
@@ -53,6 +54,7 @@ export function EventsTable({
     filtersEnabled = true,
     pageKey = 'EventsTable',
     hidePersonColumn,
+    hideTableConfig,
     sceneUrl,
 }: EventsTable = {}): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -348,11 +350,13 @@ export function EventsTable({
                             checked={automaticLoadEnabled}
                             onChange={toggleAutomaticLoad}
                         />
-                        <TableConfig
-                            availableColumns={propertyNames}
-                            immutableColumns={['event', 'person']}
-                            defaultColumns={defaultColumns.map((e) => e.key || '')}
-                        />
+                        {!hideTableConfig && (
+                            <TableConfig
+                                availableColumns={propertyNames}
+                                immutableColumns={['event', 'person']}
+                                defaultColumns={defaultColumns.map((e) => e.key || '')}
+                            />
+                        )}
                         {exportUrl && (
                             <Tooltip title="Export up to 10,000 latest events." placement="left">
                                 <Button icon={<DownloadOutlined />} onClick={startDownload}>
