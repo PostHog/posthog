@@ -7,7 +7,7 @@ from django.db.models.expressions import ExpressionWrapper
 from django.db.models.fields import BooleanField
 from django.db.models.query import QuerySet
 
-from posthog.models import Event, Team
+from posthog.models import Event
 from posthog.models.event import EventManager
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person import Person
