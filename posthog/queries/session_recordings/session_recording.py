@@ -1,14 +1,16 @@
 import dataclasses
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple, Union, cast
 
 from django.db.models import QuerySet
-from django.utils import timezone
 from rest_framework.request import Request
 
 from posthog.helpers.session_recording import (
     DecompressedRecordingData,
+    EventActivityData,
     RecordingSegment,
+    SnapshotDataTaggedWithWindowId,
+    WindowId,
     decompress_chunked_snapshot_data,
     generate_inactive_segments_for_range,
     get_active_segments_from_event_list,
@@ -18,10 +20,9 @@ from posthog.models import SessionRecordingEvent, Team
 
 @dataclasses.dataclass
 class RecordingMetadata:
-    session_id: str
     distinct_id: str
     segments: List[RecordingSegment]
-    start_and_end_times_by_window_id: Optional[Dict[str, Dict]]
+    start_and_end_times_by_window_id: Dict[WindowId, Dict]
 
 
 class SessionRecording:
@@ -40,28 +41,39 @@ class SessionRecording:
         )
 
     def get_snapshots(self, limit, offset) -> DecompressedRecordingData:
-        all_recording_events = list(self._query_recording_snapshots())
-        return decompress_chunked_snapshot_data(
-            self._team.pk, self._session_recording_id, all_recording_events, limit, offset
-        )
+        all_snapshots = [
+            SnapshotDataTaggedWithWindowId(
+                window_id=recording_snapshot.window_id, snapshot_data=recording_snapshot.snapshot_data
+            )
+            for recording_snapshot in self._query_recording_snapshots()
+        ]
+        return decompress_chunked_snapshot_data(self._team.pk, self._session_recording_id, all_snapshots, limit, offset)
 
     def get_metadata(self) -> Optional[RecordingMetadata]:
-        all_snapshots = self._query_recording_snapshots()
+        all_snapshots: List[SnapshotDataTaggedWithWindowId] = []
+
+        distinct_id = None
+        for index, session_recording_event in enumerate(self._query_recording_snapshots()):
+            if index == 0:
+                distinct_id = session_recording_event.distinct_id
+            all_snapshots.append(
+                SnapshotDataTaggedWithWindowId(
+                    window_id=session_recording_event.window_id, snapshot_data=session_recording_event.snapshot_data
+                )
+            )
+
         if len(all_snapshots) == 0:
             return None
 
         segments, start_and_end_times_by_window_id = self._process_snapshots_for_metadata(all_snapshots)
 
-        first_snapshot = all_snapshots[0]
-
         return RecordingMetadata(
             segments=segments,
             start_and_end_times_by_window_id=start_and_end_times_by_window_id,
-            session_id=first_snapshot.session_id,
-            distinct_id=first_snapshot.distinct_id,
+            distinct_id=cast(str, distinct_id),
         )
 
-    def _process_snapshots_for_metadata(self, all_snapshots) -> Tuple[List[RecordingSegment], Dict[str, Dict]]:
+    def _process_snapshots_for_metadata(self, all_snapshots) -> Tuple[List[RecordingSegment], Dict[WindowId, Dict]]:
         decompressed_recording_data = decompress_chunked_snapshot_data(
             self._team.pk, self._session_recording_id, all_snapshots, return_only_activity_data=True
         )
@@ -72,14 +84,14 @@ class SessionRecording:
         all_active_segments: List[RecordingSegment] = []
         for window_id, event_list in decompressed_recording_data.snapshot_data_by_window_id.items():
             events_with_processed_timestamps = [
-                {
-                    "timestamp": datetime.fromtimestamp(event.get("timestamp", 0) / 1000, timezone.utc),
-                    "is_active": event.get("is_active"),
-                }
+                EventActivityData(
+                    timestamp=datetime.fromtimestamp(event.get("timestamp", 0) / 1000, timezone.utc),
+                    is_active=event.get("is_active", False),
+                )
                 for event in event_list
             ]
             # Not sure why, but events are sometimes slightly out of order
-            events_with_processed_timestamps.sort(key=lambda x: cast(datetime, x["timestamp"]))
+            events_with_processed_timestamps.sort(key=lambda x: cast(datetime, x.timestamp))
 
             active_segments_for_window_id = get_active_segments_from_event_list(
                 events_with_processed_timestamps, window_id
@@ -88,8 +100,8 @@ class SessionRecording:
             all_active_segments.extend(active_segments_for_window_id)
 
             start_and_end_times_by_window_id[window_id] = {
-                "start_time": events_with_processed_timestamps[0].get("timestamp"),
-                "end_time": events_with_processed_timestamps[-1].get("timestamp"),
+                "start_time": events_with_processed_timestamps[0].timestamp,
+                "end_time": events_with_processed_timestamps[-1].timestamp,
             }
 
         # Sort the active segments by start time. This will interleave active segments
@@ -103,7 +115,10 @@ class SessionRecording:
         # Now, we fill in the gaps between the active segments with inactive segments
         all_segments = []
         current_timestamp = first_start_time
-        current_window_id = None
+        current_window_id: WindowId = sorted(
+            start_and_end_times_by_window_id, key=lambda x: start_and_end_times_by_window_id[x]["start_time"]
+        )[0]
+
         for segment in all_active_segments:
             # It's possible that segments overlap and we don't need to fill a gap
             if segment.start_time > current_timestamp:

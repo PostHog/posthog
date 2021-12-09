@@ -57,7 +57,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             request=request, team=self.team, session_recording_id=session_recording_id
         ).get_snapshots(limit, offset)
 
-    def _get_session_recording_meta_data(self, request, filter, session_recording_id):
+    def _get_session_recording_meta_data(self, request, session_recording_id):
         return SessionRecording(
             request=request, team=self.team, session_recording_id=session_recording_id
         ).get_metadata()
@@ -108,13 +108,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         session_recording_id = kwargs["pk"]
 
-        include_active_segments = (
-            True if request.query_params.get("include_active_segments", "false").lower() == "true" else False
-        )
-
-        session_recording_meta_data = self._get_session_recording_meta_data(
-            request, session_recording_id, include_active_segments
-        )
+        session_recording_meta_data = self._get_session_recording_meta_data(request, session_recording_id)
         if not session_recording_meta_data:
             raise exceptions.NotFound("Session not found")
 

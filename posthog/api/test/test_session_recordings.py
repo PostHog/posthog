@@ -6,11 +6,11 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog.api.session_recording import DEFAULT_RECORDING_CHUNK_LIMIT
 from posthog.helpers.session_recording import Event, compress_and_chunk_snapshots
 from posthog.models import Organization, Person, SessionRecordingEvent
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team import Team
-from posthog.queries.session_recordings.session_recording import DEFAULT_RECORDING_CHUNK_LIMIT
 from posthog.test.base import APIBaseTest
 
 

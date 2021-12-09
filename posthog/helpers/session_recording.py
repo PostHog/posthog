@@ -9,28 +9,39 @@ from typing import DefaultDict, Dict, Generator, List, Optional
 from sentry_sdk.api import capture_exception, capture_message
 
 from posthog.models import utils
-from posthog.models.session_recording_event import SessionRecordingEvent
 from posthog.utils import paginate_list
+
+FULL_SNAPSHOT = 2
 
 Event = Dict
 SnapshotData = Dict
+WindowId = Optional[str]
 
 
-FULL_SNAPSHOT = 2
+@dataclasses.dataclass
+class EventActivityData:
+    timestamp: datetime
+    is_active: bool
 
 
 @dataclasses.dataclass
 class RecordingSegment:
     start_time: datetime
     end_time: datetime
-    window_id: str
+    window_id: WindowId
     is_active: bool
+
+
+@dataclasses.dataclass
+class SnapshotDataTaggedWithWindowId:
+    window_id: WindowId
+    snapshot_data: SnapshotData
 
 
 @dataclasses.dataclass
 class DecompressedRecordingData:
     has_next: bool
-    snapshot_data_by_window_id: Dict[str, List[SnapshotData]]
+    snapshot_data_by_window_id: Dict[WindowId, List[SnapshotData]]
 
 
 def preprocess_session_recording_events(events: List[Event]) -> List[Event]:
@@ -109,7 +120,7 @@ def decompress(base64data: str) -> str:
 def decompress_chunked_snapshot_data(
     team_id: int,
     session_recording_id: str,
-    all_recording_events: List[SessionRecordingEvent],
+    all_recording_events: List[SnapshotDataTaggedWithWindowId],
     limit: Optional[int] = None,
     offset: int = 0,
     return_only_activity_data: bool = False,
@@ -127,7 +138,7 @@ def decompress_chunked_snapshot_data(
     """
 
     if len(all_recording_events) == 0:
-        DecompressedRecordingData(has_next=False, snapshot_data_by_window_id={})
+        return DecompressedRecordingData(has_next=False, snapshot_data_by_window_id={})
 
     snapshot_data_by_window_id = defaultdict(list)
 
@@ -141,19 +152,26 @@ def decompress_chunked_snapshot_data(
         )
 
     # Split decompressed recording events into their chunks
-    chunks_collector: DefaultDict[str, List[SnapshotData]] = defaultdict(list)
+    chunks_collector: DefaultDict[str, List[SnapshotDataTaggedWithWindowId]] = defaultdict(list)
     for event in all_recording_events:
         chunks_collector[event.snapshot_data["chunk_id"]].append(event)
 
     # Paginate the list of chunks
     paginated_chunk_list = paginate_list(list(chunks_collector.values()), limit, offset)
 
+    has_next = paginated_chunk_list.has_next
+    chunk_list: List[List[SnapshotDataTaggedWithWindowId]] = paginated_chunk_list.paginated_list
+
     # Decompress the chunks and split the resulting events by window_id
-    for chunks in paginated_chunk_list.paginated_list:
+    for chunks in chunk_list:
         if len(chunks) != chunks[0].snapshot_data["chunk_count"]:
             capture_message(
-                "Did not find all session recording chunks! Team: {}, Session: {}, Chunk-id: {}. Found {} of {} chunks".format(
-                    team_id, session_recording_id, chunks[0]["chunk_id"], len(chunks), chunks[0]["chunk_count"],
+                "Did not find all session recording chunks! Team: {}, Session: {}, Chunk-id: {}. Found {} of {} expected chunks".format(
+                    team_id,
+                    session_recording_id,
+                    chunks[0].snapshot_data["chunk_id"],
+                    len(chunks),
+                    chunks[0].snapshot_data["chunk_count"],
                 )
             )
             continue
@@ -167,16 +185,14 @@ def decompress_chunked_snapshot_data(
         # This pares down the data returned, so we're not passing around a massive object
         if return_only_activity_data:
             events_with_only_activity_data = [
-                {"timestamp": event.get("timestamp"), "is_active": is_active_event(event)}
-                for event in decompressed_data
+                {"timestamp": recording_event.get("timestamp"), "is_active": is_active_event(recording_event)}
+                for recording_event in decompressed_data
             ]
             snapshot_data_by_window_id[chunks[0].window_id].extend(events_with_only_activity_data)
 
         else:
             snapshot_data_by_window_id[chunks[0].window_id].extend(decompressed_data)
-    return DecompressedRecordingData(
-        has_next=paginated_chunk_list.has_next, snapshot_data_by_window_id=snapshot_data_by_window_id
-    )
+    return DecompressedRecordingData(has_next=has_next, snapshot_data_by_window_id=snapshot_data_by_window_id)
 
 
 def is_active_event(event: SnapshotData) -> bool:
@@ -205,20 +221,22 @@ def is_active_event(event: SnapshotData) -> bool:
 ACTIVITY_THRESHOLD_SECONDS = 60
 
 
-def get_active_segments_from_event_list(event_list, window_id) -> List[RecordingSegment]:
+def get_active_segments_from_event_list(
+    event_list: List[EventActivityData], window_id: WindowId, activity_threshold_seconds=ACTIVITY_THRESHOLD_SECONDS
+) -> List[RecordingSegment]:
     """
     Processes a list of events for a specific window_id to determine
     the segments of the recording where the user is "active". And active segment ends 
-    when there isn't another active event for ACTIVITY_THRESHOLD_SECONDS seconds
+    when there isn't another active event for activity_threshold_seconds seconds
     """
-    active_event_timestamps = [event.get("timestamp") for event in event_list if event.get("is_active")]
+    active_event_timestamps = [event.timestamp for event in event_list if event.is_active]
 
     active_recording_segments: List[RecordingSegment] = []
     current_active_segment: Optional[RecordingSegment] = None
     for current_timestamp in active_event_timestamps:
         # If the time since the last active event is less than the threshold, continue the existing segment
         if current_active_segment and (current_timestamp - current_active_segment.end_time) <= timedelta(
-            seconds=ACTIVITY_THRESHOLD_SECONDS
+            seconds=activity_threshold_seconds
         ):
             current_active_segment.end_time = current_timestamp
 
@@ -240,10 +258,10 @@ def get_active_segments_from_event_list(event_list, window_id) -> List[Recording
 
 
 def generate_inactive_segments_for_range(
-    segment_start_time: datetime,
-    segment_end_time: datetime,
-    start_window_id: Optional[str],
-    start_and_end_times_by_window_id: Dict[str, Dict],
+    range_start_time: datetime,
+    range_end_time: datetime,
+    start_window_id: WindowId,
+    start_and_end_times_by_window_id: Dict[WindowId, Dict],
     is_last_segment: bool = False,
 ) -> List[RecordingSegment]:
     """
@@ -258,26 +276,33 @@ def generate_inactive_segments_for_range(
 
     # Order of window_ids to use for generating inactive segments. Start with the window_id of the
     # last active segment, then try the other window_ids in order of start_time
-    window_id_priority_list = (
-        [start_window_id] + window_ids_by_start_time if start_window_id else window_ids_by_start_time
-    )
+    window_id_priority_list: List[WindowId] = [start_window_id] + window_ids_by_start_time
 
-    inactive_segments = []
-    current_time = segment_start_time
+    inactive_segments: List[RecordingSegment] = []
+    current_time = range_start_time
 
     for window_id in window_id_priority_list:
         window_start_time = start_and_end_times_by_window_id[window_id]["start_time"]
         window_end_time = start_and_end_times_by_window_id[window_id]["end_time"]
-        if window_end_time > current_time and current_time < segment_end_time:
+        if window_end_time > current_time and current_time < range_end_time:
             # Add/subtract a millisecond to make sure the segments don't exactly overlap
-            segment_start_time = max(window_start_time, current_time) + timedelta(milliseconds=1)
-            segment_end_time = min(segment_end_time, window_end_time) - timedelta(
-                milliseconds=0 if is_last_segment else 1
-            )
+            segment_start_time = max(window_start_time, current_time)
+            segment_end_time = min(window_end_time, range_end_time)
             inactive_segments.append(
                 RecordingSegment(
                     start_time=segment_start_time, end_time=segment_end_time, window_id=window_id, is_active=False,
                 )
             )
             current_time = min(segment_end_time, window_end_time)
+
+    # Ensure segments don't exactly overlap. This makes the corresponding player logic simpler
+    for index, segment in enumerate(inactive_segments):
+        if (index == 0 and segment.start_time == range_start_time) or (
+            index > 0 and segment.start_time == inactive_segments[index - 1].end_time
+        ):
+            segment.start_time = segment.start_time + timedelta(milliseconds=1)
+
+        if index == len(inactive_segments) - 1 and segment.end_time == range_end_time and not is_last_segment:
+            segment.end_time = segment.end_time - timedelta(milliseconds=1)
+
     return inactive_segments
