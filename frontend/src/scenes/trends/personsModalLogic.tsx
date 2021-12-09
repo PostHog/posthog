@@ -113,8 +113,11 @@ type LoadPeopleFromUrlProps = {
     action: ActionFilter | 'session'
     // Copied from `PersonsModalParams`, likely needed for diplay logic
     pathsDropoff?: boolean
+    // The y-axis value of the data point (i.e. count, unique persons, ...)
+    pointValue?: number
     // Contains the data set for all the points in the same x-axis point; allows switching between matching points
-    crossDataset?: DatasetType
+    crossDataset?: DatasetType[]
+    // The frontend ID that identifies this particular series (i.e. if breakdowns are applied, each breakdown value is its own series)
     seriesId: number
 }
 
@@ -125,6 +128,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         setCohortModalVisible: (visible: boolean) => ({ visible }),
         loadPeople: (peopleParams: PersonsModalParams) => ({ peopleParams }),
         loadPeopleFromUrl: (props: LoadPeopleFromUrlProps) => props,
+        switchToDataPoint: (seriesId: number) => ({ seriesId }), // Changes data point shown on PersonModal
         loadMorePeople: true,
         hidePeople: true,
         saveCohortWithFilters: (cohortName: string, filters: Partial<FilterType>) => ({ cohortName, filters }),
@@ -206,9 +210,10 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             },
         ],
         peopleParams: [
-            null as PersonsModalParams | null,
+            null as PersonsModalParams | LoadPeopleFromUrlProps | null,
             {
                 loadPeople: (_, { peopleParams }) => peopleParams,
+                loadPeopleFromUrl: (_, params) => params,
             },
         ],
     }),
@@ -312,7 +317,6 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     )
                 }
                 breakpoint()
-                console.log('called', crossDataset)
                 const peopleResult = {
                     people: actors?.results[0]?.people,
                     count: actors?.results[0]?.count || 0,
@@ -446,6 +450,27 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                 crossDataset,
                 seriesId,
             })
+        },
+        switchToDataPoint: async ({ seriesId }) => {
+            const data = values.people?.crossDataset?.find(({ seriesId: _id }) => _id === seriesId)
+
+            if (data && values.peopleParams) {
+                const params = {
+                    ...values.peopleParams,
+                    seriesId,
+                    breakdown_value: data.breakdown_value,
+                    action: data.action,
+                    pointValue: data.pointValue,
+                }
+                if (data.personUrl) {
+                    actions.loadPeopleFromUrl({
+                        ...params,
+                        url: data.personUrl,
+                    })
+                } else {
+                    actions.loadPeople(params)
+                }
+            }
         },
     }),
     actionToUrl: ({ values }) => ({

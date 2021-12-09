@@ -44,8 +44,14 @@ export function PersonsModal({
         peopleParams,
         actorLabel,
     } = useValues(personsModalLogic)
-    const { hidePeople, loadMorePeople, setFirstLoadedActors, setPersonsModalFilters, setSearchTerm } =
-        useActions(personsModalLogic)
+    const {
+        hidePeople,
+        loadMorePeople,
+        setFirstLoadedActors,
+        setPersonsModalFilters,
+        setSearchTerm,
+        switchToDataPoint,
+    } = useActions(personsModalLogic)
     const { preflight } = useValues(preflightLogic)
 
     const title = useMemo(
@@ -87,6 +93,7 @@ export function PersonsModal({
     const colorList = getChartColors('white')
     const showCountedByTag = !!people?.crossDataset?.find(({ action }) => action?.math && action.math !== 'total')
     const hasMultipleSeries = !!people?.crossDataset?.find(({ action }) => action?.order)
+
     return (
         <Modal
             title={title}
@@ -160,7 +167,7 @@ export function PersonsModal({
                         )}
                         {people.crossDataset && (
                             <div className="data-point-selector">
-                                <Select value={people.seriesId}>
+                                <Select value={people.seriesId} onChange={(seriesId) => switchToDataPoint(seriesId)}>
                                     {people.crossDataset.map((dataPoint) => (
                                         <Select.Option
                                             value={dataPoint.seriesId}

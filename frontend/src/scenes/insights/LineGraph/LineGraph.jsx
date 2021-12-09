@@ -407,13 +407,10 @@ export function LineGraph({
                         .map((_dt) => ({
                             seriesId: _dt.id,
                             action: _dt.action,
-                            // TODO
-                            // label:
-                            //     typeof point._index !== 'undefined' && _dt.labels
-                            //         ? _dt.labels[point._index]
-                            //         : undefined,
-                            day: typeof point._index !== 'undefined' && _dt.days ? _dt.days[point._index] : undefined,
+                            personUrl:
+                                typeof point._index !== 'undefined' ? _dt.persons_urls?.[point._index].url : undefined,
                             breakdown_value: _dt.breakdown_value,
+                            pointValue: typeof point._index !== 'undefined' ? _dt.data[point._index] : undefined,
                         }))
                     onClick({
                         point,

@@ -8,9 +8,9 @@ export interface TrendResponse {
 export interface DatasetType {
     seriesId: number
     action: ActionFilter
-    day: string
-    //TODO: label: string
+    personUrl?: string
     breakdown_value?: string
+    pointValue?: number // The y-axis value of the data point (i.e. count, unique persons, ...)
 }
 
 export interface IndexedTrendResult extends TrendResult {
