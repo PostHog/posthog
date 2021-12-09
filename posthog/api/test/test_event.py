@@ -13,7 +13,6 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
-from ee.clickhouse.test.test_journeys import journeys_for
 from posthog.constants import AnalyticsDBMS
 from posthog.models import (
     Action,
