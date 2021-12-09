@@ -23,7 +23,7 @@ describe('TeamManager()', () => {
 
     beforeEach(async () => {
         // TODO: #7422 remove experimental config
-        ;[hub, closeHub] = await createHub({ ...defaultConfig, EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED_TEAMS: '2,3' })
+        ;[hub, closeHub] = await createHub({ ...defaultConfig, EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: true })
         await resetTestDatabase()
         teamManager = hub.teamManager
     })
@@ -229,34 +229,6 @@ describe('TeamManager()', () => {
 
             expect(teamManager.eventLastSeenCache.size).toEqual(1)
             expect(teamManager.eventLastSeenCache.get(JSON.stringify([2, 'another_test_event']))).toEqual(1395617003000)
-        })
-
-        // TODO: #7422 temporary test
-        it('last_seen_at feature is enabled for certain teams only', async () => {
-            teamManager.lastFlushAt = DateTime.fromISO('2010-01-01T22:22:22.000Z') // a long time ago
-            await teamManager.updateEventNamesAndProperties(5, 'disabled-feature', {}, DateTime.now())
-
-            jest.spyOn(hub.db, 'postgresQuery')
-            jest.spyOn(teamManager, 'flushLastSeenAtCache')
-            await teamManager.updateEventNamesAndProperties(5, 'disabled-feature', {}, DateTime.now()) // Called twice to test both insert and update
-
-            // Only the `fetchTeam` call was sent to the DB (in this case because test team does not exist)
-            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1)
-            expect(hub.db.postgresQuery).toHaveBeenCalledWith(
-                'SELECT * FROM posthog_team WHERE id = $1',
-                [5],
-                'fetchTeam'
-            )
-
-            expect(teamManager.eventLastSeenCache.size).toBe(0)
-            expect(teamManager.flushLastSeenAtCache).toHaveBeenCalledTimes(0)
-
-            const eventDefinitions = await hub.db.fetchEventDefinitions()
-            for (const def of eventDefinitions) {
-                if (def.name === 'disabled-feature') {
-                    expect(def.last_seen_at).toBe(null)
-                }
-            }
         })
 
         // TODO: #7422 temporary test
