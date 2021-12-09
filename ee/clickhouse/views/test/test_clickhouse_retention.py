@@ -49,13 +49,16 @@ class RetentionTests(TestCase, ClickhouseTestMixin):
             ),
         )
 
-        retention_by_cohort_by_period = get_by_cohort_by_period_from_response(response=retention)
+        retention_by_cohort_by_period = get_by_cohort_by_period_for_response(client=self.client, response=retention)
 
         self.assertEqual(
             retention_by_cohort_by_period,
             {
-                "Day 0": {"1": 2, "2": 1,},  # ["person 1", "person 2"]  # ["person 1"]
-                "Day 1": {"1": 1},  # ["person 3"]
+                "Day 0": {
+                    "1": ["person 1", "person 2"],
+                    "2": ["person 1"],
+                },
+                "Day 1": {"1": ["person 3"]},
             },
         )
 
@@ -109,13 +112,16 @@ class RetentionTests(TestCase, ClickhouseTestMixin):
             ),
         )
 
-        retention_by_cohort_by_period = get_by_cohort_by_period_from_response(response=retention)
+        retention_by_cohort_by_period = get_by_cohort_by_period_for_response(client=self.client, response=retention)
 
         self.assertEqual(
             retention_by_cohort_by_period,
             {
-                "Chrome": {"1": 1, "2": 1},
-                "Safari": {"1": 1, "2": 1},  # IMPORTANT: the "2" value is from past the requested `date_to`
+                "Chrome": {"1": ["person 1"], "2": ["person 1"]},
+                "Safari": {
+                    "1": ["person 2"],
+                    "2": ["person 2"],
+                },  # IMPORTANT: the "2" value is from past the requested `date_to`
             },
         )
 
@@ -172,15 +178,15 @@ class RetentionTests(TestCase, ClickhouseTestMixin):
             ),
         )
 
-        retention_by_cohort_by_period = get_by_cohort_by_period_from_response(response=retention)
+        retention_by_cohort_by_period = get_by_cohort_by_period_for_response(client=self.client, response=retention)
 
-        self.assertEqual(
-            retention_by_cohort_by_period,
-            {
-                "Chrome": {"1": 1, "2": 1},
-                "Safari": {"1": 1, "2": 1},  # IMPORTANT: the "2" value is from past the requested `date_to`
-            },
-        )
+        assert retention_by_cohort_by_period == {
+            "Chrome": {"1": ["person 1"], "2": ["person 1"]},
+            "Safari": {
+                "1": ["person 2"],
+                "2": ["person 2"],
+            },  # IMPORTANT: the "2" value is from past the requested `date_to`
+        }
 
 
 def setup_user_activity_by_day(daily_activity, team):
@@ -228,6 +234,19 @@ class RetentionResponse(TypedDict):
     result: List[Cohort]
 
 
+class Person(TypedDict):
+    distinct_ids: List[str]
+
+
+class RetentionTableAppearance(TypedDict):
+    person: Person
+    appearances: List[int]
+
+
+class RetentionTablePeopleResponse(TypedDict):
+    result: List[RetentionTableAppearance]
+
+
 def get_retention_ok(client: Client, team_id: int, request: RetentionRequest) -> RetentionResponse:
     response = get_retention(client=client, team_id=team_id, request=request)
     assert response.status_code == 200, response.content
@@ -240,6 +259,54 @@ def get_retention(client: Client, team_id: int, request: RetentionRequest):
         # NOTE: for get requests we need to JSON encode non-scalars
         data=encode_get_request_params(asdict(request)),
     )
+
+
+def get_retention_table_people_from_url_ok(client: Client, people_url: str):
+    response = client.get(people_url)
+    assert response.status_code == 200
+    return response.json()
+
+
+def get_by_cohort_by_period_for_response(client: Client, response: RetentionResponse):
+    """
+    Helper that, given a retention response, will fetch all corresponding distinct ids
+    and return in the format:
+
+    ```
+        {
+            "<cohort-label>": {
+                "1": ["person 1", ...]
+                "2": [...]
+                ...
+            }
+            ...
+        }
+    ```
+    """
+
+    def create_cohort_period(people, period, value):
+        people_in_period = [
+            distinct_id
+            for person in people
+            for distinct_id in person["person"]["distinct_ids"]
+            if person["appearances"][period]
+        ]
+
+        # Check the count is the same as the people size. We don't handle any
+        # pagination so this could be wrong for large counts
+        assert value['count'] == len(people_in_period)
+
+        return people_in_period
+
+    def create_cohort_response(cohort):
+        people = get_retention_table_people_from_url_ok(client=client, people_url=cohort["people_url"])["result"]
+
+        return {
+            f"{period + 1}": create_cohort_period(people, period, value)
+            for period, value in enumerate(cohort["values"])
+        }
+
+    return {cohort["label"]: create_cohort_response(cohort) for cohort in response["result"]}
 
 
 def get_by_cohort_by_period_from_response(response: RetentionResponse):

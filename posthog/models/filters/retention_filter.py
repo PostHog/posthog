@@ -1,4 +1,5 @@
-from typing import Any, Dict, Optional
+import json
+from typing import Any, Dict, List, Optional
 
 from rest_framework.request import Request
 
@@ -16,6 +17,7 @@ from posthog.models.filters.mixins.groups import GroupsAggregationMixin
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.mixins.retention import EntitiesDerivedMixin, RetentionDateDerivedMixin, RetentionTypeMixin
 from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
+from posthog.models.filters.mixins.utils import cached_property, include_dict
 
 RETENTION_DEFAULT_INTERVALS = 11
 
@@ -39,3 +41,16 @@ class RetentionFilter(
     def __init__(self, data: Dict[str, Any] = {}, request: Optional[Request] = None, **kwargs) -> None:
         data["insight"] = INSIGHT_RETENTION
         super().__init__(data, request, **kwargs)
+
+
+class RetentionPeopleRequest(RetentionFilter):
+    @cached_property
+    def breakdown_values(self) -> List[str]:
+        raw_value = self._data.get("breakdown_values", None)
+        if isinstance(raw_value, str):
+            return json.loads(raw_value)
+        return list(raw_value) if raw_value else None
+
+    @include_dict
+    def breakdown_values_to_dict(self):
+        return {"breakdown_values": self.breakdown_values} if self.breakdown_values else {}

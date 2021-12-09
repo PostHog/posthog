@@ -1,4 +1,8 @@
-from typing import Any, Dict, List, NamedTuple, Tuple, cast
+from dataclasses import dataclass
+from itertools import groupby
+from typing import Any, Dict, List, Literal, NamedTuple, Optional, Tuple, cast
+
+from urllib.parse import urlencode
 
 from django.db.models.query import Prefetch
 
@@ -17,10 +21,10 @@ from ee.clickhouse.sql.retention.people_in_period import (
     RETENTION_PEOPLE_PER_PERIOD_SQL,
 )
 from ee.clickhouse.sql.retention.retention import (
-    INITIAL_BREAKDOWN_INTERVAL_SQL,
     INITIAL_INTERVAL_SQL,
     REFERENCE_EVENT_SQL,
     REFERENCE_EVENT_UNIQUE_SQL,
+    RETENTION_BREAKDOWN_ACTOR_SQL,
     RETENTION_BREAKDOWN_SQL,
     RETENTION_PEOPLE_SQL,
     RETENTION_SQL,
@@ -35,6 +39,7 @@ from posthog.constants import (
 from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filters import RetentionFilter
+from posthog.models.filters.retention_filter import RetentionPeopleRequest
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.queries.retention import AppearanceRow, Retention
@@ -43,7 +48,11 @@ CohortKey = NamedTuple("CohortKey", (("breakdown_values", Tuple[str]), ("period"
 
 
 class ClickhouseRetention(Retention):
-    def _get_retention_by_cohort(self, filter: RetentionFilter, team: Team,) -> Dict[Tuple[int, int], Dict[str, Any]]:
+    def _get_retention_by_cohort(
+        self,
+        filter: RetentionFilter,
+        team: Team,
+    ) -> Dict[Tuple[int, int], Dict[str, Any]]:
         period = filter.period
         is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
         date_from = filter.date_from
@@ -80,7 +89,11 @@ class ClickhouseRetention(Retention):
         )
 
         initial_interval_result = sync_execute(
-            INITIAL_INTERVAL_SQL.format(reference_event_sql=target_event_query, trunc_func=trunc_func,), all_params,
+            INITIAL_INTERVAL_SQL.format(
+                reference_event_sql=target_event_query,
+                trunc_func=trunc_func,
+            ),
+            all_params,
         )
 
         result_dict = {}
@@ -93,68 +106,22 @@ class ClickhouseRetention(Retention):
         return result_dict
 
     def _get_retention_by_breakdown_values(
-        self, filter: RetentionFilter, team: Team,
+        self,
+        filter: RetentionFilter,
+        team: Team,
     ) -> Dict[CohortKey, Dict[str, Any]]:
-        period = filter.period
-        is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
-        date_from = filter.date_from
-        trunc_func = get_trunc_func_ch(period)
-
-        returning_event_query_templated, returning_event_params = RetentionEventsQuery(
-            filter=filter.with_data({"breakdowns": []}),  # Avoid pulling in breakdown values from reterning event query
-            team_id=team.pk,
-            event_query_type=RetentionQueryType.RETURNING,
-        ).get_query()
-
-        returning_event_query = substitute_params(returning_event_query_templated, returning_event_params)
-
-        target_event_query_templated, target_event_params = RetentionEventsQuery(
-            filter=filter,
-            team_id=team.pk,
-            event_query_type=(
-                RetentionQueryType.TARGET_FIRST_TIME if is_first_time_retention else RetentionQueryType.TARGET
-            ),
-        ).get_query()
-
-        target_event_query = substitute_params(target_event_query_templated, target_event_params)
-
-        all_params = {
-            "team_id": team.pk,
-            "start_date": date_from.strftime(
-                "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
-            ),
-            "total_intervals": filter.total_intervals,
-            "period": period.lower(),
-            "breakdown_by": filter.breakdown,
-        }
+        actor_query = build_actor_query(filter=filter, team=team)
 
         result = sync_execute(
-            substitute_params(RETENTION_BREAKDOWN_SQL, all_params).format(
-                returning_event_query=returning_event_query,
-                trunc_func=trunc_func,
-                target_event_query=target_event_query,
-                GET_TEAM_PERSON_DISTINCT_IDS=substitute_params(GET_TEAM_PERSON_DISTINCT_IDS, {"team_id": team.pk}),
+            RETENTION_BREAKDOWN_SQL.format(
+                actor_query=actor_query,
             )
         )
 
-        result = [(tuple(res[0]), *res[1:]) for res in result]  # make breakdown hashable, required later
-
-        initial_interval_result = sync_execute(
-            substitute_params(INITIAL_BREAKDOWN_INTERVAL_SQL, all_params).format(
-                reference_event_sql=target_event_query, trunc_func=trunc_func,
-            ),
-        )
-
-        initial_interval_result = [
-            (tuple(res[0]), *res[1:]) for res in initial_interval_result
-        ]  # make breakdown hashable, required later
-
-        result_dict = {}
-        for initial_res in initial_interval_result:
-            result_dict.update({CohortKey(initial_res[0], 0): {"count": initial_res[1], "people": []}})
-
-        for res in result:
-            result_dict.update({CohortKey(res[0], res[1]): {"count": res[2], "people": []}})
+        result_dict = {
+            CohortKey(tuple(breakdown_values), intervals_from_base): {"count": count, "people": []}
+            for (breakdown_values, intervals_from_base, count) in result
+        }
 
         return result_dict
 
@@ -175,7 +142,9 @@ class ClickhouseRetention(Retention):
             return self.process_table_result(retention_by_cohort, filter)
 
     def process_breakdown_table_result(
-        self, resultset: Dict[CohortKey, Dict[str, Any]], filter: RetentionFilter,
+        self,
+        resultset: Dict[CohortKey, Dict[str, Any]],
+        filter: RetentionFilter,
     ):
         result = [
             {
@@ -185,6 +154,10 @@ class ClickhouseRetention(Retention):
                 ],
                 "label": "::".join(breakdown_values),
                 "breakdown_values": breakdown_values,
+                "people_url": (
+                    "/api/person/retention/?"
+                    f"{urlencode(RetentionPeopleRequest({**filter._data, 'display': 'ActionsTable', 'breakdown_values': breakdown_values}).to_params())}"
+                ),
             }
             for breakdown_values in set(
                 cohort_key.breakdown_values for cohort_key in cast(Dict[CohortKey, Dict[str, Any]], resultset).keys()
@@ -262,78 +235,86 @@ class ClickhouseRetention(Retention):
 
         return PersonSerializer(people, many=True).data
 
-    def _retrieve_people_in_period(self, filter: RetentionFilter, team: Team):
-        period = filter.period
-        is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
-        trunc_func = get_trunc_func_ch(period)
-        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties)
+    def _retrieve_people_in_period(self, filter: RetentionPeopleRequest, team: Team):
+        if filter.breakdown_values:
+            people_appearances = get_people_appearances(filter=filter, team=team)
+            people = get_persons_by_uuids(
+                team_id=team.pk, uuids=[people_appearance.person_id for people_appearance in people_appearances]
+            )
 
-        target_query, target_params = self._get_condition(filter.target_entity, table="e")
-        target_query_formatted = "AND {target_query}".format(target_query=target_query)
-        return_query, return_params = self._get_condition(filter.returning_entity, table="e", prepend="returning")
-        return_query_formatted = "AND {return_query}".format(return_query=return_query)
+        else:
+            period = filter.period
+            is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
+            trunc_func = get_trunc_func_ch(period)
+            prop_filters, prop_filter_params = parse_prop_clauses(filter.properties)
 
-        first_event_sql = (
-            REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL
-            if is_first_time_retention
-            else REFERENCE_EVENT_PEOPLE_PER_PERIOD_SQL
-        ).format(
-            target_query=target_query_formatted,
-            filters=prop_filters,
-            trunc_func=trunc_func,
-            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-        )
-        default_event_query = (
-            DEFAULT_REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL
-            if is_first_time_retention
-            else DEFAULT_REFERENCE_EVENT_PEOPLE_PER_PERIOD_SQL
-        ).format(
-            target_query=target_query_formatted,
-            filters=prop_filters,
-            trunc_func=trunc_func,
-            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-        )
+            target_query, target_params = self._get_condition(filter.target_entity, table="e")
+            target_query_formatted = "AND {target_query}".format(target_query=target_query)
+            return_query, return_params = self._get_condition(filter.returning_entity, table="e", prepend="returning")
+            return_query_formatted = "AND {return_query}".format(return_query=return_query)
 
-        date_from = filter.date_from + filter.selected_interval * filter.period_increment
-        date_to = filter.date_to
-
-        filter = filter.with_data({"total_intervals": filter.total_intervals - filter.selected_interval})
-
-        # NOTE: I'm using `Any` here to avoid typing issues when trying to iterate.
-        query_result: Any = sync_execute(
-            RETENTION_PEOPLE_PER_PERIOD_SQL.format(
-                returning_query=return_query_formatted,
+            first_event_sql = (
+                REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL
+                if is_first_time_retention
+                else REFERENCE_EVENT_PEOPLE_PER_PERIOD_SQL
+            ).format(
+                target_query=target_query_formatted,
                 filters=prop_filters,
-                first_event_sql=first_event_sql,
-                first_event_default_sql=default_event_query,
                 trunc_func=trunc_func,
                 GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-            ),
-            {
-                "team_id": team.pk,
-                "start_date": date_from.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
-                ),
-                "end_date": date_to.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
-                ),
-                "offset": filter.offset,
-                "limit": 100,
-                "period": period,
-                **target_params,
-                **return_params,
-                **prop_filter_params,
-            },
-        )
+            )
+            default_event_query = (
+                DEFAULT_REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL
+                if is_first_time_retention
+                else DEFAULT_REFERENCE_EVENT_PEOPLE_PER_PERIOD_SQL
+            ).format(
+                target_query=target_query_formatted,
+                filters=prop_filters,
+                trunc_func=trunc_func,
+                GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
+            )
 
-        people_appearances = [
-            AppearanceRow(person_id=row[0], appearance_count=row[1], appearances=row[2]) for row in query_result
-        ]
+            date_from = filter.date_from + filter.selected_interval * filter.period_increment
+            date_to = filter.date_to
+
+            filter = filter.with_data({"total_intervals": filter.total_intervals - filter.selected_interval})
+
+            # NOTE: I'm using `Any` here to avoid typing issues when trying to iterate.
+            query_result: Any = sync_execute(
+                RETENTION_PEOPLE_PER_PERIOD_SQL.format(
+                    returning_query=return_query_formatted,
+                    filters=prop_filters,
+                    first_event_sql=first_event_sql,
+                    first_event_default_sql=default_event_query,
+                    trunc_func=trunc_func,
+                    GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
+                ),
+                {
+                    "team_id": team.pk,
+                    "start_date": date_from.strftime(
+                        "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+                    ),
+                    "end_date": date_to.strftime(
+                        "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+                    ),
+                    "offset": filter.offset,
+                    "limit": 100,
+                    "period": period,
+                    **target_params,
+                    **return_params,
+                    **prop_filter_params,
+                },
+            )
+
+            people_appearances = [
+                AppearanceRow(person_id=row[0], appearance_count=row[1], appearances=row[2]) for row in query_result
+            ]
+
+            people = get_persons_by_uuids(team_id=team.pk, uuids=[val[0] for val in query_result])
+
+        people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
 
         from posthog.api.person import PersonSerializer
-
-        people = get_persons_by_uuids(team_id=team.pk, uuids=[val[0] for val in query_result])
-        people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
 
         people_dict = {str(person.uuid): PersonSerializer(person).data for person in people}
 
@@ -341,3 +322,74 @@ class ClickhouseRetention(Retention):
             filter=filter, people_appearances=people_appearances, people_dict=people_dict
         )
         return result
+
+
+def build_actor_query(filter: RetentionFilter, team: Team, filter_by_breakdown: Optional[List[str]] = None) -> str:
+    period = filter.period
+    is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
+    date_from = filter.date_from
+
+    returning_event_query_templated, returning_event_params = RetentionEventsQuery(
+        filter=filter.with_data({"breakdowns": []}),  # Avoid pulling in breakdown values from reterning event query
+        team_id=team.pk,
+        event_query_type=RetentionQueryType.RETURNING,
+    ).get_query()
+
+    returning_event_query = substitute_params(returning_event_query_templated, returning_event_params)
+
+    target_event_query_templated, target_event_params = RetentionEventsQuery(
+        filter=filter,
+        team_id=team.pk,
+        event_query_type=(
+            RetentionQueryType.TARGET_FIRST_TIME if is_first_time_retention else RetentionQueryType.TARGET
+        ),
+    ).get_query()
+
+    target_event_query = substitute_params(target_event_query_templated, target_event_params)
+
+    all_params = {
+        "team_id": team.pk,
+        "start_date": date_from.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")),
+        "total_intervals": filter.total_intervals,
+        "period": period.lower(),
+        "breakdown_by": filter.breakdown,
+        "breakdown_values": list(filter_by_breakdown) if filter_by_breakdown else None,
+    }
+
+    return substitute_params(RETENTION_BREAKDOWN_ACTOR_SQL, all_params).format(
+        returning_event_query=returning_event_query,
+        target_event_query=target_event_query,
+    )
+
+
+@dataclass
+class ActorActivityRow:
+    breakdown_values: List[str]
+    intervals_from_base: int
+    person_id: str
+
+
+def get_people_appearances(filter: RetentionPeopleRequest, team: Team) -> List[AppearanceRow]:
+    actor_query = build_actor_query(filter=filter, team=team, filter_by_breakdown=filter.breakdown_values)
+    person_activities = [
+        ActorActivityRow(person_id=str(row[2]), breakdown_values=row[0], intervals_from_base=row[1])
+        for row in sync_execute(actor_query)
+    ]
+
+    def build_appearance_row(person_id, person_activities):       
+        appearances = [person_activity.intervals_from_base for person_activity in person_activities] 
+        return AppearanceRow(
+            person_id=person_id,
+            appearance_count=len(appearances),
+            appearances=appearances,
+        )
+
+    def sort_key(person_activity): 
+        return person_activity.person_id
+
+    return [
+        build_appearance_row(person_id=person_id, person_activities=person_activities)
+        for (person_id, person_activities) in groupby(
+            sorted(person_activities, key=sort_key), key=sort_key
+        )
+    ]

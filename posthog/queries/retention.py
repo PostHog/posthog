@@ -16,6 +16,7 @@ from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, T
 from posthog.models import Event, Filter, Team
 from posthog.models.entity import Entity
 from posthog.models.filters import RetentionFilter
+from posthog.models.filters.retention_filter import RetentionPeopleRequest
 from posthog.models.person import Person
 from posthog.models.utils import namedtuplefetchall
 from posthog.queries.base import BaseQuery, properties_to_Q
@@ -38,7 +39,9 @@ class Retention(BaseQuery):
         self._base_uri = base_uri
 
     def process_table_result(
-        self, resultset: Dict[Tuple[int, int], Dict[str, Any]], filter: RetentionFilter,
+        self,
+        resultset: Dict[Tuple[int, int], Dict[str, Any]],
+        filter: RetentionFilter,
     ):
 
         result = [
@@ -49,6 +52,10 @@ class Retention(BaseQuery):
                 ],
                 "label": "{} {}".format(filter.period, first_day),
                 "date": (filter.date_from + RetentionFilter.determine_time_delta(first_day, filter.period)[0]),
+                "people_url": (
+                    "/api/person/retention/?"
+                    f"{urlencode(filter.with_data({'display': 'ActionsTable', 'selected_interval': first_day}).to_params())}"
+                ),
             }
             for first_day in range(filter.total_intervals)
         ]
@@ -56,7 +63,9 @@ class Retention(BaseQuery):
         return result
 
     def process_graph_result(
-        self, resultset: Dict[Tuple[int, int], Dict[str, Any]], filter: RetentionFilter,
+        self,
+        resultset: Dict[Tuple[int, int], Dict[str, Any]],
+        filter: RetentionFilter,
     ):
         labels = []
         data = []
@@ -162,7 +171,11 @@ class Retention(BaseQuery):
             start_params + events_query_params + first_date_params + event_params,
         )
 
-    def _execute_sql(self, filter: RetentionFilter, team: Team,) -> Dict[Tuple[int, int], Dict[str, Any]]:
+    def _execute_sql(
+        self,
+        filter: RetentionFilter,
+        team: Team,
+    ) -> Dict[Tuple[int, int], Dict[str, Any]]:
         format_fields, params = self._determine_query_params(filter, team)
 
         final_query = """
@@ -240,14 +253,23 @@ class Retention(BaseQuery):
         filtered_events = (
             filtered_events.filter(_entity_condition)
             .filter(
-                Exists(Person.objects.filter(**{"id": OuterRef("person_id"),}).filter(Exists(inner_events)).only("id"))
+                Exists(
+                    Person.objects.filter(
+                        **{
+                            "id": OuterRef("person_id"),
+                        }
+                    )
+                    .filter(Exists(inner_events))
+                    .only("id")
+                )
             )
             .values("person_id")
             .distinct()
         ).all()
 
         people = Person.objects.filter(
-            team=team, id__in=[p["person_id"] for p in filtered_events[filter.offset : filter.offset + 100]],
+            team=team,
+            id__in=[p["person_id"] for p in filtered_events[filter.offset : filter.offset + 100]],
         )
 
         people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
@@ -256,11 +278,11 @@ class Retention(BaseQuery):
 
         return PersonSerializer(people, many=True).data
 
-    def people_in_period(self, filter: RetentionFilter, team: Team, *args, **kwargs):
+    def people_in_period(self, filter: RetentionPeopleRequest, team: Team, *args, **kwargs):
         results = self._retrieve_people_in_period(filter, team)
         return results
 
-    def _retrieve_people_in_period(self, filter: RetentionFilter, team: Team):
+    def _retrieve_people_in_period(self, filter: RetentionPeopleRequest, team: Team):
         filter = filter.with_data({"total_intervals": filter.total_intervals - filter.selected_interval})
 
         format_fields, params = self._determine_query_params(filter, team)
@@ -289,7 +311,8 @@ class Retention(BaseQuery):
 
         with connection.cursor() as cursor:
             cursor.execute(
-                final_query, params + (100, filter.offset),
+                final_query,
+                params + (100, filter.offset),
             )
             raw_results = cursor.fetchall()
 
