@@ -17,7 +17,6 @@ export const experimentLogic = kea<experimentLogicType>({
     actions: {
         setExperiment: (experiment: Experiment) => ({ experiment }),
         createExperiment: (draft?: boolean) => ({ draft }),
-        setFunnelProps: (funnelProps: any) => ({ funnelProps }),
         setExperimentFunnel: (funnel: DashboardItemType) => ({ funnel }),
         createNewExperimentFunnel: true,
         setFilters: (filters) => ({ filters }),
@@ -47,12 +46,6 @@ export const experimentLogic = kea<experimentLogicType>({
             null as DashboardItemType | null,
             {
                 setExperimentFunnel: (_, { funnel }) => funnel,
-            },
-        ],
-        funnelProps: [
-            { dashboardItemId: undefined, syncWithUrl: false, filters: {}, result: [] },
-            {
-                setFunnelProps: (_, { funnelProps }) => funnelProps,
             },
         ],
     },
