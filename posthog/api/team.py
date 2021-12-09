@@ -9,6 +9,7 @@ from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Organization, Team
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_project
@@ -41,6 +42,7 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
 
 class TeamSerializer(serializers.ModelSerializer):
     effective_membership_level = serializers.SerializerMethodField()
+    has_group_types = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
@@ -67,6 +69,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "session_recording_retention_period_days",
             "effective_membership_level",
             "access_control",
+            "has_group_types",
         )
         read_only_fields = (
             "id",
@@ -78,10 +81,14 @@ class TeamSerializer(serializers.ModelSerializer):
             "updated_at",
             "ingested_event",
             "effective_membership_level",
+            "has_group_types",
         )
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
         return team.get_effective_membership_level(self.context["request"].user)
+
+    def get_has_group_types(self, team: Team) -> bool:
+        return GroupTypeMapping.objects.filter(team=team).exists()
 
     def validate(self, attrs: Any) -> Any:
         if "access_control" in attrs:

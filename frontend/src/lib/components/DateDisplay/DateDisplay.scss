@@ -8,3 +8,14 @@
     border-radius: $radius;
     white-space: nowrap;
 }
+
+.date-display-dates {
+    white-space: nowrap;
+    font-size: 13px;
+
+    .secondary-date {
+        margin-left: 2px;
+        color: $text_muted_alt;
+        font-weight: normal;
+    }
+}

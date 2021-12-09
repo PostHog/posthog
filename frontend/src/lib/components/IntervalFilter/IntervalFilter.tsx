@@ -30,7 +30,7 @@ export function IntervalFilter({ view, disabled }: InvertalFilterProps): JSX.Ele
     }))
     return (
         <Select
-            bordered={false}
+            bordered
             disabled={disabled}
             defaultValue={interval || 'day'}
             value={interval || undefined}

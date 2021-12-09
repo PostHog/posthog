@@ -10,6 +10,8 @@ import { LemonTable } from 'lib/components/LemonTable'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
+import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
+import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 
 export const scene: SceneExport = {
     component: Groups,
@@ -19,6 +21,20 @@ export const scene: SceneExport = {
 export function Groups(): JSX.Element {
     const { groups, groupsLoading } = useValues(groupsListLogic)
     const { loadGroups } = useActions(groupsListLogic)
+    const { groupsAccessStatus } = useValues(groupsAccessLogic)
+
+    if (
+        groupsAccessStatus == GroupsAccessStatus.HasAccess ||
+        groupsAccessStatus == GroupsAccessStatus.HasGroupTypes ||
+        groupsAccessStatus == GroupsAccessStatus.NoAccess
+    ) {
+        return (
+            <>
+                <PersonPageHeader />
+                <GroupsIntroduction access={groupsAccessStatus} />
+            </>
+        )
+    }
 
     const columns: LemonTableColumns<Group> = [
         {

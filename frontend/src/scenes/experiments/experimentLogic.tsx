@@ -9,6 +9,7 @@ import { Experiment, InsightType } from '~/types'
 import { DashboardItemType } from '~/types'
 
 import { experimentLogicType } from './experimentLogicType'
+
 export const experimentLogic = kea<experimentLogicType>({
     path: ['scenes', 'experiment', 'experimentLogic'],
     connect: { values: [teamLogic, ['currentTeamId']] },
@@ -19,12 +20,20 @@ export const experimentLogic = kea<experimentLogicType>({
         setExperimentFunnel: (funnel: DashboardItemType) => ({ funnel }),
         createNewExperimentFunnel: true,
         setFilters: (filters) => ({ filters }),
+        setExperimentId: (experimentId: number | 'new') => ({ experimentId }),
+        setNewExperimentData: (experimentData: Experiment) => ({ experimentData }),
     },
     reducers: {
-        experiment: [
+        experimentId: [
+            null as number | 'new' | null,
+            {
+                setExperimentId: (_, { experimentId }) => experimentId,
+            },
+        ],
+        newExperimentData: [
             null as Experiment | null,
             {
-                setExperiment: (_, { experiment }) => experiment,
+                setNewExperimentData: (_, { experimentData }) => experimentData,
             },
         ],
         experimentFunnel: [
@@ -43,7 +52,7 @@ export const experimentLogic = kea<experimentLogicType>({
     listeners: ({ values, actions }) => ({
         createExperiment: async ({ draft }) => {
             await api.create(`api/projects/${values.currentTeamId}/experiments`, {
-                ...values.experiment,
+                ...values.newExperimentData,
                 ...(draft && { start_date: dayjs() }),
             })
         },
@@ -63,6 +72,40 @@ export const experimentLogic = kea<experimentLogicType>({
         },
         setFilters: ({ filters }) => {
             funnelLogic.findMounted({ dashboardItemId: values.experimentFunnel?.short_id })?.actions.setFilters(filters)
+        }
+    }),
+    loaders: ({ values }) => ({
+        experimentData: [
+            null as Experiment | null,
+            {
+                loadExperiment: async () => {
+                    if (values.experimentId && values.experimentId !== 'new') {
+                        const response = await api.get(
+                            `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`
+                        )
+                        console.log(response)
+                        return response as Experiment
+                    }
+                    return null
+                },
+            },
+        ],
+    }),
+    urlToAction: ({ actions, values }) => ({
+        '/experiments/:id': ({ id }) => {
+            console.log('exp id: ', id)
+            if (id) {
+                const parsedId = id === 'new' ? 'new' : parseInt(id)
+                // TODO: optimise loading if already loaded Experiment
+                // like in featureFlagLogic.tsx
+                if (parsedId !== values.experimentId) {
+                    actions.setExperimentId(parsedId)
+                }
+
+                if (parsedId !== 'new') {
+                    actions.loadExperiment()
+                }
+            }
         },
     }),
 })
