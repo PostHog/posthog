@@ -4,20 +4,19 @@ import { teamLogic } from 'scenes/teamLogic'
 import { Experiment } from '~/types'
 
 import { experimentLogicType } from './experimentLogicType'
-import { experimentsLogic } from './experimentsLogic'
 
 export const experimentLogic = kea<experimentLogicType>({
     path: ['scenes', 'experiment', 'experimentLogic'],
     connect: { values: [teamLogic, ['currentTeamId']] },
     actions: {
-        setExperimentId: (experimentId: string) => ({ experimentId }),
+        setExperimentId: (experimentId: number | 'new') => ({ experimentId }),
         setNewExperimentData: (experimentData: Experiment) => ({ experimentData }),
         createDraftExperiment: true,
         createExperiment: true,
     },
     reducers: {
         experimentId: [
-            null as string | null,
+            null as number | 'new' | null,
             {
                 setExperimentId: (_, { experimentId }) => experimentId,
             },
@@ -39,11 +38,14 @@ export const experimentLogic = kea<experimentLogicType>({
             null as Experiment | null,
             {
                 loadExperiment: async () => {
-                    const { data } = await api.get(
-                        `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`
-                    )
-                    console.log(data)
-                    return data
+                    if (values.experimentId && values.experimentId !== 'new') {
+                        const response = await api.get(
+                            `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`
+                        )
+                        console.log(response)
+                        return response as Experiment
+                    }
+                    return null
                 },
             },
         ],
@@ -51,20 +53,15 @@ export const experimentLogic = kea<experimentLogicType>({
     urlToAction: ({ actions, values }) => ({
         '/experiments/:id': ({ id }) => {
             console.log('exp id: ', id)
-            if (id && id !== values.experimentData?.id) {
+            if (id) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
-                actions.setExperimentId(id)
-
-                const foundExperiment = experimentsLogic
-                    .findMounted()
-                    ?.values.experiments.find((experiment) => experiment.id === parsedId)
-                if (foundExperiment) {
-                    actions.setExperimentId(id)
-                } else {
-                    actions.setExperimentId('new')
+                // TODO: optimise loading if already loaded Experiment
+                // like in featureFlagLogic.tsx
+                if (parsedId !== values.experimentId) {
+                    actions.setExperimentId(parsedId)
                 }
 
-                if (id !== 'new') {
+                if (parsedId !== 'new') {
                     actions.loadExperiment()
                 }
             }

@@ -51,6 +51,10 @@ class ExperimentSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
+
+        if not validated_data.get("filters"):
+            raise ValidationError("Filters are required to create an Experiment")
+
         request = self.context["request"]
         validated_data["created_by"] = request.user
         team = Team.objects.get(id=self.context["team_id"])

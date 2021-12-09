@@ -1,10 +1,9 @@
-import { Button } from 'antd'
 import { PageHeader } from 'lib/components/PageHeader'
 import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { experimentsLogic } from './experimentsLogic'
 import { PlusOutlined } from '@ant-design/icons'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '../../lib/components/LemonTable'
 import { createdAtColumn, createdByColumn } from '../../lib/components/LemonTable/columnUtils'
 import { Experiment } from '~/types'
@@ -13,18 +12,14 @@ import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { Link } from 'lib/components/Link'
 import { TZLabel } from 'lib/components/TimezoneAware'
+import { LinkButton } from 'lib/components/LinkButton'
 
 export const scene: SceneExport = {
     component: Experiments,
     logic: experimentsLogic,
 }
 
-const NEW_EXPERIMENT = {
-    id: 'new',
-}
-
 export function Experiments(): JSX.Element {
-    const { setOpenExperiment } = useActions(experimentsLogic)
     const { experiments, experimentsLoading } = useValues(experimentsLogic)
 
     const columns: LemonTableColumns<Experiment> = [
@@ -67,14 +62,14 @@ export function Experiments(): JSX.Element {
         <div>
             <PageHeader title="Experiments" caption="Experiments" />
             <div className="mb float-right">
-                <Button
+                <LinkButton
                     type="primary"
                     data-attr="create-experiment"
-                    onClick={() => setOpenExperiment(NEW_EXPERIMENT)}
+                    to={urls.experiment('new')}
                     icon={<PlusOutlined />}
                 >
                     New Experiment
-                </Button>
+                </LinkButton>
             </div>
             <LemonTable
                 dataSource={experiments}

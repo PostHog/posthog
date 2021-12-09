@@ -40,7 +40,7 @@ export function Experiment(): JSX.Element {
                         <Form.Item label="Name" name="name">
                             <Input data-attr="experiment-name" className="ph-ignore-input" />
                         </Form.Item>
-                        <Form.Item label="Feature flag key" name="feature-flag">
+                        <Form.Item label="Feature flag key" name="feature_flag_key">
                             <Input data-attr="experiment-feature-flag-key" />
                         </Form.Item>
                         <Form.Item label="Description" name="description">
@@ -95,7 +95,7 @@ export function Experiment(): JSX.Element {
                             <PageHeader title={newExperimentData.name} />
                             <div>{newExperimentData?.description}</div>
                             <div>Owner: {user?.first_name}</div>
-                            <div>Feature flag key: {newExperimentData?.feature_flag}</div>
+                            <div>Feature flag key: {newExperimentData?.feature_flag_key}</div>
                             <Row>
                                 <Col>
                                     <Row>Person allocation</Row>
@@ -123,7 +123,16 @@ export function Experiment(): JSX.Element {
                 </Carousel>
             </Form>
         </>
+    ) : experimentData ? (
+        <>
+            <div>
+                <PageHeader title={experimentData.name} />
+                <div>{experimentData?.description}</div>
+                <div>Owner: {experimentData.created_by?.first_name}</div>
+                <div>Feature flag key: {experimentData?.feature_flag_key}</div>
+            </div>
+        </>
     ) : (
-        <>Experiment Details: {experimentData}</>
+        <div>Loading...</div>
     )
 }
