@@ -128,6 +128,7 @@ jobs:
               uses: cypress-io/github-action@v2
               with:
                   config-file: cypress.e2e.json
+                  config: retries=2
                   record: true
                   parallel: ${{github.event.pull_request.head.repo.full_name == github.repository}}
                   group: 'PostHog Frontend'
