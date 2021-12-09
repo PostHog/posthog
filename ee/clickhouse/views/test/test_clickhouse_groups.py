@@ -19,15 +19,17 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     def test_groups_list(self):
-        create_group(
-            team_id=self.team.pk,
-            group_type_index=0,
-            group_key="org:5",
-            properties={"industry": "finance", "name": "Mr. Krabs"},
-        )
-        create_group(
-            team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"},
-        )
+        with freeze_time("2021-05-01"):
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="org:5",
+                properties={"industry": "finance", "name": "Mr. Krabs"},
+            )
+        with freeze_time("2021-05-02"):
+            create_group(
+                team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"},
+            )
         create_group(
             team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={"name": "Plankton"},
         )
@@ -41,14 +43,14 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                 "results": [
                     {
                         "created_at": "2021-05-02T00:00:00Z",
-                        "group_key": "org:5",
-                        "group_properties": {"industry": "finance", "name": "Mr. Krabs"},
+                        "group_key": "org:6",
+                        "group_properties": {"industry": "technology"},
                         "group_type_index": 0,
                     },
                     {
-                        "created_at": "2021-05-02T00:00:00Z",
-                        "group_key": "org:6",
-                        "group_properties": {"industry": "technology"},
+                        "created_at": "2021-05-01T00:00:00Z",
+                        "group_key": "org:5",
+                        "group_properties": {"industry": "finance", "name": "Mr. Krabs"},
                         "group_type_index": 0,
                     },
                 ],
