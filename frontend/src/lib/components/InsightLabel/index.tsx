@@ -37,6 +37,7 @@ interface InsightsLabelProps {
     useCustomName?: boolean // Whether to show new custom name. `{custom_name} ({id})`.
     hideSeriesSubtitle?: boolean // Whether to show the base event/action name (if a custom name is set) in the insight label
     onLabelClick?: () => void // Click handler for inner label
+    swapTitleAndSubtitle?: boolean // If true, emphases on subtitle and title are switched.
 }
 
 interface MathTagProps {
@@ -94,6 +95,7 @@ export function InsightLabel({
     useCustomName = false,
     hideSeriesSubtitle,
     onLabelClick,
+    swapTitleAndSubtitle = false,
 }: InsightsLabelProps): JSX.Element {
     const showEventName = !breakdownValue || (hasMultipleSeries && !Array.isArray(breakdownValue))
     const eventName = seriesStatus ? capitalizeFirstLetter(seriesStatus) : action?.name || fallbackName || ''
@@ -131,6 +133,7 @@ export function InsightLabel({
                                     filter={action}
                                     showSubTitle={!hideSeriesSubtitle}
                                     subTitles={[compareValue, ...[breakdownValue].flat()]}
+                                    swapTitleAndSubtitle={swapTitleAndSubtitle}
                                 />
                             ) : (
                                 <PropertyKeyInfo disableIcon disablePopover value={eventName} ellipsis={!allowWrap} />

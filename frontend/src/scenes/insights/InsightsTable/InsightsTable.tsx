@@ -187,30 +187,19 @@ export function InsightsTable({
     if (indexedResults?.length > 0 && indexedResults[0].data) {
         const valueColumns: ColumnsType<IndexedTrendResult> = indexedResults[0].data.map(({}, index: number) => ({
             title: (
-                <div className={clsx('insight-table-count-header', !!filters.compare && 'compare-header')}>
-                    <DateDisplay
-                        interval={(filters.interval as IntervalType) || 'day'}
-                        date={(indexedResults[0].dates || indexedResults[0].days)[index]}
-                        hideDate={!!filters.compare}
-                        hideWeekRange
-                    />
-                </div>
+                <DateDisplay
+                    interval={(filters.interval as IntervalType) || 'day'}
+                    date={(indexedResults[0].dates || indexedResults[0].days)[index]} // current
+                    secondaryDate={
+                        !!filters.compare && indexedResults?.[1]
+                            ? (indexedResults[1].dates || indexedResults[1].days)[index]
+                            : undefined
+                    } // previous
+                    hideWeekRange
+                />
             ),
             render: function RenderPeriod({}, item: IndexedTrendResult) {
-                // If comparing, show dates inside of cells
-                return (
-                    <span className={clsx('insight-table-count-cell', !!filters.compare && 'dateworthy')}>
-                        {maybeAddCommasToInteger(item.data[index])}
-                        <DateDisplay
-                            interval={(filters.interval as IntervalType) || 'day'}
-                            date={(item.dates || item.days)[index]}
-                            hideDate={!filters.compare}
-                            dateClassName="dated-highlight"
-                            hideWeekRange
-                            hideDateHighlight
-                        />
-                    </span>
-                )
+                return maybeAddCommasToInteger(item.data[index])
             },
             sorter: (a, b) => a.data[index] - b.data[index],
             align: 'center', // doesn't matter since it's overridden in css
