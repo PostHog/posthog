@@ -1,9 +1,9 @@
+import React from 'react'
 import { useValues } from 'kea'
 import { IconExternalLink } from 'lib/components/icons'
-import { LinkButton } from 'lib/components/LinkButton'
-import React from 'react'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import './GroupsIntroduction.scss'
+import { LemonButton } from 'lib/components/LemonButton'
 
 interface Props {
     access: GroupsAccessStatus.NoAccess | GroupsAccessStatus.HasAccess | GroupsAccessStatus.HasGroupTypes
@@ -15,18 +15,18 @@ export function GroupsIntroduction({ access }: Props): JSX.Element {
     const { upgradeLink } = useValues(groupsAccessLogic)
 
     const upgradeButton = (
-        <LinkButton
+        <LemonButton
             to={upgradeLink}
             type="primary"
             data-attr="group-analytics-upgrade"
             className="groups-introduction__action-button"
         >
             Upgrade to get Group Analytics
-        </LinkButton>
+        </LemonButton>
     )
 
     const learnMoreButton = (
-        <LinkButton
+        <LemonButton
             type={access === GroupsAccessStatus.HasAccess ? 'primary' : undefined}
             to="https://posthog.com/docs/user-guides/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-learn-more"
             target="_blank"
@@ -34,7 +34,7 @@ export function GroupsIntroduction({ access }: Props): JSX.Element {
             className="groups-introduction__action-button"
         >
             Learn how to track groups in PostHog <IconExternalLink style={{ marginLeft: 8 }} />
-        </LinkButton>
+        </LemonButton>
     )
 
     if (access === GroupsAccessStatus.NoAccess) {
