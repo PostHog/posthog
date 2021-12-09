@@ -2,119 +2,22 @@ import { kea } from 'kea'
 import { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { PlayerPosition, RecordingSegment, SessionPlayerState, SessionPlayerTime, SessionRecordingMeta } from '~/types'
+import { PlayerPosition, RecordingSegment, SessionPlayerState, SessionPlayerTime } from '~/types'
 import { eventWithTime } from 'rrweb/typings/types'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
-import { dayjs } from 'lib/dayjs'
+import {
+    comparePlayerPositions,
+    getPlayerPositionFromPlayerTime,
+    getPlayerTimeFromPlayerPosition,
+    getSegmentFromPlayerPosition,
+} from './playerUtils'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8, 16]
-
-export function getZeroOffsetTime(time: number, meta: SessionRecordingMeta): number {
-    return Math.max(Math.min(time - meta.startTime, meta.duration), 0)
-}
-export function getOffsetTime(zeroOffsetTime: number, meta: SessionRecordingMeta): number {
-    return Math.max(Math.min(zeroOffsetTime + meta.startTime, meta.endTime), meta.startTime)
-}
 
 interface Player {
     replayer: Replayer
     windowId: string
-}
-
-// Returns a positive number if a is greater than b, negative if b is greater than a, and 0 if they are equal
-export function comparePlayerPositions(a: PlayerPosition, b: PlayerPosition, segments: RecordingSegment[]): number {
-    if (a.windowId === b.windowId) {
-        return a.time - b.time
-    }
-    for (const segment of segments) {
-        if (
-            a.windowId === segment.windowId &&
-            a.time >= segment.startPlayerPosition.time &&
-            a.time <= segment.endPlayerPosition.time
-        ) {
-            return -1
-        } else if (
-            b.windowId === segment.windowId &&
-            b.time >= segment.startPlayerPosition.time &&
-            b.time <= segment.endPlayerPosition.time
-        ) {
-            return 1
-        }
-    }
-    throw `Could not find player position ${JSON.stringify(a)} or ${JSON.stringify(b)} in segments`
-}
-
-export function getSegmentFromPlayerPosition(
-    playerPosition: PlayerPosition,
-    segments: RecordingSegment[]
-): RecordingSegment | null {
-    for (const segment of segments) {
-        if (
-            playerPosition.windowId === segment.windowId &&
-            playerPosition.time >= segment.startPlayerPosition.time &&
-            playerPosition.time <= segment.endPlayerPosition.time
-        ) {
-            return segment
-        }
-    }
-    return null
-}
-
-export function getPlayerTimeFromPlayerPosition(
-    playerPosition: PlayerPosition,
-    segments: RecordingSegment[]
-): number | null {
-    let time = 0
-    for (const segment of segments) {
-        if (
-            playerPosition.windowId === segment.windowId &&
-            playerPosition.time >= segment.startPlayerPosition.time &&
-            playerPosition.time <= segment.endPlayerPosition.time
-        ) {
-            return time + playerPosition.time - segment.startPlayerPosition.time
-        } else {
-            time += segment.durationMs
-        }
-    }
-    return null
-}
-
-export function getPlayerPositionFromPlayerTime(
-    playerTime: number,
-    segments: RecordingSegment[]
-): PlayerPosition | null {
-    let currentTime = 0
-    for (const segment of segments) {
-        if (currentTime + segment.durationMs > playerTime) {
-            console.log('convertXToPlayerPosition', {
-                windowId: segment.windowId,
-                time: playerTime - currentTime,
-            })
-            return {
-                windowId: segment.windowId,
-                time: playerTime - currentTime + segment.startPlayerPosition.time,
-            }
-        } else {
-            currentTime += segment.durationMs
-        }
-    }
-    return null
-}
-
-export function getPlayerPositionFromEpochTime(
-    epochTime: number,
-    windowId: string,
-    startAndEndTimesByWindowId: Record<string, Record<string, number>>
-): PlayerPosition | null {
-    if (windowId in startAndEndTimesByWindowId) {
-        const windowStartTime = +dayjs(startAndEndTimesByWindowId[windowId].start_time)
-        return {
-            windowId,
-            time: epochTime - windowStartTime,
-        }
-    }
-    return null
 }
 
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<Player>>({

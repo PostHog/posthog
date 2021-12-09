@@ -353,16 +353,15 @@ export interface RecordingSegment {
     isActive: boolean
 }
 
+export interface RecordingStartAndEndTime {
+    startTimeEpochMs: number
+    endTimeEpochMs: number
+}
+
 export interface SessionRecordingMeta {
-    id: string
-    viewed: boolean
-    recordingDurationMs: number
     segments: RecordingSegment[]
-    startAndEndTimesByWindowId: Record<string, Record<string, number>>
-    startTime: number
-    endTime: number
-    distinctId: string
-    duration: number
+    startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
+    recordingDurationMs: number
 }
 export interface SessionPlayerData {
     snapshots: eventWithTime[]

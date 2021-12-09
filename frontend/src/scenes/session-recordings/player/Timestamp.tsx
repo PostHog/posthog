@@ -3,10 +3,8 @@ import { Tooltip } from 'antd'
 import { IconSeekBack, IconSeekForward } from 'scenes/session-recordings/player/icons'
 import { colonDelimitedDuration } from 'lib/utils'
 import { useActions, useValues } from 'kea'
-import {
-    getPlayerTimeFromPlayerPosition,
-    sessionRecordingPlayerLogic,
-} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { getPlayerTimeFromPlayerPosition } from './playerUtils'
 
 export function Timestamp(): JSX.Element {
     const { seekBackward, seekForward } = useActions(sessionRecordingPlayerLogic)
@@ -35,10 +33,10 @@ export function Timestamp(): JSX.Element {
                 {colonDelimitedDuration(
                     Math.floor(
                         currentPlayerPosition
-                            ? getPlayerTimeFromPlayerPosition(
+                            ? (getPlayerTimeFromPlayerPosition(
                                   currentPlayerPosition,
                                   sessionPlayerData.metadata.segments
-                              ) / 1000
+                              ) ?? 0) / 1000
                             : 0
                     )
                 )}{' '}

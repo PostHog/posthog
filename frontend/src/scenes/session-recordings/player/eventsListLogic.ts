@@ -104,9 +104,9 @@ export const eventsListLogic = kea<eventsListLogicType>({
                     return { start: 0, end: 0 }
                 }
                 const startIndex = events.findIndex(
-                    (e) => (e.playerTime ?? 0) >= ceilMsToClosestSecond(currentPlayerTime)
+                    (e) => (e.playerTime ?? 0) >= ceilMsToClosestSecond(currentPlayerTime ?? 0)
                 )
-                const end = Math.max(ceilMsToClosestSecond(currentPlayerTime), 1000)
+                const end = Math.max(ceilMsToClosestSecond(currentPlayerTime ?? 0), 1000)
                 const start = floorMsToClosestSecond(
                     events[clamp(startIndex === -1 ? events.length - 1 : startIndex - 1, 0, events.length - 1)]
                         .playerTime ?? 0

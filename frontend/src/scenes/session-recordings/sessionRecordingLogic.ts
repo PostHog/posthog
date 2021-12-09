@@ -9,6 +9,7 @@ import {
     RecordingEventsFilters,
     RecordingEventType,
     RecordingSegment,
+    RecordingStartAndEndTime,
     SessionPlayerData,
     SessionRecordingId,
     SessionRecordingMeta,
@@ -19,7 +20,7 @@ import { teamLogic } from '../teamLogic'
 import { eventWithTime } from 'rrweb/typings/types'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 import { dayjs } from 'lib/dayjs'
-import { getPlayerPositionFromEpochTime, getPlayerTimeFromPlayerPosition } from './player/sessionRecordingPlayerLogic'
+import { getPlayerPositionFromEpochTime, getPlayerTimeFromPlayerPosition } from './player/playerUtils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -28,10 +29,15 @@ export interface UnparsedRecordingSegment {
     end_time: string
     window_id: string
     is_active: boolean
-    distinct_id: string
 }
 
-export const parseMetadataResponse = (metadata: Record<string, any>): Partial<SessionRecordingMeta> => {
+export interface UnparsedMetadata {
+    session_id: string
+    segments: UnparsedRecordingSegment[]
+    start_and_end_times_by_window_id: Record<string, Record<string, number>>
+}
+
+export const parseMetadataResponse = (metadata: UnparsedMetadata): Partial<SessionRecordingMeta> => {
     const segments: RecordingSegment[] = metadata.segments.map(
         (segment: UnparsedRecordingSegment): RecordingSegment => {
             const windowStartTime = +dayjs(metadata.start_and_end_times_by_window_id[segment.window_id].start_time)
@@ -57,18 +63,24 @@ export const parseMetadataResponse = (metadata: Record<string, any>): Partial<Se
             }
         }
     )
+    const startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime> = {}
+    Object.entries(metadata.start_and_end_times_by_window_id).forEach(([windowId, startAndEndTimes]) => {
+        startAndEndTimesByWindowId[windowId] = {
+            startTimeEpochMs: +dayjs(startAndEndTimes.start_time),
+            endTimeEpochMs: +dayjs(startAndEndTimes.end_time),
+        }
+    })
     return {
         segments,
-        startAndEndTimesByWindowId: metadata.start_and_end_times_by_window_id,
+        startAndEndTimesByWindowId,
         recordingDurationMs: segments.map((s) => s.durationMs).reduce((a, b) => a + b),
-        distinctId: metadata.distinct_id,
     }
 }
 
 const calculateBufferedTo = (
     segments: RecordingSegment[] = [],
     snapshotsByWindowId: Record<string, eventWithTime[]>,
-    startAndEndTimesByWindowId: Record<string, Record<string, number>> = {}
+    startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime> = {}
 ): PlayerPosition | null => {
     let bufferedTo: PlayerPosition | null = null
     if (segments && snapshotsByWindowId && startAndEndTimesByWindowId) {
@@ -76,11 +88,10 @@ const calculateBufferedTo = (
             const lastEventForWindowId = (snapshotsByWindowId[segment.windowId] ?? []).slice(-1).pop()
 
             if (lastEventForWindowId && lastEventForWindowId.timestamp >= segment.startTimeEpochMs) {
+                const windowStartTime = startAndEndTimesByWindowId[segment.windowId].startTimeEpochMs
                 bufferedTo = {
                     windowId: segment.windowId,
-                    time:
-                        lastEventForWindowId.timestamp -
-                        +dayjs(startAndEndTimesByWindowId[segment.windowId]['start_time']),
+                    time: lastEventForWindowId.timestamp - windowStartTime,
                 }
             } else {
                 return bufferedTo
@@ -233,7 +244,8 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 const response = await api.get(
                     `api/projects/${values.currentTeamId}/session_recordings/${sessionRecordingId}?${params}`
                 )
-                const metadata = parseMetadataResponse(response.result?.session_recording)
+                const unparsedMetadata: UnparsedMetadata = response.result?.session_recording
+                const metadata = parseMetadataResponse(unparsedMetadata)
                 const bufferedTo = calculateBufferedTo(
                     metadata.segments,
                     values.sessionPlayerData?.snapshotsByWindowId,
