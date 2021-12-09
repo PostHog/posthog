@@ -143,6 +143,7 @@ export class TeamManager {
                     this.eventLastSeenCache.set(eventCacheKey, eventTimestamp.valueOf())
                 }
                 // TODO: Allow configuring this via env vars
+                // We flush here every 2 mins (as a failsafe) because the main thread flushes every minute
                 if (this.eventLastSeenCache.size > 1000 || DateTime.now().diff(this.lastFlushAt).as('seconds') > 120) {
                     // to not run out of memory
                     await this.flushLastSeenAtCache()
