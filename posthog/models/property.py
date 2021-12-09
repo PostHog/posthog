@@ -20,7 +20,18 @@ PropertyType = Literal["event", "person", "cohort", "element", "static-cohort", 
 PropertyName = str
 TableWithProperties = Literal["events", "person", "groups"]
 OperatorType = Literal[
-    "exact", "is_not", "icontains", "not_icontains", "regex", "not_regex", "gt", "lt", "is_set", "is_not_set",
+    "exact",
+    "is_not",
+    "icontains",
+    "not_icontains",
+    "regex",
+    "not_regex",
+    "gt",
+    "lt",
+    "is_set",
+    "is_not_set",
+    "is_after",
+    "is_before",
 ]
 
 GroupTypeName = str

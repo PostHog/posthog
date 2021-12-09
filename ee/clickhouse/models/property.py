@@ -230,6 +230,18 @@ def prop_filter_json_extract(
             ),
             params,
         )
+    elif operator == "is_after":
+        prop_value_param_key = "v{}_{}".format(prepend, idx)
+        return (
+            f"AND toDateTime({property_expr}) > %({prop_value_param_key})s",
+            {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value},
+        )
+    elif operator == "is_before":
+        prop_value_param_key = "v{}_{}".format(prepend, idx)
+        return (
+            f"AND toDateTime({property_expr}) < %({prop_value_param_key})s",
+            {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value},
+        )
     elif operator == "gt":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         return (
