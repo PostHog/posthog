@@ -14,7 +14,7 @@ export const experimentsLogic = kea<experimentsLogicType>({
             {
                 loadExperiments: async () => {
                     const response = await api.get(`api/projects/${values.currentTeamId}/experiments`)
-                    return response.results as Experiment
+                    return response.results as Experiment[]
                 },
             },
         ],
