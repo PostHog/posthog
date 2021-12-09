@@ -5,21 +5,27 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React, { useRef } from 'react'
+import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 import { PropertyFilter } from '~/types'
 import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
 
+export const scene: SceneExport = {
+    component: Experiment,
+    logic: experimentLogic,
+}
+
 export function Experiment(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { experiment } = useValues(experimentLogic)
-    const { setExperiment, createExperiment, createDraftExperiment } = useActions(experimentLogic)
+    const { newExperimentData, experimentId, experimentData } = useValues(experimentLogic)
+    const { setNewExperimentData, createExperiment, createDraftExperiment } = useActions(experimentLogic)
     const carouselRef = useRef<any>(null)
     const handleNext = (): void => carouselRef.current.next()
     const handlePrev = (): void => carouselRef.current.prev()
     const [form] = Form.useForm()
 
-    return (
+    return experimentId === 'new' ? (
         <>
             <PageHeader title="New Experiment" />
             <Form
@@ -27,14 +33,14 @@ export function Experiment(): JSX.Element {
                 layout="vertical"
                 className="experiment-form"
                 form={form}
-                onFinish={(values) => setExperiment(values)}
+                onFinish={(values) => setNewExperimentData(values)}
             >
                 <Carousel ref={carouselRef}>
                     <div>
                         <Form.Item label="Name" name="name">
                             <Input data-attr="experiment-name" className="ph-ignore-input" />
                         </Form.Item>
-                        <Form.Item label="Feature flag key" name="feature-flag">
+                        <Form.Item label="Feature flag key" name="feature_flag_key">
                             <Input data-attr="experiment-feature-flag-key" />
                         </Form.Item>
                         <Form.Item label="Description" name="description">
@@ -84,25 +90,27 @@ export function Experiment(): JSX.Element {
                         </Form.Item>
                         <Button onClick={handlePrev}>Go back</Button>
                     </div>
-                    {experiment && (
+                    {newExperimentData && (
                         <div className="confirmation">
-                            <PageHeader title={experiment.name} />
-                            <div>{experiment?.description}</div>
+                            <PageHeader title={newExperimentData.name} />
+                            <div>{newExperimentData?.description}</div>
                             <div>Owner: {user?.first_name}</div>
-                            <div>Feature flag key: {experiment?.feature_flag}</div>
+                            <div>Feature flag key: {newExperimentData?.feature_flag_key}</div>
                             <Row>
                                 <Col>
                                     <Row>Person allocation</Row>
                                     <Row>The following users will participate in the experiment</Row>
                                     <ul>
-                                        {experiment.filters?.properties?.map((filter: PropertyFilter, idx: number) => (
-                                            <li key={idx}>
-                                                Users with {filter.key} {filter.operator}{' '}
-                                                {Array.isArray(filter.value)
-                                                    ? filter.value.map((val) => `${val}, `)
-                                                    : filter.value}
-                                            </li>
-                                        ))}
+                                        {newExperimentData.filters?.properties?.map(
+                                            (filter: PropertyFilter, idx: number) => (
+                                                <li key={idx}>
+                                                    Users with {filter.key} {filter.operator}{' '}
+                                                    {Array.isArray(filter.value)
+                                                        ? filter.value.map((val) => `${val}, `)
+                                                        : filter.value}
+                                                </li>
+                                            )
+                                        )}
                                     </ul>
                                 </Col>
                             </Row>
@@ -115,5 +123,16 @@ export function Experiment(): JSX.Element {
                 </Carousel>
             </Form>
         </>
+    ) : experimentData ? (
+        <>
+            <div>
+                <PageHeader title={experimentData.name} />
+                <div>{experimentData?.description}</div>
+                <div>Owner: {experimentData.created_by?.first_name}</div>
+                <div>Feature flag key: {experimentData?.feature_flag_key}</div>
+            </div>
+        </>
+    ) : (
+        <div>Loading...</div>
     )
 }
