@@ -5,7 +5,8 @@ import { generateRandomAnimal } from 'lib/utils/randomAnimal'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
-import { DashboardItemType, Experiment, InsightType } from '~/types'
+import { Experiment, InsightType } from '~/types'
+import { DashboardItemType } from '~/types'
 
 import { experimentLogicType } from './experimentLogicType'
 export const experimentLogic = kea<experimentLogicType>({
