@@ -1420,9 +1420,9 @@ export interface FunnelCorrelation {
     failure_people_url: string
     correlation_type: FunnelCorrelationType.Failure | FunnelCorrelationType.Success
     result_type:
-    | FunnelCorrelationResultsType.Events
-    | FunnelCorrelationResultsType.Properties
-    | FunnelCorrelationResultsType.EventWithProperties
+        | FunnelCorrelationResultsType.Events
+        | FunnelCorrelationResultsType.Properties
+        | FunnelCorrelationResultsType.EventWithProperties
 }
 
 export enum FunnelCorrelationType {
