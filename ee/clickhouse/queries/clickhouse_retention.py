@@ -348,11 +348,7 @@ def build_actor_query(filter: RetentionFilter, team: Team, filter_by_breakdown: 
     target_event_query = substitute_params(target_event_query_templated, target_event_params)
 
     all_params = {
-        "team_id": team.pk,
-        "start_date": date_from.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")),
-        "total_intervals": filter.total_intervals,
         "period": period.lower(),
-        "breakdown_by": filter.breakdown,
         "breakdown_values": list(filter_by_breakdown) if filter_by_breakdown else None,
     }
 
