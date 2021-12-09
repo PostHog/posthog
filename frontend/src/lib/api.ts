@@ -166,7 +166,9 @@ const api = {
             peopleParams: PeopleParamType,
             filters: Partial<FilterType>,
             searchTerm?: string
-        ): Promise<PaginatedResponse<{ people: ActorType[]; count: number }>> {
+        ): Promise<
+            PaginatedResponse<{ people: ActorType[]; count: number; aggregation_group_type_index: number | null }>
+        > {
             return await new ApiRequest()
                 .actions()
                 .withAction('people')

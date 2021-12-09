@@ -71,9 +71,11 @@ class ClickhousePersonViewSet(PersonViewSet):
         )
 
     @cached_function
-    def calculate_funnel_persons(self, request: Request) -> Dict[str, Tuple[list, Optional[str], Optional[str]]]:
+    def calculate_funnel_persons(
+        self, request: Request
+    ) -> Dict[str, Tuple[list, Optional[int], Optional[str], Optional[str]]]:
         if request.user.is_anonymous or not self.team:
-            return {"result": ([], None, None)}
+            return {"result": ([], None, None, None)}
 
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
         if not filter.limit:
@@ -130,9 +132,9 @@ class ClickhousePersonViewSet(PersonViewSet):
     @cached_function
     def calculate_funnel_correlation_persons(
         self, request: Request
-    ) -> Dict[str, Tuple[list, Optional[str], Optional[str]]]:
+    ) -> Dict[str, Tuple[list, Optional[int], Optional[str], Optional[str]]]:
         if request.user.is_anonymous or not self.team:
-            return {"result": ([], None, None)}
+            return {"result": ([], None, None, None)}
 
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
         if not filter.correlation_person_limit:
@@ -172,11 +174,17 @@ class ClickhousePersonViewSet(PersonViewSet):
         if not results_package:
             return Response(data=[])
 
-        people, next_url, initial_url = results_package["result"]
+        people, aggregation_group_type_index, next_url, initial_url = results_package["result"]
 
         return Response(
             data={
-                "results": [{"people": people, "count": len(people), "aggregation_group_type_index": None}],
+                "results": [
+                    {
+                        "people": people,
+                        "count": len(people),
+                        "aggregation_group_type_index": aggregation_group_type_index,
+                    }
+                ],
                 "next": next_url,
                 "initial": initial_url,
                 "is_cached": results_package.get("is_cached"),
@@ -185,9 +193,11 @@ class ClickhousePersonViewSet(PersonViewSet):
         )
 
     @cached_function
-    def calculate_path_persons(self, request: Request) -> Dict[str, Tuple[list, Optional[str], Optional[str]]]:
+    def calculate_path_persons(
+        self, request: Request
+    ) -> Dict[str, Tuple[list, Optional[int], Optional[str], Optional[str]]]:
         if request.user.is_anonymous or not self.team:
-            return {"result": ([], None, None)}
+            return {"result": ([], None, None, None)}
 
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS}, team=self.team)
         if not filter.limit:
@@ -207,7 +217,7 @@ class ClickhousePersonViewSet(PersonViewSet):
         initial_url = format_query_params_absolute_url(request, 0)
 
         # cached_function expects a dict with the key result
-        return {"result": (serialized_actors, next_url, initial_url)}
+        return {"result": (serialized_actors, None, next_url, initial_url)}
 
     def destroy(self, request: Request, pk=None, **kwargs):  # type: ignore
         try:
