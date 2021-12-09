@@ -86,6 +86,7 @@ export function cleanFilters(
             breakdowns: filters.breakdowns,
             breakdown_type: filters.breakdown_type,
             retention_reference: filters.retention_reference,
+            display: insightChanged ? ChartDisplayType.ActionsTable : filters.display || ChartDisplayType.ActionsTable,
             properties: filters.properties || [],
             ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
             ...(filters.aggregation_group_type_index != undefined
