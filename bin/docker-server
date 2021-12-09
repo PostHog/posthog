@@ -6,6 +6,8 @@ gunicorn posthog.wsgi \
     --bind 0.0.0.0:8000 \
     --log-file - \
     --log-level info \
+    --capture-output \
+    --enable-stdio-inheritance \
     --access-logfile - \
     --worker-tmp-dir /dev/shm \
     --workers=2 \
