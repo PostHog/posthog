@@ -1,4 +1,4 @@
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, Union, cast, Literal
 
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.group import get_aggregation_target_field
@@ -33,7 +33,7 @@ class RetentionEventsQuery(ClickhouseEventQuery):
                 else []
             ),
             **kwargs,
-        )
+        ) # type: ignore
 
         self._trunc_func = get_trunc_func_ch(self._filter.period)
 
@@ -69,7 +69,7 @@ class RetentionEventsQuery(ClickhouseEventQuery):
 
                 breakdown_values_expression = get_single_or_multi_property_string_expr(
                     breakdown=[breakdown["property"] for breakdown in self._filter.breakdowns],
-                    table=table,
+                    table=cast(Union[Literal['events'], Literal['person']], table),
                     query_alias=None,
                 )
 
