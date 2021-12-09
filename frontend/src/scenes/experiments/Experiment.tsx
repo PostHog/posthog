@@ -26,7 +26,7 @@ export function Experiment(): JSX.Element {
     const { newExperimentData, experimentId, experimentData, experimentFunnel } = useValues(experimentLogic)
     const { setNewExperimentData, createExperiment, setFilters } = useActions(experimentLogic)
     const [form] = Form.useForm()
-    const [page, setPage] = useState(1)
+    const [page, setPage] = useState(0)
     const nextPage = (): void => setPage(page + 1)
     const prevPage = (): void => setPage(page - 1)
 
@@ -68,7 +68,7 @@ export function Experiment(): JSX.Element {
                         layout="vertical"
                         className="experiment-form"
                         form={form}
-                        onFinish={(values) => setNewExperimentData(values)}
+                        onValuesChange={(values) => setNewExperimentData(values)}
                     >
                         {page === 0 && (
                             <div>
@@ -85,11 +85,9 @@ export function Experiment(): JSX.Element {
                                         placeholder="Adding a helpful description can ensure others know what this experiment is about."
                                     />
                                 </Form.Item>
-                                <Form.Item className="text-right">
-                                    <Button icon={<SaveOutlined />} htmlType="submit" type="primary" onClick={nextPage}>
-                                        Save and continue
-                                    </Button>
-                                </Form.Item>
+                                <Button icon={<SaveOutlined />} type="primary" onClick={nextPage}>
+                                    Save and continue
+                                </Button>
                             </div>
                         )}
 
@@ -107,7 +105,7 @@ export function Experiment(): JSX.Element {
                                                 pageKey={'EditFunnel-property'}
                                                 propertyFilters={filters.properties || []}
                                                 onChange={(anyProperties) => {
-                                                    form.setFieldsValue({ filters: { properties: anyProperties } })
+                                                    setNewExperimentData({ filters: { properties: anyProperties } })
                                                     setFilters({
                                                         properties: anyProperties.filter(isValidPropertyFilter),
                                                     })
@@ -147,7 +145,10 @@ export function Experiment(): JSX.Element {
                                                         >
                                                             <ActionFilter
                                                                 filters={filters}
-                                                                setFilters={setFilters}
+                                                                setFilters={(actionFilters) => {
+                                                                    setNewExperimentData({ filters: actionFilters })
+                                                                    setFilters(actionFilters)
+                                                                }}
                                                                 typeKey={`EditFunnel-action`}
                                                                 hideMathSelector={true}
                                                                 hideDeleteBtn={filterSteps.length === 1}
@@ -177,7 +178,7 @@ export function Experiment(): JSX.Element {
                                 </Form.Item>
                                 <Row justify="space-between">
                                     <Button onClick={prevPage}>Go back</Button>
-                                    <Button icon={<SaveOutlined />} htmlType="submit" type="primary" onClick={nextPage}>
+                                    <Button icon={<SaveOutlined />} type="primary" onClick={nextPage}>
                                         Save and preview
                                     </Button>
                                 </Row>
@@ -189,7 +190,7 @@ export function Experiment(): JSX.Element {
                                 <PageHeader title={newExperimentData?.name || ''} />
                                 <div>{newExperimentData?.description}</div>
                                 <div>Owner: {user?.first_name}</div>
-                                <div>Feature flag key: {newExperimentData?.feature_flag}</div>
+                                <div>Feature flag key: {newExperimentData?.feature_flag_key}</div>
                                 <Row>
                                     <Col>
                                         <Row>Person allocation</Row>

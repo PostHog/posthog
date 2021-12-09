@@ -9,6 +9,7 @@ import { Experiment, InsightType } from '~/types'
 import { DashboardItemType } from '~/types'
 
 import { experimentLogicType } from './experimentLogicType'
+import { experimentsLogic } from './experimentsLogic'
 
 export const experimentLogic = kea<experimentLogicType>({
     path: ['scenes', 'experiment', 'experimentLogic'],
@@ -33,7 +34,13 @@ export const experimentLogic = kea<experimentLogicType>({
         newExperimentData: [
             null as Experiment | null,
             {
-                setNewExperimentData: (_, { experimentData }) => experimentData,
+                setNewExperimentData: (vals, { experimentData }) => {
+                    if (experimentData.filters) {
+                        const newFilters = { ...vals.filters, ...experimentData.filters }
+                        return { ...vals, ...experimentData, filters: newFilters }
+                    }
+                    return { ...vals, ...experimentData }
+                },
             },
         ],
         experimentFunnel: [
@@ -53,8 +60,9 @@ export const experimentLogic = kea<experimentLogicType>({
         createExperiment: async ({ draft }) => {
             await api.create(`api/projects/${values.currentTeamId}/experiments`, {
                 ...values.newExperimentData,
-                ...(draft && { start_date: dayjs() }),
+                ...(!draft && { start_date: dayjs() }),
             })
+            experimentsLogic.actions.loadExperiments()
         },
         createNewExperimentFunnel: async () => {
             const newInsight = {
@@ -83,7 +91,6 @@ export const experimentLogic = kea<experimentLogicType>({
                         const response = await api.get(
                             `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`
                         )
-                        console.log(response)
                         return response as Experiment
                     }
                     return null
@@ -108,5 +115,8 @@ export const experimentLogic = kea<experimentLogicType>({
                 }
             }
         },
+    }),
+    actionToUrl: () => ({
+        createExperiment: () => '/experiments',
     }),
 })
