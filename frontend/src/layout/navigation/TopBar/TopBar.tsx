@@ -15,23 +15,14 @@ import { CreateProjectModal } from '../../../scenes/project/CreateProjectModal'
 import './TopBar.scss'
 
 export function TopBar(): JSX.Element {
-    const {
-        isSideBarShown,
-        bareNav,
-        announcementMessage,
-        isAnnouncementShown,
-        isInviteModalShown,
-        isCreateOrganizationModalShown,
-        isCreateProjectModalShown,
-    } = useValues(navigationLogic)
-    const { toggleSideBar, hideAnnouncement, hideInviteModal, hideCreateOrganizationModal, hideCreateProjectModal } =
+    const { isSideBarShown, bareNav, isInviteModalShown, isCreateOrganizationModalShown, isCreateProjectModalShown } =
+        useValues(navigationLogic)
+    const { toggleSideBar, hideInviteModal, hideCreateOrganizationModal, hideCreateProjectModal } =
         useActions(navigationLogic)
 
     return (
         <>
-            {announcementMessage && (
-                <Announcement message={announcementMessage} visible={isAnnouncementShown} onClose={hideAnnouncement} />
-            )}
+            <Announcement />
             <header className="TopBar">
                 <div className="TopBar__segment TopBar__segment--left">
                     {!bareNav && (
