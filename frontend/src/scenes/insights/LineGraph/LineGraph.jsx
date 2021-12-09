@@ -415,7 +415,6 @@ export function LineGraph({
                             day: typeof point._index !== 'undefined' && _dt.days ? _dt.days[point._index] : undefined,
                             breakdown_value: _dt.breakdown_value,
                         }))
-
                     onClick({
                         point,
                         dataset,
@@ -433,6 +432,7 @@ export function LineGraph({
                                 ? dataset.data[point._index]
                                 : undefined,
                         crossDataset,
+                        seriesId: dataset.id,
                     })
                 }
             },

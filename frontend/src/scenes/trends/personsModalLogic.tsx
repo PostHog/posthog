@@ -39,6 +39,7 @@ export interface PersonsModalParams {
     pathsDropoff?: boolean
     pointValue?: number // The y-axis value of the data point (i.e. count, unique persons, ...)
     crossDataset?: DatasetType[] // `crossDataset` contains the data set for all the points in the same x-axis point; allows switching between matching points
+    seriesId: number
 }
 
 export interface PeopleParamType {
@@ -114,6 +115,7 @@ type LoadPeopleFromUrlProps = {
     pathsDropoff?: boolean
     // Contains the data set for all the points in the same x-axis point; allows switching between matching points
     crossDataset?: DatasetType
+    seriesId: number
 }
 
 export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProps, PersonsModalParams>>({
@@ -154,7 +156,10 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         people: [
             null as TrendActors | null,
             {
-                loadPeople: (_, { peopleParams: { action, label, date_from, breakdown_value, crossDataset } }) => ({
+                loadPeople: (
+                    _,
+                    { peopleParams: { action, label, date_from, breakdown_value, crossDataset, seriesId } }
+                ) => ({
                     people: [],
                     count: 0,
                     action,
@@ -162,8 +167,9 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     day: date_from,
                     breakdown_value,
                     crossDataset,
+                    seriesId,
                 }),
-                loadPeopleFromUrl: (_, { label, date_from = '', action, breakdown_value, crossDataset }) => ({
+                loadPeopleFromUrl: (_, { label, date_from = '', action, breakdown_value, crossDataset, seriesId }) => ({
                     people: [],
                     count: 0,
                     day: date_from,
@@ -171,6 +177,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     action,
                     breakdown_value,
                     crossDataset,
+                    seriesId,
                 }),
                 setFilters: () => null,
                 setFirstLoadedActors: (_, { firstLoadedPeople }) => firstLoadedPeople,
@@ -248,6 +255,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     funnelStep,
                     pathsDropoff,
                     crossDataset,
+                    seriesId,
                 } = peopleParams
 
                 const searchTermParam = searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : ''
@@ -316,6 +324,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     funnelStep,
                     pathsDropoff,
                     crossDataset,
+                    seriesId,
                 } as TrendActors
 
                 eventUsageLogic.actions.reportPersonsModalViewed(peopleParams, peopleResult.count, !!actors?.next)
@@ -335,6 +344,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                 label,
                 pathsDropoff,
                 crossDataset,
+                seriesId,
             }) => {
                 const people = await api.get(url)
 
@@ -349,6 +359,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     next: people?.next,
                     pathsDropoff,
                     crossDataset,
+                    seriesId,
                 }
             },
             loadMorePeople: async ({}, breakpoint) => {
@@ -363,6 +374,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                         next,
                         funnelStep,
                         crossDataset,
+                        seriesId,
                     } = values.people
                     if (!next) {
                         throw new Error('URL of next page of persons is not known.')
@@ -380,6 +392,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                         next: people.next,
                         funnelStep,
                         crossDataset,
+                        seriesId,
                     }
                 }
                 return null
@@ -416,7 +429,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             }
         },
         setPersonsModalFilters: async ({ searchTerm, people, filters }) => {
-            const { label, action, day, breakdown_value, funnelStep } = people
+            const { label, action, day, breakdown_value, funnelStep, crossDataset, seriesId } = people
             const date_from = day
             const date_to = day
             const saveOriginal = false
@@ -430,6 +443,8 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                 saveOriginal,
                 searchTerm,
                 funnelStep,
+                crossDataset,
+                seriesId,
             })
         },
     }),

@@ -183,14 +183,14 @@ export function PersonsModal({
                         {people.crossDataset && (
                             <div className="data-point-selector">
                                 <b>Data point</b>
-                                <Select>
+                                <Select value={people.seriesId}>
                                     {people.crossDataset.map((dataPoint) => (
                                         <Select.Option
-                                            value={`${dataPoint.action.id}${dataPoint.breakdown_value}`}
+                                            value={dataPoint.seriesId}
                                             key={`${dataPoint.action.id}${dataPoint.breakdown_value}`}
                                         >
                                             <InsightLabel
-                                                seriesColor={colorList[dataPoint.seriesId]}
+                                                seriesColor={colorList[dataPoint.seriesId % colorList.length]}
                                                 action={dataPoint.action}
                                                 breakdownValue={
                                                     dataPoint.breakdown_value === ''

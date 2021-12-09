@@ -41,7 +41,7 @@ export function ActionsLineGraph({
                 dashboardItemId || isMultiSeriesFormula(filters.formula) || !showPersonsModal
                     ? null
                     : (point) => {
-                          const { dataset, day, value: pointValue, index, crossDataset } = point
+                          const { dataset, day, value: pointValue, index, crossDataset, seriesId } = point
 
                           const params = {
                               action: dataset.action || 'session',
@@ -54,6 +54,7 @@ export function ActionsLineGraph({
                               saveOriginal: true,
                               pointValue,
                               crossDataset,
+                              seriesId,
                           }
                           if (dataset.persons_urls?.[index].url) {
                               loadPeopleFromUrl({
