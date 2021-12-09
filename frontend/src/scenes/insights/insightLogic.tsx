@@ -114,6 +114,7 @@ export const insightLogic = kea<insightLogicType>({
         loadResults: (refresh = false) => ({ refresh, queryId: uuid() }),
         setInsightMetadata: (metadata: Partial<InsightModel>) => ({ metadata }),
         createAndRedirectToNewInsight: (filters?: Partial<FilterType>) => ({ filters }),
+        toggleInsightLegend: true,
     }),
     loaders: ({ actions, cache, values, props }) => ({
         insight: [
@@ -461,11 +462,13 @@ export const insightLogic = kea<insightLogicType>({
                     layout: undefined,
                     hiddenLegendKeys: undefined,
                     funnel_advanced: undefined,
+                    legend_hidden: undefined,
                 }),
                 Object.assign({}, values.loadedFilters, {
                     layout: undefined,
                     hiddenLegendKeys: undefined,
                     funnel_advanced: undefined,
+                    legend_hidden: undefined,
                 })
             )
 
@@ -669,6 +672,9 @@ export const insightLogic = kea<insightLogicType>({
             router.actions.replace(
                 urls.insightEdit(createdInsight.short_id, cleanFilters(createdInsight.filters || filters || {}))
             )
+        },
+        toggleInsightLegend: () => {
+            actions.setFilters({ ...values.filters, legend_hidden: !values.filters.legend_hidden })
         },
     }),
     actionToUrl: ({ values }) => {

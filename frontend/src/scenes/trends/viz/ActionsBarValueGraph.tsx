@@ -37,7 +37,7 @@ export function ActionsBarValueGraph({
         _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
 
         // If there are more series than colors, we reuse colors sequentially so all series are colored
-        const rawColorList = getChartColors(color)
+        const rawColorList = getChartColors(color, results.length)
         const colorList = results.map((_, idx) => rawColorList[idx % rawColorList.length])
 
         const days = results.length > 0 ? results[0].days : []
