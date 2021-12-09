@@ -6,7 +6,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { getChartColors } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
-import { BreakdownKeyType, CohortType, IntervalType } from '~/types'
+import { BreakdownKeyType, CohortType, IntervalType, TrendResult } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { average, median, maybeAddCommasToInteger, capitalizeFirstLetter } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
@@ -108,38 +108,45 @@ export function InsightsTable({
         })
     }
 
-    if (filters.breakdown || filters.compare) {
+    if (filters.breakdown) {
         columns.push({
             title: (
-                <PropertyKeyInfo
-                    disableIcon
-                    disablePopover
-                    value={filters.breakdown ? filters.breakdown.toString() || 'Breakdown Value' : 'Compare Value'}
-                />
+                <PropertyKeyInfo disableIcon disablePopover value={filters.breakdown.toString() || 'Breakdown Value'} />
             ),
-            render: function RenderBreakdownAndOrCompareValue({}, item: IndexedTrendResult) {
-                const breakdownLabel = filters.breakdown ? formatBreakdownLabel(cohorts, item.breakdown_value) : null
-                const compareLabel = filters.compare ? formatCompareLabel(item) : null
+            render: function RenderBreakdownValue({}, item: IndexedTrendResult) {
+                const breakdownLabel = formatBreakdownLabel(cohorts, item.breakdown_value)
                 return (
                     <SeriesToggleWrapper id={item.id} toggleVisibility={toggleVisibility}>
                         {breakdownLabel && <span title={breakdownLabel}>{breakdownLabel}</span>}
-                        {compareLabel && (
-                            <Typography.Text
-                                type={breakdownLabel ? 'secondary' : undefined}
-                                style={breakdownLabel ? { fontSize: 13, marginLeft: 4 } : undefined}
-                                title={compareLabel}
-                            >
-                                {breakdownLabel ? `(${compareLabel})` : compareLabel}
-                            </Typography.Text>
-                        )}
                     </SeriesToggleWrapper>
                 )
             },
             fixed: 'left',
             width: 150,
             sorter: (a, b) => {
-                const labelA = formatBreakdownLabel(cohorts, a.breakdown_value) + formatCompareLabel(a)
-                const labelB = formatBreakdownLabel(cohorts, b.breakdown_value) + formatCompareLabel(b)
+                const labelA = formatBreakdownLabel(cohorts, a.breakdown_value)
+                const labelB = formatBreakdownLabel(cohorts, b.breakdown_value)
+                return labelA.localeCompare(labelB)
+            },
+        })
+    }
+
+    if (filters.compare) {
+        columns.push({
+            title: <PropertyKeyInfo disableIcon disablePopover value="Compare Value" />,
+            render: function RenderCompareValue({}, item: IndexedTrendResult) {
+                const compareLabel = formatCompareLabel(item)
+                return (
+                    <SeriesToggleWrapper id={item.id} toggleVisibility={toggleVisibility}>
+                        {compareLabel && <Typography.Text title={compareLabel}>{compareLabel}</Typography.Text>}
+                    </SeriesToggleWrapper>
+                )
+            },
+            fixed: 'left',
+            width: 150,
+            sorter: (a, b) => {
+                const labelA = formatCompareLabel(a)
+                const labelB = formatCompareLabel(b)
                 return labelA.localeCompare(labelB)
             },
         })
@@ -185,16 +192,15 @@ export function InsightsTable({
     })
 
     if (indexedResults?.length > 0 && indexedResults[0].data) {
+        const previousResult = !!filters.compare
+            ? indexedResults.find((r) => r.compare_label === 'previous')
+            : undefined
         const valueColumns: ColumnsType<IndexedTrendResult> = indexedResults[0].data.map(({}, index: number) => ({
             title: (
                 <DateDisplay
                     interval={(filters.interval as IntervalType) || 'day'}
                     date={(indexedResults[0].dates || indexedResults[0].days)[index]} // current
-                    secondaryDate={
-                        !!filters.compare && indexedResults?.[1]
-                            ? (indexedResults[1].dates || indexedResults[1].days)[index]
-                            : undefined
-                    } // previous
+                    secondaryDate={!!previousResult ? (previousResult.dates || previousResult.days)[index] : undefined} // previous
                     hideWeekRange
                 />
             ),
@@ -271,9 +277,9 @@ export function InsightsTable({
     )
 }
 
-export function formatBreakdownLabel(cohorts: CohortType[], breakdown_value?: BreakdownKeyType): string {
+export function formatBreakdownLabel(cohorts?: CohortType[], breakdown_value?: BreakdownKeyType): string {
     if (breakdown_value && typeof breakdown_value == 'number') {
-        return cohorts.filter((c) => c.id == breakdown_value)[0]?.name || breakdown_value.toString()
+        return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name || breakdown_value.toString()
     } else if (typeof breakdown_value == 'string') {
         return breakdown_value === 'nan' ? 'Other' : breakdown_value === '' ? 'None' : breakdown_value
     } else if (Array.isArray(breakdown_value)) {
@@ -283,7 +289,7 @@ export function formatBreakdownLabel(cohorts: CohortType[], breakdown_value?: Br
     }
 }
 
-export function formatCompareLabel(trendResult: IndexedTrendResult): string {
+export function formatCompareLabel(trendResult: TrendResult): string {
     // label splitting ensures backwards compatibility for api results that don't contain the new compare_label
     const labels = trendResult.label.split(' - ')
     return capitalizeFirstLetter(trendResult.compare_label ?? labels?.[labels.length - 1] ?? 'current')
