@@ -387,6 +387,24 @@ def insight_test_factory(event_factory, person_factory):
                 response_user_property_data["result"], response_precalculated_cohort_data["result"]
             )
 
+        def test_insight_trends_compare(self):
+            with freeze_time("2012-01-14T03:21:34.000Z"):
+                for i in range(25):
+                    event_factory(
+                        team=self.team, event="$pageview", distinct_id="1", properties={"$some_property": f"value{i}"},
+                    )
+
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                response = self.client.get(
+                    f"/api/projects/{self.team.id}/insights/trend/",
+                    data={"events": json.dumps([{"id": "$pageview"}]), "compare": "true",},
+                )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            result = response.json()
+            self.assertEqual(len(result["result"]), 2)
+            self.assertEqual(result["result"][0]["compare_label"], "current")
+            self.assertEqual(result["result"][1]["compare_label"], "previous")
+
         def test_insight_trends_breakdown_pagination(self):
             with freeze_time("2012-01-14T03:21:34.000Z"):
                 for i in range(25):

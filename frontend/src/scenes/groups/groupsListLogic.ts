@@ -1,5 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
+import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -15,7 +16,9 @@ interface GroupsPaginatedResponse {
 
 export const groupsListLogic = kea<groupsListLogicType<GroupsPaginatedResponse>>({
     path: ['groups', 'groupsListLogic'],
-    connect: { values: [teamLogic, ['currentTeamId'], groupsModel, ['groupsEnabled', 'groupTypes']] },
+    connect: {
+        values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes'], groupsAccessLogic, ['groupsEnabled']],
+    },
     actions: () => ({
         loadGroups: (url?: string | null) => ({ url }),
         setTab: (tab: string) => ({ tab }),

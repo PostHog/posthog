@@ -6,7 +6,7 @@ from posthog.settings import CLICKHOUSE_CLUSTER
 TEMPORARY_TABLE_NAME = "person_distinct_id_tmp_migration_0016"
 
 operations = [
-    migrations.RunSQL(PERSONS_DISTINCT_ID_TABLE_SQL.replace(PERSONS_DISTINCT_ID_TABLE, TEMPORARY_TABLE_NAME, 1)),
+    migrations.RunSQL(PERSONS_DISTINCT_ID_TABLE_SQL().replace(PERSONS_DISTINCT_ID_TABLE, TEMPORARY_TABLE_NAME, 1)),
     migrations.RunSQL(f"DROP TABLE person_distinct_id_mv ON CLUSTER {CLICKHOUSE_CLUSTER}"),
     migrations.RunSQL(f"DROP TABLE kafka_person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER}"),
     migrations.RunSQL(

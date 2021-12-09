@@ -1,4 +1,4 @@
-from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
+from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 from .clickhouse import (
@@ -15,6 +15,7 @@ TRUNCATE_PERSON_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS person ON CLUSTER {CLICKH
 DROP_PERSON_TABLE_SQL = f"DROP TABLE IF EXISTS person ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
 TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER}"
+TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS person_distinct_id2 ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
 PERSONS_TABLE = "person"
 
@@ -31,7 +32,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 ) ENGINE = {engine}
 """
 
-PERSONS_TABLE_SQL = (
+PERSONS_TABLE_SQL = lambda: (
     PERSONS_TABLE_BASE_SQL
     + """Order By (team_id, id)
 {storage_policy}
@@ -41,7 +42,7 @@ PERSONS_TABLE_SQL = (
     cluster=CLICKHOUSE_CLUSTER,
     engine=table_engine(PERSONS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
     extra_fields=KAFKA_COLUMNS,
-    storage_policy=STORAGE_POLICY,
+    storage_policy=STORAGE_POLICY(),
 )
 
 KAFKA_PERSONS_TABLE_SQL = PERSONS_TABLE_BASE_SQL.format(
@@ -79,18 +80,6 @@ WHERE team_id = %(team_id)s
   {query}
 """
 
-GET_TEAM_PERSON_DISTINCT_IDS = """
-SELECT distinct_id, argMax(person_id, _timestamp) as person_id
-FROM (
-    SELECT distinct_id, person_id, max(_timestamp) as _timestamp
-    FROM person_distinct_id
-    WHERE team_id = %(team_id)s
-    GROUP BY person_id, distinct_id, team_id
-    HAVING max(is_deleted) = 0
-)
-GROUP BY distinct_id
-"""
-
 GET_LATEST_PERSON_ID_SQL = """
 (select id from (
     {latest_person_sql}
@@ -98,6 +87,11 @@ GET_LATEST_PERSON_ID_SQL = """
 """.format(
     latest_person_sql=GET_LATEST_PERSON_SQL
 )
+
+#
+# person_distinct_id table - use this still in queries, but this will eventually get removed.
+#
+
 
 PERSONS_DISTINCT_ID_TABLE = "person_distinct_id"
 
@@ -113,7 +107,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 ) ENGINE = {engine}
 """
 
-PERSONS_DISTINCT_ID_TABLE_SQL = (
+PERSONS_DISTINCT_ID_TABLE_SQL = lambda: (
     PERSONS_DISTINCT_ID_TABLE_BASE_SQL
     + """Order By (team_id, distinct_id, person_id)
 {storage_policy}
@@ -123,7 +117,7 @@ PERSONS_DISTINCT_ID_TABLE_SQL = (
     cluster=CLICKHOUSE_CLUSTER,
     engine=table_engine(PERSONS_DISTINCT_ID_TABLE, "_sign", COLLAPSING_MERGE_TREE),
     extra_fields=KAFKA_COLUMNS,
-    storage_policy=STORAGE_POLICY,
+    storage_policy=STORAGE_POLICY(),
 )
 
 # :KLUDGE: We default is_deleted to 0 for backwards compatibility for when we drop `is_deleted` from message schema.
@@ -161,6 +155,63 @@ FROM {database}.kafka_{table_name}
 )
 
 #
+# person_distinct_ids2 - new table!
+#
+
+PERSON_DISTINCT_ID2_TABLE = "person_distinct_id2"
+
+PERSON_DISTINCT_ID2_TABLE_BASE_SQL = """
+CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
+(
+    team_id Int64,
+    distinct_id VARCHAR,
+    person_id UUID,
+    is_deleted Boolean,
+    version Int64 DEFAULT 1
+    {extra_fields}
+) ENGINE = {engine}
+"""
+
+PERSON_DISTINCT_ID2_TABLE_SQL = lambda: (
+    PERSON_DISTINCT_ID2_TABLE_BASE_SQL
+    + """
+    ORDER BY (team_id, distinct_id)
+    SETTINGS index_granularity = 512
+    """
+).format(
+    table_name=PERSON_DISTINCT_ID2_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
+    engine=table_engine(PERSON_DISTINCT_ID2_TABLE, "version", REPLACING_MERGE_TREE, sharded=False),
+    extra_fields=KAFKA_COLUMNS + "\n, _partition UInt64",
+)
+
+KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL = PERSON_DISTINCT_ID2_TABLE_BASE_SQL.format(
+    table_name="kafka_" + PERSON_DISTINCT_ID2_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
+    engine=kafka_engine(KAFKA_PERSON_DISTINCT_ID),
+    extra_fields="",
+)
+
+# You must include the database here because of a bug in clickhouse
+# related to https://github.com/ClickHouse/ClickHouse/issues/10471
+PERSON_DISTINCT_ID2_MV_SQL = """
+CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
+TO {database}.{table_name}
+AS SELECT
+team_id,
+distinct_id,
+person_id,
+is_deleted,
+version,
+_timestamp,
+_offset,
+_partition
+FROM {database}.kafka_{table_name}
+""".format(
+    table_name=PERSON_DISTINCT_ID2_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE,
+)
+
+#
 # Static Cohort
 #
 
@@ -176,7 +227,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 ) ENGINE = {engine}
 """
 
-PERSON_STATIC_COHORT_TABLE_SQL = (
+PERSON_STATIC_COHORT_TABLE_SQL = lambda: (
     PERSON_STATIC_COHORT_BASE_SQL
     + """Order By (team_id, cohort_id, person_id, id)
 {storage_policy}
@@ -185,7 +236,7 @@ PERSON_STATIC_COHORT_TABLE_SQL = (
     table_name=PERSON_STATIC_COHORT_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=table_engine(PERSON_STATIC_COHORT_TABLE, "_timestamp", REPLACING_MERGE_TREE),
-    storage_policy=STORAGE_POLICY,
+    storage_policy=STORAGE_POLICY(),
     extra_fields=KAFKA_COLUMNS,
 )
 
@@ -201,6 +252,27 @@ INSERT_PERSON_STATIC_COHORT = (
 # Other queries
 #
 
+GET_TEAM_PERSON_DISTINCT_IDS = """
+SELECT distinct_id, argMax(person_id, _timestamp) as person_id
+FROM (
+    SELECT distinct_id, person_id, max(_timestamp) as _timestamp
+    FROM person_distinct_id
+    WHERE team_id = %(team_id)s
+    GROUP BY person_id, distinct_id, team_id
+    HAVING max(is_deleted) = 0
+)
+GROUP BY distinct_id
+"""
+
+# Query to query distinct ids using the new table, will be used if PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS applies
+GET_TEAM_PERSON_DISTINCT_IDS_NEW_TABLE = """
+SELECT distinct_id, argMax(person_id, version) as person_id
+FROM person_distinct_id2
+WHERE team_id = %(team_id)s
+GROUP BY distinct_id
+HAVING argMax(is_deleted, version) = 0
+"""
+
 GET_PERSON_IDS_BY_FILTER = """
 SELECT DISTINCT p.id
 FROM ({latest_person_sql}) AS p
@@ -210,7 +282,7 @@ WHERE team_id = %(team_id)s
 """.format(
     latest_person_sql=GET_LATEST_PERSON_SQL,
     distinct_query="{distinct_query}",
-    GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
+    GET_TEAM_PERSON_DISTINCT_IDS="{GET_TEAM_PERSON_DISTINCT_IDS}",
 )
 
 INSERT_PERSON_SQL = """
@@ -278,17 +350,13 @@ WHERE person_id IN
     )
     WHERE 1 = 1 {filters}
 )
-""".format(
-    filters="{filters}", GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-)
+"""
 
 GET_DISTINCT_IDS_BY_PERSON_ID_FILTER = """
 SELECT distinct_id
 FROM ({GET_TEAM_PERSON_DISTINCT_IDS})
 WHERE {filters}
-""".format(
-    filters="{filters}", GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-)
+"""
 
 GET_PERSON_PROPERTIES_COUNT = """
 SELECT tupleElement(keysAndValues, 1) as key, count(*) as count
@@ -300,7 +368,7 @@ ORDER BY count DESC, key ASC
 """
 
 GET_ACTORS_FROM_EVENT_QUERY = """
-SELECT 
+SELECT
     {id_field} AS actor_id
 FROM ({events_query})
 GROUP BY actor_id

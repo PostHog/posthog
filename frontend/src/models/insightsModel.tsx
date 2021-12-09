@@ -3,28 +3,28 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { prompt } from 'lib/logic/prompt'
 import { toast } from 'react-toastify'
-import { DashboardItemType } from '~/types'
+import { InsightModel } from '~/types'
 import { dashboardsModel } from './dashboardsModel'
 import { Link } from 'lib/components/Link'
-import { dashboardItemsModelType } from './dashboardItemsModelType'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
+import { insightsModelType } from './insightsModelType'
 
-export const dashboardItemsModel = kea<dashboardItemsModelType>({
-    path: ['models', 'dashboardItemsModel'],
+export const insightsModel = kea<insightsModelType>({
+    path: ['models', 'insightsModel'],
     actions: () => ({
-        renameDashboardItem: (item: DashboardItemType) => ({ item }),
-        renameDashboardItemSuccess: (item: DashboardItemType) => ({ item }),
-        duplicateDashboardItem: (item: DashboardItemType, dashboardId?: number, move: boolean = false) => ({
+        renameInsight: (item: InsightModel) => ({ item }),
+        renameInsightSuccess: (item: InsightModel) => ({ item }),
+        duplicateInsight: (item: InsightModel, dashboardId?: number, move: boolean = false) => ({
             item,
             dashboardId,
             move,
         }),
-        duplicateDashboardItemSuccess: (item: DashboardItemType) => ({ item }),
+        duplicateInsightSuccess: (item: InsightModel) => ({ item }),
     }),
     listeners: ({ actions }) => ({
-        renameDashboardItem: async ({ item }) => {
-            prompt({ key: `rename-dashboard-item-${item.short_id}` }).actions.prompt({
+        renameInsight: async ({ item }) => {
+            prompt({ key: `rename-insight-${item.short_id}` }).actions.prompt({
                 title: 'Rename insight',
                 placeholder: 'Please enter the new name',
                 value: item.name,
@@ -37,11 +37,11 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
                         }
                     )
                     toast(`Successfully renamed insight from "${item.name}" to "${name}"`)
-                    actions.renameDashboardItemSuccess(updatedItem)
+                    actions.renameInsightSuccess(updatedItem)
                 },
             })
         },
-        duplicateDashboardItem: async ({ item, dashboardId, move }) => {
+        duplicateInsight: async ({ item, dashboardId, move }) => {
             if (!item) {
                 return
             }
@@ -108,7 +108,7 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
                     </div>
                 )
             } else {
-                actions.duplicateDashboardItemSuccess(addedItem)
+                actions.duplicateInsightSuccess(addedItem)
                 toast(<div data-attr="success-toast">Panel duplicated!</div>)
             }
         },

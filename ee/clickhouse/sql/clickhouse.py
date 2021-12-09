@@ -1,23 +1,17 @@
-from typing import Optional
+# Note for the vary: these engine definitions (and many table definitions) are not in sync with cloud!
 
-from posthog.settings import CLICKHOUSE_ENABLE_STORAGE_POLICY, CLICKHOUSE_REPLICATION, KAFKA_HOSTS, TEST
+from django.conf import settings
 
-STORAGE_POLICY = "SETTINGS storage_policy = 'hot_to_cold'" if CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
-REPLACING_TABLE_ENGINE = (
-    "ReplicatedReplacingMergeTree('/clickhouse/tables/{{shard}}/posthog.{table}', '{{replica}}', {ver})"
-    if CLICKHOUSE_REPLICATION
+STORAGE_POLICY = lambda: "SETTINGS storage_policy = 'hot_to_cold'" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
+REPLACING_TABLE_ENGINE = lambda: (
+    "ReplicatedReplacingMergeTree('/clickhouse/tables/{shard_key}/posthog.{table}', '{replica_key}', {ver})"
+    if settings.CLICKHOUSE_REPLICATION
     else "ReplacingMergeTree({ver})"
 )
 
-MERGE_TABLE_ENGINE = (
-    "ReplicatedReplacingMergeTree('/clickhouse/tables/{{shard}}/posthog.{table}', '{{replica}}')"
-    if CLICKHOUSE_REPLICATION
-    else "MergeTree()"
-)
-
-COLLAPSING_TABLE_ENGINE = (
+COLLAPSING_TABLE_ENGINE = lambda: (
     "ReplicatedCollapsingMergeTree('/clickhouse/tables/noshard/posthog.{table}', '{{replica}}-{{shard}}', {ver})"
-    if CLICKHOUSE_REPLICATION
+    if settings.CLICKHOUSE_REPLICATION
     else "CollapsingMergeTree({ver})"
 )
 
@@ -30,7 +24,7 @@ KAFKA_PROTO_ENGINE = """
     kafka_group_name = '{group}',
     kafka_format = 'Protobuf',
     kafka_schema = '{proto_schema}',
-    kafka_skip_broken_messages = {skip_broken_messages} 
+    kafka_skip_broken_messages = {skip_broken_messages}
     """
 
 GENERATE_UUID_SQL = """
@@ -46,23 +40,29 @@ COLLAPSING_MERGE_TREE = "collapsing_merge_tree"
 REPLACING_MERGE_TREE = "replacing_merge_tree"
 
 
-def table_engine(table: str, ver: Optional[str] = None, engine_type: Optional[str] = None) -> str:
+# :TODO: Most table_engines calling this with sharded=True are out of sync with reality on cloud.
+def table_engine(table: str, ver: str, engine_type: str, sharded=True) -> str:
+    shard_key = "{shard}" if sharded else "noshard"
+    replica_key = "{replica}" if sharded else "{replica}-{shard}"
+
     if engine_type == COLLAPSING_MERGE_TREE and ver:
-        return COLLAPSING_TABLE_ENGINE.format(table=table, ver=ver)
+        return COLLAPSING_TABLE_ENGINE().format(shard_key=shard_key, replica_key=replica_key, table=table, ver=ver)
     elif engine_type == REPLACING_MERGE_TREE and ver:
-        return REPLACING_TABLE_ENGINE.format(table=table, ver=ver)
+        return REPLACING_TABLE_ENGINE().format(shard_key=shard_key, replica_key=replica_key, table=table, ver=ver)
     else:
-        return MERGE_TABLE_ENGINE.format(table=table)
+        raise ValueError(f"Unknown engine type {engine_type}")
 
 
 def kafka_engine(
     topic: str,
-    kafka_host=KAFKA_HOSTS,
+    kafka_host=None,
     group="group1",
     serialization="JSONEachRow",
     proto_schema=None,
     skip_broken_messages=100,
 ):
+    if kafka_host is None:
+        kafka_host = settings.KAFKA_HOSTS
     if serialization == "JSONEachRow":
         return KAFKA_ENGINE.format(topic=topic, kafka_host=kafka_host, group=group, serialization=serialization)
     elif serialization == "Protobuf":
@@ -76,4 +76,4 @@ def kafka_engine(
 
 
 def ttl_period(field: str = "created_at", weeks: int = 3):
-    return "" if TEST else f"TTL toDate({field}) + INTERVAL {weeks} WEEK"
+    return "" if settings.TEST else f"TTL toDate({field}) + INTERVAL {weeks} WEEK"

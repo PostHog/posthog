@@ -6,12 +6,10 @@ from typing import Dict, List, Literal, Optional, TypedDict, Union
 from django.utils.timezone import now
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
+from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import GroupTypeIndex
-
-DISTINCT_IDS_JOIN = f"JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi on e.distinct_id = pdi.distinct_id"
 
 
 class RelatedActorsResponse(TypedDict):
@@ -52,7 +50,7 @@ class RelatedActorsQuery:
             f"""
             SELECT person_id, any(e.distinct_id), any(person_props)
             FROM events e
-            {DISTINCT_IDS_JOIN}
+            {self._distinct_ids_join}
             JOIN (
                 SELECT id, any(properties) as person_props
                 FROM person
@@ -87,7 +85,7 @@ class RelatedActorsQuery:
             f"""
             SELECT DISTINCT $group_{group_type_index} AS group_key
             FROM events e
-            {'' if self.is_aggregating_by_groups else DISTINCT_IDS_JOIN}
+            {'' if self.is_aggregating_by_groups else self._distinct_ids_join}
             JOIN (
                 SELECT group_key
                 FROM groups
@@ -114,6 +112,10 @@ class RelatedActorsQuery:
             return f"$group_{self.group_type_index} = %(id)s"
         else:
             return "person_id = %(id)s"
+
+    @property
+    def _distinct_ids_join(self):
+        return f"JOIN ({get_team_distinct_ids_query(self.team_id)}) pdi on e.distinct_id = pdi.distinct_id"
 
     @cached_property
     def _params(self):

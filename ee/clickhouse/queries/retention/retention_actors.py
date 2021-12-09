@@ -4,9 +4,9 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.group import get_aggregation_target_field
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
+from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
 from ee.clickhouse.queries.retention.retention_event_query import RetentionEventsQuery
 from ee.clickhouse.queries.util import get_trunc_func_ch
-from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.sql.retention.people_in_period import (
     DEFAULT_REFERENCE_EVENT_PEOPLE_PER_PERIOD_SQL,
     DEFAULT_REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL,
@@ -99,7 +99,7 @@ class ClickhouseRetentionActors(ActorBaseQuery):
                 actor_field_name=actor_field_name,
                 person_join=""
                 if self.is_aggregating_by_groups
-                else f"JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi on e.distinct_id = pdi.distinct_id",
+                else f"JOIN ({get_team_distinct_ids_query(self._team.pk)}) pdi on e.distinct_id = pdi.distinct_id",
             ),
             {
                 "team_id": self._team.pk,
@@ -144,7 +144,7 @@ class ClickhouseRetentionActorsByPeriod(ActorBaseQuery):
         person_join = (
             ""
             if self.is_aggregating_by_groups
-            else f"JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi on e.distinct_id = pdi.distinct_id"
+            else f"JOIN ({get_team_distinct_ids_query(self._team.pk)}) pdi on e.distinct_id = pdi.distinct_id"
         )
 
         first_event_sql = (

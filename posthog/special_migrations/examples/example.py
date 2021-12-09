@@ -29,7 +29,7 @@ class Migration(SpecialMigrationDefinition):
     operations = [
         SpecialMigrationOperation(
             database="clickhouse",
-            sql=PERSONS_DISTINCT_ID_TABLE_SQL.replace(PERSONS_DISTINCT_ID_TABLE, TEMPORARY_TABLE_NAME, 1),
+            sql=PERSONS_DISTINCT_ID_TABLE_SQL().replace(PERSONS_DISTINCT_ID_TABLE, TEMPORARY_TABLE_NAME, 1),
             rollback=f"DROP TABLE {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
         ),
         SpecialMigrationOperation(

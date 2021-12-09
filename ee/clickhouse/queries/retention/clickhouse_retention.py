@@ -2,13 +2,13 @@ from typing import Any, Dict, List, NamedTuple, Tuple, cast
 
 from ee.clickhouse.client import substitute_params, sync_execute
 from ee.clickhouse.models.action import format_action_filter
+from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
 from ee.clickhouse.queries.retention.retention_actors import (
     ClickhouseRetentionActors,
     ClickhouseRetentionActorsByPeriod,
 )
 from ee.clickhouse.queries.retention.retention_event_query import RetentionEventsQuery
 from ee.clickhouse.queries.util import get_trunc_func_ch
-from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.sql.retention.retention import (
     INITIAL_BREAKDOWN_INTERVAL_SQL,
     INITIAL_INTERVAL_SQL,
@@ -122,7 +122,7 @@ class ClickhouseRetention(Retention):
                 returning_event_query=returning_event_query,
                 trunc_func=trunc_func,
                 target_event_query=target_event_query,
-                GET_TEAM_PERSON_DISTINCT_IDS=substitute_params(GET_TEAM_PERSON_DISTINCT_IDS, {"team_id": team.pk}),
+                GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team.pk),
             )
         )
 
