@@ -1,10 +1,11 @@
 import SaveOutlined from '@ant-design/icons/lib/icons/SaveOutlined'
-import { Button, Carousel, Col, Form, Input, Row } from 'antd'
+import { Button, Col, Form, Input, Row } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import React, { useRef } from 'react'
+import React, { useState } from 'react'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 import { FunnelSingleStepState } from 'scenes/insights/EmptyStates'
@@ -19,10 +20,10 @@ export function Experiment(): JSX.Element {
     const { user } = useValues(userLogic)
     const { experiment, experimentFunnel } = useValues(experimentLogic)
     const { setExperiment, createExperiment, setFilters } = useActions(experimentLogic)
-    const carouselRef = useRef<any>(null)
-    const handleNext = (): void => carouselRef.current.next()
-    const handlePrev = (): void => carouselRef.current.prev()
     const [form] = Form.useForm()
+    const [page, setPage] = useState(1)
+    const nextPage = (): void => setPage(page + 1)
+    const prevPage = (): void => setPage(page - 1)
 
     const { insightProps } = useValues(
         insightLogic({
@@ -32,8 +33,7 @@ export function Experiment(): JSX.Element {
         })
     )
     const { isStepsEmpty, filterSteps, filters, areFiltersValid } = useValues(funnelLogic(insightProps))
-    // const { setFilters } = useActions(funnelLogic(insightProps))
-    console.log('experiment page setfilters', filters, setFilters)
+
     return (
         <BindLogic
             logic={insightLogic}
@@ -43,7 +43,16 @@ export function Experiment(): JSX.Element {
                 syncWithUrl: false,
             }}
         >
-            <PageHeader title={experiment?.name || 'New Experiment'} />
+            <Row
+                align="middle"
+                justify="space-between"
+                style={{ borderBottom: '1px solid var(--border)', marginBottom: '1rem', paddingBottom: 8 }}
+            >
+                <PageHeader title={experiment?.name || 'New Experiment'} />
+                <Button style={{ color: 'var(--primary)', borderColor: 'var(--primary)' }} onClick={createExperiment}>
+                    Save as draft
+                </Button>
+            </Row>
             <Form
                 name="new-experiment"
                 layout="vertical"
@@ -51,7 +60,7 @@ export function Experiment(): JSX.Element {
                 form={form}
                 onFinish={(values) => setExperiment(values)}
             >
-                <Carousel ref={carouselRef}>
+                {page === 0 && (
                     <div>
                         <Form.Item label="Name" name="name">
                             <Input data-attr="experiment-name" className="ph-ignore-input" />
@@ -67,12 +76,14 @@ export function Experiment(): JSX.Element {
                             />
                         </Form.Item>
                         <Form.Item className="text-right">
-                            <Button icon={<SaveOutlined />} htmlType="submit" type="primary" onClick={handleNext}>
+                            <Button icon={<SaveOutlined />} htmlType="submit" type="primary" onClick={nextPage}>
                                 Save and continue
                             </Button>
                         </Form.Item>
                     </div>
+                )}
 
+                {page === 1 && (
                     <div>
                         <Form.Item className="person-selection" label="Person selection">
                             <Form.Item name="person-selection">
@@ -83,11 +94,14 @@ export function Experiment(): JSX.Element {
                                 <div style={{ flex: 3, marginRight: 5 }}>
                                     <PropertyFilters
                                         endpoint="person"
-                                        pageKey={'1234'}
-                                        onChange={(personProperties) => {
-                                            form.setFieldsValue({ filters: { properties: personProperties } })
+                                        pageKey={'EditFunnel-property'}
+                                        propertyFilters={filters.properties || []}
+                                        onChange={(anyProperties) => {
+                                            form.setFieldsValue({ filters: { properties: anyProperties } })
+                                            setFilters({
+                                                properties: anyProperties.filter(isValidPropertyFilter),
+                                            })
                                         }}
-                                        propertyFilters={[]}
                                         style={{ margin: '1rem 0 0' }}
                                         taxonomicGroupTypes={[
                                             TaxonomicFilterGroupType.PersonProperties,
@@ -114,38 +128,42 @@ export function Experiment(): JSX.Element {
                                             syncWithUrl: false,
                                         }}
                                     >
-                                        <ActionFilter
-                                            filters={filters}
-                                            setFilters={setFilters}
-                                            typeKey={`EditFunnel-action`}
-                                            hideMathSelector={true}
-                                            hideDeleteBtn={filterSteps.length === 1}
-                                            buttonCopy="Add funnel step"
-                                            showSeriesIndicator={!isStepsEmpty}
-                                            seriesIndicatorType="numeric"
-                                            fullWidth
-                                            sortable
-                                            showNestedArrow={true}
-                                            propertiesTaxonomicGroupTypes={[
-                                                TaxonomicFilterGroupType.EventProperties,
-                                                TaxonomicFilterGroupType.PersonProperties,
-                                                TaxonomicFilterGroupType.Cohorts,
-                                                TaxonomicFilterGroupType.Elements,
-                                            ]}
-                                        />
-                                        {areFiltersValid ? <FunnelInsight /> : <FunnelSingleStepState />}
+                                        <Row>
+                                            <ActionFilter
+                                                filters={filters}
+                                                setFilters={setFilters}
+                                                typeKey={`EditFunnel-action`}
+                                                hideMathSelector={true}
+                                                hideDeleteBtn={filterSteps.length === 1}
+                                                buttonCopy="Add funnel step"
+                                                showSeriesIndicator={!isStepsEmpty}
+                                                seriesIndicatorType="numeric"
+                                                fullWidth
+                                                sortable
+                                                showNestedArrow={true}
+                                                propertiesTaxonomicGroupTypes={[
+                                                    TaxonomicFilterGroupType.EventProperties,
+                                                    TaxonomicFilterGroupType.PersonProperties,
+                                                    TaxonomicFilterGroupType.Cohorts,
+                                                    TaxonomicFilterGroupType.Elements,
+                                                ]}
+                                            />
+                                            {areFiltersValid ? <FunnelInsight /> : <FunnelSingleStepState />}
+                                        </Row>
                                     </BindLogic>
                                 </Row>
                             </Form.Item>
                         </Form.Item>
-                        <Form.Item className="text-right">
-                            <Button icon={<SaveOutlined />} htmlType="submit" type="primary" onClick={handleNext}>
+                        <Row justify="space-between">
+                            <Button onClick={prevPage}>Go back</Button>
+                            <Button icon={<SaveOutlined />} htmlType="submit" type="primary" onClick={nextPage}>
                                 Save and preview
                             </Button>
-                        </Form.Item>
-                        <Button onClick={handlePrev}>Go back</Button>
+                        </Row>
                     </div>
+                )}
 
+                {page === 2 && (
                     <div className="confirmation">
                         <PageHeader title={experiment?.name || ''} />
                         <div>{experiment?.description}</div>
@@ -167,12 +185,14 @@ export function Experiment(): JSX.Element {
                                 </ul>
                             </Col>
                         </Row>
-                        <Button onClick={() => createExperiment(true)}>Save as draft</Button>
-                        <Button type="primary" onClick={createExperiment}>
-                            Save and launch
-                        </Button>
+                        <Row justify="space-between">
+                            <Button onClick={prevPage}>Go back</Button>
+                            <Button type="primary" onClick={createExperiment}>
+                                Save and launch
+                            </Button>
+                        </Row>
                     </div>
-                </Carousel>
+                )}
             </Form>
         </BindLogic>
     )

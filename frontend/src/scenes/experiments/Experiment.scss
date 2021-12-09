@@ -1,23 +1,15 @@
 @import '~/vars.scss';
 
 .experiment-form {
-    .ant-carousel .slick-dots li {
-        background-color: $border;
-    }
-
-    .ant-carousel .slick-dots li.slick-active button {
-        background-color: lighten($primary, 15%);
-        height: 100%;
-    }
-
-    .metrics-selection,
-    .person-selection {
+    .metrics-selection {
         border-top: 1px solid $border;
-        padding-top: $default_spacing * 2;
+        padding-top: $default_spacing;
 
-        label {
-            font-size: 16px;
-            font-weight: 600;
+        &.person-selection {
+            label {
+                font-size: 16px;
+                font-weight: 600;
+            }
         }
     }
 }
