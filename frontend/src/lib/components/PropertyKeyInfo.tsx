@@ -234,6 +234,27 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Groups',
             description: 'Relevant groups',
         },
+        // There are at most 5 group types per project, so indexes 0, 1, 2, 3, and 4
+        $group_0: {
+            label: 'Group 1',
+            hide: true,
+        },
+        $group_1: {
+            label: 'Group 2',
+            hide: true,
+        },
+        $group_2: {
+            label: 'Group 3',
+            hide: true,
+        },
+        $group_3: {
+            label: 'Group 4',
+            hide: true,
+        },
+        $group_4: {
+            label: 'Group 5',
+            hide: true,
+        },
         $group_set: {
             label: 'Group Set',
             description: 'Group properties to be set',
@@ -249,10 +270,12 @@ export const keyMapping: KeyMappingInterface = {
         $window_id: {
             label: 'Window ID',
             description: 'Unique window ID for session recording disambiguation',
+            hide: true,
         },
         $session_id: {
             label: 'Session ID',
             description: 'Unique session ID for session recording disambiguation',
+            hide: true,
         },
         $rageclick: {
             label: 'Rageclick',
@@ -559,20 +582,14 @@ export function PropertyKeyTitle({ data }: { data: KeyMapping }): JSX.Element {
 export function PropertyKeyDescription({ data, value }: { data: KeyMapping; value: string }): JSX.Element {
     return (
         <span>
+            {data.description ? <p>{data.description}</p> : null}
             {data.examples ? (
-                <>
-                    <span>{data.description}</span>
-                    <br />
-                    <br />
-                    <span>
-                        <i>Example: </i>
-                        {data.examples.join(', ')}
-                    </span>
-                </>
-            ) : (
-                data.description
-            )}
-            <hr />
+                <p>
+                    <i>Example: </i>
+                    {data.examples.join(', ')}
+                </p>
+            ) : null}
+            {data.description || data.examples ? <hr /> : null}
             Sent as <code style={{ padding: '2px 3px' }}>{value}</code>
         </span>
     )

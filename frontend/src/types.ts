@@ -1364,7 +1364,7 @@ export interface SelectOptionWithChildren extends SelectOption {
 
 export interface KeyMapping {
     label: string
-    description: string | JSX.Element
+    description?: string | JSX.Element
     examples?: string[]
     hide?: boolean
 }
