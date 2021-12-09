@@ -68,12 +68,29 @@ class TestExperimentCRUD(APIBaseTest):
                 "end_date": None,
                 "feature_flag_key": ff_key,
                 "parameters": {},
-                "filters": {},
+                "filters": {},  # also invalid
             },
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], "This field may not be null.")
+
+        ff_key = "a-b-tests"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "None",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": {},
+                "filters": {},  # still invalid
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Filters are required to create an Experiment")
 
     def test_invalid_update(self):
         # Draft experiment
@@ -87,7 +104,7 @@ class TestExperimentCRUD(APIBaseTest):
                 "end_date": None,
                 "feature_flag_key": ff_key,
                 "parameters": {},
-                "filters": {},
+                "filters": {"events": []},
             },
         )
 
