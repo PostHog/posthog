@@ -119,18 +119,23 @@ class SessionRecording:
             start_and_end_times_by_window_id, key=lambda x: start_and_end_times_by_window_id[x]["start_time"]
         )[0]
 
-        for segment in all_active_segments:
+        for index, segment in enumerate(all_active_segments):
             # It's possible that segments overlap and we don't need to fill a gap
             if segment.start_time > current_timestamp:
                 all_segments.extend(
                     generate_inactive_segments_for_range(
-                        current_timestamp, segment.start_time, current_window_id, start_and_end_times_by_window_id,
+                        current_timestamp,
+                        segment.start_time,
+                        current_window_id,
+                        start_and_end_times_by_window_id,
+                        is_first_segment=index == 0,
                     )
                 )
             all_segments.append(segment)
             current_window_id = segment.window_id
             current_timestamp = max(segment.end_time, current_timestamp)
 
+        # If the last segment ends before the recording ends, we need to fill in the gap
         if current_timestamp < last_end_time:
             all_segments.extend(
                 generate_inactive_segments_for_range(
@@ -139,6 +144,7 @@ class SessionRecording:
                     current_window_id,
                     start_and_end_times_by_window_id,
                     is_last_segment=True,
+                    is_first_segment=current_timestamp == first_start_time,
                 )
             )
 

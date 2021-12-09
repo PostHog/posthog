@@ -162,6 +162,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         session_recording_snapshot_data = self._get_session_recording_snapshots(
             request, session_recording_id, limit, offset
         )
+
+        if session_recording_snapshot_data.snapshot_data_by_window_id == {}:
+            raise exceptions.NotFound("Snapshots not found")
         next_url = (
             format_query_params_absolute_url(request, offset + limit, limit)
             if session_recording_snapshot_data.has_next

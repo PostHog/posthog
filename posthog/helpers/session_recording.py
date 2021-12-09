@@ -262,6 +262,7 @@ def generate_inactive_segments_for_range(
     range_end_time: datetime,
     start_window_id: WindowId,
     start_and_end_times_by_window_id: Dict[WindowId, Dict],
+    is_first_segment: bool = False,
     is_last_segment: bool = False,
 ) -> List[RecordingSegment]:
     """
@@ -297,7 +298,7 @@ def generate_inactive_segments_for_range(
 
     # Ensure segments don't exactly overlap. This makes the corresponding player logic simpler
     for index, segment in enumerate(inactive_segments):
-        if (index == 0 and segment.start_time == range_start_time) or (
+        if (index == 0 and segment.start_time == range_start_time and not is_first_segment) or (
             index > 0 and segment.start_time == inactive_segments[index - 1].end_time
         ):
             segment.start_time = segment.start_time + timedelta(milliseconds=1)
