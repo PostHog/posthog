@@ -19,7 +19,7 @@ export function GroupsIntroductionBanner(): JSX.Element | null {
     if (groupsAccessStatus === GroupsAccessStatus.HasGroupTypes) {
         introductionSegment = (
             <>
-                <strong>🎉 Looks like you're tracking groups!</strong> Upgrade today to use groups in Insights.
+                <strong>🎉 Looks like you're tracking groups!</strong> Upgrade today to run group-based analytics.
             </>
         )
     }
