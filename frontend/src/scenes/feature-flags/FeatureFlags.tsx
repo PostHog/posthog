@@ -42,8 +42,8 @@ export function FeatureFlags(): JSX.Element {
             render: function Render(_, featureFlag: FeatureFlagType) {
                 return (
                     <>
-                        <Link to={featureFlag.id ? urls.featureFlag(featureFlag.id) : undefined}>
-                            <h4 className="row-name">{stringWithWBR(featureFlag.key, 17)}</h4>
+                        <Link to={featureFlag.id ? urls.featureFlag(featureFlag.id) : undefined} className="row-name">
+                            {stringWithWBR(featureFlag.key, 17)}
                         </Link>
                         {featureFlag.name && <span className="row-description">{featureFlag.name}</span>}
                     </>

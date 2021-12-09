@@ -1,10 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { groupsModel } from '~/models/groupsModel'
-import { initKeaTests } from '~/test/init'
+import { initKeaTestLogic } from '~/test/init'
 import { groupsListLogic } from './groupsListLogic'
 
 jest.mock('lib/api')
@@ -15,17 +13,19 @@ describe('groupsListLogic', () => {
     mockAPI(async (url) => {
         const { pathname } = url
         if (`api/projects/${MOCK_TEAM_ID}/groups/?group_type_index=0` === pathname) {
-            return { result: ['result from api'], next_url: null, previous_url: null }
+            return { result: ['result from api'], next: null, previous: null }
         }
         return defaultAPIMocks(url)
     })
 
-    beforeEach(async () => {
-        initKeaTests()
-        groupsModel.mount()
-        teamLogic.mount()
-        logic = groupsListLogic()
-        logic.mount()
+    initKeaTestLogic({
+        logic: groupsListLogic,
+        props: {},
+        onLogic: (l) => (logic = l),
+    })
+
+    beforeEach(() => {
+        jest.spyOn(logic.selectors, 'groupsEnabled').mockReturnValue(true)
     })
 
     it('sets the tab and loads groups upon tab change', async () => {

@@ -220,12 +220,13 @@ export function ProjectSettings(): JSX.Element {
                 </p>
                 <PathCleaningFiltersConfig />
                 <Divider />
+                <div id="permitted-domains" />
                 <h2 className="subtitle" id="urls">
                     Permitted domains/URLs
                 </h2>
                 <p>
                     These are the domains and URLs where the <b>Toolbar will automatically launch</b> (if you're logged
-                    in) and where we'll <a href="#session-recording">record sessions</a> (if enabled).
+                    in) and where we'll <b>record sessions</b> (if <a href="#session-recording">enabled</a>).
                 </p>
                 <p>
                     Wilcard subdomains are permitted: <pre>https://*.example.com</pre>. You cannot wildcard domains or
@@ -259,17 +260,20 @@ export function ProjectSettings(): JSX.Element {
                     </Tag>
                 </h2>
                 <p>
-                    Watch replays to see how users interact with your app and find out what can be improved. Recordings
-                    are found in the <Link to={urls.sessionRecordings()}>recordings page</Link>. Please note{' '}
-                    <b>your website needs to have</b> the <a href="#snippet">PostHog snippet</a> or the latest version
-                    of{' '}
+                    Watch recordings of how users interact with your web app to see what can be improved. Recordings are
+                    found in the <Link to={urls.sessionRecordings()}>recordings page</Link>.
+                </p>
+                <p>
+                    Please note <b>your website needs to have</b> the <a href="#snippet">PostHog snippet</a> or the
+                    latest version of{' '}
                     <a
                         href="https://posthog.com/docs/integrations/js-integration?utm_campaign=session-recording&utm_medium=in-product"
                         target="_blank"
                     >
                         posthog-js
                     </a>{' '}
-                    <b>directly</b> installed. For more details, check out our{' '}
+                    <b>directly</b> installed, and the domains you wish to record must be set in{' '}
+                    <a href="#permitted-domains">Permitted domains/URLs</a>. For more details, check out our{' '}
                     <a
                         href="https://posthog.com/docs/user-guides/recordings?utm_campaign=session-recording&utm_medium=in-product"
                         target="_blank"

@@ -126,7 +126,7 @@
 # name: ClickhouseTestUnorderedFunnelGroups.test_unordered_funnel_with_groups.1
   '
   /* request:api_person_funnel_?$ (LegacyClickhousePersonViewSet) */
-  SELECT aggregation_target as person_id
+  SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
             steps,

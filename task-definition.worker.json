@@ -119,6 +119,10 @@
                 {
                     "name": "CALCULATE_X_COHORTS_PARALLEL",
                     "value": "50"
+                },
+                {
+                    "name": "PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS",
+                    "value": "2,2635"
                 }
             ],
             "secrets": [

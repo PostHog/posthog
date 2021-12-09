@@ -6,7 +6,7 @@ from ee.clickhouse.models.action import format_entity_filter
 from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
 from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
-from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
+from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Entity
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
@@ -39,7 +39,7 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
     """
 
     _event_and_recording_match_conditions_clause = """
-        (   
+        (
             -- If there is a window_id on the recording, then it is newer data and we can match
             -- the recording and events on session_id
             (
@@ -74,7 +74,7 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
         GROUP BY session_id
         HAVING full_snapshots > 0
         {recording_start_time_clause}
-        {duration_clause} 
+        {duration_clause}
     """
 
     _session_recordings_query_with_events: str = """
@@ -94,7 +94,7 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
     ON session_recordings.distinct_id = events.distinct_id
     JOIN (
         {person_distinct_id_query}
-    ) as pdi 
+    ) as pdi
     ON pdi.distinct_id = session_recordings.distinct_id
     {person_query}
     WHERE
@@ -120,7 +120,7 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
     ) AS session_recordings
     JOIN (
         {person_distinct_id_query}
-    ) as pdi 
+    ) as pdi
     ON pdi.distinct_id = session_recordings.distinct_id
     {person_query}
     WHERE 1 = 1
@@ -274,7 +274,7 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
             return (
                 self._session_recordings_query.format(
                     core_recordings_query=core_recordings_query,
-                    person_distinct_id_query=GET_TEAM_PERSON_DISTINCT_IDS,
+                    person_distinct_id_query=get_team_distinct_ids_query(self._team_id),
                     person_query=person_query,
                     prop_filter_clause=prop_query,
                     person_id_clause=person_id_clause,
@@ -303,7 +303,7 @@ class ClickhouseSessionRecordingList(ClickhouseEventQuery):
                 event_filter_aggregate_select_clause=event_filters.aggregate_select_clause,
                 core_events_query=core_events_query,
                 core_recordings_query=core_recordings_query,
-                person_distinct_id_query=GET_TEAM_PERSON_DISTINCT_IDS,
+                person_distinct_id_query=get_team_distinct_ids_query(self._team_id),
                 person_query=person_query,
                 event_and_recording_match_comditions_clause=self._event_and_recording_match_conditions_clause,
                 prop_filter_clause=prop_query,

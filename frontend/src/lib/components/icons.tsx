@@ -343,9 +343,9 @@ export function IconUpdate(): JSX.Element {
 }
 
 /** Material Design Offline Bolt icon. */
-export function IconOffline(): JSX.Element {
+export function IconOffline({ style }: { style?: CSSProperties }): JSX.Element {
     return (
-        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style={style}>
             <path
                 d="m12 2.02c-5.51 0-9.98 4.47-9.98 9.98s4.47 9.98 9.98 9.98 9.98-4.47 9.98-9.98-4.47-9.98-9.98-9.98zm0 17.96c-4.4 0-7.98-3.58-7.98-7.98s3.58-7.98 7.98-7.98 7.98 3.58 7.98 7.98-3.58 7.98-7.98 7.98zm.75-14.98-4.5 8.5h3.14v5.5l4.36-8.5h-3z"
                 fill="currentColor"
@@ -700,10 +700,11 @@ interface InsightIconProps {
     background?: string
     noBackground?: boolean
     children?: React.ReactNode
+    style: CSSProperties
 }
-function InsightIcon({ background = '#747EA2', noBackground = false, children }: InsightIconProps): JSX.Element {
+function InsightIcon({ background = '#747EA2', noBackground = false, children, style }: InsightIconProps): JSX.Element {
     return (
-        <svg width="1em" height="1em" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg width="1em" height="1em" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style={style}>
             {!noBackground ? <rect width="100%" height="100%" rx="4" fill={background} /> : null}
             {children}
         </svg>
@@ -913,6 +914,33 @@ export function IconKeyboard(props: React.SVGProps<SVGSVGElement>): JSX.Element 
         >
             <path d="M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z" />
             <path d="M0 0h24v24H0zm0 0h24v24H0z" fill="none" />
+        </svg>
+    )
+}
+
+/** Material Design Search icon. */
+export function IconMagnifier(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg
+            width="1em"
+            height="1em"
+            viewBox="0 0 18 18"
+            xmlns="http://www.w3.org/2000/svg"
+            fill="currentColor"
+            {...props}
+        >
+            <path d="M12.5 11H11.71L11.43 10.73C12.41 9.59 13 8.11 13 6.5C13 2.91 10.09 0 6.5 0C2.91 0 0 2.91 0 6.5C0 10.09 2.91 13 6.5 13C8.11 13 9.59 12.41 10.73 11.43L11 11.71V12.5L16 17.49L17.49 16L12.5 11ZM6.5 11C4.01 11 2 8.99 2 6.5C2 4.01 4.01 2 6.5 2C8.99 2 11 4.01 11 6.5C11 8.99 8.99 11 6.5 11Z" />
+        </svg>
+    )
+}
+
+export function IconLegend({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <svg width="1em" height="1em" viewBox="0 0 18 18" fill="none" style={style} xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="M8 4H14V6H8V4ZM8 8H14V10H8V8ZM8 12H14V14H8V12ZM4 4H6V6H4V4ZM4 8H6V10H4V8ZM4 12H6V14H4V12ZM17.1 0H0.9C0.4 0 0 0.4 0 0.9V17.1C0 17.5 0.4 18 0.9 18H17.1C17.5 18 18 17.5 18 17.1V0.9C18 0.4 17.5 0 17.1 0ZM16 16H2V2H16V16Z"
+                fill="currentColor"
+            />
         </svg>
     )
 }

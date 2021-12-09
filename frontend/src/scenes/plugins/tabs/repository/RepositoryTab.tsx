@@ -15,7 +15,10 @@ export enum RepositorySection {
 
 export function RepositoryTab(): JSX.Element {
     const { repositoryLoading, filteredUninstalledPlugins } = useValues(pluginsLogic)
-    const [repositorySectionsOpen, setRepositorySectionsOpen] = useState([RepositorySection.Official])
+    const [repositorySectionsOpen, setRepositorySectionsOpen] = useState([
+        RepositorySection.Official,
+        RepositorySection.Community,
+    ])
 
     const officialPlugins = filteredUninstalledPlugins.filter((plugin) => plugin.maintainer === 'official')
     const communityPlugins = filteredUninstalledPlugins.filter((plugin) => plugin.maintainer === 'community')

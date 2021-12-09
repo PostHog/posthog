@@ -262,7 +262,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(None, j["next"])
 
 
-class TestFunnelCorrelationPersons(ClickhouseTestMixin, APIBaseTest):
+class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
     """
     Tests for /api/projects/:project_id/persons/funnel/correlation/
     """

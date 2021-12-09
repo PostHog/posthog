@@ -21,6 +21,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Group]: () => import('./groups/Group'),
     [Scene.Action]: () => import('./actions/Action'), // TODO
     [Scene.Experiments]: () => import('./experiments/Experiments'),
+    [Scene.Experiment]: () => import('./experiments/Experiment'),
     [Scene.FeatureFlags]: () => import('./feature-flags/FeatureFlags'),
     [Scene.FeatureFlag]: () => import('./feature-flags/FeatureFlag'),
     [Scene.OrganizationSettings]: () => import('./organization/Settings'),
