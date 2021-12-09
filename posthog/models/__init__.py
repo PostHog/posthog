@@ -8,6 +8,7 @@ from .element_group import ElementGroup
 from .entity import Entity
 from .event import Event
 from .event_definition import EventDefinition
+from .experiment import Experiment
 from .feature_flag import FeatureFlag
 from .filters import Filter, RetentionFilter
 from .group import Group
@@ -37,6 +38,7 @@ __all__ = [
     "Entity",
     "Event",
     "EventDefinition",
+    "Experiment",
     "FeatureFlag",
     "Filter",
     "Group",
