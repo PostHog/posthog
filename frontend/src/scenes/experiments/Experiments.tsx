@@ -3,8 +3,7 @@ import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { experimentsLogic } from './experimentsLogic'
 import { PlusOutlined } from '@ant-design/icons'
-import { useActions, useValues } from 'kea'
-import { experimentLogic } from './experimentLogic'
+import { useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '../../lib/components/LemonTable'
 import { createdAtColumn, createdByColumn } from '../../lib/components/LemonTable/columnUtils'
 import { Experiment } from '~/types'
@@ -21,7 +20,6 @@ export const scene: SceneExport = {
 }
 
 export function Experiments(): JSX.Element {
-    const { createNewExperimentFunnel } = useActions(experimentLogic)
     const { experiments, experimentsLoading } = useValues(experimentsLogic)
 
     const columns: LemonTableColumns<Experiment> = [
@@ -67,9 +65,6 @@ export function Experiments(): JSX.Element {
                 <LinkButton
                     type="primary"
                     data-attr="create-experiment"
-                    onClick={() => {
-                        createNewExperimentFunnel()
-                    }}
                     to={urls.experiment('new')}
                     icon={<PlusOutlined />}
                 >

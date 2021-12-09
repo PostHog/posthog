@@ -72,7 +72,7 @@ export const experimentLogic = kea<experimentLogicType>({
         },
         setFilters: ({ filters }) => {
             funnelLogic.findMounted({ dashboardItemId: values.experimentFunnel?.short_id })?.actions.setFilters(filters)
-        }
+        },
     }),
     loaders: ({ values }) => ({
         experimentData: [
@@ -93,15 +93,16 @@ export const experimentLogic = kea<experimentLogicType>({
     }),
     urlToAction: ({ actions, values }) => ({
         '/experiments/:id': ({ id }) => {
-            console.log('exp id: ', id)
             if (id) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 // TODO: optimise loading if already loaded Experiment
                 // like in featureFlagLogic.tsx
+                if (parsedId === 'new') {
+                    actions.createNewExperimentFunnel()
+                }
                 if (parsedId !== values.experimentId) {
                     actions.setExperimentId(parsedId)
                 }
-
                 if (parsedId !== 'new') {
                     actions.loadExperiment()
                 }
