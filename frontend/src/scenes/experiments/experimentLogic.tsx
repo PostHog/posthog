@@ -61,7 +61,7 @@ export const experimentLogic = kea<experimentLogicType>({
             actions.setExperimentFunnel(createdInsight)
         },
         setFilters: ({ filters }) => {
-            funnelLogic.findMounted({ dashboardItemId: values.experimentFunnel.short_id })?.actions.setFilters(filters)
+            funnelLogic.findMounted({ dashboardItemId: values.experimentFunnel?.short_id })?.actions.setFilters(filters)
         },
     }),
 })

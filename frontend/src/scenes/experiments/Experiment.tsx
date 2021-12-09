@@ -49,7 +49,10 @@ export function Experiment(): JSX.Element {
                 style={{ borderBottom: '1px solid var(--border)', marginBottom: '1rem', paddingBottom: 8 }}
             >
                 <PageHeader title={experiment?.name || 'New Experiment'} />
-                <Button style={{ color: 'var(--primary)', borderColor: 'var(--primary)' }} onClick={createExperiment}>
+                <Button
+                    style={{ color: 'var(--primary)', borderColor: 'var(--primary)' }}
+                    onClick={() => createExperiment(true)}
+                >
                     Save as draft
                 </Button>
             </Row>
@@ -187,7 +190,7 @@ export function Experiment(): JSX.Element {
                         </Row>
                         <Row justify="space-between">
                             <Button onClick={prevPage}>Go back</Button>
-                            <Button type="primary" onClick={createExperiment}>
+                            <Button type="primary" onClick={() => createExperiment()}>
                                 Save and launch
                             </Button>
                         </Row>
