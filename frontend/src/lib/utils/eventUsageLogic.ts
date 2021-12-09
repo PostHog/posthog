@@ -405,6 +405,7 @@ export const eventUsageLogic = kea<
             } else if (insight === 'PATHS') {
                 properties.path_type = filters.path_type
                 properties.has_start_point = !!filters.start_point
+                properties.has_end_point = !!filters.end_point
             } else if (insight === 'STICKINESS') {
                 properties.stickiness_days = filters.stickiness_days
             }
