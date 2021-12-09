@@ -30,6 +30,7 @@ import clsx from 'clsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { FunnelCorrelation } from './FunnelCorrelation'
+import { InsightLegend, InsightLegendButton } from 'lib/components/InsightLegend/InsightLegend'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -55,7 +56,6 @@ export function InsightContainer(): JSX.Element {
         insightMode,
         showTimeoutMessage,
         showErrorMessage,
-        insightLoading,
     } = useValues(insightLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
         funnelLogic(insightProps)
@@ -65,8 +65,13 @@ export function InsightContainer(): JSX.Element {
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (activeView !== loadedView) {
-            return <Loading />
+        if (activeView !== loadedView || isLoading) {
+            return (
+                <>
+                    <div style={{ minHeight: 'min(calc(90vh - 16rem), 36rem)' }} />
+                    <Loading />
+                </>
+            )
         }
         // Insight specific empty states - note order is important here
         if (loadedView === InsightType.FUNNELS) {
@@ -76,7 +81,7 @@ export function InsightContainer(): JSX.Element {
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionState />
             }
-            if (!isValidFunnel && !(insightLoading || isLoading)) {
+            if (!isValidFunnel && !isLoading) {
                 return <InsightEmptyState />
             }
         }
@@ -89,14 +94,6 @@ export function InsightContainer(): JSX.Element {
             return <InsightTimeoutState isLoading={isLoading} />
         }
 
-        return null
-    })()
-
-    // Empty states that can coexist with the graph (e.g. Loading)
-    const CoexistingEmptyState = (() => {
-        if (isLoading || insightLoading) {
-            return <Loading />
-        }
         return null
     })()
 
@@ -121,7 +118,12 @@ export function InsightContainer(): JSX.Element {
             filters.funnel_viz_type === FunnelVizType.Steps &&
             (!featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] || filters?.layout === FunnelLayout.horizontal)
         ) {
-            return <FunnelStepTable />
+            return (
+                <Card>
+                    <h3 className="l3">Details table</h3>
+                    <FunnelStepTable />
+                </Card>
+            )
         }
         if (
             (!filters.display ||
@@ -174,18 +176,31 @@ export function InsightContainer(): JSX.Element {
                         align="middle"
                         justify="space-between"
                     >
+                        {/*Don't add more than two columns in this row.*/}
+                        <Col>{lastRefresh && <ComputationTimeWithRefresh />}</Col>
                         <Col>
                             <FunnelCanvasLabel />
                             <PathCanvasLabel />
+                            <InsightLegendButton />
                         </Col>
-                        {lastRefresh && <ComputationTimeWithRefresh />}
                     </Row>
-                    {!BlockingEmptyState && CoexistingEmptyState}
-                    {!!BlockingEmptyState ? BlockingEmptyState : VIEW_MAP[activeView]}
+                    {!!BlockingEmptyState ? (
+                        BlockingEmptyState
+                    ) : featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS] &&
+                      (activeView === InsightType.TRENDS || activeView === InsightType.STICKINESS) &&
+                      !filters.legend_hidden ? (
+                        <Row className="insights-graph-container-row" wrap={false}>
+                            <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>
+                            <Col className="insights-graph-container-row-right">
+                                <InsightLegend />
+                            </Col>
+                        </Row>
+                    ) : (
+                        VIEW_MAP[activeView]
+                    )}
                 </div>
             </Card>
             {renderTable()}
-
             {correlationAnalysisAvailable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>
     )

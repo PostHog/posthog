@@ -58,7 +58,7 @@ const cleanBreakdownParams = (
             cleanedParams['breakdown'] = filters.breakdown
         }
 
-        if (filters.breakdown_group_type_index) {
+        if (filters.breakdown_type === 'group' && filters.breakdown_group_type_index != undefined) {
             cleanedParams['breakdown_group_type_index'] = filters.breakdown_group_type_index
         }
     }
@@ -83,6 +83,8 @@ export function cleanFilters(
             date_to: filters.date_to,
             period: filters.period || 'Day',
             retention_type: filters.retention_type || (filters as any)['retentionType'] || RETENTION_FIRST_TIME,
+            breakdowns: filters.breakdowns,
+            breakdown_type: filters.breakdown_type,
             display: insightChanged ? ChartDisplayType.ActionsTable : filters.display || ChartDisplayType.ActionsTable,
             properties: filters.properties || [],
             ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),

@@ -13,9 +13,10 @@ const defaultHost = process.argv.includes('--host') && process.argv.includes('0.
 const defaultPort = 8234
 
 export const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
-const jsURL = `http://${defaultHost}:${defaultPort}`
-
 export const isDev = process.argv.includes('--dev')
+
+const useJsURL = Boolean(process.env.JS_URL) || isDev
+const jsURL = process.env.JS_URL || `http://${defaultHost}:${defaultPort}`
 
 export const sassPlugin = _sassPlugin({
     importer: [
@@ -49,38 +50,70 @@ export function copyPublicFolder() {
         }
     })
 }
-export function copyIndexHtml(from = 'src/index.html', to = 'dist/index.html', entry = 'index', chunks = {}) {
+
+export function copyIndexHtml(
+    from = 'src/index.html',
+    to = 'dist/index.html',
+    entry = 'index',
+    chunks = {},
+    entrypoints = []
+) {
     const buildId = new Date().valueOf()
+
+    const relativeFiles = entrypoints.map((e) => path.relative(path.resolve(__dirname, 'dist'), e))
+    const jsFile =
+        relativeFiles.length > 0 ? `"${relativeFiles.find((e) => e.endsWith('.js'))}"` : `"${entry}.js?t=${buildId}"`
+    const cssFile =
+        relativeFiles.length > 0 ? `${relativeFiles.find((e) => e.endsWith('.css'))}` : `${entry}.css?t=${buildId}`
+
+    const scriptCode = `
+        window.ESBUILD_LOAD_SCRIPT = async function (file) {
+            try {
+                await import('${useJsURL ? jsURL : ''}/static/' + file)
+            } catch (error) {
+                console.error('Error loading chunk: "' + file + '"')
+                console.error(error)
+            }
+        }
+        window.ESBUILD_LOAD_SCRIPT(${jsFile})
+    `
+
+    const chunkCode = `
+        window.ESBUILD_LOADED_CHUNKS = new Set(); 
+        window.ESBUILD_LOAD_CHUNKS = function(name) { 
+            const chunks = ${JSON.stringify(chunks)}[name] || [];
+            for (const chunk of chunks) { 
+                if (!window.ESBUILD_LOADED_CHUNKS.has(chunk)) { 
+                    window.ESBUILD_LOAD_SCRIPT('chunk-'+chunk+'.js'); 
+                    window.ESBUILD_LOADED_CHUNKS.add(chunk);
+                } 
+            } 
+        }
+        window.ESBUILD_LOAD_CHUNKS('index');
+    `
+
+    const cssLinkTag = cssFile ? `<link rel="stylesheet" href='${useJsURL ? jsURL : ''}/static/${cssFile}'>` : ''
 
     fse.writeFileSync(
         path.resolve(__dirname, to),
         fse.readFileSync(path.resolve(__dirname, from), { encoding: 'utf-8' }).replace(
             '</head>',
             `   <script type="application/javascript">
-                    window.ESBUILD_LOADED_CHUNKS = new Set(); 
-                    window.ESBUILD_LOAD_SCRIPT = async function (file) {
-                        try {
-                            await import('${isDev ? jsURL : ''}/static/' + file)
-                        } catch (e) {
-                            console.error('Error loading chunk: "' + file + '"')
-                        }
-                    }
-                    window.ESBUILD_LOAD_CHUNKS = function(name) { 
-                        const chunks = ${JSON.stringify(chunks)}[name] || [];
-                        for (const chunk of chunks) { 
-                            if (!window.ESBUILD_LOADED_CHUNKS.has(chunk)) { 
-                                window.ESBUILD_LOAD_SCRIPT('chunk-'+chunk+'.js'); 
-                                window.ESBUILD_LOADED_CHUNKS.add(chunk);
-                            } 
-                        } 
-                    }
-                    window.ESBUILD_LOAD_SCRIPT("${entry}.js?t=" + new Date().valueOf())
-                    window.ESBUILD_LOAD_CHUNKS('index');
+                    ${scriptCode}
+                    ${Object.keys(chunks).length > 0 ? chunkCode : ''}
                 </script>
-                <link rel="stylesheet" href='${isDev ? jsURL : ''}/static/${entry}.css?_=${buildId}'>
+                ${cssLinkTag}
             </head>`
         )
     )
+}
+
+/** Makes copies: "index-TMOJQ3VI.js" -> "index.js" */
+export function createHashlessEntrypoints(entrypoints) {
+    for (const entrypoint of entrypoints) {
+        const withoutHash = entrypoint.replace(/-([A-Z0-9]+).(js|css)$/, '.$2')
+        fse.writeFileSync(path.resolve(withoutHash), fse.readFileSync(path.resolve(entrypoint)))
+    }
 }
 
 export const commonConfig = {
@@ -90,6 +123,8 @@ export const commonConfig = {
     resolveExtensions: ['.ts', '.tsx', '.js', '.jsx', '.scss', '.css', '.less'],
     publicPath: '/static',
     assetNames: 'assets/[name]-[hash]',
+    chunkNames: '[name]-[hash]',
+    entryNames: '[dir]/[name]-[hash]',
     plugins: [sassPlugin, lessPlugin],
     define: {
         global: 'globalThis',
@@ -134,6 +169,49 @@ function getChunks(result) {
     return chunks
 }
 
+export async function buildInParallel(configs, { onBuildStart, onBuildComplete }) {
+    await Promise.all(
+        configs.map((config) =>
+            buildOrWatch({
+                ...config,
+                onBuildStart,
+                onBuildComplete,
+            })
+        )
+    )
+}
+
+/** Get the main ".js" and ".css" files for a build */
+function getBuiltEntryPoints(config, result) {
+    let outfiles = []
+    if (config.outdir) {
+        // convert "src/index.tsx" --> /a/posthog/frontend/dist/index.js
+        outfiles = config.entryPoints.map((file) =>
+            path
+                .resolve(__dirname, file)
+                .replace('/src/', '/dist/')
+                .replace(/\.[^\.]+$/, '.js')
+        )
+    } else if (config.outfile) {
+        outfiles = [config.outfile]
+    }
+
+    const builtFiles = []
+    for (const outfile of outfiles) {
+        // convert "/a/something.tsx" --> "/a/something-"
+        const searchString = `${outfile.replace(/\.[^/]+$/, '')}-`
+        // find if we built a .js or .css file that matches
+        for (const file of Object.keys(result.metafile.outputs)) {
+            const absoluteFile = path.resolve(process.cwd(), file)
+            if (absoluteFile.startsWith(searchString) && (file.endsWith('.js') || file.endsWith('.css'))) {
+                builtFiles.push(absoluteFile)
+            }
+        }
+    }
+
+    return builtFiles
+}
+
 export async function buildOrWatch(config) {
     const { name, onBuildStart, onBuildComplete, ..._config } = config
 
@@ -152,12 +230,12 @@ export async function buildOrWatch(config) {
             return
         }
         buildAgain = false
-        onBuildStart?.()
+        onBuildStart?.(config)
         reloadLiveServer()
         buildPromise = runBuild()
-        const chunks = await buildPromise
+        const buildResponse = await buildPromise
         buildPromise = null
-        onBuildComplete?.(chunks)
+        onBuildComplete?.(config, buildResponse)
         if (isDev && buildAgain) {
             void debouncedBuild()
         }
@@ -187,7 +265,11 @@ export async function buildOrWatch(config) {
             }
         }
         inputFiles = getInputFiles(result)
-        return getChunks(result)
+
+        return {
+            chunks: getChunks(result),
+            entrypoints: getBuiltEntryPoints(config, result),
+        }
     }
 
     if (isDev) {
@@ -244,7 +326,7 @@ export function startServer(opts = {}) {
         process.exit(1)
     })
     app.use(cors())
-    app.get('/_reload', (request, response, next) => {
+    app.get('/_reload', (request, response) => {
         response.writeHead(200, {
             'Content-Type': 'text/event-stream',
             Connection: 'keep-alive',
@@ -253,7 +335,7 @@ export function startServer(opts = {}) {
         clients.add(response)
         request.on('close', () => clients.delete(response))
     })
-    app.get('*', async (req, res, next) => {
+    app.get('*', async (req, res) => {
         if (req.url.startsWith('/static/')) {
             if (ifPaused) {
                 if (!ifPaused.logged) {

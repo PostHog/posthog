@@ -7,7 +7,7 @@
     overflow: hidden;
     --row-base-height: 3rem;
     &--small {
-        --row-base-height: 2rem;
+        --row-base-height: 2.5rem;
     }
     &--embedded {
         border: none;
@@ -17,6 +17,7 @@
     &::before,
     &::after {
         transition: opacity 200ms ease;
+        opacity: 0;
         content: '';
         position: absolute;
         top: 0;
@@ -27,25 +28,22 @@
     }
     &::before {
         box-shadow: 16px 0 16px -16px rgba(0, 0, 0, 0.25) inset;
-        opacity: 0;
     }
     &::after {
         box-shadow: -16px 0 16px -16px rgba(0, 0, 0, 0.25) inset;
-        opacity: 0;
     }
     &.LemonTable--scrollable-right::after,
     &.LemonTable--scrollable-left::before {
         opacity: 1;
     }
-
-    h4.row-name {
+    .row-name {
         font-size: 0.875rem;
         font-weight: 600;
-        color: inherit;
         margin-bottom: 0.125rem;
     }
-
-    span.row-description {
+    .row-description {
+        display: inline-block;
+        max-width: 30rem;
         font-size: 0.75rem;
     }
 }
@@ -61,6 +59,9 @@
         font-weight: 600;
         letter-spacing: 0.03125rem;
         text-transform: uppercase;
+        > tr > th {
+            text-align: left;
+        }
     }
     > tbody {
         > tr {
@@ -70,7 +71,7 @@
             &.LemonTable__expansion {
                 background: var(--bg-side);
                 > td {
-                    padding: 0;
+                    padding: 0; // Disable padding inside the expansion for better tailored placement of contents
                 }
             }
             > td {
@@ -86,6 +87,13 @@
             > th,
             > td {
                 padding-left: 1rem;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                &[colspan='0'] {
+                    // Hidden cells should not affect the width of the table
+                    padding-left: 0 !important;
+                    padding-right: 0 !important;
+                }
                 &:last-child {
                     padding-right: 1rem;
                 }
@@ -139,7 +147,7 @@
         background: var(--primary);
     }
     .LemonTable--loading & {
-        top: 2.75rem;
+        top: calc(var(--row-base-height) - 0.25rem);
         height: 0.25rem;
     }
 }
@@ -162,6 +170,7 @@
 
 .LemonTable__header-content {
     display: flex;
+    white-space: pre-wrap;
     align-items: center;
     line-height: 1.5;
 }

@@ -7,7 +7,7 @@ import { isURL } from 'lib/utils'
 import { IconExternalLink, IconText } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import './PropertiesTable.scss'
-import { LemonTable, LemonTableColumns } from './LemonTable/LemonTable'
+import { LemonTable, LemonTableColumns } from './LemonTable'
 import { CopyToClipboardInline } from './CopyToClipboard'
 
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'

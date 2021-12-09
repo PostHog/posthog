@@ -1,4 +1,5 @@
 import copy
+import urllib.parse
 from typing import Any, Dict, List, Union
 
 from django.db import connection
@@ -58,9 +59,9 @@ class Stickiness(BaseQuery):
             events_sql
         )
         counts = execute_custom_sql(aggregated_query, events_sql_params)
-        return self.process_result(counts, filter)
+        return self.process_result(counts, filter, entity)
 
-    def process_result(self, counts: List, filter: StickinessFilter) -> Dict[str, Any]:
+    def process_result(self, counts: List, filter: StickinessFilter, entity: Entity) -> Dict[str, Any]:
 
         response: Dict[int, int] = {}
         for result in counts:
@@ -72,13 +73,32 @@ class Stickiness(BaseQuery):
             label = "{} {}{}".format(day, filter.interval, "s" if day > 1 else "")
             labels.append(label)
             data.append(response[day] if day in response else 0)
+        filter_params = filter.to_params()
 
         return {
             "labels": labels,
             "days": [day for day in range(1, filter.total_intervals)],
             "data": data,
             "count": sum(data),
+            "filter": filter_params,
+            "persons_urls": self._get_persons_url(filter, entity),
         }
+
+    def _get_persons_url(self, filter: StickinessFilter, entity: Entity) -> List[Dict[str, Any]]:
+        persons_url = []
+        for interval_idx in range(1, filter.total_intervals):
+            filter_params = filter.to_params()
+            extra_params = {
+                "stickiness_days": interval_idx,
+                "entity_id": entity.id,
+                "entity_type": entity.type,
+                "entity_math": entity.math,
+            }
+            parsed_params: Dict[str, Union[Any, int, str]] = {**filter_params, **extra_params}
+            persons_url.append(
+                {"filter": extra_params, "url": f"api/person/stickiness/?{urllib.parse.urlencode(parsed_params)}",}
+            )
+        return persons_url
 
     def run(self, filter: StickinessFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
 
@@ -91,15 +111,11 @@ class Stickiness(BaseQuery):
             response.extend(entity_resp)
         return response
 
-    def people(
-        self, target_entity: Entity, filter: StickinessFilter, team: Team, request, *args, **kwargs
-    ) -> ReturnDict:
+    def people(self, target_entity: Entity, filter: StickinessFilter, team: Team, request, *args, **kwargs):
         results = self._retrieve_people(target_entity, filter, team, request)
         return results
 
-    def _retrieve_people(
-        self, target_entity: Entity, filter: StickinessFilter, team: Team, request: Request
-    ) -> ReturnDict:
+    def _retrieve_people(self, target_entity: Entity, filter: StickinessFilter, team: Team, request: Request):
         from posthog.api.person import PersonSerializer
 
         events = stickiness_process_entity_type(target_entity, team, filter)

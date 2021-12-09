@@ -8,7 +8,15 @@ from django.test.client import RequestFactory
 from rest_framework import status
 
 from posthog.api.test.test_capture import mocked_get_team_from_token
-from posthog.api.utils import PaginatedList, PaginationMode, format_paginated_url, get_data, get_team, paginate_list
+from posthog.api.utils import (
+    PaginatedList,
+    PaginationMode,
+    format_paginated_url,
+    get_data,
+    get_target_entity,
+    get_team,
+    paginate_list,
+)
 from posthog.test.base import BaseTest
 
 
@@ -103,3 +111,23 @@ class TestUtils(BaseTest):
         self.assertEqual(paginate_list(list, None, 5), PaginatedList(has_next=False, paginated_list=list[5:]))
         self.assertEqual(paginate_list(list, 5, 5), PaginatedList(has_next=False, paginated_list=list[5:10]))
         self.assertEqual(paginate_list(list, 4, 5), PaginatedList(has_next=True, paginated_list=list[5:9]))
+
+    def test_get_target_entity(self):
+        request = lambda url: cast(Any, RequestFactory().get(url))
+        first_request = request(
+            f"/api/?entity_id=$pageview&entity_type=events&events={json.dumps([{'id': '$pageview', 'type': 'events'}])}"
+        )
+        entity = get_target_entity(first_request)
+
+        assert entity.id == "$pageview"
+        assert entity.type == "events"
+        assert entity.math == None
+
+        second_request = request(
+            f"/api/?entity_id=$pageview&entity_type=events&entity_math=unique_group&events={json.dumps([{'id': '$pageview', 'type': 'events', 'math': 'unique_group'}, {'id': '$pageview', 'type': 'events'}])}"
+        )
+        entity = get_target_entity(second_request)
+
+        assert entity.id == "$pageview"
+        assert entity.type == "events"
+        assert entity.math == "unique_group"

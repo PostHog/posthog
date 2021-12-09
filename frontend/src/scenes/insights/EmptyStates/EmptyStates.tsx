@@ -97,56 +97,63 @@ export function InsightTimeoutState({ isLoading }: { isLoading: boolean }): JSX.
     )
 }
 
-export function InsightErrorState(): JSX.Element {
+export interface InsightErrorStateProps {
+    excludeDetail?: boolean
+    title?: string
+}
+
+export function InsightErrorState({ excludeDetail, title }: InsightErrorStateProps): JSX.Element {
     return (
-        <div className="insight-empty-state error">
+        <div className={clsx(['insight-empty-state', 'error', { 'match-container': excludeDetail }])}>
             <div className="empty-state-inner">
                 <div className="illustration-main">
                     <IllustrationDanger />
                 </div>
-                <h2>There was an error completing this query</h2>
-                <div className="mt">
-                    We apologize for this unexpected situation. There are a few things you can do:
-                    <ol>
-                        <li>
-                            First and foremost you can <b>try again</b>. We recommended you wait a few moments before
-                            doing so.
-                        </li>
-                        <li>
-                            <a
-                                data-attr="insight-error-raise-issue"
-                                href="https://github.com/PostHog/posthog/issues/new?labels=bug&template=bug_report.md"
-                                target="_blank"
-                                rel="noreferrer noopener"
-                            >
-                                Raise an issue
-                            </a>{' '}
-                            in our GitHub repository.
-                        </li>
-                        <li>
-                            Get in touch with us{' '}
-                            <a
-                                data-attr="insight-error-slack"
-                                href="https://posthog.com/slack"
-                                rel="noopener noreferrer"
-                                target="_blank"
-                            >
-                                on Slack
-                            </a>
-                            .
-                        </li>
-                        <li>
-                            Email us at{' '}
-                            <a
-                                data-attr="insight-error-email"
-                                href="mailto:hey@posthog.com?subject=Insight%20graph%20error"
-                            >
-                                hey@posthog.com
-                            </a>
-                            .
-                        </li>
-                    </ol>
-                </div>
+                <h2>{title || 'There was an error completing this query'}</h2>
+                {!excludeDetail && (
+                    <div className="mt">
+                        We apologize for this unexpected situation. There are a few things you can do:
+                        <ol>
+                            <li>
+                                First and foremost you can <b>try again</b>. We recommended you wait a few moments
+                                before doing so.
+                            </li>
+                            <li>
+                                <a
+                                    data-attr="insight-error-raise-issue"
+                                    href="https://github.com/PostHog/posthog/issues/new?labels=bug&template=bug_report.md"
+                                    target="_blank"
+                                    rel="noreferrer noopener"
+                                >
+                                    Raise an issue
+                                </a>{' '}
+                                in our GitHub repository.
+                            </li>
+                            <li>
+                                Get in touch with us{' '}
+                                <a
+                                    data-attr="insight-error-slack"
+                                    href="https://posthog.com/slack"
+                                    rel="noopener noreferrer"
+                                    target="_blank"
+                                >
+                                    on Slack
+                                </a>
+                                .
+                            </li>
+                            <li>
+                                Email us at{' '}
+                                <a
+                                    data-attr="insight-error-email"
+                                    href="mailto:hey@posthog.com?subject=Insight%20graph%20error"
+                                >
+                                    hey@posthog.com
+                                </a>
+                                .
+                            </li>
+                        </ol>
+                    </div>
+                )}
             </div>
         </div>
     )

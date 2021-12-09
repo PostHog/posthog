@@ -46,7 +46,6 @@ def format_action_filter(
 
             prop_query, prop_params = parse_prop_clauses(
                 Filter(data={"properties": step.properties}).properties,
-                team_id=action.team.pk if filter_by_team else None,
                 prepend=f"action_props_{action.pk}_{step.pk}",
                 table_name=table_name,
                 person_properties_mode=person_properties_mode,

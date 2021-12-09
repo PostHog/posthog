@@ -1,4 +1,5 @@
 from datetime import datetime
+from unittest.mock import patch
 from uuid import uuid4
 
 from django.utils import timezone
@@ -997,3 +998,15 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
 
         response = ClickhouseTrends().run(filter, self.team)
         self.assertEqual(response[0]["count"], 1)
+
+    @patch("ee.clickhouse.queries.trends.clickhouse_trends.sync_execute")
+    def test_should_throw_exception(self, patch_sync_execute):
+        self._create_events()
+        patch_sync_execute.side_effect = Exception()
+        # test breakdown filtering
+        with self.assertRaises(Exception):
+            with self.settings(TEST=False, DEBUG=False):
+                response = ClickhouseTrends().run(
+                    Filter(data={"events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,},],}),
+                    self.team,
+                )

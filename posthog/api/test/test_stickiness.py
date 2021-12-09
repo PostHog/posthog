@@ -1,31 +1,35 @@
 import json
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from dateutil.relativedelta import relativedelta
 from django.test.client import Client
 from django.utils import timezone
 from freezegun import freeze_time
-from rest_framework.test import APIRequestFactory
 
+from posthog.api.test.test_trends import NormalizedTrendResult, get_time_series_ok
 from posthog.constants import ENTITY_ID, ENTITY_TYPE
 from posthog.models import Action, ActionStep, Event, Person
-from posthog.models.entity import Entity
-from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.team import Team
 from posthog.queries.abstract_test.test_compare import AbstractCompareTest
 from posthog.queries.stickiness import Stickiness
 from posthog.test.base import APIBaseTest
-from posthog.utils import json_encode_request_params
+from posthog.utils import encode_get_request_params
 
 
-def get_stickiness(client: Client, team_id: int, request: Dict[str, Any]):
-    return client.get(f"/api/projects/{team_id}/insights/trend/", data=request)
+def get_stickiness(client: Client, team: Team, request: Dict[str, Any]):
+    return client.get(f"/api/projects/{team.pk}/insights/trend/", data=request)
 
 
-def get_stickiness_ok(client: Client, team_id: int, request: Dict[str, Any]):
-    response = get_stickiness(client=client, team_id=team_id, request=json_encode_request_params(data=request))
+def get_stickiness_ok(client: Client, team: Team, request: Dict[str, Any]):
+    response = get_stickiness(client=client, team=team, request=encode_get_request_params(data=request))
     assert response.status_code == 200
     return response.json()
+
+
+def get_stickiness_time_series_ok(client: Client, team: Team, request: Dict[str, Any]):
+    data = get_stickiness_ok(client=client, request=request, team=team)
+    return get_time_series_ok(data)
 
 
 def get_stickiness_people(client: Client, team_id: int, request: Dict[str, Any]):
@@ -33,7 +37,7 @@ def get_stickiness_people(client: Client, team_id: int, request: Dict[str, Any])
 
 
 def get_stickiness_people_ok(client: Client, team_id: int, request: Dict[str, Any]):
-    response = get_stickiness_people(client=client, team_id=team_id, request=json_encode_request_params(data=request))
+    response = get_stickiness_people(client=client, team_id=team_id, request=encode_get_request_params(data=request))
     assert response.status_code == 200
     return response.json()
 
@@ -118,7 +122,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             with freeze_time("2020-01-08T13:01:01Z"):
                 stickiness_response = get_stickiness_ok(
                     client=self.client,
-                    team_id=self.team.pk,
+                    team=self.team,
                     request={
                         "insight": "STICKINESS",
                         "shown_as": "Stickiness",
@@ -146,7 +150,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             with freeze_time("2020-01-08T13:01:01Z"):
                 stickiness_response = get_stickiness_ok(
                     client=self.client,
-                    team_id=self.team.pk,
+                    team=self.team,
                     request={"shown_as": "Stickiness", "date_from": "all", "events": [{"id": "watched movie"}]},
                 )
                 response = stickiness_response["result"]
@@ -167,7 +171,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             with freeze_time("2020-01-01T12:08:01Z"):
                 stickiness_response = get_stickiness_ok(
                     client=self.client,
-                    team_id=self.team.pk,
+                    team=self.team,
                     request={
                         "shown_as": "Stickiness",
                         "date_from": "2020-01-01T12:00:00.00Z",
@@ -194,7 +198,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             with freeze_time("2020-01-01T20:01:01Z"):
                 stickiness_response = get_stickiness_ok(
                     client=self.client,
-                    team_id=self.team.pk,
+                    team=self.team,
                     request={
                         "shown_as": "Stickiness",
                         "date_from": "2020-01-01T12:00:00.00Z",
@@ -221,7 +225,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             with freeze_time("2020-02-15T13:01:01Z"):
                 stickiness_response = get_stickiness_ok(
                     client=self.client,
-                    team_id=self.team.pk,
+                    team=self.team,
                     request={
                         "shown_as": "Stickiness",
                         "date_from": "2020-01-01",
@@ -248,7 +252,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             with freeze_time("2020-02-08T13:01:01Z"):
                 stickiness_response = get_stickiness_ok(
                     client=self.client,
-                    team_id=self.team.pk,
+                    team=self.team,
                     request={
                         "shown_as": "Stickiness",
                         "date_from": "2020-01-01",
@@ -275,7 +279,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             with freeze_time("2020-01-08T13:01:01Z"):
                 stickiness_response = get_stickiness_ok(
                     client=self.client,
-                    team_id=self.team.pk,
+                    team=self.team,
                     request={
                         "shown_as": "Stickiness",
                         "date_from": "2020-01-01",
@@ -302,7 +306,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             with freeze_time("2020-01-08T13:01:01Z"):
                 stickiness_response = get_stickiness_ok(
                     client=self.client,
-                    team_id=self.team.pk,
+                    team=self.team,
                     request={
                         "shown_as": "Stickiness",
                         "date_from": "2020-01-01",
@@ -329,7 +333,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             with freeze_time("2020-01-08T13:01:01Z"):
                 stickiness_response = get_stickiness_ok(
                     client=self.client,
-                    team_id=self.team.pk,
+                    team=self.team,
                     request={
                         "shown_as": "Stickiness",
                         "date_from": "2020-01-01",
@@ -357,6 +361,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-08",
                     "entity_id": watched_movie.id,
+                    "entity_type": "actions",
                     "actions": [{"id": watched_movie.id, "type": "actions"}],
                 },
             )
@@ -429,7 +434,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
 
             stickiness_response = get_stickiness_ok(
                 client=self.client,
-                team_id=self.team.pk,
+                team=self.team,
                 request={
                     "shown_as": "Stickiness",
                     "date_from": "2020-01-01",
@@ -446,6 +451,8 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             response = stickiness_response["result"]
             self.assertEqual(response[0]["data"], [2, 1, 1, 0, 0, 0, 0, 0])
             self.assertEqual(response[1]["data"], [3, 0, 0, 0, 0, 0, 0, 0])
+            self.assertEqual(response[0]["compare_label"], "current")
+            self.assertEqual(response[1]["compare_label"], "previous")
 
         def test_filter_test_accounts(self):
             self._create_multiple_people()
@@ -461,7 +468,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             with freeze_time("2020-01-08T13:01:01Z"):
                 stickiness_response = get_stickiness_ok(
                     client=self.client,
-                    team_id=self.team.pk,
+                    team=self.team,
                     request={
                         "shown_as": "Stickiness",
                         "date_from": "2020-01-01",

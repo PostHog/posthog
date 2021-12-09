@@ -28,7 +28,7 @@ RUN apt-get update \
 
 # Install node
 RUN curl -fsSL https://deb.nodesource.com/setup_14.x | bash - \
-    && apt-get -y install --no-install-recommends "nodejs=14.18.1-deb-1nodesource1" \
+    && apt-get -y install --no-install-recommends "nodejs=14.18.2-deb-1nodesource1" \
     && rm -rf /var/lib/apt/lists/*
 
 # NOTE: the below is mostly just a copy of /dev.Dockerfile

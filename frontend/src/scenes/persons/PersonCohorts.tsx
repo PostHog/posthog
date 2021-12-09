@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { personsLogic } from './personsLogic'
 import Skeleton from 'antd/lib/skeleton'
 import { CohortType } from '~/types'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
+import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 
 export function PersonCohorts(): JSX.Element {
     const { cohorts, cohortsLoading } = useValues(personsLogic)

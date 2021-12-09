@@ -4,7 +4,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { Button, Card, Col, Drawer, Input, Row, Tabs } from 'antd'
 import { dashboardsLogic, DashboardsTab } from 'scenes/dashboard/dashboardsLogic'
 import { Link } from 'lib/components/Link'
-import { AppstoreAddOutlined, PlusOutlined, PushpinFilled, PushpinOutlined } from '@ant-design/icons'
+import { AppstoreAddOutlined, PlusOutlined, PushpinFilled, PushpinOutlined, ShareAltOutlined } from '@ant-design/icons'
 import { NewDashboard } from 'scenes/dashboard/NewDashboard'
 import { PageHeader } from 'lib/components/PageHeader'
 import { AvailableFeature, DashboardMode, DashboardType } from '~/types'
@@ -14,12 +14,13 @@ import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
 import { Spinner } from 'lib/components/Spinner/Spinner'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { dashboardLogic } from './dashboardLogic'
 import { LemonSpacer } from 'lib/components/LemonRow'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -56,12 +57,19 @@ export function Dashboards(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             width: '40%',
-            render: function Render(name, { id, description, _highlight }) {
+            render: function Render(name, { id, description, _highlight, is_shared }) {
                 return (
                     <div className={_highlight ? 'highlighted' : undefined} style={{ display: 'inline-block' }}>
-                        <Link data-attr="dashboard-name" to={urls.dashboard(id)}>
-                            <h4 className="row-name">{name || 'Untitled'}</h4>
-                        </Link>
+                        <div>
+                            <Link data-attr="dashboard-name" to={urls.dashboard(id)} className="row-name">
+                                {name || 'Untitled'}
+                            </Link>
+                            {is_shared && (
+                                <Tooltip title="This dashboard is shared publicly.">
+                                    <ShareAltOutlined style={{ marginLeft: 6 }} />
+                                </Tooltip>
+                            )}
+                        </div>
                         {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && description && (
                             <span className="row-description">{description}</span>
                         )}
@@ -160,6 +168,7 @@ export function Dashboards(): JSX.Element {
             >
                 <Tabs.TabPane tab="All Dashboards" key={DashboardsTab.All} />
                 <Tabs.TabPane tab="Pinned" key={DashboardsTab.Pinned} />
+                <Tabs.TabPane tab="Shared" key={DashboardsTab.Shared} />
             </Tabs>
             <div>
                 <Input.Search
@@ -200,13 +209,24 @@ export function Dashboards(): JSX.Element {
                     emptyState={
                         searchTerm ? (
                             `No ${
-                                currentTab === DashboardsTab.Pinned ? 'pinned ' : ''
+                                currentTab === DashboardsTab.Pinned
+                                    ? 'pinned '
+                                    : currentTab === DashboardsTab.Shared
+                                    ? 'shared '
+                                    : ''
                             }dashboards matching "${searchTerm}"!`
                         ) : currentTab === DashboardsTab.Pinned ? (
                             <>
                                 No dashboards have been pinned for quick access yet.{' '}
                                 <Link onClick={() => setCurrentTab(DashboardsTab.All)}>
-                                    Go to All Dashboards to pin one now.
+                                    Go to All Dashboards to pin one.
+                                </Link>
+                            </>
+                        ) : currentTab === DashboardsTab.Shared ? (
+                            <>
+                                No dashboards have been shared yet.{' '}
+                                <Link onClick={() => setCurrentTab(DashboardsTab.All)}>
+                                    Go to All Dashboards to share one.
                                 </Link>
                             </>
                         ) : undefined

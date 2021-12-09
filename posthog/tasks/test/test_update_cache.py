@@ -310,3 +310,48 @@ class TestUpdateCache(APIBaseTest):
             get_safe_cache(item_key)["result"][0]["labels"],
             ["10-Jan-2012", "11-Jan-2012", "12-Jan-2012", "13-Jan-2012", "14-Jan-2012", "15-Jan-2012",],
         )
+
+    @patch("posthog.tasks.update_cache._calculate_by_filter")
+    def test_errors_refreshing(self, patch_calculate_by_filter: MagicMock) -> None:
+        dashboard_to_cache = Dashboard.objects.create(team=self.team, is_shared=True, last_accessed_at=now())
+        item_to_cache = Insight.objects.create(
+            dashboard=dashboard_to_cache,
+            filters=Filter(
+                data={"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}],}
+            ).to_dict(),
+            team=self.team,
+        )
+
+        patch_calculate_by_filter.side_effect = Exception()
+
+        def _update_cached_items() -> None:
+            # This function will throw an exception every time which is what we want in production
+            try:
+                update_cached_items()
+            except Exception as e:
+                pass
+
+        _update_cached_items()
+        self.assertEqual(Insight.objects.get().refresh_attempt, 1)
+        _update_cached_items()
+        self.assertEqual(Insight.objects.get().refresh_attempt, 2)
+
+        # Magically succeeds, reset counter
+        patch_calculate_by_filter.side_effect = None
+        patch_calculate_by_filter.return_value = {}
+        _update_cached_items()
+        self.assertEqual(Insight.objects.get().refresh_attempt, 0)
+
+        # We should retry a max of 3 times
+        patch_calculate_by_filter.side_effect = Exception()
+        _update_cached_items()
+        _update_cached_items()
+        _update_cached_items()
+        _update_cached_items()
+        self.assertEqual(Insight.objects.get().refresh_attempt, 3)
+        self.assertEqual(patch_calculate_by_filter.call_count, 6)  # ie not 7
+
+        # If a user later comes back and manually refreshes we should reset refresh_attempt
+        patch_calculate_by_filter.side_effect = None
+        data = self.client.get(f"/api/projects/{self.team.pk}/insights/{item_to_cache.pk}/?refresh=true")
+        self.assertEqual(Insight.objects.get().refresh_attempt, 0)

@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Button } from 'antd'
 import { SaveToDashboardModal } from './SaveToDashboardModal'
-import { DashboardItemType } from '~/types'
+import { InsightModel } from '~/types'
 import { CheckSquareOutlined } from '@ant-design/icons'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { useValues } from 'kea'
@@ -11,7 +11,7 @@ import { Tooltip } from '../Tooltip'
 import { combineUrl } from 'kea-router'
 
 interface Props {
-    insight: Partial<DashboardItemType>
+    insight: Partial<InsightModel>
 }
 
 export function SaveToDashboard({ insight }: Props): JSX.Element {

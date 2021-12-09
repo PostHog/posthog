@@ -31,7 +31,7 @@ export enum PluginsAccessLevel {
 }
 
 export const annotationScopeToName = new Map<string, string>([
-    [AnnotationScope.DashboardItem, 'insight'],
+    [AnnotationScope.Insight, 'insight'],
     [AnnotationScope.Project, 'project'],
     [AnnotationScope.Organization, 'organization'],
 ])
@@ -41,6 +41,7 @@ export const PERSON_DISTINCT_ID_MAX_SIZE = 3
 // Event constants
 export const ACTION_TYPE = 'action_type'
 export const EVENT_TYPE = 'event_type'
+export const STALE_EVENT_SECONDS = 30 * 24 * 60 * 60 // 30 days
 
 // TODO: Deprecated; should be removed once backend is updated
 export enum ShownAsValue {
@@ -80,10 +81,15 @@ export const FEATURE_FLAGS = {
     NEW_SESSIONS_PLAYER_EVENTS_LIST: 'new-sessions-player-events-list', // owner: @rcmarron / @alexkim205
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
     GROUP_ANALYTICS: 'group-analytics', // owner: @macobo
+    GROUP_ANALYTICS_INTRODUCTION: 'group-analytics-introduction', // owner: @macobo
     SESSION_INSIGHT_REMOVAL: 'session-insight-removal', // owner: @paolodamico
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @paolodamico
     FUNNELS_CUE_ENABLED: 'funnels-cue-enabled', // owner: @paolodamico
     FUNNEL_SIMPLE_MODE: 'funnel-simple-mode', // owner: @paolodamico
+    EXPERIMENTATION: 'experimentation', // owner: @neilkakkar
+    RETENTION_BREAKDOWN: 'retention-breakdown', // owner: @hazzadous
+    STALE_EVENTS: 'stale-events', // owner: @paolodamico
+    INSIGHT_LEGENDS: 'insight-legends', // owner @alexkim205
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

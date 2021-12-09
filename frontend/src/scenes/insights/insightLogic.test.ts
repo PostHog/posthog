@@ -121,6 +121,22 @@ describe('insightLogic', () => {
         })
     })
 
+    describe('insight legend', () => {
+        it('toggles insight legend', () => {
+            logic = insightLogic({
+                dashboardItemId: undefined,
+                filters: { legend_hidden: false },
+            })
+            expectLogic(logic, () => {
+                logic.actions.toggleInsightLegend()
+            })
+                .toDispatchActions(['toggleInsightLegend', 'setFilter'])
+                .toMatchValues({
+                    filters: partial({ legend_hidden: true }),
+                })
+        })
+    })
+
     describe('analytics', () => {
         it('reports insight changes on setFilter', async () => {
             logic = insightLogic({
@@ -132,9 +148,16 @@ describe('insightLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setFilters({ insight: InsightType.FUNNELS })
             }).toDispatchActions([
-                eventUsageLogic.actionCreators.reportInsightViewed({ insight: InsightType.FUNNELS }, true, false, 0, {
-                    changed_insight: InsightType.TRENDS,
-                }),
+                eventUsageLogic.actionCreators.reportInsightViewed(
+                    { insight: InsightType.FUNNELS },
+                    ItemMode.View,
+                    true,
+                    false,
+                    0,
+                    {
+                        changed_insight: InsightType.TRENDS,
+                    }
+                ),
             ])
         })
     })
@@ -399,7 +422,6 @@ describe('insightLogic', () => {
                     filters: partial({ insight: InsightType.FUNNELS }),
                     insight: partial({ id: 43, result: null }),
                 })
-                .toNotHaveDispatchedActions(['loadResults']) // don't load twice!
                 .toDispatchActions(['loadResultsSuccess'])
                 .toMatchValues({
                     insight: partial({ id: 43, result: ['result from api'] }),

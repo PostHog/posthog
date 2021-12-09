@@ -5,7 +5,7 @@ import { Link } from 'lib/components/Link'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { deleteWithUndo } from 'lib/utils'
 import React from 'react'
-import { DashboardItemType, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
+import { InsightModel, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
 import { AppstoreFilled, StarFilled, StarOutlined, PlusOutlined, UnorderedListOutlined } from '@ant-design/icons'
 import './SavedInsights.scss'
@@ -31,7 +31,7 @@ import { TZLabel } from 'lib/components/TimezoneAware'
 import { urls } from 'scenes/urls'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dayjs } from 'lib/dayjs'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { LemonSpacer } from 'lib/components/LemonRow'
 import { More } from 'lib/components/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
@@ -39,65 +39,57 @@ import { LemonButton } from 'lib/components/LemonButton'
 
 const { TabPane } = Tabs
 
-interface SavedInsightType {
-    type: InsightType
+interface InsightTypeMetadata {
     name: string
     description?: string
     icon?: (props?: any) => JSX.Element
     inMenu: boolean
 }
 
-const insightTypes: SavedInsightType[] = [
-    {
-        type: InsightType.TRENDS,
+export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {
+    [InsightType.TRENDS]: {
         name: 'Trends',
-        description: 'Understand how users are spending their time in your product',
+        description: 'Visualize and break down how actions or events vary over time',
         icon: InsightsTrendsIcon,
         inMenu: true,
     },
-    {
-        type: InsightType.FUNNELS,
+    [InsightType.FUNNELS]: {
         name: 'Funnels',
-        description: 'Visualize completion and dropoff between events',
+        description: 'Discover how many users complete or drop out of a sequence of actions',
         icon: InsightsFunnelsIcon,
         inMenu: true,
     },
-    {
-        type: InsightType.SESSIONS,
+    [InsightType.SESSIONS]: {
         name: 'Sessions',
-        description: 'Understand how users are spending their time in your product',
+        description: 'View the average and distribution of session durations',
         icon: InsightsSessionsIcon,
         inMenu: false,
     },
-    {
-        type: InsightType.RETENTION,
+    [InsightType.RETENTION]: {
         name: 'Retention',
-        description: 'Visualize how many users return on subsequent days after a session',
+        description: 'See how many users return on subsequent days after an intial action',
         icon: InsightsRetentionIcon,
         inMenu: true,
     },
-    {
-        type: InsightType.PATHS,
+    [InsightType.PATHS]: {
         name: 'Paths',
-        description: 'Understand how traffic is flowing through your product',
+        description: 'Trace the journeys users take within your product and where they drop off',
         icon: InsightsPathsIcon,
         inMenu: true,
     },
-    {
-        type: InsightType.STICKINESS,
+    [InsightType.STICKINESS]: {
         name: 'Stickiness',
-        description: 'See how many days users performed an action within a timeframe',
+        description: 'See what keeps users coming back by viewing the interval between repeated actions',
         icon: InsightsStickinessIcon,
         inMenu: true,
     },
-    {
-        type: InsightType.LIFECYCLE,
+    [InsightType.LIFECYCLE]: {
         name: 'Lifecycle',
-        description: 'See new, resurrected, returning, and dormant users',
+        description: 'Understand growth by breaking down new, resurrected, returning and dormant users',
         icon: InsightsLifecycleIcon,
         inMenu: true,
     },
-]
+}
 
 export const scene: SceneExport = {
     component: SavedInsights,
@@ -114,31 +106,33 @@ function NewInsightButton(): JSX.Element {
                 padding: '0.5rem',
             }}
         >
-            {insightTypes.map(
-                (listedInsightType) =>
-                    listedInsightType.inMenu && (
+            {Object.entries(INSIGHT_TYPES_METADATA).map(
+                ([listedInsightType, listedInsightTypeMetadata]) =>
+                    listedInsightTypeMetadata.inMenu && (
                         <Menu.Item
-                            key={listedInsightType.type}
+                            key={listedInsightType}
                             onClick={() => {
-                                eventUsageLogic.actions.reportSavedInsightNewInsightClicked(listedInsightType.type)
-                                router.actions.push(urls.insightNew({ insight: listedInsightType.type }))
+                                eventUsageLogic.actions.reportSavedInsightNewInsightClicked(listedInsightType)
+                                router.actions.push(urls.insightNew({ insight: listedInsightType as InsightType }))
                             }}
                             data-attr="saved-insights-create-new-insight"
-                            data-attr-insight-type={listedInsightType.type}
+                            data-attr-insight-type={listedInsightType}
                         >
                             <Row wrap={false}>
                                 <Col flex="none">
-                                    {listedInsightType.icon && (
-                                        <div style={{ fontSize: '2rem' }}>
-                                            <listedInsightType.icon color="var(--muted-alt)" noBackground />
-                                        </div>
+                                    {listedInsightTypeMetadata.icon && (
+                                        <listedInsightTypeMetadata.icon
+                                            color="var(--muted-alt)"
+                                            noBackground
+                                            style={{ fontSize: '2rem' }}
+                                        />
                                     )}
                                 </Col>
                                 <Col flex="Auto" style={{ paddingLeft: '1rem' }}>
-                                    <strong>{listedInsightType.name}</strong>
+                                    <strong>{listedInsightTypeMetadata.name}</strong>
                                     <br />
                                     <div style={{ whiteSpace: 'initial', fontSize: '0.8125rem' }}>
-                                        {listedInsightType.description}
+                                        {listedInsightTypeMetadata.description}
                                     </div>
                                 </Col>
                             </Row>
@@ -179,20 +173,15 @@ export function SavedInsights(): JSX.Element {
     const startCount = (page - 1) * INSIGHTS_PER_PAGE + 1
     const endCount = page * INSIGHTS_PER_PAGE < count ? page * INSIGHTS_PER_PAGE : count
 
-    const columns: LemonTableColumns<DashboardItemType> = [
+    const columns: LemonTableColumns<InsightModel> = [
         {
             key: 'id',
             className: 'icon-column',
             width: 0,
             render: function renderType(_, insight) {
-                const rawType = insight.filters?.insight || InsightType.TRENDS
-                const type = insightTypes.find(({ type: iterationType }) => iterationType === rawType)
-                if (type && type.icon) {
-                    return (
-                        <span style={{ fontSize: '2rem' }}>
-                            <type.icon />
-                        </span>
-                    )
+                const typeMetadata = INSIGHT_TYPES_METADATA[insight.filters?.insight || InsightType.TRENDS]
+                if (typeMetadata && typeMetadata.icon) {
+                    return <typeMetadata.icon style={{ display: 'block', fontSize: '2rem' }} />
                 }
             },
         },
@@ -202,10 +191,10 @@ export function SavedInsights(): JSX.Element {
             key: 'name',
             render: function renderName(name: string, insight) {
                 return (
-                    <Col>
-                        <Row wrap={false}>
-                            <Link to={urls.insightView(insight.short_id, insight.filters)}>
-                                <h4 className="row-name">{name || <i>{UNNAMED_INSIGHT_NAME}</i>}</h4>
+                    <>
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <Link to={urls.insightView(insight.short_id, insight.filters)} className="row-name">
+                                {name || <i>{UNNAMED_INSIGHT_NAME}</i>}
                             </Link>
                             <div
                                 style={{ cursor: 'pointer', width: 'fit-content', marginLeft: 8 }}
@@ -217,11 +206,11 @@ export function SavedInsights(): JSX.Element {
                                     <StarOutlined className="star-outlined" />
                                 )}
                             </div>
-                        </Row>
+                        </div>
                         {hasDashboardCollaboration && insight.description && (
                             <span className="row-description">{insight.description}</span>
                         )}
-                    </Col>
+                    </>
                 )
             },
         },
@@ -229,7 +218,7 @@ export function SavedInsights(): JSX.Element {
             ? [
                   {
                       title: 'Tags',
-                      dataIndex: 'tags' as keyof DashboardItemType,
+                      dataIndex: 'tags' as keyof InsightModel,
                       key: 'tags',
                       render: function renderTags(tags: string[]) {
                           return <ObjectTags tags={tags} staticOnly />
@@ -239,8 +228,8 @@ export function SavedInsights(): JSX.Element {
             : []),
         ...(tab === SavedInsightsTabs.Yours
             ? []
-            : [createdByColumn() as LemonTableColumn<DashboardItemType, keyof DashboardItemType | undefined>]),
-        createdAtColumn() as LemonTableColumn<DashboardItemType, keyof DashboardItemType | undefined>,
+            : [createdByColumn() as LemonTableColumn<InsightModel, keyof InsightModel | undefined>]),
+        createdAtColumn() as LemonTableColumn<InsightModel, keyof InsightModel | undefined>,
         {
             title: 'Last modified',
             sorter: true,
@@ -337,24 +326,23 @@ export function SavedInsights(): JSX.Element {
                             style={{ paddingLeft: 8, width: 140 }}
                             onChange={(it) => setSavedInsightsFilters({ insightType: it })}
                         >
-                            {[
-                                {
+                            {Object.entries({
+                                ['All types']: {
                                     name: 'All types',
-                                    type: 'All types' as InsightType,
                                     inMenu: false,
-                                } as SavedInsightType,
-                                ...insightTypes,
-                            ].map((insight, index) => (
-                                <Select.Option key={index} value={insight.type}>
+                                } as InsightTypeMetadata,
+                                ...INSIGHT_TYPES_METADATA,
+                            }).map(([listedInsightType, listedInsightTypeMetadata], index) => (
+                                <Select.Option key={index} value={listedInsightType}>
                                     <div className="insight-type-icon-wrapper">
-                                        {insight.icon ? (
+                                        {listedInsightTypeMetadata.icon ? (
                                             <div className="icon-container">
                                                 <div className="icon-container-inner">
-                                                    {<insight.icon color="#747EA2" noBackground />}
+                                                    {<listedInsightTypeMetadata.icon color="#747EA2" noBackground />}
                                                 </div>
                                             </div>
                                         ) : null}
-                                        <div>{insight.name}</div>
+                                        <div>{listedInsightTypeMetadata.name}</div>
                                     </div>
                                 </Select.Option>
                             ))}
@@ -456,7 +444,7 @@ export function SavedInsights(): JSX.Element {
                     ) : (
                         <Row gutter={[16, 16]}>
                             {insights &&
-                                insights.results.map((insight: DashboardItemType, index: number) => (
+                                insights.results.map((insight: InsightModel, index: number) => (
                                     <Col
                                         xs={24}
                                         sm={24}

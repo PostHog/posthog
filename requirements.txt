@@ -98,7 +98,7 @@ djangorestframework==3.12.2
     #   djangorestframework-csv
     #   drf-exceptions-hog
     #   drf-extensions
-drf-exceptions-hog==0.0.4
+drf-exceptions-hog==0.1.0
     # via -r requirements.in
 drf-extensions==0.7.0
     # via -r requirements.in
@@ -132,6 +132,8 @@ lzstring==1.0.4
     # via -r requirements.in
 monotonic==1.5
     # via posthoganalytics
+numpy==1.21.4
+    # via -r requirements.in
 oauthlib==3.1.0
     # via
     #   requests-oauthlib

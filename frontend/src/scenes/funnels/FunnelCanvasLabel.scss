@@ -1,6 +1,8 @@
 @import '~/vars';
 
-.insights-graph-header {
+.insights-graph-header.funnels {
+    border-bottom: 1px solid $border;
+
     .funnel-canvas-label {
         .ant-btn-link {
             padding: 0;
