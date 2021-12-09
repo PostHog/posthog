@@ -118,15 +118,16 @@ jobs:
                   NO_RESTART_LOOP: 1
               run: |
                   python manage.py collectstatic --noinput &
-                  ./bin/docker-migrate & wait
+                  ./bin/docker-migrate &
+                  wait
                   python manage.py setup_dev
-                  mkdir -p cypress/screenshots
                   ./bin/docker-worker &
                   ./bin/docker-server &
             - name: Cypress run
               uses: cypress-io/github-action@v2
               with:
                   config-file: cypress.e2e.json
+                  video: true
                   record: true
                   parallel: ${{github.event.pull_request.head.repo.full_name == github.repository}}
                   group: 'PostHog Frontend'
@@ -146,4 +147,10 @@ jobs:
               with:
                   name: screenshots
                   path: cypress/screenshots
+              if: ${{ failure() }}
+            - name: Archive test videos
+              uses: actions/upload-artifact@v1
+              with:
+                  name: videos
+                  path: cypress/videos
               if: ${{ failure() }}
