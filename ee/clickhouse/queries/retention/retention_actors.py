@@ -173,7 +173,6 @@ class ClickhouseRetentionActorsByPeriod(ActorBaseQuery):
         date_from = self._filter.date_from + self._filter.selected_interval * self._filter.period_increment
         date_to = self._filter.date_to
 
-        # NOTE: I'm using `Any` here to avoid typing issues when trying to iterate.
         return (
             RETENTION_PEOPLE_PER_PERIOD_SQL.format(
                 returning_query=return_query_formatted,
