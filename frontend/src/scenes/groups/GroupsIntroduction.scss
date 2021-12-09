@@ -26,5 +26,9 @@
     .groups-introduction__action-button {
         min-width: 300px;
         margin-bottom: 8px;
+
+        .LemonRow__content {
+            justify-content: center;
+        }
     }
 }

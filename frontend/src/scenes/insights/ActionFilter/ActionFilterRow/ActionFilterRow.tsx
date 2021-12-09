@@ -481,7 +481,7 @@ function MathSelector({
             onChange={(value) => onMathSelect(index, value)}
             data-attr={`math-selector-${index}`}
             dropdownMatchSelectWidth={false}
-            dropdownStyle={{ width: 320 }}
+            dropdownStyle={{ maxWidth: 320 }}
         >
             <Select.OptGroup key="event aggregates" label="Event aggregation">
                 {math_entries.map(([key, { name, description, onProperty }]) => {
