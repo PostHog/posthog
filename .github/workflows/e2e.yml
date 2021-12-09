@@ -122,7 +122,8 @@ jobs:
                   wait
                   python manage.py setup_dev
                   mkdir -p /tmp/logs
-                  ./bin/start &> /tmp/logs/start.txt &
+                  ./bin/docker-worker &> /tmp/logs/worker.txt &
+                  ./bin/docker-server &> /tmp/logs/server.txt &
             - name: Cypress run
               uses: cypress-io/github-action@v2
               with:
