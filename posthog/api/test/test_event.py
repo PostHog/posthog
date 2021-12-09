@@ -202,7 +202,6 @@ def factory_test_event_api(event_factory, person_factory, _):
                 )
             ).json()
 
-            breakpoint()
             self.assertEqual(len(response["results"]), 1)
             self.assertEqual([r["event"] for r in response["results"]], ["should_be_included"])
 
