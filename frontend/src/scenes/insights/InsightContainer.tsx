@@ -115,7 +115,8 @@ export function InsightContainer(): JSX.Element {
             !showTimeoutMessage &&
             areFiltersValid &&
             filters.funnel_viz_type === FunnelVizType.Steps &&
-            (!featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] || filters?.layout === FunnelLayout.horizontal)
+            (!featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] || filters?.layout === FunnelLayout.horizontal) &&
+            !featureFlags[FEATURE_FLAGS.EXPERIMENTATION]
         ) {
             return (
                 <Card>

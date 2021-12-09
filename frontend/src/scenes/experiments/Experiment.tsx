@@ -1,5 +1,5 @@
 import SaveOutlined from '@ant-design/icons/lib/icons/SaveOutlined'
-import { Button, Col, Form, Input, Row } from 'antd'
+import { Button, Card, Col, Form, Input, Row } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
@@ -8,13 +8,12 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React, { useState } from 'react'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
-import { FunnelSingleStepState } from 'scenes/insights/EmptyStates'
-import { FunnelInsight } from 'scenes/insights/FunnelInsight'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { PropertyFilter } from '~/types'
 import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
+import { InsightContainer } from 'scenes/insights/InsightContainer'
 
 export function Experiment(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -32,7 +31,7 @@ export function Experiment(): JSX.Element {
             syncWithUrl: false,
         })
     )
-    const { isStepsEmpty, filterSteps, filters, areFiltersValid } = useValues(funnelLogic(insightProps))
+    const { isStepsEmpty, filterSteps, filters } = useValues(funnelLogic(insightProps))
 
     return (
         <BindLogic
@@ -118,43 +117,54 @@ export function Experiment(): JSX.Element {
                         </Form.Item>
                         <Form.Item className="metrics-selection" label="Goal metric">
                             <Form.Item name="metrics-selection">
-                                <span className="text-muted">
-                                    Define the metric which you are trying to optimize. This is the most important part
-                                    of your experiment.
-                                </span>
-                                <Row>
-                                    <BindLogic
-                                        logic={insightLogic}
-                                        props={{
-                                            dashboardItemId: experimentFunnel?.short_id,
-                                            filters: experimentFunnel?.filters,
-                                            syncWithUrl: false,
-                                        }}
-                                    >
-                                        <Row>
-                                            <ActionFilter
-                                                filters={filters}
-                                                setFilters={setFilters}
-                                                typeKey={`EditFunnel-action`}
-                                                hideMathSelector={true}
-                                                hideDeleteBtn={filterSteps.length === 1}
-                                                buttonCopy="Add funnel step"
-                                                showSeriesIndicator={!isStepsEmpty}
-                                                seriesIndicatorType="numeric"
-                                                fullWidth
-                                                sortable
-                                                showNestedArrow={true}
-                                                propertiesTaxonomicGroupTypes={[
-                                                    TaxonomicFilterGroupType.EventProperties,
-                                                    TaxonomicFilterGroupType.PersonProperties,
-                                                    TaxonomicFilterGroupType.Cohorts,
-                                                    TaxonomicFilterGroupType.Elements,
-                                                ]}
-                                            />
-                                            {areFiltersValid ? <FunnelInsight /> : <FunnelSingleStepState />}
-                                        </Row>
-                                    </BindLogic>
-                                </Row>
+                                <BindLogic
+                                    logic={insightLogic}
+                                    props={{
+                                        dashboardItemId: experimentFunnel?.short_id,
+                                        filters: experimentFunnel?.filters,
+                                        syncWithUrl: false,
+                                    }}
+                                >
+                                    <Row>
+                                        <Col span={8}>
+                                            <Row className="text-muted" style={{ marginBottom: '1rem' }}>
+                                                Define the metric which you are trying to optimize. This is the most
+                                                important part of your experiment.
+                                            </Row>
+                                            <Row>
+                                                <Card
+                                                    className="action-filters-bordered"
+                                                    style={{ width: '100%', marginRight: 8 }}
+                                                    bodyStyle={{ padding: 0 }}
+                                                >
+                                                    <ActionFilter
+                                                        filters={filters}
+                                                        setFilters={setFilters}
+                                                        typeKey={`EditFunnel-action`}
+                                                        hideMathSelector={true}
+                                                        hideDeleteBtn={filterSteps.length === 1}
+                                                        buttonCopy="Add funnel step"
+                                                        showSeriesIndicator={!isStepsEmpty}
+                                                        seriesIndicatorType="numeric"
+                                                        fullWidth
+                                                        sortable
+                                                        showNestedArrow={true}
+                                                        propertiesTaxonomicGroupTypes={[
+                                                            TaxonomicFilterGroupType.EventProperties,
+                                                            TaxonomicFilterGroupType.PersonProperties,
+                                                            TaxonomicFilterGroupType.Cohorts,
+                                                            TaxonomicFilterGroupType.Elements,
+                                                        ]}
+                                                        rowClassName="action-filters-bordered"
+                                                    />
+                                                </Card>
+                                            </Row>
+                                        </Col>
+                                        <Col span={16}>
+                                            <InsightContainer />
+                                        </Col>
+                                    </Row>
+                                </BindLogic>
                             </Form.Item>
                         </Form.Item>
                         <Row justify="space-between">

@@ -5,6 +5,17 @@
         border-top: 1px solid $border;
         padding-top: $default_spacing;
 
+        .action-filters-bordered {
+            .draggable-action-filter {
+                border-bottom: 1px solid $border;
+                padding: $default_spacing $default_spacing / 4;
+                margin-top: 0;
+            }
+            .row-action-btn {
+                color: $primary_alt;
+            }
+        }
+
         &.person-selection {
             label {
                 font-size: 16px;
