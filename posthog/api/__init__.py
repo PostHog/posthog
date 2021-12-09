@@ -43,7 +43,7 @@ router = DefaultRouterPlusPlus()
 router.register(r"annotation", annotation.LegacyAnnotationsViewSet)  # Should be completely unused now
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Should be completely unused now
 router.register(r"dashboard", dashboard.LegacyDashboardsViewSet)  # Should be completely unused now
-router.register(r"dashboard_item", dashboard.LegacyDashboardItemViewSet)  # To be deleted - unified into insight viewset
+router.register(r"dashboard_item", dashboard.LegacyInsightViewSet)  # To be deleted - unified into insight viewset
 router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet)
 
 # Nested endpoints shared
