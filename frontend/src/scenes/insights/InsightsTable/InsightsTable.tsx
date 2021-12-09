@@ -144,7 +144,7 @@ export function InsightsTable({
                         </div>
                     )}
                     <InsightLabel
-                        seriesColor={colorList[item.id & colorList.length]}
+                        seriesColor={colorList[item.id % colorList.length]}
                         action={item.action}
                         fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                         hasMultipleSeries={indexedResults.length > 1}
