@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
+import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 
 const { TabPane } = Tabs
 
@@ -43,7 +44,9 @@ export function Group(): JSX.Element {
                             {groupData && (
                                 <>
                                     <div className="person-header">
-                                        <span className="ph-no-capture text-ellipsis">{groupData.group_key}</span>
+                                        <span className="ph-no-capture text-ellipsis">
+                                            {groupDisplayId(groupData.group_key, groupData.group_properties)}
+                                        </span>
                                     </div>
                                     <div className="item-group">
                                         <label>Group type</label>

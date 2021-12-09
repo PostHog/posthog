@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
+import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 
 export const scene: SceneExport = {
     component: Groups,
@@ -42,7 +43,9 @@ export function Groups(): JSX.Element {
             key: 'group_key',
             render: function Render(_, group: Group) {
                 return (
-                    <Link to={urls.group(group.group_type_index.toString(), group.group_key)}>{group.group_key}</Link>
+                    <Link to={urls.group(group.group_type_index.toString(), group.group_key)}>
+                        {groupDisplayId(group.group_key, group.group_properties)}
+                    </Link>
                 )
             },
         },
