@@ -8,8 +8,8 @@ from typing import DefaultDict, Dict, Generator, List, Optional
 
 from sentry_sdk.api import capture_exception, capture_message
 
+from posthog.api.utils import paginate_list
 from posthog.models import utils
-from posthog.utils import paginate_list
 
 FULL_SNAPSHOT = 2
 

@@ -8,7 +8,7 @@ from django.test.client import RequestFactory
 from rest_framework import status
 
 from posthog.api.test.test_capture import mocked_get_team_from_token
-from posthog.api.utils import PaginationMode, format_paginated_url, get_data, get_team
+from posthog.api.utils import PaginatedList, PaginationMode, format_paginated_url, get_data, get_team, paginate_list
 from posthog.test.base import BaseTest
 
 
@@ -94,3 +94,12 @@ class TestUtils(BaseTest):
             ),
             "api/some_url?offset=0",
         )
+
+    def test_paginate_list(self):
+        list = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        self.assertEqual(paginate_list(list, 5, 0), PaginatedList(has_next=True, paginated_list=list[:5]))
+        self.assertEqual(paginate_list(list, 20, 0), PaginatedList(has_next=False, paginated_list=list))
+        self.assertEqual(paginate_list(list, None, 0), PaginatedList(has_next=False, paginated_list=list))
+        self.assertEqual(paginate_list(list, None, 5), PaginatedList(has_next=False, paginated_list=list[5:]))
+        self.assertEqual(paginate_list(list, 5, 5), PaginatedList(has_next=False, paginated_list=list[5:10]))
+        self.assertEqual(paginate_list(list, 4, 5), PaginatedList(has_next=True, paginated_list=list[5:9]))
