@@ -20,13 +20,11 @@ export function ActionsLineGraph({
     const logic = trendsLogic(insightProps)
     const { filters, indexedResults, visibilityMap } = useValues(logic)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
-    const { pluralActorLabel } = useValues(personsModalLogic)
 
     return indexedResults &&
         indexedResults[0]?.data &&
         indexedResults.filter((result) => result.count !== 0).length > 0 ? (
         <LineGraph
-            actorLabel={pluralActorLabel}
             data-attr="trend-line-graph"
             type={filters.insight === InsightType.LIFECYCLE || filters.display === ACTIONS_BAR_CHART ? 'bar' : 'line'}
             color={color}

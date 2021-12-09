@@ -50,7 +50,7 @@ export function PersonsModal({
     const title = useMemo(
         () =>
             isInitialLoad ? (
-                `Loading ${pluralActorLabel}…`
+                `Loading…`
             ) : filters.shown_as === 'Stickiness' ? (
                 <>
                     <PropertyKeyInfo value={people?.label || ''} disablePopover /> stickiness on day {people?.day}

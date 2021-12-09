@@ -77,7 +77,13 @@ class ClickhouseActionsViewSet(ActionViewSet):
 
         return Response(
             {
-                "results": [{"people": serialized_actors[0:100], "count": len(serialized_actors[0:100])}],
+                "results": [
+                    {
+                        "people": serialized_actors[0:100],
+                        "count": len(serialized_actors[0:100]),
+                        "aggregation_group_type_index": entity.math_group_type_index,
+                    }
+                ],
                 "next": next_url,
                 "previous": current_url[1:],
             }

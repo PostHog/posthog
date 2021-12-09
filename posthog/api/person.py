@@ -240,7 +240,18 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         people = self.stickiness_class().people(target_entity, filter, team, request)
         next_url = paginated_result(people, request, filter.offset)
-        return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
+        return response.Response(
+            {
+                "results": [
+                    {
+                        "people": people,
+                        "count": len(people),
+                        "aggregation_group_type_index": target_entity.math_group_type_index,
+                    }
+                ],
+                "next": next_url,
+            }
+        )
 
     @action(methods=["GET"], detail=False)
     def cohorts(self, request: request.Request) -> response.Response:

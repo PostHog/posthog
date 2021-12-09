@@ -21,4 +21,5 @@ export interface TrendActors {
     loadingMore?: boolean
     funnelStep?: number
     pathsDropoff?: boolean
+    aggregationGroupTypeIndex?: number
 }

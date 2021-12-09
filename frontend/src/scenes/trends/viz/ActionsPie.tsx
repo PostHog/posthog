@@ -22,7 +22,7 @@ export function ActionsPie({
     const { insightProps } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
-    const { results, pluralActorLabel } = useValues(logic)
+    const { results } = useValues(logic)
 
     function updateData(): void {
         const _data = [...results] as TrendResultWithAggregate[]
@@ -61,7 +61,6 @@ export function ActionsPie({
             <div className="actions-pie-component">
                 <div className="pie-chart">
                     <LineGraph
-                        actorLabel={pluralActorLabel}
                         data-attr="trend-pie-graph"
                         color={color}
                         type="doughnut"

@@ -3,7 +3,7 @@ import { Link } from 'lib/components/Link'
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
-import { errorToast, isGroupType, pluralize, toParams } from 'lib/utils'
+import { errorToast, pluralize, toParams } from 'lib/utils'
 import {
     ActionFilter,
     FilterType,
@@ -209,25 +209,29 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             () => [preflightLogic.selectors.preflight],
             (preflight) => !!preflight?.is_clickhouse_enabled,
         ],
-        isGroupType: [(s) => [s.people], (people) => people?.people?.[0] && isGroupType(people.people[0])],
         actorLabel: [
-            (s) => [s.people, s.isGroupType, s.groupTypes],
-            (result, _isGroupType, groupTypes) => {
-                if (_isGroupType && result?.action !== 'session') {
-                    return result?.action.math_group_type_index != undefined &&
-                        groupTypes.length > result?.action.math_group_type_index
-                        ? `${groupTypes[result?.action.math_group_type_index].group_type}(s)`
-                        : ''
+            (s) => [s.people, s.groupTypes],
+            (result, groupTypes) => {
+                const aggregationGroupTypeIndex = result?.aggregationGroupTypeIndex
+                if (aggregationGroupTypeIndex != undefined) {
+                    return (
+                        aggregationGroupTypeIndex != undefined &&
+                        `${groupTypes[aggregationGroupTypeIndex].group_type}(s)`
+                    )
                 } else {
                     return pluralize(result?.count || 0, 'user', undefined, false)
                 }
             },
         ],
         pluralActorLabel: [
-            (s) => [s.people, s.isGroupType, s.groupTypes],
-            (result, _isGroupType, groupTypes) => {
-                if (_isGroupType && result?.action !== 'session') {
-                    return `${groupTypes[result?.action.math_group_type_index].group_type}(s)`
+            (s) => [s.people, s.groupTypes],
+            (result, groupTypes) => {
+                const aggregationGroupTypeIndex = result?.aggregationGroupTypeIndex
+                if (aggregationGroupTypeIndex != undefined) {
+                    return (
+                        aggregationGroupTypeIndex != undefined &&
+                        `${groupTypes[aggregationGroupTypeIndex].group_type}(s)`
+                    )
                 } else {
                     return 'people'
                 }
@@ -240,6 +244,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                 let actors: PaginatedResponse<{
                     people: ActorType[]
                     count: number
+                    aggregation_group_type_index: number | null
                 }> | null = null
                 const {
                     label,
@@ -318,8 +323,8 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     next: actors?.next,
                     funnelStep,
                     pathsDropoff,
+                    aggregationGroupTypeIndex: actors?.results[0]?.aggregation_group_type_index,
                 } as TrendActors
-
                 eventUsageLogic.actions.reportPersonsModalViewed(peopleParams, peopleResult.count, !!actors?.next)
 
                 if (saveOriginal) {
@@ -337,18 +342,19 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                 label,
                 pathsDropoff,
             }) => {
-                const people = await api.get(url)
+                const actors = await api.get(url)
 
                 return {
-                    people: people?.results[0]?.people,
-                    count: people?.results[0]?.count || 0,
+                    people: actors?.results[0]?.people,
+                    count: actors?.results[0]?.count || 0,
                     label,
                     funnelStep,
                     breakdown_value,
                     day: date_from,
                     action: action,
-                    next: people?.next,
+                    next: actors?.next,
                     pathsDropoff,
+                    aggregationGroupTypeIndex: actors?.results[0]?.aggregation_group_type_index,
                 }
             },
             loadMorePeople: async ({}, breakpoint) => {
@@ -366,18 +372,19 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     if (!next) {
                         throw new Error('URL of next page of persons is not known.')
                     }
-                    const people = await api.get(next)
+                    const actors = await api.get(next)
                     breakpoint()
 
                     return {
-                        people: [...currPeople, ...people.results[0]?.people],
-                        count: count + people.results[0]?.count,
+                        people: [...currPeople, ...actors.results[0]?.people],
+                        count: count + actors.results[0]?.count,
                         action,
                         label,
                         day,
                         breakdown_value,
-                        next: people.next,
+                        next: actors.next,
                         funnelStep,
+                        aggregationGroupTypeIndex: actors?.results[0]?.aggregation_group_type_index,
                     }
                 }
                 return null

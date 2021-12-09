@@ -52,11 +52,17 @@ class ClickhousePersonViewSet(PersonViewSet):
         if not results_package:
             return Response(data=[])
 
-        people, next_url, initial_url = results_package["result"]
+        people, aggregation_group_type_index, next_url, initial_url = results_package["result"]
 
         return Response(
             data={
-                "results": [{"people": people, "count": len(people)}],
+                "results": [
+                    {
+                        "people": people,
+                        "count": len(people),
+                        "aggregation_group_type_index": aggregation_group_type_index,
+                    }
+                ],
                 "next": next_url,
                 "initial": initial_url,
                 "is_cached": results_package.get("is_cached"),
@@ -91,7 +97,7 @@ class ClickhousePersonViewSet(PersonViewSet):
         initial_url = format_query_params_absolute_url(request, 0)
 
         # cached_function expects a dict with the key result
-        return {"result": (serialized_actors, next_url, initial_url)}
+        return {"result": (serialized_actors, filter.aggregation_group_type_index, next_url, initial_url)}
 
     @action(methods=["GET", "POST"], url_path="funnel/correlation", detail=False)
     def funnel_correlation(self, request: Request, **kwargs) -> Response:
@@ -103,11 +109,17 @@ class ClickhousePersonViewSet(PersonViewSet):
         if not results_package:
             return Response(data=[])
 
-        people, next_url, initial_url = results_package["result"]
+        people, aggregation_group_type_index, next_url, initial_url = results_package["result"]
 
         return Response(
             data={
-                "results": [{"people": people, "count": len(people)}],
+                "results": [
+                    {
+                        "people": people,
+                        "count": len(people),
+                        "aggregation_group_type_index": aggregation_group_type_index,
+                    }
+                ],
                 "next": next_url,
                 "initial": initial_url,
                 "is_cached": results_package.get("is_cached"),
@@ -144,7 +156,7 @@ class ClickhousePersonViewSet(PersonViewSet):
         initial_url = format_query_params_absolute_url(request, 0)
 
         # cached_function expects a dict with the key result
-        return {"result": (serialized_actors, next_url, initial_url)}
+        return {"result": (serialized_actors, filter.aggregation_group_type_index, next_url, initial_url)}
 
     def get_properties(self, request: Request):
         rows = sync_execute(GET_PERSON_PROPERTIES_COUNT, {"team_id": self.team.pk})
@@ -164,7 +176,7 @@ class ClickhousePersonViewSet(PersonViewSet):
 
         return Response(
             data={
-                "results": [{"people": people, "count": len(people)}],
+                "results": [{"people": people, "count": len(people), "aggregation_group_type_index": None}],
                 "next": next_url,
                 "initial": initial_url,
                 "is_cached": results_package.get("is_cached"),

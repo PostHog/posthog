@@ -15,11 +15,9 @@ export function FunnelLineGraph({
     const logic = funnelLogic(insightProps)
     const { steps, filters } = useValues(logic)
     const { loadPeople } = useActions(personsModalLogic)
-    const { pluralActorLabel } = useValues(personsModalLogic)
 
     return (
         <LineGraph
-            actorLabel={pluralActorLabel}
             data-attr="trend-line-graph-funnel"
             type="line"
             color={color}
