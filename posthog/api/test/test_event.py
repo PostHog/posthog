@@ -72,8 +72,14 @@ def factory_test_event_api(event_factory, person_factory, _):
             self.assertEqual(response["results"][0]["elements"][1]["order"], 1)
 
         def test_filter_events_by_event_name(self):
-            journeys_for(
-                {"2": [{"event": "event_name"}, {"event": "a different name"},]}, self.team,
+            person_factory(
+                properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"],
+            )
+            event_factory(
+                event="event_name", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"},
+            )
+            event_factory(
+                event="another event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"},
             )
 
             expected_queries = 4  # Django session, PostHog user, PostHog team, PostHog org membership
@@ -85,14 +91,14 @@ def factory_test_event_api(event_factory, person_factory, _):
             self.assertEqual(response["results"][0]["event"], "event_name")
 
         def test_filter_events_by_properties(self):
-            journeys_for(
-                {
-                    "2": [
-                        {"event": "event_name", "properties": {"$browser": "Chrome"}},
-                        {"event": "event_name", "properties": {"$browser": "Safari"}},
-                    ]
-                },
-                self.team,
+            person_factory(
+                properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"],
+            )
+            event_factory(
+                event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Chrome"},
+            )
+            event2 = event_factory(
+                event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
             )
 
             expected_queries = 4  # Django session, PostHog user, PostHog team, PostHog org membership
@@ -105,8 +111,7 @@ def factory_test_event_api(event_factory, person_factory, _):
                     % (json.dumps([{"key": "$browser", "value": "Safari"}]))
                 ).json()
 
-            self.assertEqual(len(response["results"]), 1)
-            self.assertEqual(response["results"][0]["properties"], {"$browser": "Safari"})
+            self.assertEqual(response["results"][0]["id"], event2.pk)
 
             properties = "invalid_json"
 
@@ -118,24 +123,26 @@ def factory_test_event_api(event_factory, person_factory, _):
             )
 
         def test_filter_events_by_being_after_properties_with_date_type(self):
-            journeys_for(
-                {
-                    "2": [
-                        {
-                            "event": "should_be_excluded",
-                            "properties": {"prop_that_is_a_unix_timestamp": datetime(2012, 1, 7, 18).timestamp()},
-                        },
-                        {
-                            "event": "should_be_included",
-                            "properties": {"prop_that_is_a_unix_timestamp": datetime(2012, 1, 7, 19).timestamp()},
-                        },
-                        {
-                            "event": "should_be_included",
-                            "properties": {"prop_that_is_a_unix_timestamp": datetime(2012, 1, 7, 20).timestamp()},
-                        },
-                    ]
-                },
-                self.team,
+            person_factory(
+                properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"],
+            )
+            event_factory(
+                event="should_be_excluded",
+                team=self.team,
+                distinct_id="2",
+                properties={"prop_that_is_a_unix_timestamp": datetime(2012, 1, 7, 18).timestamp()},
+            )
+            event_factory(
+                event="should_be_included",
+                team=self.team,
+                distinct_id="2",
+                properties={"prop_that_is_a_unix_timestamp": datetime(2012, 1, 7, 19).timestamp()},
+            )
+            event_factory(
+                event="should_be_included",
+                team=self.team,
+                distinct_id="2",
+                properties={"prop_that_is_a_unix_timestamp": datetime(2012, 1, 7, 20).timestamp()},
             )
 
             response = self.client.get(
@@ -158,24 +165,26 @@ def factory_test_event_api(event_factory, person_factory, _):
             self.assertEqual([r["event"] for r in response["results"]], ["should_be_included", "should_be_included"])
 
         def test_filter_events_by_being_before_properties_with_date_type(self):
-            journeys_for(
-                {
-                    "2": [
-                        {
-                            "event": "should_be_included",
-                            "properties": {"prop_that_is_a_unix_timestamp": datetime(2012, 1, 7, 18).timestamp()},
-                        },
-                        {
-                            "event": "should_be_excluded",
-                            "properties": {"prop_that_is_a_unix_timestamp": datetime(2012, 1, 7, 19).timestamp()},
-                        },
-                        {
-                            "event": "should_be_excluded",
-                            "properties": {"prop_that_is_a_unix_timestamp": datetime(2012, 1, 7, 20).timestamp()},
-                        },
-                    ]
-                },
-                self.team,
+            person_factory(
+                properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"],
+            )
+            event_factory(
+                event="should_be_included",
+                team=self.team,
+                distinct_id="2",
+                properties={"prop_that_is_a_unix_timestamp": datetime(2012, 1, 7, 18).timestamp()},
+            )
+            event_factory(
+                event="should_be_excluded",
+                team=self.team,
+                distinct_id="2",
+                properties={"prop_that_is_a_unix_timestamp": datetime(2012, 1, 7, 19).timestamp()},
+            )
+            event_factory(
+                event="should_be_excluded",
+                team=self.team,
+                distinct_id="2",
+                properties={"prop_that_is_a_unix_timestamp": datetime(2012, 1, 7, 20).timestamp()},
             )
 
             response = self.client.get(
