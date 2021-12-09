@@ -121,8 +121,9 @@ jobs:
                   ./bin/docker-migrate &
                   wait
                   python manage.py setup_dev
-                  ./bin/docker-worker &
-                  ./bin/docker-server &
+                  mkdir -p /tmp/logs
+                  ./bin/docker-worker > /tmp/logs/worker.txt 2>&1 &
+                  ./bin/docker-server > /tmp/logs/server.txt 2>&1 &
             - name: Cypress run
               uses: cypress-io/github-action@v2
               with:
@@ -153,4 +154,11 @@ jobs:
               with:
                   name: videos
                   path: cypress/videos
+              if: ${{ failure() }}
+            - name: Show logs on failure
+              # use artefact here, as I think the output will be too large for display in an action
+              uses: actions/upload-artifact@v1
+              with:
+                  name: logs
+                  path: /tmp/logs
               if: ${{ failure() }}
