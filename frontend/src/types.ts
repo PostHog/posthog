@@ -1345,6 +1345,11 @@ export interface Experiment {
     created_by: UserBasicType | null
 }
 
+export interface ExperimentResults {
+    funnel: FunnelStep[][]
+    probability: number
+}
+
 interface RelatedPerson {
     type: 'person'
     id: string

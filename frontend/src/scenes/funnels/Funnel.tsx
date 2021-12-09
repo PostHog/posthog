@@ -22,5 +22,7 @@ export function Funnel(props: Omit<ChartParams, 'filters'>): JSX.Element | null 
         return <FunnelHistogram />
     }
 
+    console.log('returning bar graph', insightProps)
+
     return <FunnelBarGraph {...props} />
 }

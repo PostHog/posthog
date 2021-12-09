@@ -1,7 +1,8 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
-import { Experiment } from '~/types'
+import { urls } from 'scenes/urls'
+import { Breadcrumb, Experiment, ExperimentResults } from '~/types'
 
 import { experimentLogicType } from './experimentLogicType'
 
@@ -11,6 +12,7 @@ export const experimentLogic = kea<experimentLogicType>({
     actions: {
         setExperimentId: (experimentId: number | 'new') => ({ experimentId }),
         setNewExperimentData: (experimentData: Experiment) => ({ experimentData }),
+        setExperimentResults: (experimentResults: ExperimentResults) => ({ experimentResults }),
         createDraftExperiment: true,
         createExperiment: true,
     },
@@ -27,10 +29,24 @@ export const experimentLogic = kea<experimentLogicType>({
                 setNewExperimentData: (_, { experimentData }) => experimentData,
             },
         ],
+        experimentResults: [
+            null as ExperimentResults | null,
+            {
+                setExperimentResults: (_, { experimentResults }) => experimentResults,
+            },
+        ],
     },
-    listeners: ({ values }) => ({
+    listeners: ({ values, actions }) => ({
         createExperiment: async () => {
             await api.create(`api/projects/${values.currentTeamId}/experiments`, { ...values.newExperimentData })
+        },
+
+        loadExperiment: async () => {
+            const response = await api.get(
+                `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/results`
+            )
+            console.log(response)
+            actions.setExperimentResults(response)
         },
     }),
     loaders: ({ values }) => ({
@@ -42,7 +58,6 @@ export const experimentLogic = kea<experimentLogicType>({
                         const response = await api.get(
                             `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`
                         )
-                        console.log(response)
                         return response as Experiment
                     }
                     return null
@@ -50,9 +65,23 @@ export const experimentLogic = kea<experimentLogicType>({
             },
         ],
     }),
+    selectors: {
+        breadcrumbs: [
+            (s) => [s.experimentData, s.experimentId],
+            (experimentData, experimentId): Breadcrumb[] => [
+                {
+                    name: 'Experiments',
+                    path: urls.experiments(),
+                },
+                {
+                    name: experimentData?.name || 'New Experiment',
+                    path: urls.experiment(experimentId || 'new'),
+                },
+            ],
+        ],
+    },
     urlToAction: ({ actions, values }) => ({
         '/experiments/:id': ({ id }) => {
-            console.log('exp id: ', id)
             if (id) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 // TODO: optimise loading if already loaded Experiment

@@ -1,10 +1,12 @@
 import SaveOutlined from '@ant-design/icons/lib/icons/SaveOutlined'
 import { Button, Carousel, Col, Form, Input, Row } from 'antd'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React, { useRef } from 'react'
+import { InsightContainer } from 'scenes/insights/InsightContainer'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 import { PropertyFilter } from '~/types'
@@ -18,7 +20,7 @@ export const scene: SceneExport = {
 
 export function Experiment(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { newExperimentData, experimentId, experimentData } = useValues(experimentLogic)
+    const { newExperimentData, experimentId, experimentData, experimentResults } = useValues(experimentLogic)
     const { setNewExperimentData, createExperiment, createDraftExperiment } = useActions(experimentLogic)
     const carouselRef = useRef<any>(null)
     const handleNext = (): void => carouselRef.current.next()
@@ -131,6 +133,24 @@ export function Experiment(): JSX.Element {
                 <div>Owner: {experimentData.created_by?.first_name}</div>
                 <div>Feature flag key: {experimentData?.feature_flag_key}</div>
             </div>
+
+            {experimentResults && (
+                <BindLogic
+                    logic={insightLogic}
+                    props={{
+                        dashboardItemId: undefined,
+                        filters: { ...experimentResults.filters, insight: 'FUNNELS', display: 'FunnelViz' },
+                        cachedResults: experimentResults.funnel,
+                        syncWithUrl: false,
+                    }}
+                >
+                    <div>
+                        <PageHeader title="Results" />
+                        <div>Probability: {experimentResults.probability}</div>
+                        <InsightContainer />
+                    </div>
+                </BindLogic>
+            )}
         </>
     ) : (
         <div>Loading...</div>
