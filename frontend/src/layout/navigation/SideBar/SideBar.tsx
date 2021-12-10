@@ -210,7 +210,6 @@ function Pages(): JSX.Element {
                 identifier={Scene.Persons}
                 to={urls.persons()}
                 title={`Persons${showGroupsOptions ? ' & groups' : ''}`}
-                highlight={showGroupsOptions ? 'new' : undefined}
             />
             <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
             <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
