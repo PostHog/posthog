@@ -1,4 +1,5 @@
 import structlog
+from django.core.exceptions import ImproperlyConfigured
 from django.core.management.base import BaseCommand
 from semantic_version.base import Version
 
@@ -57,6 +58,8 @@ class Command(BaseCommand):
             migration.refresh_from_db()
             if not started_successfully or migration.status != MigrationStatus.CompletedSuccessfully:
                 logger.info(f"Unable to complete special migration {migration.name} with error: {migration.last_error}")
-                return
+                raise ImproperlyConfigured(
+                    f"Migrate job failed because necessary special migration {migration.name} could not complete."
+                )
 
             logger.info(f"✅ Migration {migration.name} successful")
