@@ -8,7 +8,7 @@ import { DashboardItem } from 'scenes/dashboard/DashboardItem'
 import { isMobile, triggerResize, triggerResizeAfterADelay } from 'lib/utils'
 import { InsightModel, DashboardMode } from '~/types'
 import { insightsModel } from '~/models/insightsModel'
-import { dashboardLogic, COLS, BREAKPOINTS } from 'scenes/dashboard/dashboardLogic'
+import { dashboardLogic, BREAKPOINT_COLUMN_COUNTS, BREAKPOINTS } from 'scenes/dashboard/dashboardLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import clsx from 'clsx'
 
@@ -68,7 +68,7 @@ export function DashboardItems(): JSX.Element {
             measureBeforeMount
             breakpoints={BREAKPOINTS}
             resizeHandles={['s', 'e', 'se']}
-            cols={COLS}
+            cols={BREAKPOINT_COLUMN_COUNTS}
             onResize={(_layout: any, _oldItem: any, newItem: any) => {
                 if (!resizingItem || resizingItem.w !== newItem.w || resizingItem.h !== newItem.h) {
                     setResizingItem(newItem)

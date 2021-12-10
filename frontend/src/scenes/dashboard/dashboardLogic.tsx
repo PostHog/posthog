@@ -30,7 +30,7 @@ export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
     xs: 0,
 }
-export const COLUMNS_FOR_BREAKPOINTS: Record<DashboardLayoutSize, number> = { sm: 12, xs: 1 }
+export const BREAKPOINT_COLUMN_COUNTS: Record<DashboardLayoutSize, number> = { sm: 12, xs: 1 }
 export const MIN_ITEM_WIDTH_UNITS = 4
 export const MIN_ITEM_HEIGHT_UNITS = 6
 
@@ -342,18 +342,16 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         sizeKey: [
             (s) => [s.columns],
             (columns): DashboardLayoutSize | undefined => {
-                const [size] = (Object.entries(COLUMNS_FOR_BREAKPOINTS).find(([, value]) => value === columns) || []) as [
-                    DashboardLayoutSize,
-                    number
-                ]
+                const [size] = (Object.entries( BREAKPOINT_COLUMN_COUNTS).find(([, value]) => value === columns) ||
+                    []) as [DashboardLayoutSize, number]
                 return size
             },
         ],
         layouts: [
             () => [selectors.items],
             (items) => {
-                const allLayouts: Partial<Record<keyof typeof COLUMNS_FOR_BREAKPOINTS, Layout[]>> = {}
-                ;(Object.keys(COLUMNS_FOR_BREAKPOINTS) as (keyof typeof COLUMNS_FOR_BREAKPOINTS)[]).forEach((col) => {
+                const allLayouts: Partial<Record<keyof typeof  BREAKPOINT_COLUMN_COUNTS, Layout[]>> = {}
+                ;(Object.keys( BREAKPOINT_COLUMN_COUNTS) as (keyof typeof  BREAKPOINT_COLUMN_COUNTS)[]).forEach((col) => {
                     const layouts = items
                         ?.filter((i) => !i.deleted)
                         .map((item) => {
@@ -364,10 +362,10 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                             const defaultHeight = isRetention ? 8 : item.filters.display === PATHS_VIZ ? 12.5 : 5
                             const layout = item.layouts && item.layouts[col]
                             const { x, y, w, h } = layout || {}
-                            const width = Math.min(w || defaultWidth, COLUMNS_FOR_BREAKPOINTS[col])
+                            const width = Math.min(w || defaultWidth,  BREAKPOINT_COLUMN_COUNTS[col])
                             return {
                                 i: item.short_id,
-                                x: Number.isInteger(x) && x + width - 1 < COLUMNS_FOR_BREAKPOINTS[col] ? x : 0,
+                                x: Number.isInteger(x) && x + width - 1 <  BREAKPOINT_COLUMN_COUNTS[col] ? x : 0,
                                 y: Number.isInteger(y) ? y : Infinity,
                                 w: width,
                                 h: h || defaultHeight,
@@ -377,7 +375,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     const cleanLayouts = layouts?.filter(({ y }) => y !== Infinity)
 
                     // array of -1 for each column
-                    const lowestPoints = Array.from(Array(COLUMNS_FOR_BREAKPOINTS[col])).map(() => -1)
+                    const lowestPoints = Array.from(Array( BREAKPOINT_COLUMN_COUNTS[col])).map(() => -1)
 
                     // set the lowest point for each column
                     cleanLayouts?.forEach(({ x, y, w, h }) => {
@@ -390,7 +388,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         ?.filter(({ y }) => y === Infinity)
                         .forEach(({ i, w, h }) => {
                             // how low are things in "w" consecutive of columns
-                            const segmentCount = COLUMNS_FOR_BREAKPOINTS[col] - w + 1
+                            const segmentCount =  BREAKPOINT_COLUMN_COUNTS[col] - w + 1
                             const lowestSegments = Array.from(Array(segmentCount)).map(() => -1)
                             for (let k = 0; k < segmentCount; k++) {
                                 for (let j = k; j <= k + w - 1; j++) {
