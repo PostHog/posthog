@@ -34,7 +34,7 @@ export const asLink = (person: Partial<PersonType> | null | undefined): string |
 
 export function PersonHeader(props: PersonHeaderProps): JSX.Element {
     const content = (
-        <div className="flex-center">
+        <div className="flex-center" role="complementary">
             {props.withIcon && (
                 <span className="mr-025">
                     <ProfilePicture
@@ -57,7 +57,11 @@ export function PersonHeader(props: PersonHeaderProps): JSX.Element {
             {props.noLink ? (
                 content
             ) : (
-                <Link to={asLink(props.person)} data-attr={`goto-person-email-${props.person?.distinct_ids?.[0]}`}>
+                <Link
+                    to={asLink(props.person)}
+                    data-attr={`goto-person-email-${props.person?.distinct_ids?.[0]}`}
+                    data-testid="person-header-link"
+                >
                     {content}
                 </Link>
             )}

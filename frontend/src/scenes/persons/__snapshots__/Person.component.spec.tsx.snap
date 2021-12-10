@@ -1,0 +1,81 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`the person component shows user properties and events 1`] = `
+<div
+  class="flex-center"
+  role="complementary"
+>
+  <span
+    class="ph-no-capture text-ellipsis"
+  >
+    Jane.Doe@gmail.com
+  </span>
+</div>
+`;
+
+exports[`the person component shows user with a link 1`] = `
+<a
+  data-attr="goto-person-email-abcdefg"
+  data-testid="person-header-link"
+  href="/person/abcdefg"
+>
+  <div
+    class="flex-center"
+    role="complementary"
+  >
+    <span
+      class="ph-no-capture text-ellipsis"
+    >
+      Jane.Doe@gmail.com
+    </span>
+  </div>
+</a>
+`;
+
+exports[`the person component shows user with icon 1`] = `
+<div
+  class="flex-center"
+  role="complementary"
+>
+  <span
+    class="mr-025"
+  >
+    <div
+      class="profile-picture md"
+    >
+      J
+    </div>
+  </span>
+  <span
+    class="ph-no-capture text-ellipsis"
+  >
+    Jane.Doe@gmail.com
+  </span>
+</div>
+`;
+
+exports[`the person component shows user without email 1`] = `
+<div
+  class="flex-center"
+  role="complementary"
+>
+  <span
+    class="ph-no-capture text-ellipsis"
+  >
+    Jane Doe
+  </span>
+</div>
+`;
+
+exports[`the person component shows user without icon 1`] = `
+<div
+  class="flex-center"
+  role="complementary"
+>
+  <span
+    class="ph-no-capture text-ellipsis"
+  >
+    Jane.Doe@gmail.com
+  </span>
+</div>
+`;
