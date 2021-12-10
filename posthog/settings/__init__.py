@@ -14,7 +14,7 @@ import logging
 import os
 import sys
 from datetime import timedelta
-from typing import Any, Callable, Dict, List, Optional
+from typing import Dict, List
 from urllib.parse import urlparse
 
 import dj_database_url
@@ -28,29 +28,8 @@ from sentry_sdk.integrations.logging import LoggingIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
 
 from posthog.constants import AnalyticsDBMS
-from posthog.utils import print_warning, str_to_bool
+from posthog.settings.utils import get_from_env, get_list, print_warning, str_to_bool
 from posthog.version_requirement import ServiceVersionRequirement
-
-
-def get_from_env(key: str, default: Any = None, *, optional: bool = False, type_cast: Optional[Callable] = None) -> Any:
-    value = os.getenv(key)
-    if value is None:
-        if optional:
-            return None
-        if default is not None:
-            return default
-        else:
-            raise ImproperlyConfigured(f'The environment variable "{key}" is required to run PostHog!')
-    if type_cast is not None:
-        return type_cast(value)
-    return value
-
-
-def get_list(text: str) -> List[str]:
-    if not text:
-        return []
-    return [item.strip() for item in text.split(",")]
-
 
 """
 There are several options:
