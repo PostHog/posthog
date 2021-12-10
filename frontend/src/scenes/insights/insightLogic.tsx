@@ -33,6 +33,7 @@ import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 import { generateRandomAnimal } from 'lib/utils/randomAnimal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -147,6 +148,7 @@ export const insightLogic = kea<insightLogicType>({
                     }
                     callback?.(updatedInsight)
                     savedInsightsLogic.findMounted()?.actions.loadInsights()
+                    dashboardLogic.findMounted()?.actions.loadDashboardItems()
                     dashboardsModel.actions.updateDashboardItem(updatedInsight)
                     return updatedInsight
                 },
