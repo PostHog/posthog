@@ -8,6 +8,7 @@ on:
 jobs:
     # Job that lists and chunks spec file names and caches node modules
     cypress_prep:
+        name: Cypress E2E preparation
         runs-on: ubuntu-latest
         outputs:
             specs: ${{ steps.set-specs.outputs.specs }}
