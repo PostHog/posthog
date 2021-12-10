@@ -91,91 +91,89 @@ export function Experiment(): JSX.Element {
 
                         {page === 1 && (
                             <div>
-                                <Form.Item className="person-selection" label="Person selection">
-                                    <Form.Item name="person-selection">
-                                        <span className="text-muted">
-                                            Select the persons who will participate in this experiment. We'll split all
-                                            persons evenly in a control and experiment group.
-                                        </span>
-                                        <div style={{ flex: 3, marginRight: 5 }}>
-                                            <PropertyFilters
-                                                endpoint="person"
-                                                pageKey={'EditFunnel-property'}
-                                                propertyFilters={filters.properties || []}
-                                                onChange={(anyProperties) => {
-                                                    setNewExperimentData({
-                                                        filters: { properties: anyProperties as PropertyFilter[] },
-                                                    })
-                                                    setFilters({
-                                                        properties: anyProperties.filter(isValidPropertyFilter),
-                                                    })
-                                                }}
-                                                style={{ margin: '1rem 0 0' }}
-                                                taxonomicGroupTypes={[
-                                                    TaxonomicFilterGroupType.PersonProperties,
-                                                    TaxonomicFilterGroupType.CohortsWithAllUsers,
-                                                ]}
-                                                popoverPlacement="top"
-                                                taxonomicPopoverPlacement="auto"
-                                            />
-                                        </div>
-                                    </Form.Item>
-                                </Form.Item>
-                                <Form.Item className="metrics-selection" label="Goal metric">
-                                    <Form.Item name="metrics-selection">
-                                        <BindLogic
-                                            logic={insightLogic}
-                                            props={{
-                                                dashboardItemId: experimentFunnel?.short_id,
-                                                filters: experimentFunnel?.filters,
-                                                syncWithUrl: false,
+                                <Col className="person-selection">
+                                    <div className="l3 mb">Person selection</div>
+                                    <div className="text-muted">
+                                        Select the persons who will participate in this experiment. We'll split all
+                                        persons evenly in a control and experiment group.
+                                    </div>
+                                    <div style={{ flex: 3, marginRight: 5 }}>
+                                        <PropertyFilters
+                                            endpoint="person"
+                                            pageKey={'EditFunnel-property'}
+                                            propertyFilters={filters.properties || []}
+                                            onChange={(anyProperties) => {
+                                                setNewExperimentData({
+                                                    filters: { properties: anyProperties as PropertyFilter[] },
+                                                })
+                                                setFilters({
+                                                    properties: anyProperties.filter(isValidPropertyFilter),
+                                                })
                                             }}
-                                        >
-                                            <Row>
-                                                <Col span={8}>
-                                                    <Row className="text-muted" style={{ marginBottom: '1rem' }}>
-                                                        Define the metric which you are trying to optimize. This is the
-                                                        most important part of your experiment.
-                                                    </Row>
-                                                    <Row>
-                                                        <Card
-                                                            className="action-filters-bordered"
-                                                            style={{ width: '100%', marginRight: 8 }}
-                                                            bodyStyle={{ padding: 0 }}
-                                                        >
-                                                            <ActionFilter
-                                                                filters={filters}
-                                                                setFilters={(actionFilters) => {
-                                                                    setNewExperimentData({ filters: actionFilters })
-                                                                    setFilters(actionFilters)
-                                                                }}
-                                                                typeKey={`EditFunnel-action`}
-                                                                hideMathSelector={true}
-                                                                hideDeleteBtn={filterSteps.length === 1}
-                                                                buttonCopy="Add funnel step"
-                                                                showSeriesIndicator={!isStepsEmpty}
-                                                                seriesIndicatorType="numeric"
-                                                                fullWidth
-                                                                sortable
-                                                                showNestedArrow={true}
-                                                                propertiesTaxonomicGroupTypes={[
-                                                                    TaxonomicFilterGroupType.EventProperties,
-                                                                    TaxonomicFilterGroupType.PersonProperties,
-                                                                    TaxonomicFilterGroupType.Cohorts,
-                                                                    TaxonomicFilterGroupType.Elements,
-                                                                ]}
-                                                                rowClassName="action-filters-bordered"
-                                                            />
-                                                        </Card>
-                                                    </Row>
-                                                </Col>
-                                                <Col span={16}>
-                                                    <InsightContainer />
-                                                </Col>
-                                            </Row>
-                                        </BindLogic>
-                                    </Form.Item>
-                                </Form.Item>
+                                            style={{ margin: '1rem 0 0' }}
+                                            taxonomicGroupTypes={[
+                                                TaxonomicFilterGroupType.PersonProperties,
+                                                TaxonomicFilterGroupType.CohortsWithAllUsers,
+                                            ]}
+                                            popoverPlacement="top"
+                                            taxonomicPopoverPlacement="auto"
+                                        />
+                                    </div>
+                                </Col>
+                                <Row className="metrics-selection">
+                                    <BindLogic
+                                        logic={insightLogic}
+                                        props={{
+                                            dashboardItemId: experimentFunnel?.short_id,
+                                            filters: experimentFunnel?.filters,
+                                            syncWithUrl: false,
+                                        }}
+                                    >
+                                        <Row style={{ width: '100%' }}>
+                                            <Col span={8} style={{ paddingRight: 8 }}>
+                                                <div className="l3 mb">Goal metric</div>
+                                                <Row className="text-muted" style={{ marginBottom: '1rem' }}>
+                                                    Define the metric which you are trying to optimize. This is the most
+                                                    important part of your experiment.
+                                                </Row>
+                                                <Row>
+                                                    <Card
+                                                        className="action-filters-bordered"
+                                                        style={{ width: '100%', marginRight: 8 }}
+                                                        bodyStyle={{ padding: 0 }}
+                                                    >
+                                                        <ActionFilter
+                                                            filters={filters}
+                                                            setFilters={(actionFilters) => {
+                                                                setNewExperimentData({ filters: actionFilters })
+                                                                setFilters(actionFilters)
+                                                            }}
+                                                            typeKey={`EditFunnel-action`}
+                                                            hideMathSelector={true}
+                                                            hideDeleteBtn={filterSteps.length === 1}
+                                                            buttonCopy="Add funnel step"
+                                                            showSeriesIndicator={!isStepsEmpty}
+                                                            seriesIndicatorType="numeric"
+                                                            fullWidth
+                                                            sortable
+                                                            showNestedArrow={true}
+                                                            propertiesTaxonomicGroupTypes={[
+                                                                TaxonomicFilterGroupType.EventProperties,
+                                                                TaxonomicFilterGroupType.PersonProperties,
+                                                                TaxonomicFilterGroupType.Cohorts,
+                                                                TaxonomicFilterGroupType.Elements,
+                                                            ]}
+                                                            rowClassName="action-filters-bordered"
+                                                        />
+                                                    </Card>
+                                                </Row>
+                                            </Col>
+                                            <Col span={16}>
+                                                <InsightContainer />
+                                            </Col>
+                                        </Row>
+                                    </BindLogic>
+                                </Row>
                                 <Row justify="space-between">
                                     <Button onClick={prevPage}>Go back</Button>
                                     <Button icon={<SaveOutlined />} type="primary" onClick={nextPage}>
