@@ -60,8 +60,8 @@ export function Dashboards(): JSX.Element {
             render: function Render(name, { id, description, _highlight, is_shared }) {
                 return (
                     <div className={_highlight ? 'highlighted' : undefined} style={{ display: 'inline-block' }}>
-                        <div>
-                            <Link data-attr="dashboard-name" to={urls.dashboard(id)} className="row-name">
+                        <div className="row-name">
+                            <Link data-attr="dashboard-name" to={urls.dashboard(id)}>
                                 {name || 'Untitled'}
                             </Link>
                             {is_shared && (
