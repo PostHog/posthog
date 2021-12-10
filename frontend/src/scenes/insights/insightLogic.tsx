@@ -147,9 +147,11 @@ export const insightLogic = kea<insightLogicType>({
                         result: response.result || values.insight.result,
                     }
                     callback?.(updatedInsight)
-                    savedInsightsLogic.findMounted()?.actions.loadInsights()
-                    dashboardLogic.findMounted()?.actions.loadDashboardItems()
                     dashboardsModel.actions.updateDashboardItem(updatedInsight)
+                    savedInsightsLogic.findMounted()?.actions.loadInsights()
+                    if (updatedInsight.dashboard) {
+                        dashboardLogic.findMounted({ id: updatedInsight.dashboard })?.actions.loadDashboardItems()
+                    }
                     return updatedInsight
                 },
                 setInsightMetadata: async ({ metadata }, breakpoint) => {
