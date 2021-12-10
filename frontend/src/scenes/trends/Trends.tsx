@@ -32,12 +32,13 @@ export function TrendInsight({ view }: Props): JSX.Element {
         loadMoreBreakdownUrl,
         breakdownValuesLoading,
         showModalActions,
+        aggregationTargetLabel,
     } = useValues(trendsLogic(insightProps))
     const { loadMoreBreakdownValues } = useActions(trendsLogic(insightProps))
     const { showingPeople } = useValues(personsModalLogic)
     const { saveCohortWithFilters } = useActions(personsModalLogic)
     const { reportCohortCreatedFromPersonsModal } = useActions(eventUsageLogic)
-
+    console.log(aggregationTargetLabel)
     const renderViz = (): JSX.Element | undefined => {
         if (
             !_filters.display ||
@@ -108,6 +109,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
                     setCohortModalVisible(true)
                 }}
                 showModalActions={showModalActions}
+                aggregationTargetLabel={aggregationTargetLabel}
             />
             <SaveCohortModal
                 visible={cohortModalVisible}

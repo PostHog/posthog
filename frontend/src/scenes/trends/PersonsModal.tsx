@@ -42,7 +42,6 @@ export function PersonsModal({
         isInitialLoad,
         clickhouseFeaturesEnabled,
         peopleParams,
-        actorLabel,
     } = useValues(personsModalLogic)
     const { hidePeople, loadMorePeople, setFirstLoadedActors, setPersonsModalFilters, setSearchTerm } =
         useActions(personsModalLogic)
@@ -160,7 +159,7 @@ export function PersonsModal({
                             <span>
                                 This list contains{' '}
                                 <b>
-                                    {people.count} unique {actorLabel}
+                                    {people.count} unique {aggregationTargetLabel.plural}
                                 </b>
                                 {peopleParams?.pointValue !== undefined &&
                                     peopleParams.action !== 'session' &&

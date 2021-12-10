@@ -6,6 +6,8 @@ import { InsightLogicProps, FilterType, InsightType, TrendResult } from '~/types
 import { trendsLogicType } from './trendsLogicType'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { isTrendsInsight, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { personsModalLogic } from './personsModalLogic'
+import { groupsModel } from '~/models/groupsModel'
 
 export const trendsLogic = kea<trendsLogicType>({
     props: {} as InsightLogicProps,
@@ -13,8 +15,8 @@ export const trendsLogic = kea<trendsLogicType>({
     path: (key) => ['scenes', 'trends', 'trendsLogic', key],
 
     connect: (props: InsightLogicProps) => ({
-        values: [insightLogic(props), ['filters', 'insight', 'insightLoading']],
-        actions: [insightLogic(props), ['loadResultsSuccess']],
+        values: [insightLogic(props), ['filters', 'insight', 'insightLoading'], groupsModel, ['groupTypes']],
+        actions: [insightLogic(props), ['loadResultsSuccess'], personsModalLogic, ['loadPeople', 'loadPeopleFromUrl']],
     }),
 
     actions: () => ({
@@ -25,6 +27,7 @@ export const trendsLogic = kea<trendsLogicType>({
         loadMoreBreakdownValues: true,
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
         toggleLifecycle: (lifecycleName: string) => ({ lifecycleName }),
+        setTargetAction: (action: Record<string, any>) => ({ action }),
     }),
 
     reducers: ({ props }) => ({
@@ -37,6 +40,12 @@ export const trendsLogic = kea<trendsLogicType>({
                     }
                     return [...state, lifecycleName]
                 },
+            },
+        ],
+        targetAction: [
+            {} as Record<string, any>,
+            {
+                setTargetAction: (state, { action }) => action,
             },
         ],
         visibilityMap: [
@@ -125,9 +134,31 @@ export const trendsLogic = kea<trendsLogicType>({
                 )
             },
         ],
+        aggregationTargetLabel: [
+            (s) => [s.groupTypes, s.targetAction],
+            (
+                groupTypes,
+                targetAction
+            ): {
+                singular: string
+                plural: string
+            } => {
+                if (targetAction.math_group_type_index != undefined && groupTypes.length > 0) {
+                    const groupType = groupTypes[targetAction.math_group_type_index]
+                    return { singular: groupType.group_type, plural: `${groupType.group_type}(s)` }
+                }
+                return { singular: 'user', plural: 'users' }
+            },
+        ],
     },
 
     listeners: ({ actions, values, props }) => ({
+        loadPeople: ({ peopleParams: { action } }) => {
+            actions.setTargetAction(action)
+        },
+        loadPeopleFromUrl: ({ action }) => {
+            actions.setTargetAction(action)
+        },
         setFilters: async ({ filters, mergeFilters }) => {
             insightLogic(props).actions.setFilters(mergeFilters ? { ...values.filters, ...filters } : filters)
         },
