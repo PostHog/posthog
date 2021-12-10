@@ -1,5 +1,5 @@
 import SaveOutlined from '@ant-design/icons/lib/icons/SaveOutlined'
-import { Button, Card, Col, Form, Input, Row } from 'antd'
+import { Button, Card, Col, Form, Input, Row, Slider } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
@@ -21,7 +21,17 @@ export const scene: SceneExport = {
 }
 
 export function Experiment(): JSX.Element {
-    const { newExperimentData, experimentId, experimentData, experimentFunnel } = useValues(experimentLogic)
+    const {
+        newExperimentData,
+        experimentId,
+        experimentData,
+        experimentFunnel,
+        minimimumDetectableChange,
+        experimentFunnelConversionRate,
+        recommendedSampleSize,
+        expectedRunningTime,
+        insight,
+    } = useValues(experimentLogic)
     const { setNewExperimentData, createExperiment, setFilters } = useActions(experimentLogic)
     const [form] = Form.useForm()
     const [page, setPage] = useState(0)
@@ -96,7 +106,7 @@ export function Experiment(): JSX.Element {
 
                         {page === 1 && (
                             <div>
-                                <Col className="person-selection">
+                                <Row className="person-selection">
                                     <div className="l3 mb">Person selection</div>
                                     <div className="text-muted">
                                         Select the persons who will participate in this experiment. We'll split all
@@ -124,7 +134,7 @@ export function Experiment(): JSX.Element {
                                             taxonomicPopoverPlacement="auto"
                                         />
                                     </div>
-                                </Col>
+                                </Row>
                                 <Row className="metrics-selection">
                                     <BindLogic
                                         logic={insightLogic}
@@ -178,6 +188,46 @@ export function Experiment(): JSX.Element {
                                             </Col>
                                         </Row>
                                     </BindLogic>
+                                </Row>
+                                <Row className="mde-selection">
+                                    <div className="l3 mb">Recommended running time</div>
+                                    <div className="text-muted">
+                                        While you can end experiments at any time, we recommend you run your experiment
+                                        based on the below parameters.
+                                    </div>
+                                    <br />
+                                    <Col span={12}>
+                                        <div>
+                                            Threshold of caring: The minimum % change in conversion rate you want to
+                                            see.{' '}
+                                        </div>
+                                        <Slider
+                                            defaultValue={5}
+                                            min={1}
+                                            max={50}
+                                            onChange={(value) => {
+                                                setNewExperimentData({
+                                                    parameters: { minimum_detectable_effect: value },
+                                                })
+                                                console.log(insight?.result)
+                                            }}
+                                        />
+                                        <div>
+                                            This means you don't care about which variant you choose if the new
+                                            conversion rate is between{' '}
+                                            {experimentFunnelConversionRate(experimentFunnel?.result) -
+                                                minimimumDetectableChange}
+                                            % and{' '}
+                                            {experimentFunnelConversionRate(experimentFunnel?.result) +
+                                                minimimumDetectableChange}
+                                            %
+                                        </div>
+                                    </Col>
+                                    <Col span={12}>
+                                        Based on the threshold of caring and the persons selection above, we recommend
+                                        running this experiment on {recommendedSampleSize} people. That means{' '}
+                                        {expectedRunningTime} days.
+                                    </Col>
                                 </Row>
                                 <Row justify="space-between">
                                     <Button onClick={prevPage}>Go back</Button>

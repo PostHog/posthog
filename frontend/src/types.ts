@@ -1339,6 +1339,7 @@ export interface Experiment {
     description?: string
     feature_flag_key: string
     filters: FilterType
+    parameters: Record<string, any>
     start_date?: string
     end_date?: string
     created_at: string

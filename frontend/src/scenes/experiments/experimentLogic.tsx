@@ -3,9 +3,10 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { generateRandomAnimal } from 'lib/utils/randomAnimal'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
+import { findInsightFromMountedLogic } from 'scenes/insights/utils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
-import { Experiment, InsightType, InsightModel, FunnelVizType } from '~/types'
+import { Experiment, InsightType, InsightModel, FunnelVizType, FunnelStep } from '~/types'
 
 import { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
@@ -37,6 +38,7 @@ export const experimentLogic = kea<experimentLogicType>({
                         const newFilters = { ...vals?.filters, ...experimentData.filters }
                         return { ...vals, ...experimentData, filters: newFilters }
                     }
+                    console.log(experimentData)
                     return { ...vals, ...experimentData }
                 },
             },
@@ -90,6 +92,48 @@ export const experimentLogic = kea<experimentLogicType>({
             },
         ],
     }),
+    selectors: {
+        minimimumDetectableChange: [
+            (s) => [s.newExperimentData],
+            (newExperimentData): number => {
+                console.log('changing med', newExperimentData)
+                return newExperimentData?.parameters?.minimum_detectable_change || 5
+            },
+        ],
+        insight: [
+            (s) => [s.experimentFunnel],
+            (experimentFunnel) => {
+                if (!experimentFunnel?.short_id) {return undefined}
+
+                const insight = findInsightFromMountedLogic(experimentFunnel.short_id, undefined)
+                console.log(insight?.result)
+                return insight
+            },
+        ],
+        experimentFunnelConversionRate: [
+            (s) => [s.experimentFunnel],
+            (experimentFunnel) => (experimentResult: FunnelStep[]) => {
+                console.log(experimentFunnel)
+                return experimentResult[0]?.average_conversion_time || 20
+            },
+        ],
+        recommendedSampleSize: [
+            (s) => [s.experimentFunnel, s.minimimumDetectableChange],
+            (funnel, mde): number => {
+                console.log(funnel, mde)
+                const conversionRate = funnel?.result?.slice[-1]?.average_conversion_time || 20
+                return (1600 * conversionRate * (1 - conversionRate / 100)) / (mde * mde)
+            },
+        ],
+        expectedRunningTime: [
+            (s) => [s.experimentFunnel, s.recommendedSampleSize],
+            (funnel, sampleSize): number => {
+                const funnelEntrants = funnel?.result[0]?.count
+                const time = 7 // days
+                return (sampleSize / funnelEntrants) * time
+            },
+        ],
+    },
     urlToAction: ({ actions, values }) => ({
         '/experiments/:id': ({ id }) => {
             if (id) {
