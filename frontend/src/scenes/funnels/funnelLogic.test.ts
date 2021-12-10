@@ -205,7 +205,9 @@ describe('funnelLogic', () => {
         } else if (url.pathname === `api/person/funnel/`) {
             return { results: [], next: null }
         }
-        return defaultAPIMocks(url, { availableFeatures: [AvailableFeature.CORRELATION_ANALYSIS] })
+        return defaultAPIMocks(url, {
+            availableFeatures: [AvailableFeature.CORRELATION_ANALYSIS, AvailableFeature.GROUP_ANALYTICS],
+        })
     })
 
     initKeaTestLogic({
@@ -551,6 +553,7 @@ describe('funnelLogic', () => {
             ).toMatchValues({
                 correlationMatrixAndScore: {
                     correlationScore: expect.anything(),
+                    correlationScoreStrength: 'weak',
                     truePositive: 2,
                     falsePositive: 2,
                     trueNegative: 11,

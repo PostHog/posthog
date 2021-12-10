@@ -92,7 +92,7 @@ export function InsightDisplayConfig({
 
     return (
         <div className="display-config-inner">
-            <div>
+            <div className="display-config-inner-row">
                 {showDateFilter[activeView] && (
                     <span className="filter">
                         <span className="head-title-item">Date range</span>
@@ -111,7 +111,9 @@ export function InsightDisplayConfig({
                 )}
                 {showIntervalFilter(activeView, filters) && (
                     <span className="filter">
-                        <span className="head-title-item">grouped by</span>
+                        <span className="head-title-item">
+                            <span className="hide-lte-md">grouped </span>by
+                        </span>
                         <IntervalFilter view={activeView} />
                     </span>
                 )}
@@ -130,7 +132,7 @@ export function InsightDisplayConfig({
                     </span>
                 )}
             </div>
-            <div>
+            <div className="display-config-inner-row">
                 {showChartFilter(activeView) && (
                     <span className="filter">
                         <span className="head-title-item">Chart type</span>

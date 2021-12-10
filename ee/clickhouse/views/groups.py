@@ -27,7 +27,7 @@ class ClickhouseGroupsTypesView(StructuredViewSetMixin, mixins.ListModelMixin, v
 
 
 class GroupCursorPagination(CursorPagination):
-    ordering = "group_key"
+    ordering = "-created_at"
     page_size = 100
 
 
