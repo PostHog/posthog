@@ -1,8 +1,8 @@
-
-from posthog.version_requirement import ServiceVersionRequirement
-from posthog.settings.base_variables import TEST, DEBUG, IS_COLLECT_STATIC
-from posthog.settings.utils import get_from_env, str_to_bool, print_warning
 from posthog.constants import AnalyticsDBMS
+from posthog.settings.base_variables import DEBUG, IS_COLLECT_STATIC, TEST
+from posthog.settings.data_stores import PRIMARY_DB
+from posthog.settings.utils import get_from_env, print_warning, str_to_bool
+from posthog.version_requirement import ServiceVersionRequirement
 
 SKIP_SERVICE_VERSION_REQUIREMENTS = get_from_env(
     "SKIP_SERVICE_VERSION_REQUIREMENTS", TEST or IS_COLLECT_STATIC, type_cast=str_to_bool
