@@ -18,8 +18,6 @@ from typing import Dict, List
 # :TRICKY: Imported before anything else to support overloads
 from posthog.settings.overloads import *
 
-from posthog.settings.utils import get_from_env, get_list, str_to_bool
-
 from posthog.settings.ee import EE_AVAILABLE
 from posthog.settings.base_variables import *
 
@@ -32,6 +30,9 @@ from posthog.settings.logging import *
 from posthog.settings.sentry import *
 from posthog.settings.shell_plus import *
 from posthog.settings.service_requirements import *
+from posthog.settings.statsd import *
+
+from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
 CALCULATE_X_COHORTS_PARALLEL = get_from_env("CALCULATE_X_COHORTS_PARALLEL", 2, type_cast=int)
@@ -83,14 +84,6 @@ UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = get_from_env(
     "UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS", 90, type_cast=int
 )
 
-
-# Metrics - StatsD
-STATSD_HOST = os.getenv("STATSD_HOST")
-STATSD_PORT = os.getenv("STATSD_PORT", 8125)
-STATSD_PREFIX = os.getenv("STATSD_PREFIX", "")
-STATSD_TELEGRAF = True
-STATSD_CLIENT = "statshog"
-STATSD_SEPARATOR = "_"
 
 # Whether to capture internal metrics
 CAPTURE_INTERNAL_METRICS = get_from_env("CAPTURE_INTERNAL_METRICS", False, type_cast=str_to_bool)
