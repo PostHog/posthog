@@ -6,6 +6,7 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
+    ListStorage,
 } from 'lib/components/TaxonomicFilter/types'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
@@ -32,15 +33,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             groupPropertiesModel,
             ['allGroupProperties'],
         ],
-        // // Directly mount all infinite list logics that this filter uses.
-        // // In case you enable new lists by changing the prop (e.g. add a group based on an user action),
-        // // the new logics should will be mounted as well in the logic selector below.
-        // logics: props.taxonomicGroupTypes.map((groupType) =>
-        //     infiniteListLogic({
-        //         ...props,
-        //         listGroupType: groupType,
-        //     })
-        // ),
     },
     actions: () => ({
         moveUp: true,
@@ -55,6 +47,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             group,
             value,
             item,
+        }),
+        infiniteListResultsReceived: (groupType: TaxonomicFilterGroupType, results: ListStorage) => ({
+            groupType,
+            results,
         }),
     }),
 
@@ -224,9 +220,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         ],
         infiniteListLogics: [
             (s) => [s.taxonomicGroupTypes, (_, props) => props],
-            (taxonomicGroupTypes, props): Record<string, BuiltLogic<infiniteListLogicType>> => {
-                // console.log('recalculating infiniteListLogics')
-                return Object.fromEntries(
+            (taxonomicGroupTypes, props): Record<string, BuiltLogic<infiniteListLogicType>> =>
+                Object.fromEntries(
                     taxonomicGroupTypes.map((groupType) => [
                         groupType,
                         infiniteListLogic.build({
@@ -234,20 +229,17 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                             listGroupType: groupType,
                         }),
                     ])
-                )
-            },
+                ),
         ],
         totalCounts: [
             (s) => [
-                (state, props) => {
-                    // console.log('recalculating totalCounts')
-                    return Object.fromEntries(
+                (state, props) =>
+                    Object.fromEntries(
                         Object.entries(s.infiniteListLogics(state, props)).map(([groupType, logic]) => [
                             groupType,
                             logic.selectors.totalCount(state, logic.props),
                         ])
-                    )
-                },
+                    ),
             ],
             (totalCounts) => totalCounts,
         ],
@@ -356,6 +348,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 !activeTaxonomicGroup.endpoint &&
                 totalCounts[activeTaxonomicGroup.type] === 0
             ) {
+                actions.tabRight()
+            }
+        },
+
+        infiniteListResultsReceived: ({ groupType, results }) => {
+            // Open the next tab if no results on an active tab.
+            if (groupType === values.activeTab && results.count === 0) {
                 actions.tabRight()
             }
         },

@@ -46,7 +46,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
 
     connect: (props: InfiniteListLogicProps) => ({
         values: [taxonomicFilterLogic(props), ['searchQuery', 'value', 'groupType', 'taxonomicGroups']],
-        actions: [taxonomicFilterLogic(props), ['setSearchQuery', 'selectItem']],
+        actions: [taxonomicFilterLogic(props), ['setSearchQuery', 'selectItem', 'infiniteListResultsReceived']],
     }),
 
     actions: {
@@ -128,14 +128,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         ),
                         searchQuery: values.searchQuery,
                         queryChanged,
-                        count: response.count || response.length,
+                        count: response.count || response.length || 0,
                     }
                 },
             },
         ],
     }),
 
-    listeners: ({ values, actions }) => ({
+    listeners: ({ values, actions, props }) => ({
         onRowsRendered: ({ rowInfo: { startIndex, stopIndex, overscanStopIndex } }) => {
             if (values.isRemoteDataSource) {
                 let loadFrom: number | null = null
@@ -167,6 +167,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         },
         selectSelected: () => {
             actions.selectItem(values.group, values.selectedItemValue, values.selectedItem)
+        },
+        loadRemoteItemsSuccess: ({ remoteItems }) => {
+            actions.infiniteListResultsReceived(props.listGroupType, remoteItems)
         },
     }),
 
