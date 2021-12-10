@@ -1,11 +1,10 @@
-import React, { CSSProperties, useMemo, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 
 import { keyMappingKeys, PropertyKeyInfo } from './PropertyKeyInfo'
 import { Dropdown, Input, Menu, Popconfirm } from 'antd'
-import { NumberOutlined, BulbOutlined, StopOutlined, DeleteOutlined } from '@ant-design/icons'
+import { DeleteOutlined } from '@ant-design/icons'
 import { isURL } from 'lib/utils'
-import { IconExternalLink, IconText } from 'lib/components/icons'
-import { Tooltip } from 'lib/components/Tooltip'
+import { IconOpenInNew } from 'lib/components/icons'
 import './PropertiesTable.scss'
 import { LemonTable, LemonTableColumns } from './LemonTable'
 import { CopyToClipboardInline } from './CopyToClipboard'
@@ -82,38 +81,38 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
             className={canEdit ? 'editable ph-no-capture' : 'ph-no-capture'}
             onClick={() => canEdit && textBasedTypes.includes(valueType) && setEditing(true)}
         >
-            {value.toString()}
+            {!isURL(value) ? (
+                value.toString()
+            ) : (
+                <a href={value} target="_blank" rel="noopener noreferrer" className="value-link">
+                    <span>{value.toString()}</span>
+                    <IconOpenInNew />
+                </a>
+            )}
         </span>
     )
 
     return (
         <div className="properties-table-value">
-                    {!editing ? (
-                        <>
-                            {canEdit && boolNullTypes.includes(valueType) ? (
-                                <Dropdown overlay={boolNullSelect}>{valueComponent}</Dropdown>
-                            ) : (
-                                <CopyToClipboardInline
-                                    description="property value"
-                                    explicitValue={value}
-                                    selectable
-                                    isValueSensitive
-                                >
-                                    {valueComponent}
-                                </CopyToClipboardInline>
-                            )}
-                            {isURL(value) && (
-                                <a href={value} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 4 }}>
-                                    <IconExternalLink />
-                                </a>
-                            )}
-                            <div className="value-type">
-                                {valueType}
-                            </div>
-                        </>
+            {!editing ? (
+                <>
+                    {canEdit && boolNullTypes.includes(valueType) ? (
+                        <Dropdown overlay={boolNullSelect}>{valueComponent}</Dropdown>
                     ) : (
-                        <EditTextValueComponent value={value} onChange={handleValueChange} />
+                        <CopyToClipboardInline
+                            description="property value"
+                            explicitValue={value}
+                            selectable
+                            isValueSensitive
+                        >
+                            {valueComponent}
+                        </CopyToClipboardInline>
                     )}
+                    <div className="value-type">{valueType}</div>
+                </>
+            ) : (
+                <EditTextValueComponent value={value} onChange={handleValueChange} />
+            )}
         </div>
     )
 }

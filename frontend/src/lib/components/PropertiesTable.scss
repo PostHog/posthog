@@ -15,6 +15,15 @@
     display: flex;
     align-items: center;
 
+    .value-link {
+        display: flex;
+        align-items: center;
+        > svg {
+            margin-left: 0.125rem;
+            font-size: 1.25rem;
+        }
+    }
+
     .value-type {
         display: flex;
         align-items: center;
