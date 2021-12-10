@@ -1,4 +1,4 @@
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple, cast
 
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.group import get_aggregation_target_field
@@ -26,6 +26,7 @@ from posthog.models.entity import Entity
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.team import Team
 
 
@@ -78,7 +79,7 @@ class ClickhouseRetentionActors(ActorBaseQuery):
             else RetentionQueryType.TARGET,
         ).get_query()
 
-        actor_field_name = f"{get_aggregation_target_field(self._filter.aggregation_group_type_index, self.EVENT_TABLE_ALIAS, self.DISTINCT_ID_TABLE_ALIAS)} AS actor_id"
+        actor_field_name = f"{get_aggregation_target_field(cast(Optional[GroupTypeIndex], self._filter.aggregation_group_type_index), self.EVENT_TABLE_ALIAS, self.DISTINCT_ID_TABLE_ALIAS)} AS actor_id"
 
         target_params.update(
             {
@@ -140,7 +141,7 @@ class ClickhouseRetentionActorsByPeriod(ActorBaseQuery):
         return_query, return_params = _get_condition(self._filter.returning_entity, table="e", prepend="returning")
         return_query_formatted = f"AND {return_query}"
 
-        actor_field_name = f"{get_aggregation_target_field(self._filter.aggregation_group_type_index, self.EVENT_TABLE_ALIAS, self.DISTINCT_ID_TABLE_ALIAS)} AS actor_id"
+        actor_field_name = f"{get_aggregation_target_field(cast(Optional[GroupTypeIndex], self._filter.aggregation_group_type_index), self.EVENT_TABLE_ALIAS, self.DISTINCT_ID_TABLE_ALIAS)} AS actor_id"
         person_join = (
             ""
             if self.is_aggregating_by_groups
