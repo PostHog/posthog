@@ -49,7 +49,7 @@ export function comparePlayerPositions(a: PlayerPosition, b: PlayerPosition, seg
             return 1
         }
     }
-    throw `Could not find player position ${JSON.stringify(a)} or ${JSON.stringify(b)} in segments`
+    throw `Could not find player positions in segments`
 }
 
 export function getSegmentFromPlayerPosition(
@@ -114,7 +114,6 @@ export function getPlayerPositionFromEpochTime(
     windowId: string,
     startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
 ): PlayerPosition | null {
-    console.log('getPlayerPositionFromEpochTime', windowId, startAndEndTimesByWindowId)
     if (windowId in startAndEndTimesByWindowId) {
         const windowStartTime = startAndEndTimesByWindowId[windowId].startTimeEpochMs
         const windowEndTime = startAndEndTimesByWindowId[windowId].endTimeEpochMs
