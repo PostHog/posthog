@@ -48,26 +48,7 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
     const boolNullTypes = ['boolean', 'null'] // Values that are edited with the boolNullSelect dropdown
 
     const valueType: Type = value === null ? 'null' : typeof value // typeof null returns 'object' ¯\_(ツ)_/¯
-
-    const boolNullSelect = (
-        <Menu
-            onClick={({ key }) => {
-                let val = null
-                if (key === 't') {
-                    val = true
-                } else if (key === 'f') {
-                    val = false
-                }
-                handleValueChange(val, true)
-            }}
-        >
-            <Menu.Item key="t">true</Menu.Item>
-            <Menu.Item key="f">false</Menu.Item>
-            <Menu.Item key="n" danger>
-                null
-            </Menu.Item>
-        </Menu>
-    )
+    const valueString: string = value === null ? 'null' : String(value) // typeof null returns 'object' ¯\_(ツ)_/¯
 
     const handleValueChange = (newValue: any, save: boolean): void => {
         setEditing(false)
@@ -82,10 +63,10 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
             onClick={() => canEdit && textBasedTypes.includes(valueType) && setEditing(true)}
         >
             {!isURL(value) ? (
-                value.toString()
+                valueString
             ) : (
                 <a href={value} target="_blank" rel="noopener noreferrer" className="value-link">
-                    <span>{value.toString()}</span>
+                    <span>{valueString}</span>
                     <IconOpenInNew />
                 </a>
             )}
@@ -97,18 +78,40 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
             {!editing ? (
                 <>
                     {canEdit && boolNullTypes.includes(valueType) ? (
-                        <Dropdown overlay={boolNullSelect}>{valueComponent}</Dropdown>
+                        <Dropdown
+                            overlay={
+                                <Menu
+                                    onClick={({ key }) => {
+                                        let val = null
+                                        if (key === 't') {
+                                            val = true
+                                        } else if (key === 'f') {
+                                            val = false
+                                        }
+                                        handleValueChange(val, true)
+                                    }}
+                                >
+                                    <Menu.Item key="t">true</Menu.Item>
+                                    <Menu.Item key="f">false</Menu.Item>
+                                    <Menu.Item key="n" danger>
+                                        null
+                                    </Menu.Item>
+                                </Menu>
+                            }
+                        >
+                            {valueComponent}
+                        </Dropdown>
                     ) : (
                         <CopyToClipboardInline
                             description="property value"
-                            explicitValue={value}
+                            explicitValue={valueString}
                             selectable
                             isValueSensitive
                         >
                             {valueComponent}
                         </CopyToClipboardInline>
                     )}
-                    <div className="value-type">{valueType}</div>
+                    <div className="property-value-type">{valueType}</div>
                 </>
             ) : (
                 <EditTextValueComponent value={value} onChange={handleValueChange} />
@@ -153,12 +156,13 @@ export function PropertiesTable({
     if (Array.isArray(properties)) {
         return (
             <div>
-                {properties.map((item, index) => (
-                    <span key={index}>
-                        <PropertiesTable properties={item} nestingLevel={nestingLevel + 1} />
-                        <br />
-                    </span>
-                ))}
+                {properties.length ? (
+                    properties.map((item, index) => (
+                        <PropertiesTable key={index} properties={item} nestingLevel={nestingLevel + 1} />
+                    ))
+                ) : (
+                    <div className="property-value-type">ARRAY (EMPTY)</div>
+                )}
             </div>
         )
     }
