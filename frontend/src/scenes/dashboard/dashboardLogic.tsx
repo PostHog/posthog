@@ -171,6 +171,14 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         items: state?.items.map((item) => ({ ...item, layouts: itemLayouts[item.short_id] })),
                     } as DashboardType
                 },
+                [dashboardsModel.actionTypes.updateDashboardItem]: (state, { item }) => {
+                    return state
+                        ? ({
+                              ...state,
+                              items: state?.items.map((i) => (i.short_id === item.short_id ? item : i)) || [],
+                          } as DashboardType)
+                        : null
+                },
                 [dashboardsModel.actionTypes.updateDashboardRefreshStatus]: (
                     state,
                     { shortId, refreshing, last_refresh }
@@ -490,9 +498,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         },
         [dashboardsModel.actionTypes.addDashboardSuccess]: ({ dashboard }) => {
             router.actions.push(`/dashboard/${dashboard.id}`)
-        },
-        [dashboardsModel.actionTypes.updateDashboardItem]: () => {
-            actions.loadDashboardItems()
         },
         setIsSharedDashboard: ({ id, isShared }) => {
             dashboardsModel.actions.setIsSharedDashboard({ id, isShared })
