@@ -1,10 +1,10 @@
-from datetime import datetime
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 from semantic_version.base import SimpleSpec
 
 from posthog.models.special_migration import MigrationStatus, SpecialMigration, get_all_running_special_migrations
 from posthog.models.utils import UUIDT
+from posthog.settings import SPECIAL_MIGRATIONS_ROLLBACK_TIMEOUT
 from posthog.special_migrations.setup import (
     POSTHOG_VERSION,
     get_special_migration_definition,
@@ -18,6 +18,7 @@ from posthog.special_migrations.utils import (
     trigger_migration,
     update_special_migration,
 )
+from posthog.version_requirement import ServiceVersionRequirement
 
 """
 Important to prevent us taking up too many celery workers and also to enable running migrations sequentially
@@ -40,7 +41,7 @@ def start_special_migration(migration_name: str, ignore_posthog_version=False) -
 
     migration_instance = SpecialMigration.objects.get(name=migration_name)
     over_concurrent_migrations_limit = len(get_all_running_special_migrations()) >= MAX_CONCURRENT_SPECIAL_MIGRATIONS
-    posthog_version_valid = not ignore_posthog_version and is_migration_in_range(
+    posthog_version_valid = not ignore_posthog_version and is_posthog_version_compatible(
         migration_instance.posthog_min_version, migration_instance.posthog_max_version
     )
 
@@ -58,23 +59,19 @@ def start_special_migration(migration_name: str, ignore_posthog_version=False) -
         complete_migration(migration_instance)
         return True
 
-    for service_version_requirement in migration_definition.service_version_requirements:
-        in_range, version = service_version_requirement.is_service_in_accepted_version()
-        if not in_range:
-            process_error(
-                migration_instance,
-                f"Service {service_version_requirement.service} is in version {version}. Expected range: {str(service_version_requirement.supported_version)}.",
-            )
+    ok, error = check_service_version_requirements(migration_definition.service_version_requirements)
+    if not ok:
+        process_error(migration_instance, error)
+        return False
 
     ok, error = run_migration_healthcheck(migration_instance)
     if not ok:
         process_error(migration_instance, error)
         return False
 
-    dependency_ok, dependency_name = is_migration_dependency_fulfilled(migration_instance.name)
-
-    if not dependency_ok:
-        process_error(migration_instance, f"Could not trigger migration because it depends on {dependency_name}")
+    ok, error = is_migration_dependency_fulfilled(migration_instance.name)
+    if not ok:
+        process_error(migration_instance, error)
         return False
 
     mark_special_migration_as_running(migration_instance)
@@ -162,15 +159,20 @@ def attempt_migration_rollback(migration_instance: SpecialMigration, force: bool
 
     try:
         ops = get_special_migration_definition(migration_instance.name).operations
-        start = migration_instance.current_operation_index
-        end = -(len(ops) + 1)
 
-        for op in ops[start:end:-1]:
+        i = len(ops) - 1
+        for op in reversed(ops[: migration_instance.current_operation_index + 1]):
             if not op.rollback:
                 if op.rollback == "":
                     continue
-                raise Exception(f"No rollback provided for operation {op.sql}")
-            execute_op(database=op.database, sql=op.rollback, timeout_seconds=60, query_id=str(UUIDT()))
+                raise Exception(f"No rollback provided for operation at index {i}: {op.sql}")
+            execute_op(
+                database=op.database,
+                sql=op.rollback,
+                timeout_seconds=SPECIAL_MIGRATIONS_ROLLBACK_TIMEOUT,
+                query_id=str(UUIDT()),
+            )
+            i -= 1
     except Exception as e:
         error = str(e)
 
@@ -196,13 +198,13 @@ def is_current_operation_resumable(migration_instance: SpecialMigration):
     return migration_definition.operations[index].resumable
 
 
-def is_migration_in_range(posthog_min_version, posthog_max_version):
+def is_posthog_version_compatible(posthog_min_version, posthog_max_version):
     return POSTHOG_VERSION in SimpleSpec(f">={posthog_min_version},<={posthog_max_version}")
 
 
 def run_next_migration(candidate: str, after_delay: int = 0) -> bool:
     migration_instance = SpecialMigration.objects.get(name=candidate)
-    migration_in_range = is_migration_in_range(
+    migration_in_range = is_posthog_version_compatible(
         migration_instance.posthog_min_version, migration_instance.posthog_max_version
     )
 
@@ -221,4 +223,19 @@ def is_migration_dependency_fulfilled(migration_name: str) -> Tuple[bool, Option
     dependency_ok: bool = (
         not dependency or SpecialMigration.objects.get(name=dependency).status == MigrationStatus.CompletedSuccessfully
     )
-    return dependency_ok, dependency
+    error = f"Could not trigger migration because it depends on {dependency}" if not dependency_ok else None
+    return dependency_ok, error
+
+
+def check_service_version_requirements(
+    service_version_requirements: List[ServiceVersionRequirement],
+) -> Tuple[bool, Optional[str]]:
+    for service_version_requirement in service_version_requirements:
+        in_range, version = service_version_requirement.is_service_in_accepted_version()
+        if not in_range:
+            return (
+                False,
+                f"Service {service_version_requirement.service} is in version {version}. Expected range: {str(service_version_requirement.supported_version)}.",
+            )
+
+    return True, None

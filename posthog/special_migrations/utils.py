@@ -6,15 +6,16 @@ from django.db import transaction
 from posthog.celery import app
 from posthog.constants import AnalyticsDBMS
 from posthog.models.special_migration import MigrationStatus, SpecialMigration
+from posthog.special_migrations.definition import SpecialMigrationOperation
 from posthog.special_migrations.setup import DEPENDENCY_TO_SPECIAL_MIGRATION
 
 
-def execute_op(database: AnalyticsDBMS, sql: str, timeout_seconds: int, query_id: str):
-    if database == AnalyticsDBMS.CLICKHOUSE:
-        execute_op_clickhouse(sql, query_id, timeout_seconds)
+def execute_op(op: SpecialMigrationOperation, query_id: str):
+    if op.database == AnalyticsDBMS.CLICKHOUSE:
+        execute_op_clickhouse(op.sql, query_id, op.timeout_seconds)
         return
 
-    execute_op_postgres(sql, query_id)
+    execute_op_postgres(op.sql, query_id)
 
 
 def execute_op_clickhouse(sql: str, query_id: str, timeout_seconds: int):

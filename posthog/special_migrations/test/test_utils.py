@@ -2,6 +2,7 @@ from datetime import datetime
 from unittest.mock import patch
 
 import pytest
+from freezegun.api import freeze_time
 
 from posthog.constants import AnalyticsDBMS
 from posthog.models.special_migration import MigrationStatus
@@ -34,6 +35,7 @@ class TestUtils(BaseTest):
         # correctly routes to postgres
         mock_cursor.assert_called_once()
 
+    @freeze_time("2021-12-24T00:00:00.345Z")
     @patch("posthog.special_migrations.runner.attempt_migration_rollback")
     def test_process_error(self, _):
         sm = create_special_migration()
@@ -42,7 +44,7 @@ class TestUtils(BaseTest):
         sm.refresh_from_db()
         self.assertEqual(sm.status, MigrationStatus.Errored)
         self.assertEqual(sm.last_error, "some error")
-        self.assertEqual(sm.finished_at.day, datetime.now().day)
+        self.assertEqual(sm.finished_at, datetime.now())
 
     @patch("posthog.tasks.special_migrations.run_special_migration.delay")
     def test_trigger_migration(self, mock_run_special_migration):
@@ -61,6 +63,7 @@ class TestUtils(BaseTest):
         self.assertEqual(sm.status, MigrationStatus.Errored)
         self.assertEqual(sm.last_error, "Force stopped by user")
 
+    @freeze_time("2021-12-24T00:00:00.345Z")
     def test_complete_migration(self):
 
         sm = create_special_migration()
@@ -69,6 +72,6 @@ class TestUtils(BaseTest):
         sm.refresh_from_db()
 
         self.assertEqual(sm.status, MigrationStatus.CompletedSuccessfully)
-        self.assertEqual(sm.finished_at.day, datetime.now().day)
+        self.assertEqual(sm.finished_at, datetime.now())
         self.assertEqual(sm.last_error, "")
         self.assertEqual(sm.progress, 100)

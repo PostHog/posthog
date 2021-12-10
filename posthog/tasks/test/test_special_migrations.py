@@ -46,6 +46,13 @@ class TestSpecialMigrations(BaseTest):
     @patch("posthog.celery.app.control.inspect", side_effect=inspect_mock)
     @patch("posthog.tasks.special_migrations.run_special_migration.delay", side_effect=run_special_migration_mock)
     def test_check_special_migration_health_during_resumable_op(self, _: Any, __: Any) -> None:
+        """
+        Mocks celery tasks and tests that `check_special_migration_health` works as expected 
+        if we find that the process crashed before the migration completed.
+        Given the op is resumable, we would expect check_special_migration_health to re-trigger the migration
+        from where we left off
+        """
+
         sm = SpecialMigration.objects.get(name="test")
         sm.status = MigrationStatus.Running
         sm.save()
@@ -70,6 +77,12 @@ class TestSpecialMigrations(BaseTest):
     @patch("posthog.celery.app.control.inspect", side_effect=inspect_mock)
     @patch("posthog.tasks.special_migrations.run_special_migration.delay", side_effect=run_special_migration_mock)
     def test_check_special_migration_health_during_non_resumable_op(self, _: Any, __: Any) -> None:
+        """
+        Same as above, but now we find a non-resumbale op.
+        Given the op is not resumable, we would expect check_special_migration_health to *not* re-trigger the migration
+        and instead roll it back.
+        """
+
         sm = SpecialMigration.objects.get(name="test")
         sm.status = MigrationStatus.Running
         sm.save()

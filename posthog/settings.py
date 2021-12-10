@@ -761,3 +761,5 @@ _default_skip_special_migrations_setup = TEST or E2E_TESTING or SKIP_SERVICE_VER
 SKIP_SPECIAL_MIGRATIONS_SETUP = get_from_env(
     "SKIP_SPECIAL_MIGRATIONS_SETUP", _default_skip_special_migrations_setup, type_cast=str_to_bool
 )
+
+SPECIAL_MIGRATIONS_ROLLBACK_TIMEOUT = get_from_env("SPECIAL_MIGRATION_ROLLBACK_TIMEOUT", 30, type_cast=int)

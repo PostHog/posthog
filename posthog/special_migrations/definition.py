@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Callable, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 from posthog.constants import AnalyticsDBMS
 from posthog.version_requirement import ServiceVersionRequirement

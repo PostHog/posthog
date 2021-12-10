@@ -28,6 +28,12 @@ class TestRunner(BaseTest):
         migration_successful = start_special_migration("test")
         sm = SpecialMigration.objects.get(name="test")
 
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT * FROM test_special_migration")
+            res = cursor.fetchone()
+
+        self.assertEqual(res, ("a", "c"))
+
         self.assertTrue(migration_successful)
         self.assertEqual(sm.name, "test")
         self.assertEqual(sm.description, TEST_MIGRATION_DESCRIPTION)
@@ -50,6 +56,15 @@ class TestRunner(BaseTest):
         sm = SpecialMigration.objects.get(name="test")
 
         attempt_migration_rollback(sm)
+
+        exception = None
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT * FROM test_special_migration")
+        except Exception as e:
+            exception = e
+
+        self.assertTrue('relation "test_special_migration" does not exist' in str(exception))
 
         sm.refresh_from_db()
         self.assertEqual(sm.status, MigrationStatus.RolledBack)
