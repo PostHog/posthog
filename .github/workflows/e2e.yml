@@ -15,7 +15,7 @@ jobs:
             - uses: actions/checkout@v2
             - id: set-specs
               # List cypress/integration and produce a JSON array of the files, in chunks
-              run: echo "::set-output name=specs::$(ls cypress/integration/* | jq --slurp --raw-input -c 'split("\n")[:-1] | _nwise(5) | join("\n")' | jq --slurp -c .)"
+              run: echo "::set-output name=specs::$(ls cypress/integration/* | jq --slurp --raw-input -c 'split("\n")[:-1] | _nwise(3) | join("\n")' | jq --slurp -c .)"
 
     cypress:
         name: Cypress E2E tests - (${{ strategy.job-index }})
@@ -94,6 +94,7 @@ jobs:
                   cd plugin-server
                   yarn install --frozen-lockfile
             - name: Yarn build
+              if: ${{ github.ref != 'refs/heads/master' }}
               env:
                   GENERATE_SOURCEMAP: 'false'
               run: |
@@ -101,6 +102,7 @@ jobs:
                   cd plugin-server
                   yarn build
             - name: Boot PostHog
+              if: ${{ github.ref != 'refs/heads/master' }}
               env:
                   SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   REDIS_URL: 'redis://localhost'
