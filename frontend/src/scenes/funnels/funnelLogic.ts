@@ -1245,10 +1245,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             })
         },
         openCorrelationPersonsModal: ({ correlation, success }) => {
-            // :TODO: Support 'person' modal for groups
-            if (values.filters.aggregation_group_type_index != undefined) {
-                return
-            }
             if (correlation.result_type === FunnelCorrelationResultsType.Properties) {
                 const { breakdown, breakdown_value } = parseBreakdownValue(correlation.event.event)
                 personsModalLogic.actions.loadPeopleFromUrl({
