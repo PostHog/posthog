@@ -123,6 +123,7 @@ jobs:
                   ./bin/docker-server &> /tmp/logs/server.txt &
             - name: Cypress run
               uses: cypress-io/github-action@v2
+              if: ${{ github.ref != 'refs/heads/master' }}
               with:
                   config-file: cypress.e2e.json
                   config: retries=2
