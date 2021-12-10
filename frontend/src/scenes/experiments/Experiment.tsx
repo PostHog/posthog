@@ -40,14 +40,6 @@ export function Experiment(): JSX.Element {
     return (
         <>
             {experimentId === 'new' ? (
-                // <BindLogic
-                //     logic={insightLogic}
-                //     props={{
-                //         dashboardItemId: experimentFunnel?.short_id,
-                //         filters: experimentFunnel?.filters,
-                //         syncWithUrl: false,
-                //     }}
-                // >
                 <>
                     <Row
                         align="middle"
