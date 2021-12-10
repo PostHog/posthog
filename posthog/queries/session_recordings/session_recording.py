@@ -74,6 +74,31 @@ class SessionRecording:
         )
 
     def _process_snapshots_for_metadata(self, all_snapshots) -> Tuple[List[RecordingSegment], Dict[WindowId, Dict]]:
+        """
+        This function processes the recording events into metadata. 
+        
+        A recording can be composed of events from multiple windows/tabs. Recording events are seperated by
+        `window_id`, so the playback experience is consistent (changes in one tab don't impact the recording
+        of a different tab). However, we still want to playback the recording to the end user as the user interacted
+        with their product.
+
+        This function creates a "playlist" of recording segments that designates the order in which the front end
+        should flip between players of different windows/tabs. To create this playlist, this function does the following:
+        
+        (1) For each recording event, we determine if it is "active" or not. An active event designates user 
+        activity (e.g. mouse movement).
+        
+        (2) We then generate "active segments" based on these lists of events. Active segments are segments 
+        of recordings where the maximum time between events determined to be active is less than a threshold (set to 60 seconds).
+        
+        (3) Next, we merge the active segments from all of the window_ids + sort them by start time. We now have the
+        list of active segments. (note, it's very possible that active segments overlap if a user is flipping back
+        and forth between tabs)
+
+        (4) To complete the recording, we fill in the gaps between active segments with "inactive segments". In 
+        determining which window should be used for the inactive segment, we try to minimize the switching of windows.
+        """
+
         decompressed_recording_data = decompress_chunked_snapshot_data(
             self._team.pk, self._session_recording_id, all_snapshots, return_only_activity_data=True
         )
