@@ -14,7 +14,6 @@ WHERE {trunc_func}(event.event_date) > {trunc_func}(reference_event.event_date)
 GROUP BY base_interval, intervals_from_base
 ORDER BY base_interval, intervals_from_base
 """
-import exceptions_hog
 
 RETENTION_BREAKDOWN_SQL = """
     SELECT
