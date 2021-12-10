@@ -1,6 +1,6 @@
 import { Button, Modal } from 'antd'
 import React from 'react'
-import { CheckCircleFilled } from '@ant-design/icons'
+import { CheckCircleFilled, InfoCircleOutlined } from '@ant-design/icons'
 import './CorrelationMatrix.scss'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
@@ -170,7 +170,37 @@ export function CorrelationMatrix(): JSX.Element {
                         </table>
                         <div className="mt text-center">
                             {capitalizeFirstLetter(funnelCorrelationDetails?.result_type || '')} <b>{displayName}</b>{' '}
-                            has a correlation score of{' '}
+                            has a{' '}
+                            {funnelCorrelationDetails?.correlation_type === FunnelCorrelationType.Success ? (
+                                <b className="text-success">
+                                    positive{' '}
+                                    <Tooltip
+                                        title={`Positive correlation means ${
+                                            funnelCorrelationDetails?.result_type ===
+                                            FunnelCorrelationResultsType.Events
+                                                ? 'event'
+                                                : 'property'
+                                        } is correlated with a successful conversion.`}
+                                    >
+                                        <InfoCircleOutlined className="cursor-pointer" />
+                                    </Tooltip>
+                                </b>
+                            ) : (
+                                <b className="text-danger">
+                                    negative{' '}
+                                    <Tooltip
+                                        title={`Negative correlation means this ${
+                                            funnelCorrelationDetails?.result_type ===
+                                            FunnelCorrelationResultsType.Events
+                                                ? 'event'
+                                                : 'property'
+                                        } is correlated with an unsuccessful conversion (user dropped off).`}
+                                    >
+                                        <InfoCircleOutlined className="cursor-pointer" />
+                                    </Tooltip>
+                                </b>
+                            )}{' '}
+                            correlation score of{' '}
                             <b
                                 style={{
                                     color:
