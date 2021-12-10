@@ -5,7 +5,7 @@ import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 
 from posthog.constants import AnalyticsDBMS
-from posthog.settings.base_variables import DEBUG, TEST
+from posthog.settings.base_variables import DEBUG, IS_COLLECT_STATIC, TEST
 from posthog.settings.utils import get_from_env, str_to_bool
 
 # See https://docs.djangoproject.com/en/3.1/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
@@ -107,3 +107,23 @@ try:
     PRIMARY_DB = AnalyticsDBMS(_primary_db)
 except ValueError:
     PRIMARY_DB = AnalyticsDBMS.POSTGRES
+
+# The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
+if TEST or DEBUG or IS_COLLECT_STATIC:
+    REDIS_URL = os.getenv("REDIS_URL", "redis://localhost/")
+else:
+    REDIS_URL = os.getenv("REDIS_URL", "")
+
+if not REDIS_URL and get_from_env("POSTHOG_REDIS_HOST", ""):
+    REDIS_URL = "redis://:{}@{}:{}/".format(
+        os.getenv("POSTHOG_REDIS_PASSWORD", ""),
+        os.getenv("POSTHOG_REDIS_HOST", ""),
+        os.getenv("POSTHOG_REDIS_PORT", "6379"),
+    )
+
+if not REDIS_URL:
+    raise ImproperlyConfigured(
+        "Env var REDIS_URL or POSTHOG_REDIS_HOST is absolutely required to run this software.\n"
+        "If upgrading from PostHog 1.0.10 or earlier, see here: "
+        "https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
+    )
