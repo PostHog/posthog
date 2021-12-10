@@ -20,7 +20,7 @@ REDBEAT_LOCK_TIMEOUT = 45  # keep distributed beat lock for 45sec
 
 if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
     try:
-        from ee.clickhouse import client
+        from ee.apps import EnterpriseConfig  # noqa: F401
     except ImportError:
         pass
     finally:
