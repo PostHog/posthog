@@ -19,3 +19,12 @@ if E2E_TESTING:
     )
 
 IS_COLLECT_STATIC = len(sys.argv) > 1 and sys.argv[1] == "collectstatic"
+
+
+if DEBUG and not TEST:
+    print_warning(
+        (
+            "️Environment variable DEBUG is set - PostHog is running in DEVELOPMENT MODE!",
+            "Be sure to unset DEBUG if this is supposed to be a PRODUCTION ENVIRONMENT!",
+        )
+    )

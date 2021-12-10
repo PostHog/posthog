@@ -18,7 +18,7 @@ from typing import Dict, List
 # :TRICKY: Imported before anything else to support overloads
 from posthog.settings.overloads import *
 
-from posthog.settings.utils import get_from_env, get_list, print_warning, str_to_bool
+from posthog.settings.utils import get_from_env, get_list, str_to_bool
 from posthog.settings.ee import EE_AVAILABLE
 from posthog.settings.base_variables import *
 from posthog.settings.access import *
@@ -307,14 +307,6 @@ def add_recorder_js_headers(headers, path, url):
 
 
 WHITENOISE_ADD_HEADERS_FUNCTION = add_recorder_js_headers
-
-if DEBUG and not TEST:
-    print_warning(
-        (
-            "️Environment variable DEBUG is set - PostHog is running in DEVELOPMENT MODE!",
-            "Be sure to unset DEBUG if this is supposed to be a PRODUCTION ENVIRONMENT!",
-        )
-    )
 
 
 # Extend and override these settings with EE's ones
