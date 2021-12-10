@@ -13,8 +13,8 @@ from posthog.special_migrations.setup import (
 from posthog.special_migrations.utils import (
     complete_migration,
     execute_op,
+    mark_special_migration_as_running,
     process_error,
-    reset_special_migration,
     trigger_migration,
     update_special_migration,
 )
@@ -77,7 +77,7 @@ def start_special_migration(migration_name: str, ignore_posthog_version=False) -
         process_error(migration_instance, f"Could not trigger migration because it depends on {dependency_name}")
         return False
 
-    reset_special_migration(migration_instance)
+    mark_special_migration_as_running(migration_instance)
 
     return run_special_migration_next_op(migration_name, migration_instance)
 

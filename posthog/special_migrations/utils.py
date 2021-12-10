@@ -93,7 +93,7 @@ def complete_migration(migration_instance: SpecialMigration):
         run_next_migration(next_migration)
 
 
-def reset_special_migration(migration_instance: SpecialMigration):
+def mark_special_migration_as_running(migration_instance: SpecialMigration):
     update_special_migration(
         migration_instance=migration_instance,
         last_error="",
