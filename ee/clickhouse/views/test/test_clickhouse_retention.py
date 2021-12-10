@@ -54,11 +54,11 @@ class RetentionTests(TestCase, ClickhouseTestMixin):
         self.assertEqual(
             retention_by_cohort_by_period,
             {
-                "Day 0": {
+                "2020-01-01T00:00:00Z": {
                     "1": ["person 1", "person 2"],
                     "2": ["person 1"],
                 },
-                "Day 1": {"1": ["person 3"]},
+                "2020-01-02T00:00:00Z": {"1": ["person 3"], "2": ["person 3"]},
             },
         )
 
