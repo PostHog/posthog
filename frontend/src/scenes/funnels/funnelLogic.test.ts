@@ -551,6 +551,7 @@ describe('funnelLogic', () => {
             ).toMatchValues({
                 correlationMatrixAndScore: {
                     correlationScore: expect.anything(),
+                    correlationScoreStrength: 'weak',
                     truePositive: 2,
                     falsePositive: 2,
                     trueNegative: 11,
