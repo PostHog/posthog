@@ -17,3 +17,5 @@ if E2E_TESTING:
     print_warning(
         ["️WARNING! E2E_TESTING is set to `True`. This is a security vulnerability unless you are running tests."]
     )
+
+IS_COLLECT_STATIC = len(sys.argv) > 1 and sys.argv[1] == "collectstatic"
