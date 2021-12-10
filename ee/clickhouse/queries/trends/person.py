@@ -37,6 +37,7 @@ def _handle_date_interval(filter: Filter) -> Filter:
 
 class TrendsPersonQuery(ActorBaseQuery):
     entity: Entity
+    _filter: Filter
 
     def __init__(self, team: Team, entity: Optional[Entity], filter: Filter):
         if not entity:
@@ -52,32 +53,32 @@ class TrendsPersonQuery(ActorBaseQuery):
         return self.entity.math == "unique_group"
 
     def actor_query(self) -> Tuple[str, Dict]:
-        if self.filter.breakdown_type == "cohort" and self.filter.breakdown_value != "all":
-            cohort = Cohort.objects.get(pk=self.filter.breakdown_value, team_id=self._team.pk)
-            self.filter = self.filter.with_data(
-                {"properties": self.filter.properties + [Property(key="id", value=cohort.pk, type="cohort")]}
+        if self._filter.breakdown_type == "cohort" and self._filter.breakdown_value != "all":
+            cohort = Cohort.objects.get(pk=self._filter.breakdown_value, team_id=self._team.pk)
+            self._filter = self._filter.with_data(
+                {"properties": self._filter.properties + [Property(key="id", value=cohort.pk, type="cohort")]}
             )
         elif (
-            self.filter.breakdown_type
-            and isinstance(self.filter.breakdown, str)
-            and isinstance(self.filter.breakdown_value, str)
+            self._filter.breakdown_type
+            and isinstance(self._filter.breakdown, str)
+            and isinstance(self._filter.breakdown_value, str)
         ):
-            if self.filter.breakdown_type == "group":
+            if self._filter.breakdown_type == "group":
                 breakdown_prop = Property(
-                    key=self.filter.breakdown,
-                    value=self.filter.breakdown_value,
-                    type=self.filter.breakdown_type,
-                    group_type_index=self.filter.breakdown_group_type_index,
+                    key=self._filter.breakdown,
+                    value=self._filter.breakdown_value,
+                    type=self._filter.breakdown_type,
+                    group_type_index=self._filter.breakdown_group_type_index,
                 )
             else:
                 breakdown_prop = Property(
-                    key=self.filter.breakdown, value=self.filter.breakdown_value, type=self.filter.breakdown_type
+                    key=self._filter.breakdown, value=self._filter.breakdown_value, type=self._filter.breakdown_type
                 )
 
-            self.filter = self.filter.with_data({"properties": self.filter.properties + [breakdown_prop]})
+            self._filter = self._filter.with_data({"properties": self._filter.properties + [breakdown_prop]})
 
         events_query, params = TrendsEventQuery(
-            filter=self.filter,
+            filter=self._filter,
             team_id=self._team.pk,
             entity=self.entity,
             should_join_distinct_ids=not self.is_aggregating_by_groups,
@@ -87,7 +88,7 @@ class TrendsPersonQuery(ActorBaseQuery):
 
         return (
             GET_ACTORS_FROM_EVENT_QUERY.format(id_field=self._aggregation_actor_field, events_query=events_query),
-            {**params, "offset": self.filter.offset, "limit": 200},
+            {**params, "offset": self._filter.offset, "limit": 200},
         )
 
     @cached_property

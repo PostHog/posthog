@@ -154,7 +154,7 @@ class InsightSerializer(InsightBasicSerializer):
 
 
 class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    queryset = Insight.objects.all()
+    queryset = Insight.objects.all().select_related("dashboard")
     serializer_class = InsightSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     filter_backends = [DjangoFilterBackend]

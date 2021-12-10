@@ -107,10 +107,12 @@ export const trendsLogic = kea<trendsLogicType>({
                 if (filters.insight === InsightType.LIFECYCLE) {
                     results = results.filter((result) => toggledLifecycles.includes(String(result.status)))
                 }
-                return results.map((result, index) => ({ ...result, id: index }))
+                return results
+                    .sort((a, b) => a.label.localeCompare(b.label))
+                    .map((result, index) => ({ ...result, id: index }))
             },
         ],
-        showPersonsModal: [
+        showModalActions: [
             (s) => [s.filters],
             (filters): boolean => {
                 const isNotAggregatingByGroup = (entity: Record<string, any>): boolean =>

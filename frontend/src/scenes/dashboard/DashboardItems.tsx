@@ -6,8 +6,8 @@ import { Responsive, WidthProvider } from 'react-grid-layout'
 
 import { DashboardItem } from 'scenes/dashboard/DashboardItem'
 import { isMobile, triggerResize, triggerResizeAfterADelay } from 'lib/utils'
-import { DashboardItemType, DashboardMode } from '~/types'
-import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { InsightModel, DashboardMode } from '~/types'
+import { insightsModel } from '~/models/insightsModel'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import clsx from 'clsx'
@@ -20,11 +20,12 @@ export function DashboardItems(): JSX.Element {
         items,
         layouts,
         layoutForItem,
-        breakpoints,
-        cols,
         dashboardMode,
         isRefreshing,
+        breakpoints,
+        cols,
         highlightedInsightId,
+        refreshStatus,
     } = useValues(dashboardLogic)
     const {
         loadDashboardItems,
@@ -35,7 +36,7 @@ export function DashboardItems(): JSX.Element {
         setDiveDashboard,
         refreshAllDashboardItems,
     } = useActions(dashboardLogic)
-    const { duplicateDashboardItem } = useActions(dashboardItemsModel)
+    const { duplicateInsight } = useActions(insightsModel)
 
     // make sure the dashboard takes up the right size
     useEffect(() => triggerResizeAfterADelay(), [])
@@ -103,11 +104,12 @@ export function DashboardItems(): JSX.Element {
             }}
             draggableCancel=".anticon,.ant-dropdown,table,.ant-popover-content"
         >
-            {items?.map((item: DashboardItemType, index: number) => (
+            {items?.map((item: InsightModel, index: number) => (
                 <div key={item.short_id} className="dashboard-item-wrapper">
                     <DashboardItem
                         key={item.short_id}
                         doNotLoad
+                        receivedErrorFromAPI={refreshStatus[item.short_id]?.error || false}
                         dashboardId={dashboard?.id}
                         item={item}
                         layout={resizingItem?.i === item.short_id ? resizingItem : layoutForItem[item.short_id]}
@@ -115,9 +117,9 @@ export function DashboardItems(): JSX.Element {
                         reload={() => refreshAllDashboardItems([item])}
                         loadDashboardItems={loadDashboardItems}
                         setDiveDashboard={setDiveDashboard}
-                        duplicateDashboardItem={duplicateDashboardItem}
-                        moveDashboardItem={(it: DashboardItemType, dashboardId: number) =>
-                            duplicateDashboardItem(it, dashboardId, true)
+                        duplicateDashboardItem={duplicateInsight}
+                        moveDashboardItem={(it: InsightModel, dashboardId: number) =>
+                            duplicateInsight(it, dashboardId, true)
                         }
                         updateItemColor={updateItemColor}
                         isDraggingRef={isDragging}

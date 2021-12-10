@@ -10,7 +10,7 @@ type NewActionType = Partial<ActionType> & Pick<ActionType, 'name' | 'post_to_sl
 type ActionEditType = ActionType | NewActionType
 
 export interface ActionEditLogicProps {
-    id: number
+    id?: number
     action: ActionEditType
     temporaryToken?: string
     onSave: (action: ActionType) => void
@@ -52,7 +52,7 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
     loaders: ({ props }) => ({
         actionCount: {
             loadActionCount: async () => {
-                return await api.actions.getCount(props.id)
+                return props.id ? await api.actions.getCount(props.id) : 0
             },
         },
     }),

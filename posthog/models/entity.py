@@ -9,6 +9,7 @@ from posthog.models.action import Action
 from posthog.models.filters.mixins.funnel import FunnelFromToStepsMixin
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.utils import validate_group_type_index
+from posthog.models.property import GroupTypeIndex
 from posthog.models.utils import sane_repr
 
 MATH_TYPE = Literal[
@@ -41,7 +42,7 @@ class Entity(PropertyMixin):
     custom_name: Optional[str]
     math: Optional[MATH_TYPE]
     math_property: Optional[str]
-    math_group_type_index: Optional[int]
+    math_group_type_index: Optional[GroupTypeIndex]
     # Index is not set at all by default (meaning: access = AttributeError) - it's populated in EntitiesMixin.entities
     # Used for identifying entities within a single query during query building,
     # which generally uses Entity objects processed by EntitiesMixin

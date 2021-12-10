@@ -71,7 +71,9 @@ jobs:
                   python-version: 3.8
 
             - name: Install SAML (python3-saml) dependencies
-              run: sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Set up Node 14
               uses: actions/setup-node@v2
@@ -139,7 +141,9 @@ jobs:
                   python-version: 3.8
 
             - name: Install SAML (python3-saml) dependencies
-              run: sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Set up Node 14
               uses: actions/setup-node@v2
@@ -219,7 +223,9 @@ jobs:
                   python-version: 3.8
 
             - name: Install SAML (python3-saml) dependencies
-              run: sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Set up Node 14
               uses: actions/setup-node@v2
@@ -300,7 +306,9 @@ jobs:
                   python-version: 3.8
 
             - name: Install SAML (python3-saml) dependencies
-              run: sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Set up Node 14
               uses: actions/setup-node@v2

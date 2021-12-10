@@ -2,7 +2,7 @@ import React from 'react'
 import { TZLabel } from '../TimezoneAware'
 import { Row } from 'antd'
 import { ProfilePicture } from '../ProfilePicture'
-import { LemonTableColumn } from './LemonTable'
+import { LemonTableColumn } from './types'
 import { UserBasicType } from '~/types'
 
 export function createdAtColumn<T extends { created_at?: string | null }>(): LemonTableColumn<T, 'created_at'> {

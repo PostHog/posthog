@@ -1,3 +1,5 @@
+import { HTMLProps } from 'react'
+
 export interface PaginationBase {
     /** By default pagination is only shown when there are multiple pages, but will always shown if this is `false`. */
     hideOnSinglePage?: boolean
@@ -23,11 +25,18 @@ export interface PaginationManual extends PaginationBase {
     onBackward?: () => void
 }
 
+export interface TableCellRepresentation {
+    children?: any
+    props?: HTMLProps<HTMLTableCellElement>
+}
+
+export type TableCellRenderResult = TableCellRepresentation | JSX.Element | string | number | false | null | undefined
+
 export interface LemonTableColumn<T extends Record<string, any>, D extends keyof T | undefined> {
     title?: string | React.ReactNode
     key?: string
     dataIndex?: D
-    render?: (dataValue: D extends keyof T ? T[D] : undefined, record: T, recordIndex: number) => any
+    render?: (dataValue: D extends keyof T ? T[D] : undefined, record: T, recordIndex: number) => TableCellRenderResult
     /** Sorting function. Set to `true` if using manual pagination, in which case you'll also have to provide `sorting` on the table. */
     sorter?: ((a: T, b: T) => number) | true
     className?: string
@@ -41,6 +50,13 @@ export interface LemonTableColumn<T extends Record<string, any>, D extends keyof
 export type LemonTableColumns<T extends Record<string, any>> = LemonTableColumn<T, keyof T | undefined>[]
 
 export interface ExpandableConfig<T extends Record<string, any>> {
+    /** Row expansion render function. */
     expandedRowRender: (record: T, recordIndex: number) => any
-    rowExpandable?: (record: T) => boolean
+    /**
+     * Function determining whether the row should be expandable:
+     * A positive value (like true or 1) means that the row is expandable.
+     * A zero (like 0 or false) means that the row isn't expandable.
+     * A negative value (like -1) means that the row isn't expandable and that also the expand button cell is skipped.
+     */
+    rowExpandable?: (record: T) => boolean | number
 }

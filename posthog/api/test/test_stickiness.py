@@ -1,17 +1,45 @@
+import json
 from datetime import datetime, timedelta
+from typing import Any, Dict
 
 from dateutil.relativedelta import relativedelta
+from django.test.client import Client
 from django.utils import timezone
 from freezegun import freeze_time
-from rest_framework.test import APIRequestFactory
 
+from posthog.api.test.test_trends import NormalizedTrendResult, get_time_series_ok
 from posthog.constants import ENTITY_ID, ENTITY_TYPE
 from posthog.models import Action, ActionStep, Event, Person
-from posthog.models.entity import Entity
-from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.team import Team
 from posthog.queries.abstract_test.test_compare import AbstractCompareTest
 from posthog.queries.stickiness import Stickiness
 from posthog.test.base import APIBaseTest
+from posthog.utils import encode_get_request_params
+
+
+def get_stickiness(client: Client, team: Team, request: Dict[str, Any]):
+    return client.get(f"/api/projects/{team.pk}/insights/trend/", data=request)
+
+
+def get_stickiness_ok(client: Client, team: Team, request: Dict[str, Any]):
+    response = get_stickiness(client=client, team=team, request=encode_get_request_params(data=request))
+    assert response.status_code == 200
+    return response.json()
+
+
+def get_stickiness_time_series_ok(client: Client, team: Team, request: Dict[str, Any]):
+    data = get_stickiness_ok(client=client, request=request, team=team)
+    return get_time_series_ok(data)
+
+
+def get_stickiness_people(client: Client, team_id: int, request: Dict[str, Any]):
+    return client.get("/api/person/stickiness/", data=request)
+
+
+def get_stickiness_people_ok(client: Client, team_id: int, request: Dict[str, Any]):
+    response = get_stickiness_people(client=client, team_id=team_id, request=encode_get_request_params(data=request))
+    assert response.status_code == 200
+    return response.json()
 
 
 # parameterize tests to reuse in EE
@@ -92,17 +120,19 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self._create_multiple_people()
 
             with freeze_time("2020-01-08T13:01:01Z"):
-                filter = StickinessFilter(
-                    data={
+                stickiness_response = get_stickiness_ok(
+                    client=self.client,
+                    team=self.team,
+                    request={
+                        "insight": "STICKINESS",
                         "shown_as": "Stickiness",
                         "date_from": "2020-01-01",
                         "date_to": "2020-01-08",
                         "events": [{"id": "watched movie"}],
                     },
-                    team=self.team,
-                    get_earliest_timestamp=get_earliest_timestamp,
                 )
-                response = stickiness().run(filter, self.team)
+
+                response = stickiness_response["result"]
 
             self.assertEqual(response[0]["count"], 4)
             self.assertEqual(response[0]["labels"][0], "1 day")
@@ -118,12 +148,12 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self._create_multiple_people()
 
             with freeze_time("2020-01-08T13:01:01Z"):
-                filter = StickinessFilter(
-                    data={"shown_as": "Stickiness", "date_from": "all", "events": [{"id": "watched movie"}],},
+                stickiness_response = get_stickiness_ok(
+                    client=self.client,
                     team=self.team,
-                    get_earliest_timestamp=get_earliest_timestamp,
+                    request={"shown_as": "Stickiness", "date_from": "all", "events": [{"id": "watched movie"}]},
                 )
-                response = stickiness().run(filter, self.team, get_earliest_timestamp=get_earliest_timestamp)
+                response = stickiness_response["result"]
 
             self.assertEqual(response[0]["count"], 4)
             self.assertEqual(response[0]["labels"][0], "1 day")
@@ -139,18 +169,18 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self._create_multiple_people(period=timedelta(minutes=1))
 
             with freeze_time("2020-01-01T12:08:01Z"):
-                filter = StickinessFilter(
-                    data={
+                stickiness_response = get_stickiness_ok(
+                    client=self.client,
+                    team=self.team,
+                    request={
                         "shown_as": "Stickiness",
                         "date_from": "2020-01-01T12:00:00.00Z",
                         "date_to": "2020-01-01T12:08:00.00Z",
                         "events": [{"id": "watched movie"}],
                         "interval": "minute",
                     },
-                    team=self.team,
-                    get_earliest_timestamp=get_earliest_timestamp,
                 )
-                response = stickiness().run(filter, self.team)
+                response = stickiness_response["result"]
 
             self.assertEqual(response[0]["count"], 4)
             self.assertEqual(response[0]["labels"][0], "1 minute")
@@ -166,18 +196,18 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self._create_multiple_people(period=timedelta(hours=1))
 
             with freeze_time("2020-01-01T20:01:01Z"):
-                filter = StickinessFilter(
-                    data={
+                stickiness_response = get_stickiness_ok(
+                    client=self.client,
+                    team=self.team,
+                    request={
                         "shown_as": "Stickiness",
                         "date_from": "2020-01-01T12:00:00.00Z",
                         "date_to": "2020-01-01T20:00:00.00Z",
                         "events": [{"id": "watched movie"}],
                         "interval": "hour",
                     },
-                    team=self.team,
-                    get_earliest_timestamp=get_earliest_timestamp,
                 )
-                response = stickiness().run(filter, self.team)
+                response = stickiness_response["result"]
 
             self.assertEqual(response[0]["count"], 4)
             self.assertEqual(response[0]["labels"][0], "1 hour")
@@ -193,18 +223,18 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self._create_multiple_people(period=timedelta(weeks=1))
 
             with freeze_time("2020-02-15T13:01:01Z"):
-                filter = StickinessFilter(
-                    data={
+                stickiness_response = get_stickiness_ok(
+                    client=self.client,
+                    team=self.team,
+                    request={
                         "shown_as": "Stickiness",
                         "date_from": "2020-01-01",
                         "date_to": "2020-02-15",
                         "events": [{"id": "watched movie"}],
                         "interval": "week",
                     },
-                    team=self.team,
-                    get_earliest_timestamp=get_earliest_timestamp,
                 )
-                response = stickiness().run(filter, self.team)
+                response = stickiness_response["result"]
 
             self.assertEqual(response[0]["count"], 4)
             self.assertEqual(response[0]["labels"][0], "1 week")
@@ -220,18 +250,18 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self._create_multiple_people(period=relativedelta(months=1))
 
             with freeze_time("2020-02-08T13:01:01Z"):
-                filter = StickinessFilter(
-                    data={
+                stickiness_response = get_stickiness_ok(
+                    client=self.client,
+                    team=self.team,
+                    request={
                         "shown_as": "Stickiness",
                         "date_from": "2020-01-01",
                         "date_to": "2020-09-08",
                         "events": [{"id": "watched movie"}],
                         "interval": "month",
                     },
-                    team=self.team,
-                    get_earliest_timestamp=get_earliest_timestamp,
                 )
-                response = stickiness().run(filter, self.team)
+                response = stickiness_response["result"]
 
             self.assertEqual(response[0]["count"], 4)
             self.assertEqual(response[0]["labels"][0], "1 month")
@@ -247,18 +277,18 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self._create_multiple_people()
 
             with freeze_time("2020-01-08T13:01:01Z"):
-                filter = StickinessFilter(
-                    data={
+                stickiness_response = get_stickiness_ok(
+                    client=self.client,
+                    team=self.team,
+                    request={
                         "shown_as": "Stickiness",
                         "date_from": "2020-01-01",
                         "date_to": "2020-01-08",
                         "events": [{"id": "watched movie"}],
                         "properties": [{"key": "$browser", "value": "Chrome"}],
                     },
-                    team=self.team,
-                    get_earliest_timestamp=get_earliest_timestamp,
                 )
-                response = stickiness().run(filter, self.team)
+                response = stickiness_response["result"]
 
             self.assertEqual(response[0]["count"], 3)
             self.assertEqual(response[0]["labels"][0], "1 day")
@@ -274,17 +304,17 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self._create_multiple_people()
 
             with freeze_time("2020-01-08T13:01:01Z"):
-                filter = StickinessFilter(
-                    data={
+                stickiness_response = get_stickiness_ok(
+                    client=self.client,
+                    team=self.team,
+                    request={
                         "shown_as": "Stickiness",
                         "date_from": "2020-01-01",
                         "date_to": "2020-01-08",
                         "events": [{"id": "watched movie", "properties": [{"key": "$browser", "value": "Chrome"}]}],
                     },
-                    team=self.team,
-                    get_earliest_timestamp=get_earliest_timestamp,
                 )
-                response = stickiness().run(filter, self.team)
+                response = stickiness_response["result"]
 
             self.assertEqual(response[0]["count"], 3)
             self.assertEqual(response[0]["labels"][0], "1 day")
@@ -301,17 +331,18 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             watched_movie = action_factory(team=self.team, name="watch movie action", event_name="watched movie")
 
             with freeze_time("2020-01-08T13:01:01Z"):
-                filter = StickinessFilter(
-                    data={
+                stickiness_response = get_stickiness_ok(
+                    client=self.client,
+                    team=self.team,
+                    request={
                         "shown_as": "Stickiness",
                         "date_from": "2020-01-01",
                         "date_to": "2020-01-08",
                         "actions": [{"id": watched_movie.pk}],
                     },
-                    team=self.team,
-                    get_earliest_timestamp=get_earliest_timestamp,
                 )
-                response = stickiness().run(filter, self.team)
+                response = stickiness_response["result"]
+
             self.assertEqual(response[0]["label"], "watch movie action")
             self.assertEqual(response[0]["count"], 4)
             self.assertEqual(response[0]["labels"][0], "1 day")
@@ -320,20 +351,21 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             person1, _, _, person4 = self._create_multiple_people()
 
             watched_movie = action_factory(team=self.team, name="watch movie action", event_name="watched movie")
-            filter = StickinessFilter(
-                data={
+
+            stickiness_response = get_stickiness_people_ok(
+                client=self.client,
+                team_id=self.team.pk,
+                request={
                     "shown_as": "Stickiness",
                     "stickiness_days": 1,
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-08",
+                    "entity_id": watched_movie.id,
+                    "entity_type": "actions",
+                    "actions": [{"id": watched_movie.id, "type": "actions"}],
                 },
-                team=self.team,
-                get_earliest_timestamp=get_earliest_timestamp,
             )
-            target_entity = Entity({"id": watched_movie.id, "type": "actions"})
-            factory = APIRequestFactory()
-            request = factory.get("/person/stickiness")
-            people = stickiness().people(target_entity, filter, self.team, request)
+            people = stickiness_response["results"][0]["people"]
 
             all_people_ids = [str(person["id"]) for person in people]
             self.assertListEqual(sorted(all_people_ids), sorted([str(person1.pk), str(person4.pk)]))
@@ -341,25 +373,28 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
         def test_stickiness_people_with_entity_filter(self):
             person1, _, _, _ = self._create_multiple_people()
 
-            filter = StickinessFilter(
-                data={
+            stickiness_response = get_stickiness_people_ok(
+                client=self.client,
+                team_id=self.team.pk,
+                request={
                     "shown_as": "Stickiness",
                     "stickiness_days": 1,
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-08",
+                    "events": [
+                        {
+                            "id": "watched movie",
+                            "type": "events",
+                            "properties": [{"key": "$browser", "value": "Chrome"}],
+                        }
+                    ],
+                    "entity_id": "watched movie",
                 },
-                team=self.team,
-                get_earliest_timestamp=get_earliest_timestamp,
             )
-            target_entity = Entity(
-                {"id": "watched movie", "type": "events", "properties": [{"key": "$browser", "value": "Chrome"}]}
-            )
-            factory = APIRequestFactory()
-            request = factory.get("/person/stickiness")
-            people = stickiness().people(target_entity, filter, self.team, request)
+            people = stickiness_response["results"][0]["people"]
 
             self.assertEqual(len(people), 1)
-            self.assertEqual(people[0]["id"], person1.id)
+            self.assertEqual(str(people[0]["id"]), str(person1.id))
 
         def test_stickiness_people_paginated(self):
             for i in range(150):
@@ -376,9 +411,10 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 )
             watched_movie = action_factory(team=self.team, name="watch movie action", event_name="watched movie")
 
-            result = self.client.get(
-                "/api/person/stickiness",
-                data={
+            result = get_stickiness_people_ok(
+                client=self.client,
+                team_id=self.team.pk,
+                request={
                     "shown_as": "Stickiness",
                     "stickiness_days": 1,
                     "date_from": "2020-01-01",
@@ -386,7 +422,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                     ENTITY_TYPE: "actions",
                     ENTITY_ID: watched_movie.id,
                 },
-            ).json()
+            )
 
             self.assertEqual(len(result["results"][0]["people"]), 100)
 
@@ -396,8 +432,10 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
         def test_compare(self):
             self._create_multiple_people()
 
-            filter = StickinessFilter(
-                data={
+            stickiness_response = get_stickiness_ok(
+                client=self.client,
+                team=self.team,
+                request={
                     "shown_as": "Stickiness",
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-08",
@@ -409,12 +447,12 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                     "properties": "[]",
                     "shown_as": "Stickiness",
                 },
-                team=self.team,
-                get_earliest_timestamp=get_earliest_timestamp,
             )
-            response = stickiness().run(filter, self.team)
+            response = stickiness_response["result"]
             self.assertEqual(response[0]["data"], [2, 1, 1, 0, 0, 0, 0, 0])
             self.assertEqual(response[1]["data"], [3, 0, 0, 0, 0, 0, 0, 0])
+            self.assertEqual(response[0]["compare_label"], "current")
+            self.assertEqual(response[1]["compare_label"], "previous")
 
         def test_filter_test_accounts(self):
             self._create_multiple_people()
@@ -428,18 +466,18 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             )
 
             with freeze_time("2020-01-08T13:01:01Z"):
-                filter = StickinessFilter(
-                    data={
+                stickiness_response = get_stickiness_ok(
+                    client=self.client,
+                    team=self.team,
+                    request={
                         "shown_as": "Stickiness",
                         "date_from": "2020-01-01",
                         "date_to": "2020-01-08",
                         "events": [{"id": "watched movie"}],
                         "filter_test_accounts": "true",
                     },
-                    team=self.team,
-                    get_earliest_timestamp=get_earliest_timestamp,
                 )
-                response = stickiness().run(filter, self.team)
+                response = stickiness_response["result"]
 
             self.assertEqual(response[0]["count"], 4)
             self.assertEqual(response[0]["labels"][0], "1 day")

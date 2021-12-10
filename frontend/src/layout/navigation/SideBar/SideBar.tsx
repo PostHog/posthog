@@ -34,6 +34,9 @@ import { InsightType } from '~/types'
 import './SideBar.scss'
 import { navigationLogic } from '../navigationLogic'
 import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { groupsModel } from '~/models/groupsModel'
 
 function ProjectSwitcherInternal(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -110,6 +113,8 @@ function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { showToolbarModal } = useActions(navigationLogic)
     const { pinnedDashboards } = useValues(dashboardsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { showGroupsOptions } = useValues(groupsModel)
 
     const [arePinnedDashboardsShown, setArePinnedDashboardsShown] = useState(false)
 
@@ -179,9 +184,17 @@ function Pages(): JSX.Element {
             />
             <PageButton icon={<IconRecording />} identifier={Scene.SessionRecordings} to={urls.sessionRecordings()} />
             <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
+            {featureFlags[FEATURE_FLAGS.EXPERIMENTATION] && (
+                <PageButton icon={<IconFlag />} identifier={Scene.Experiments} to={urls.experiments()} />
+            )}
             <LemonSpacer />
             <PageButton icon={<IconGroupedEvents />} identifier={Scene.Events} to={urls.events()} />
-            <PageButton icon={<IconPerson />} identifier={Scene.Persons} to={urls.persons()} />
+            <PageButton
+                icon={<IconPerson />}
+                identifier={Scene.Persons}
+                to={urls.persons()}
+                title={`Persons${showGroupsOptions ? ' & groups' : ''}`}
+            />
             <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
             <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
             <LemonSpacer />

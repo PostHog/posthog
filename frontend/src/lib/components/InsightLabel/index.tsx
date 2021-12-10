@@ -1,6 +1,6 @@
 import React from 'react'
 import { Col, Row, Space, Tag, Typography } from 'antd'
-import { ActionFilter } from '~/types'
+import { ActionFilter, BreakdownKeyType } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, hexToRGBA } from 'lib/utils'
 import './InsightLabel.scss'
@@ -23,7 +23,8 @@ interface InsightsLabelProps {
     action?: ActionFilter
     value?: string
     className?: string
-    breakdownValue?: string | number | Array<string | number>
+    breakdownValue?: BreakdownKeyType
+    compareValue?: string
     hideBreakdown?: boolean // Whether to hide the breakdown detail in the label
     hideIcon?: boolean // Whether to hide the icon that showcases the color of the series
     iconSize?: IconSize // Size of the series color icon
@@ -36,6 +37,7 @@ interface InsightsLabelProps {
     useCustomName?: boolean // Whether to show new custom name. `{custom_name} ({id})`.
     hideSeriesSubtitle?: boolean // Whether to show the base event/action name (if a custom name is set) in the insight label
     onLabelClick?: () => void // Click handler for inner label
+    swapTitleAndSubtitle?: boolean // If true, emphases on subtitle and title are switched.
 }
 
 interface MathTagProps {
@@ -80,6 +82,7 @@ export function InsightLabel({
     value,
     className,
     breakdownValue,
+    compareValue,
     hideBreakdown,
     hideIcon,
     iconSize = IconSize.Large,
@@ -92,6 +95,7 @@ export function InsightLabel({
     useCustomName = false,
     hideSeriesSubtitle,
     onLabelClick,
+    swapTitleAndSubtitle = false,
 }: InsightsLabelProps): JSX.Element {
     const showEventName = !breakdownValue || (hasMultipleSeries && !Array.isArray(breakdownValue))
     const eventName = seriesStatus ? capitalizeFirstLetter(seriesStatus) : action?.name || fallbackName || ''
@@ -125,7 +129,12 @@ export function InsightLabel({
                     {showEventName && (
                         <>
                             {useCustomName && action ? (
-                                <EntityFilterInfo filter={action} showSubTitle={!hideSeriesSubtitle} />
+                                <EntityFilterInfo
+                                    filter={action}
+                                    showSubTitle={!hideSeriesSubtitle}
+                                    subTitles={[compareValue, ...[breakdownValue].flat()]}
+                                    swapTitleAndSubtitle={swapTitleAndSubtitle}
+                                />
                             ) : (
                                 <PropertyKeyInfo disableIcon disablePopover value={eventName} ellipsis={!allowWrap} />
                             )}
@@ -150,13 +159,6 @@ export function InsightLabel({
                                 </Tag>
                             ))}
                         </Space>
-                    )}
-
-                    {breakdownValue && !hideBreakdown && !Array.isArray(breakdownValue) && (
-                        <>
-                            {hasMultipleSeries && <span style={{ padding: '0 2px' }}>-</span>}
-                            {breakdownValue === 'total' ? <i>Total</i> : breakdownValue}
-                        </>
                     )}
                 </div>
             </Col>

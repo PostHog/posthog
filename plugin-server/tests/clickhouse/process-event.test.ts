@@ -1,11 +1,8 @@
-import { DateTime } from 'luxon'
-
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
-import { Event, PluginsServerConfig } from '../../src/types'
+import { PluginsServerConfig } from '../../src/types'
 import { resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
-import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
-import { createPerson, createProcessEventTests } from '../shared/process-event'
+import { createProcessEventTests } from '../shared/process-event'
 
 jest.setTimeout(180_000) // 3 minute timeout
 

@@ -12,7 +12,7 @@ from typing import (
 
 from django.db.models import Exists, OuterRef, Q
 
-from posthog.models.filters.utils import validate_group_type_index
+from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 from posthog.utils import is_valid_regex
 
 ValueT = Union[str, int, List[str]]
@@ -24,7 +24,6 @@ OperatorType = Literal[
 ]
 
 GroupTypeName = str
-GroupTypeIndex = int
 PropertyIdentifier = Tuple[PropertyName, PropertyType, Optional[GroupTypeIndex]]
 
 NEGATED_OPERATORS = ["is_not", "not_icontains", "not_regex", "is_not_set"]
@@ -36,7 +35,7 @@ class Property:
     operator: Optional[OperatorType]
     value: ValueT
     type: PropertyType
-    group_type_index: Optional[int]
+    group_type_index: Optional[GroupTypeIndex]
 
     def __init__(
         self,

@@ -5,6 +5,8 @@ import { useValues, useActions, BindLogic } from 'kea'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import { TaxonomicFilterLogicProps, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
+import { IconKeyboard, IconMagnifier } from '../icons'
+import { Tooltip } from '../Tooltip'
 
 let uniqueMemoizedIndex = 0
 
@@ -45,39 +47,74 @@ export function TaxonomicFilter({
     return (
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
             <div className={`taxonomic-filter${taxonomicGroupTypes.length === 1 ? ' one-taxonomic-tab' : ''}`}>
-                <Input
-                    data-attr="taxonomic-filter-searchfield"
-                    placeholder={`Search ${searchPlaceholder}`}
-                    value={searchQuery}
-                    ref={(ref) => (searchInputRef.current = ref)}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                        if (e.key === 'ArrowUp') {
-                            e.preventDefault()
-                            moveUp()
+                <div style={{ position: 'relative' }}>
+                    <Input
+                        style={{ flexGrow: 1 }}
+                        data-attr="taxonomic-filter-searchfield"
+                        placeholder={`Search ${searchPlaceholder}`}
+                        prefix={
+                            <IconMagnifier className={`magnifier-icon${searchQuery ? ' magnifier-icon-active' : ''}`} />
                         }
-                        if (e.key === 'ArrowDown') {
-                            e.preventDefault()
-                            moveDown()
-                        }
-                        if (e.key === 'Tab') {
-                            e.preventDefault()
-                            if (e.shiftKey) {
+                        value={searchQuery}
+                        ref={(ref) => (searchInputRef.current = ref)}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'ArrowUp') {
+                                e.preventDefault()
+                                moveUp()
+                            }
+                            if (e.key === 'ArrowDown') {
+                                e.preventDefault()
+                                moveDown()
+                            }
+                            if (e.key === 'ArrowLeft') {
+                                e.preventDefault()
                                 tabLeft()
-                            } else {
+                            }
+                            if (e.key === 'ArrowRight') {
+                                e.preventDefault()
                                 tabRight()
                             }
-                        }
-                        if (e.key === 'Enter') {
-                            e.preventDefault()
-                            selectSelected()
-                        }
-                        if (e.key === 'Escape') {
-                            e.preventDefault()
-                            onClose?.()
-                        }
-                    }}
-                />
+                            if (e.key === 'Tab') {
+                                e.preventDefault()
+                                if (e.shiftKey) {
+                                    tabLeft()
+                                } else {
+                                    tabRight()
+                                }
+                            }
+
+                            if (e.key === 'Enter') {
+                                e.preventDefault()
+                                selectSelected()
+                            }
+                            if (e.key === 'Escape') {
+                                e.preventDefault()
+                                onClose?.()
+                            }
+                        }}
+                    />
+                    <span
+                        className="text-muted-alt cursor-pointer"
+                        style={{ paddingLeft: 4, fontSize: '1.2em', position: 'absolute', right: 7, top: 5 }}
+                    >
+                        <Tooltip
+                            title={
+                                <>
+                                    You can easily navigate between tabs with your keyboard.{' '}
+                                    <div>
+                                        Use <b>tab</b> or <b>right arrow</b> to move to the next tab.
+                                    </div>
+                                    <div>
+                                        Use <b>shift + tab</b> or <b>left arrow</b> to move to the previous tab.
+                                    </div>
+                                </>
+                            }
+                        >
+                            <IconKeyboard />
+                        </Tooltip>
+                    </span>
+                </div>
                 <InfiniteSelectResults focusInput={focusInput} taxonomicFilterLogicProps={taxonomicFilterLogicProps} />
             </div>
         </BindLogic>

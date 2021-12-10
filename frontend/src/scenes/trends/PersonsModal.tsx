@@ -2,10 +2,10 @@ import React, { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
 import { Modal, Button, Input, Skeleton } from 'antd'
-import { FilterType, PersonType, InsightType } from '~/types'
+import { FilterType, InsightType, ActorType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { pluralize } from 'lib/utils'
+import { isGroupType, midEllipsis, pluralize } from 'lib/utils'
 import './PersonsModal.scss'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
@@ -13,7 +13,8 @@ import { DateDisplay } from 'lib/components/DateDisplay'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { PersonHeader } from '../persons/PersonHeader'
 import api from '../../lib/api'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
+import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { GroupActorHeader } from 'scenes/persons/GroupActorHeader'
 import { IconPersonFilled } from 'lib/components/icons'
 
 export interface PersonsModalProps {
@@ -21,9 +22,16 @@ export interface PersonsModalProps {
     view: InsightType
     filters: Partial<FilterType>
     onSaveCohort: () => void
+    showModalActions?: boolean
 }
 
-export function PersonsModal({ visible, view, filters, onSaveCohort }: PersonsModalProps): JSX.Element {
+export function PersonsModal({
+    visible,
+    view,
+    filters,
+    onSaveCohort,
+    showModalActions = true,
+}: PersonsModalProps): JSX.Element {
     const {
         people,
         loadingMorePeople,
@@ -32,8 +40,9 @@ export function PersonsModal({ visible, view, filters, onSaveCohort }: PersonsMo
         isInitialLoad,
         clickhouseFeaturesEnabled,
         peopleParams,
+        actorLabel,
     } = useValues(personsModalLogic)
-    const { hidePeople, loadMorePeople, setFirstLoadedPeople, setPersonsModalFilters, setSearchTerm } =
+    const { hidePeople, loadMorePeople, setFirstLoadedActors, setPersonsModalFilters, setSearchTerm } =
         useActions(personsModalLogic)
     const { preflight } = useValues(preflightLogic)
 
@@ -50,9 +59,8 @@ export function PersonsModal({ visible, view, filters, onSaveCohort }: PersonsMo
             ) : filters.insight === InsightType.FUNNELS ? (
                 <>
                     {(people?.funnelStep ?? 0) >= 0 ? 'Completed' : 'Dropped off at'} step{' '}
-                    {Math.abs(people?.funnelStep ?? 0)} - <PropertyKeyInfo value={people?.label || ''} disablePopover />{' '}
-                    {people?.breakdown_value !== undefined &&
-                        `- ${people.breakdown_value ? people.breakdown_value : 'None'}`}
+                    {Math.abs(people?.funnelStep ?? 0)} • <PropertyKeyInfo value={people?.label || ''} disablePopover />{' '}
+                    {!!people?.breakdown_value ? `• ${people.breakdown_value}` : ''}
                 </>
             ) : filters.insight === InsightType.PATHS ? (
                 <>
@@ -68,9 +76,11 @@ export function PersonsModal({ visible, view, filters, onSaveCohort }: PersonsMo
         [filters, people, isInitialLoad]
     )
 
-    const isDownloadCsvAvailable = view === InsightType.TRENDS
+    const isDownloadCsvAvailable = view === InsightType.TRENDS && showModalActions
     const isSaveAsCohortAvailable =
-        clickhouseFeaturesEnabled && (view === InsightType.TRENDS || view === InsightType.STICKINESS)
+        clickhouseFeaturesEnabled &&
+        (view === InsightType.TRENDS || view === InsightType.STICKINESS) &&
+        showModalActions
 
     return (
         <Modal
@@ -132,14 +142,14 @@ export function PersonsModal({ visible, view, filters, onSaveCohort }: PersonsMo
                                 onChange={(e) => {
                                     setSearchTerm(e.target.value)
                                     if (!e.target.value) {
-                                        setFirstLoadedPeople(firstLoadedPeople)
+                                        setFirstLoadedActors(firstLoadedPeople)
                                     }
                                 }}
                                 value={searchTerm}
                                 onSearch={(term) =>
                                     term
                                         ? setPersonsModalFilters(term, people, filters)
-                                        : setFirstLoadedPeople(firstLoadedPeople)
+                                        : setFirstLoadedActors(firstLoadedPeople)
                                 }
                             />
                         )}
@@ -148,7 +158,7 @@ export function PersonsModal({ visible, view, filters, onSaveCohort }: PersonsMo
                             <span>
                                 This list contains{' '}
                                 <b>
-                                    {people.count} unique {pluralize(people.count, 'user', undefined, false)}
+                                    {people.count} unique {actorLabel}
                                 </b>
                                 {peopleParams?.pointValue !== undefined &&
                                     peopleParams.action !== 'session' &&
@@ -172,24 +182,11 @@ export function PersonsModal({ visible, view, filters, onSaveCohort }: PersonsMo
                                         {
                                             title: 'Person',
                                             key: 'person',
-                                            render: function Render(_, person: PersonType) {
-                                                return (
-                                                    <div className="person-ids">
-                                                        <strong>
-                                                            <PersonHeader person={person} />
-                                                        </strong>
-                                                        <CopyToClipboardInline
-                                                            explicitValue={person.distinct_ids[0]}
-                                                            description="Person distinct ID"
-                                                            className="text-small text-muted-alt"
-                                                        >
-                                                            {person.distinct_ids[0]}
-                                                        </CopyToClipboardInline>
-                                                    </div>
-                                                )
+                                            render: function Render(_, actor: ActorType) {
+                                                return <ActorRow actor={actor} />
                                             },
                                         },
-                                    ] as LemonTableColumns<PersonType>
+                                    ] as LemonTableColumns<ActorType>
                                 }
                                 className="persons-table"
                                 rowKey="id"
@@ -234,4 +231,38 @@ export function PersonsModal({ visible, view, filters, onSaveCohort }: PersonsMo
             )}
         </Modal>
     )
+}
+
+interface ActorRowProps {
+    actor: ActorType
+}
+
+export function ActorRow({ actor }: ActorRowProps): JSX.Element {
+    if (isGroupType(actor)) {
+        return (
+            <div key={actor.id} className="person-row">
+                <div className="person-ids">
+                    <strong>
+                        <GroupActorHeader actor={actor} />
+                    </strong>
+                </div>
+            </div>
+        )
+    } else {
+        return (
+            <div key={actor.id} className="person-ids">
+                <strong>
+                    <PersonHeader person={actor} withIcon={false} />
+                </strong>
+                <CopyToClipboardInline
+                    explicitValue={actor.distinct_ids[0]}
+                    iconStyle={{ color: 'var(--primary)' }}
+                    iconPosition="end"
+                    className="text-small text-muted-alt"
+                >
+                    {midEllipsis(actor.distinct_ids[0], 32)}
+                </CopyToClipboardInline>
+            </div>
+        )
+    }
 }

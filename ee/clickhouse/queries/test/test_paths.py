@@ -11,8 +11,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
-from ee.clickhouse.queries import ClickhousePaths
-from ee.clickhouse.queries.paths import ClickhousePathsPersons
+from ee.clickhouse.queries.paths import ClickhousePaths, ClickhousePathsActors
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import (
@@ -76,8 +75,8 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         person_filter = filter.with_data(
             {"path_start_key": path_start, "path_end_key": path_end, "path_dropoff_key": path_dropoff}
         )
-        result = ClickhousePathsPersons(person_filter, self.team, funnel_filter)._exec_query()
-        return [row[0] for row in result]
+        _, serialized_actors = ClickhousePathsActors(person_filter, self.team, funnel_filter).get_actors()
+        return [row["id"] for row in serialized_actors]
 
     @test_with_materialized_columns(["$current_url", "$screen_name"], person_properties=["email"])
     def test_denormalized_properties(self):
@@ -789,7 +788,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
 
     @snapshot_clickhouse_queries
     def test_path_by_funnel_after_dropoff_with_group_filter(self):
-        # complex case, joins funnel_people and groups
+        # complex case, joins funnel_actors and groups
         self._create_sample_data_multiple_dropoffs(use_groups=True)
         data = {
             "insight": INSIGHT_FUNNELS,

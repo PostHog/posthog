@@ -1,13 +1,23 @@
 import React, { useState } from 'react'
 import { Row, Tabs, Col, Card, Skeleton } from 'antd'
+import { InfoCircleOutlined } from '@ant-design/icons'
 import { useValues } from 'kea'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { groupLogic } from 'scenes/groups/groupLogic'
 import { EventsTable } from 'scenes/events/EventsTable'
 import { urls } from 'scenes/urls'
+import { RelatedGroups } from 'scenes/groups/RelatedGroups'
+import { Tooltip } from 'lib/components/Tooltip'
+import { SceneExport } from 'scenes/sceneTypes'
+import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 
 const { TabPane } = Tabs
+
+export const scene: SceneExport = {
+    component: Group,
+    logic: groupLogic,
+}
 
 export function Group(): JSX.Element {
     const { groupData, groupDataLoading, groupTypeName, groupKey, groupTypeIndex } = useValues(groupLogic)
@@ -26,6 +36,7 @@ export function Group(): JSX.Element {
                                     properties: [{ key: `$group_${groupTypeIndex}`, value: groupKey }],
                                 }}
                                 sceneUrl={urls.group(groupTypeIndex.toString(), groupKey)}
+                                hideTableConfig
                             />
                         )}
                     </Col>
@@ -34,7 +45,9 @@ export function Group(): JSX.Element {
                             {groupData && (
                                 <>
                                     <div className="person-header">
-                                        <span className="ph-no-capture text-ellipsis">{groupData.group_key}</span>
+                                        <span className="ph-no-capture text-ellipsis">
+                                            {groupDisplayId(groupData.group_key, groupData.group_properties)}
+                                        </span>
                                     </div>
                                     <div className="item-group">
                                         <label>Group type</label>
@@ -61,7 +74,16 @@ export function Group(): JSX.Element {
                                     disabled={groupDataLoading}
                                 />
                                 <TabPane
-                                    tab={<span data-attr="group-related-tab">Related groups</span>}
+                                    tab={
+                                        <span data-attr="group-related-tab">
+                                            Related people & groups
+                                            <Tooltip
+                                                title={`Shows people and groups which have shared events with this ${groupTypeName} in the last 90 days.`}
+                                            >
+                                                <InfoCircleOutlined style={{ marginLeft: 4 }} />
+                                            </Tooltip>
+                                        </span>
+                                    }
                                     key="related"
                                     disabled={groupDataLoading}
                                 />
@@ -75,7 +97,9 @@ export function Group(): JSX.Element {
                                             className="persons-page-props-table"
                                         />
                                     </div>
-                                ) : null)}
+                                ) : (
+                                    <RelatedGroups id={groupKey} groupTypeIndex={groupTypeIndex} />
+                                ))}
                             {groupDataLoading && <Skeleton paragraph={{ rows: 6 }} active />}
                         </Card>
                     </Col>
