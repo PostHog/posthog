@@ -16,7 +16,6 @@ import sys
 from datetime import timedelta
 from typing import Dict, List
 
-import dj_database_url
 import sentry_sdk
 import structlog
 from django.core.exceptions import ImproperlyConfigured
@@ -348,66 +347,6 @@ SOCIAL_AUTH_GITLAB_API_URL = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https://gi
 
 # Support creating multiple organizations in a single instance. Requires a premium license.
 MULTI_ORG_ENABLED = get_from_env("MULTI_ORG_ENABLED", False, type_cast=str_to_bool)
-
-
-# See https://docs.djangoproject.com/en/3.1/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
-DISABLE_SERVER_SIDE_CURSORS = get_from_env("USING_PGBOUNCER", False, type_cast=str_to_bool)
-
-# Database
-# https://docs.djangoproject.com/en/2.2/ref/settings/#databases
-
-if TEST or DEBUG:
-    DATABASE_URL = os.getenv("DATABASE_URL", "postgres://localhost:5432/posthog")
-else:
-    DATABASE_URL = os.getenv("DATABASE_URL", "")
-
-if DATABASE_URL:
-    DATABASES = {"default": dj_database_url.config(default=DATABASE_URL, conn_max_age=600)}
-    if DISABLE_SERVER_SIDE_CURSORS:
-        DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
-elif os.getenv("POSTHOG_DB_NAME"):
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.postgresql_psycopg2",
-            "NAME": get_from_env("POSTHOG_DB_NAME"),
-            "USER": os.getenv("POSTHOG_DB_USER", "postgres"),
-            "PASSWORD": os.getenv("POSTHOG_DB_PASSWORD", ""),
-            "HOST": os.getenv("POSTHOG_POSTGRES_HOST", "localhost"),
-            "PORT": os.getenv("POSTHOG_POSTGRES_PORT", "5432"),
-            "CONN_MAX_AGE": 0,
-            "DISABLE_SERVER_SIDE_CURSORS": DISABLE_SERVER_SIDE_CURSORS,
-            "SSL_OPTIONS": {
-                "sslmode": os.getenv("POSTHOG_POSTGRES_SSL_MODE", None),
-                "sslrootcert": os.getenv("POSTHOG_POSTGRES_CLI_SSL_CA", None),
-                "sslcert": os.getenv("POSTHOG_POSTGRES_CLI_SSL_CRT", None),
-                "sslkey": os.getenv("POSTHOG_POSTGRES_CLI_SSL_KEY", None),
-            },
-        }
-    }
-
-    ssl_configurations = []
-    for ssl_option, value in DATABASES["default"]["SSL_OPTIONS"].items():
-        if value:
-            ssl_configurations.append("{}={}".format(ssl_option, value))
-
-    if ssl_configurations:
-        ssl_configuration = "?{}".format("&".join(ssl_configurations))
-    else:
-        ssl_configuration = ""
-
-    DATABASE_URL = "postgres://{}{}{}{}:{}/{}{}".format(
-        DATABASES["default"]["USER"],
-        ":" + DATABASES["default"]["PASSWORD"] if DATABASES["default"]["PASSWORD"] else "",
-        "@" if DATABASES["default"]["USER"] or DATABASES["default"]["PASSWORD"] else "",
-        DATABASES["default"]["HOST"],
-        DATABASES["default"]["PORT"],
-        DATABASES["default"]["NAME"],
-        ssl_configuration,
-    )
-else:
-    raise ImproperlyConfigured(
-        f'The environment vars "DATABASE_URL" or "POSTHOG_DB_NAME" are absolutely required to run this software'
-    )
 
 
 # Broker
