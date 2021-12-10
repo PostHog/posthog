@@ -19,6 +19,7 @@ from typing import Dict, List
 # :TRICKY: Imported before anything else to support overloads
 from posthog.settings.overloads import *
 
+from posthog.settings.ee import EE_AVAILABLE
 from posthog.settings.base_variables import *
 from posthog.settings.celery import *
 from posthog.settings.data_stores import *
@@ -105,9 +106,6 @@ if IS_BEHIND_PROXY:
 
 # IP Block settings
 ALLOWED_IP_BLOCKS = get_list(os.getenv("ALLOWED_IP_BLOCKS", ""))
-
-
-EE_AVAILABLE = False
 
 ACTION_EVENT_MAPPING_INTERVAL_SECONDS = get_from_env("ACTION_EVENT_MAPPING_INTERVAL_SECONDS", 300, type_cast=int)
 
@@ -196,16 +194,11 @@ if STATSD_HOST is not None:
     MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
 
 # Append Enterprise Edition as an app if available
-try:
-    from ee.apps import EnterpriseConfig  # noqa: F401
-except ImportError:
-    pass
-else:
+if EE_AVAILABLE:
     HOOK_EVENTS: Dict[str, str] = {}
     INSTALLED_APPS.append("rest_hooks")
     INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
     MIDDLEWARE.append("ee.clickhouse.middleware.CHQueries")
-    EE_AVAILABLE = True
 
 # Use django-extensions if it exists
 try:
