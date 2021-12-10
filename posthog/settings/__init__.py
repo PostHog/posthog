@@ -15,7 +15,6 @@ import sys
 from datetime import timedelta
 from typing import Dict, List
 
-from django.core.exceptions import ImproperlyConfigured
 from kombu import Exchange, Queue
 
 from posthog.constants import AnalyticsDBMS
@@ -424,15 +423,6 @@ if not DEBUG and not TEST and SECRET_KEY == DEFAULT_SECRET_KEY:
         )
     )
     sys.exit("[ERROR] Default SECRET_KEY in production. Stopping Django server…\n")
-
-
-def show_toolbar(request):
-    return (
-        request.path.startswith("/api/")
-        or request.path.startswith("/decide/")
-        or request.path.startswith("/e/")
-        or request.path.startswith("/__debug__")
-    )
 
 
 # Extend and override these settings with EE's ones
