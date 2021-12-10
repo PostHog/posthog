@@ -15,7 +15,6 @@ import sys
 from datetime import timedelta
 from typing import Dict, List
 
-import structlog
 from django.core.exceptions import ImproperlyConfigured
 from kombu import Exchange, Queue
 
@@ -516,50 +515,6 @@ if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
 
 # TODO: Temporary
 EMAIL_REPORTS_ENABLED: bool = get_from_env("EMAIL_REPORTS_ENABLED", False, type_cast=str_to_bool)
-
-# Setup logging
-LOGGING_FORMATTER_NAME = os.getenv("LOGGING_FORMATTER_NAME", "default")
-DEFAULT_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "ERROR" if TEST else "INFO")
-LOGGING = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "formatters": {
-        "default": {"()": structlog.stdlib.ProcessorFormatter, "processor": structlog.dev.ConsoleRenderer(),},
-        "json": {"()": structlog.stdlib.ProcessorFormatter, "processor": structlog.processors.JSONRenderer(),},
-    },
-    "handlers": {
-        "console": {"class": "logging.StreamHandler", "formatter": LOGGING_FORMATTER_NAME,},
-        "null": {"class": "logging.NullHandler",},
-    },
-    "root": {"handlers": ["console"], "level": DEFAULT_LOG_LEVEL},
-    "loggers": {
-        "django": {"handlers": ["console"], "level": DEFAULT_LOG_LEVEL},
-        "django.server": {"handlers": ["null"]},  # blackhole Django server logs (this is only needed in DEV)
-        "django.utils.autoreload": {
-            "handlers": ["null"],
-        },  # blackhole Django autoreload logs (this is only needed in DEV)
-        "axes": {"handlers": ["console"], "level": DEFAULT_LOG_LEVEL},
-        "statsd": {"handlers": ["console"], "level": DEFAULT_LOG_LEVEL},
-    },
-}
-
-structlog.configure(
-    processors=[
-        structlog.stdlib.filter_by_level,
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.stdlib.add_logger_name,
-        structlog.stdlib.add_log_level,
-        structlog.stdlib.PositionalArgumentsFormatter(),
-        structlog.processors.StackInfoRenderer(),
-        structlog.processors.format_exc_info,
-        structlog.processors.UnicodeDecoder(),
-        structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
-    ],
-    context_class=structlog.threadlocal.wrap_dict(dict),
-    logger_factory=structlog.stdlib.LoggerFactory(),
-    wrapper_class=structlog.stdlib.BoundLogger,
-    cache_logger_on_first_use=True,
-)
 
 # keep in sync with plugin-server
 EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC = "events_added_to_dead_letter_queue"
