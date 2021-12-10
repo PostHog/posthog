@@ -24,6 +24,18 @@ RUN apt-get update \
     "docker.io=20.10.5+dfsg1-1+b5" \
     # Add in useful db debugging tools
     "postgresql-client=13+225" \
+    # Install cypress dependencies
+    "libasound2=1.2.4-1.1" \
+    "libgbm-dev=20.3.5-1" \
+    "libgconf-2-4=3.2.6-7" \
+    "libgtk-3-0=3.24.24-4" \
+    "libgtk2.0-0=2.24.33-2" \
+    "libnotify-dev=0.7.9-3" \
+    "libnss3=2:3.61-1+deb11u1" \
+    "libxss1=1:1.2.3-1" \
+    "libxtst6=2:1.2.3-1" \
+    "xauth=1:1.1-1" \
+    "xvfb=2:1.20.11-1" \
     && rm -rf /var/lib/apt/lists/*
 
 # Install node
