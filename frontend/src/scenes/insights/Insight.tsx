@@ -6,7 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { FunnelTab, PathTab, RetentionTab, SessionTab, TrendTab } from './InsightTabs'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
-import { HotKeys, ItemMode, InsightType, InsightShortId } from '~/types'
+import { HotKeys, ItemMode, InsightType, InsightShortId, AvailableFeature } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
@@ -24,6 +24,7 @@ import { UNNAMED_INSIGHT_NAME } from './EmptyStates'
 import { InsightSaveButton } from './InsightSaveButton'
 import posthog from 'posthog-js'
 import { helpButtonLogic } from 'lib/components/HelpButton/HelpButton'
+import { userLogic } from 'scenes/userLogic'
 
 export const scene: SceneExport = {
     component: Insight,
@@ -44,7 +45,6 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
         filtersChanged,
         savedFilters,
         tagLoading,
-        metadataEditable,
     } = useValues(logic)
     const {
         setActiveView,
@@ -56,7 +56,7 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
         deleteTag,
         saveAs,
     } = useActions(logic)
-
+    const { hasAvailableFeature} = useValues(userLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { saveCohortWithFilters, setCohortModalVisible } = useActions(personsModalLogic)
@@ -173,8 +173,9 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                     onChange={(value) => setInsightMetadata({ description: value })}
                     className={'insight-metadata-description'}
                     dataAttr={'insight-description'}
+                    locked={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
                 />
-                {metadataEditable ? (
+                {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) ? (
                     <div className={'insight-metadata-tags'} data-attr="insight-tags">
                         <ObjectTags
                             tags={insight.tags ?? []}
