@@ -788,8 +788,8 @@ export const dateMapping: Record<string, dateMappingOption> = {
 
 export const isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
 
-export function getFormattedLastWeekDate(): string {
-    return `${dayjs().subtract(7, 'week').format(DATE_FORMAT)} - ${dayjs().endOf('d').format(DATE_FORMAT)}`
+export function getFormattedLastWeekDate(lastDay: dayjs.Dayjs = dayjs()): string {
+    return `${lastDay.subtract(7, 'week').format(DATE_FORMAT)} - ${lastDay.endOf('d').format(DATE_FORMAT)}`
 }
 
 export function dateFilterToText(
