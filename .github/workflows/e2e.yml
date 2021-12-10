@@ -6,7 +6,8 @@ on:
         branches: [master]
 
 jobs:
-    cypress_specs: # Job that lists and chunks spec file names
+    # Job that lists and chunks spec file names and caches node modules
+    cypress_prep:
         runs-on: ubuntu-latest
         outputs:
             specs: ${{ steps.set-specs.outputs.specs }}
@@ -38,7 +39,7 @@ jobs:
         name: Cypress E2E tests - (${{ strategy.job-index }})
         if: ${{ github.ref != 'refs/heads/master' }} # Don't run on master, we only cace about node_modules cache
         runs-on: ubuntu-18.04
-        needs: [cypress_specs]
+        needs: [cypress_prep]
 
         strategy:
             # when one test fails, DO NOT cancel the other
@@ -46,7 +47,7 @@ jobs:
             # we want to know about.
             fail-fast: false
             matrix:
-                specs: ${{ fromJson(needs.cypress_specs.outputs.specs) }}
+                specs: ${{ fromJson(needs.cypress_prep.outputs.specs) }}
 
         services:
             postgres:
