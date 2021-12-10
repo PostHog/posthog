@@ -4,7 +4,7 @@ import { systemStatusLogic } from './systemStatusLogic'
 import { useValues } from 'kea'
 import { SystemStatusSubrows } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { IconExternalLink } from 'lib/components/icons'
+import { IconOpenInNew } from 'lib/components/icons'
 
 function RenderValue(value: any): JSX.Element | string {
     if (typeof value === 'boolean') {
@@ -63,7 +63,7 @@ export function OverviewTab(): JSX.Element {
                         rel="noopener"
                         target="_blank"
                     >
-                        Learn more <IconExternalLink style={{ verticalAlign: 'middle' }} />
+                        Learn more <IconOpenInNew style={{ verticalAlign: 'middle' }} />
                     </a>
                 </p>
                 <Table

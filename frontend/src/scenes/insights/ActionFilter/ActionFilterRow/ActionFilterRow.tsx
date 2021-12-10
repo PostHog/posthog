@@ -13,7 +13,6 @@ import {
     SelectOption,
 } from '~/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { FEATURE_FLAGS } from 'lib/constants'
 import {
     CloseSquareOutlined,
     DeleteOutlined,
@@ -25,7 +24,6 @@ import {
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { pluralize } from 'lib/utils'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
@@ -465,12 +463,11 @@ function MathSelector({
         areEventPropertiesNumericalAvailable ? '' : ' None have been found yet!'
     }`
     const { preflight } = useValues(preflightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { eventMathEntries, propertyMathEntries } = useValues(mathsLogic)
 
     let math_entries = eventMathEntries
 
-    if (!featureFlags[FEATURE_FLAGS.TRAILING_WAU_MAU] || !preflight?.is_clickhouse_enabled) {
+    if (!preflight?.is_clickhouse_enabled) {
         math_entries = math_entries.filter((item) => item[0] !== 'weekly_active' && item[0] !== 'monthly_active')
     }
 

@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional, cast
 
 from django.core.management.base import BaseCommand
 
@@ -27,15 +27,15 @@ class Command(BaseCommand):
                 elif "export const FEATURE_FLAGS" in line:
                     parsing_flags = True
 
-        first_user = User.objects.first()
+        first_user = cast(User, User.objects.first())
         for team in Team.objects.all():
             existing_flags = FeatureFlag.objects.filter(team=team).values_list("key", flat=True)
             deleted_flags = FeatureFlag.objects.filter(team=team, deleted=True).values_list("key", flat=True)
             for flag in flags:
                 if flag in deleted_flags:
-                    f = FeatureFlag.objects.filter(team=team, key=flag)[0]
-                    f.deleted = False
-                    f.save()
+                    ff = FeatureFlag.objects.filter(team=team, key=flag)[0]
+                    ff.deleted = False
+                    ff.save()
                     print(f"Undeleted feature flag '{flag} for team {team.id} {' - ' + team.name if team.name else ''}")
                 elif flag not in existing_flags:
                     FeatureFlag.objects.create(

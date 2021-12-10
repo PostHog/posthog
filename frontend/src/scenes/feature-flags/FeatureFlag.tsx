@@ -30,7 +30,7 @@ import { featureFlagLogic } from './featureFlagLogic'
 import { featureFlagLogic as featureFlagClientLogic } from 'lib/logic/featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
-import { IconExternalLink, IconJavascript, IconPython } from 'lib/components/icons'
+import { IconOpenInNew, IconJavascript, IconPython } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -196,7 +196,7 @@ export function FeatureFlag(): JSX.Element {
                                                 rel="noopener"
                                             >
                                                 {' '}
-                                                affect the persistence of your flag <IconExternalLink />
+                                                affect the persistence of your flag <IconOpenInNew />
                                             </a>
                                         </small>
                                     ) : undefined

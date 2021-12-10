@@ -21,7 +21,7 @@ class TestFormula(AbstractIntervalTest, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def setUp(self):
-        super().setUp()  # type: ignore
+        super().setUp()
 
         Person.objects.create(
             team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}

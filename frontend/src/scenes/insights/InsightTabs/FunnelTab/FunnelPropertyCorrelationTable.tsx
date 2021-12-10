@@ -290,7 +290,7 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
                     </>
                 }
             >
-                <LemonButton type="stealth" style={{ paddingLeft: 0 }} onClick={() => setPopoverOpen(!popoverOpen)}>
+                <LemonButton type="stealth" onClick={() => setPopoverOpen(!popoverOpen)}>
                     <EllipsisOutlined
                         style={{ color: 'var(--primary)', fontSize: 24 }}
                         className="insight-dropdown-actions"
