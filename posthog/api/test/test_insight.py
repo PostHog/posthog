@@ -164,10 +164,11 @@ def insight_test_factory(event_factory, person_factory):
                     team=self.team,
                     short_id=f"insight{i}",
                     dashboard=dashboard,
+                    created_by=user,
                 )
 
-            # 3 for request overhead (django sessions/auth), then item count + items + dashboards + users
-            with self.assertNumQueries(7):
+            # 4 for request overhead (django sessions/auth), then item count + items + dashboards + users
+            with self.assertNumQueries(8):
                 response = self.client.get(f"/api/projects/{self.team.id}/insights")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 20)

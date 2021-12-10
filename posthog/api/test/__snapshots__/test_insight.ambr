@@ -143,25 +143,38 @@
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."tags"
   FROM "posthog_dashboard"
-  WHERE "posthog_dashboard"."id" IN (61,
-                                     62,
-                                     63,
-                                     64,
-                                     65,
-                                     66,
-                                     67,
-                                     68,
-                                     69,
-                                     70,
-                                     71,
-                                     72,
-                                     73,
-                                     74,
-                                     75,
-                                     76,
-                                     77,
-                                     78,
-                                     79,
-                                     80)
+  WHERE "posthog_dashboard"."id" IN (1,
+                                     2,
+                                     3,
+                                     4,
+                                     5 /* ... */)
+  '
+---
+# name: TestInsight.test_insights_does_not_nplus1.6
+  '
+  SELECT "posthog_user"."id",
+         "posthog_user"."password",
+         "posthog_user"."last_login",
+         "posthog_user"."first_name",
+         "posthog_user"."last_name",
+         "posthog_user"."is_staff",
+         "posthog_user"."is_active",
+         "posthog_user"."date_joined",
+         "posthog_user"."uuid",
+         "posthog_user"."current_organization_id",
+         "posthog_user"."current_team_id",
+         "posthog_user"."email",
+         "posthog_user"."temporary_token",
+         "posthog_user"."distinct_id",
+         "posthog_user"."email_opt_in",
+         "posthog_user"."anonymize_data",
+         "posthog_user"."toolbar_mode",
+         "posthog_user"."events_column_config"
+  FROM "posthog_user"
+  WHERE "posthog_user"."id" IN (1,
+                                2,
+                                3,
+                                4,
+                                5 /* ... */)
   '
 ---
