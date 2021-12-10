@@ -87,7 +87,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
             },
         ],
         speed: [
-            8,
+            1,
             {
                 setSpeed: (_, { speed }) => speed,
             },
@@ -146,8 +146,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
             actions.tryInitReplayer()
         },
         tryInitReplayer: () => {
+            // Tries to initialize a new player
             const windowId: string | null = values.currentPlayerPosition?.windowId ?? null
-            console.log('tryInitReplayer', windowId)
             if (
                 !values.rootFrame ||
                 windowId === null ||
@@ -166,7 +166,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
                     `.ph-no-capture {   background-image: url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNOCAwSDE2TDAgMTZWOEw4IDBaIiBmaWxsPSIjMkQyRDJEIi8+CjxwYXRoIGQ9Ik0xNiA4VjE2SDhMMTYgOFoiIGZpbGw9IiMyRDJEMkQiLz4KPC9zdmc+Cg=="); }`,
                 ],
             })
-            console.log('initReplayer', replayer)
+
             replayer.on('finish', () => {
                 // Use 500ms buffer because current time is not always exactly identical to end time.
                 if (values.time.current + 500 >= values.sessionPlayerData.metadata.endTime) {
@@ -191,9 +191,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
             }
         },
         setCurrentSegment: ({ segment }) => {
-            console.log('setCurrentSegment', segment)
+            // Check if the new segment is for a different window_id than the last one
+            // If so, we need to re-initialize the player
             if (values.player && values.player.windowId !== segment.windowId) {
-                console.log('setCurrentSegment: windowId mismatch')
                 values.player?.replayer?.pause()
                 actions.setPlayer(null)
                 values.rootFrame.innerHTML = '' // Clear the previously drawn frames
@@ -202,6 +202,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
             actions.seek(values.currentPlayerPosition)
         },
         loadRecordingMetaSuccess: async (_, breakpoint) => {
+            // Once the recording metadata is loaded, we set the player to the
+            // beginning and then try to play the recording
             const initialSegment = values.sessionPlayerData?.metadata?.segments[0]
             if (initialSegment) {
                 actions.setCurrentSegment(initialSegment)
@@ -253,8 +255,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
         setPlay: () => {
             actions.stopAnimation()
             values.player?.replayer?.setConfig({ speed: values.speed }) // hotfix: speed changes on player state change
-            // Seek to currentPlayerPosition or start of the currentSegment
-            console.log('setPlay', values.currentPlayerPosition, values.currentSegment?.startPlayerPosition)
+
+            // Use the start of the current segment if there is no currentPlayerPosition
+            // (theoretically, should never happen, but Typescript doesn't know that)
             const nextPlayerPosition = values.currentPlayerPosition || values.currentSegment?.startPlayerPosition
             if (nextPlayerPosition) {
                 actions.seek(nextPlayerPosition, true)
@@ -278,7 +281,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
             // Real seeking is debounced so as not to overload rrweb.
             await breakpoint(100)
             actions.stopAnimation()
-            console.log('seek', playerPosition, forcePlay)
 
             actions.setCurrentPlayerPosition(playerPosition)
 
@@ -286,7 +288,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
             let nextSegment = null
             if (playerPosition) {
                 nextSegment = getSegmentFromPlayerPosition(playerPosition, values.sessionPlayerData.metadata.segments)
-
                 if (
                     nextSegment &&
                     (nextSegment.windowId !== values.currentSegment?.windowId ||
@@ -376,15 +377,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
             }
         },
         updateAnimation: () => {
+            // The main loop of the player. Called on each frame
+
             const playerTime = values.player?.replayer?.getCurrentTime()
             let nextPlayerPosition: PlayerPosition | null = null
             if (playerTime !== undefined && values.currentSegment) {
                 nextPlayerPosition = {
                     windowId: values.currentSegment.windowId,
+                    // Cap the player position to the end of the segment. Below, we'll check if
+                    // the player is at the end of the segment and if so, we'll go to the next one
                     time: Math.min(playerTime, values.currentSegment.endPlayerPosition.time),
                 }
             }
-            // console.log(playerTime, nextPlayerPosition?.time, values.sessionPlayerData.metadata.segments.indexOf(values.currentSegment))
 
             // If we're beyond the current segments, move to next segments if there is one
             if (
@@ -402,8 +406,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
                     actions.setCurrentPlayerPosition(nextSegment.startPlayerPosition)
                     actions.setCurrentSegment(nextSegment)
                 } else {
-                    actions.setCurrentPlayerPosition(nextPlayerPosition)
+                    // At the end of the recording. Pause the player and reset the playerPosition
                     actions.setPause()
+                    actions.setCurrentPlayerPosition(values.sessionPlayerData.metadata.segments[0].startPlayerPosition)
                 }
             }
 
@@ -418,9 +423,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
                     values.sessionPlayerData.metadata.segments
                 ) > 0
             ) {
+                // Pause only the animation, not our player, so it will restart
+                // when the buffering progresses
                 values.player?.replayer?.pause()
                 actions.setBuffer()
             } else {
+                // The normal loop. Progress the player position and continue the loop
                 actions.setCurrentPlayerPosition(nextPlayerPosition)
                 cache.timer = requestAnimationFrame(actions.updateAnimation)
             }

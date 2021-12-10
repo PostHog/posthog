@@ -94,10 +94,6 @@ export function getPlayerPositionFromPlayerTime(
     let currentTime = 0
     for (const segment of segments) {
         if (currentTime + segment.durationMs > playerTime) {
-            console.log('convertXToPlayerPosition', {
-                windowId: segment.windowId,
-                time: playerTime - currentTime,
-            })
             return {
                 windowId: segment.windowId,
                 time: playerTime - currentTime + segment.startPlayerPosition.time,
