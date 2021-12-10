@@ -10,7 +10,6 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { userLogic } from 'scenes/userLogic'
 import { PropertyFilter } from '~/types'
 import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
@@ -22,7 +21,6 @@ export const scene: SceneExport = {
 }
 
 export function Experiment(): JSX.Element {
-    const { user } = useValues(userLogic)
     const { newExperimentData, experimentId, experimentData, experimentFunnel } = useValues(experimentLogic)
     const { setNewExperimentData, createExperiment, setFilters } = useActions(experimentLogic)
     const [form] = Form.useForm()
@@ -189,13 +187,16 @@ export function Experiment(): JSX.Element {
 
                         {page === 2 && (
                             <div className="confirmation">
-                                <PageHeader title={newExperimentData?.name || ''} />
-                                <div>{newExperimentData?.description}</div>
-                                <div>Owner: {user?.first_name}</div>
+                                <div>Name: {newExperimentData?.name}</div>
+                                <div>
+                                    Description:{' '}
+                                    {newExperimentData?.description ||
+                                        'this is a test description, describing experiments yep'}
+                                </div>
                                 <div>Feature flag key: {newExperimentData?.feature_flag_key}</div>
                                 <Row>
                                     <Col>
-                                        <Row>Person allocation</Row>
+                                        <Row>Person allocation:</Row>
                                         <Row>The following users will participate in the experiment</Row>
                                         <ul>
                                             {newExperimentData?.filters?.properties?.map(
@@ -209,6 +210,18 @@ export function Experiment(): JSX.Element {
                                                 )
                                             )}
                                         </ul>
+                                    </Col>
+                                </Row>
+                                <Row>
+                                    <Col>
+                                        <Row>Experiment parameters:</Row>
+                                        <Row>
+                                            <ul>
+                                                <li>Target confidence level: </li>
+                                                <li>Approx. run time: </li>
+                                                <li>Approx. sample size: </li>
+                                            </ul>
+                                        </Row>
                                     </Col>
                                 </Row>
                                 <Row justify="space-between">
