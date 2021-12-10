@@ -112,7 +112,7 @@ $funnel_canvas_background: #fafafa;
             padding-right: $default_spacing;
 
             .ant-card-head-title {
-                padding: $default_spacing / 2 0;
+                padding: 0;
 
                 span.filter {
                     font-size: 14px;
@@ -131,7 +131,14 @@ $funnel_canvas_background: #fafafa;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            overflow-x: auto;
+            flex-wrap: wrap;
+
+            .display-config-inner-row {
+                flex-wrap: wrap;
+                display: flex;
+                align-items: center;
+                margin: 0.5rem 0;
+            }
         }
 
         .ant-card-body {

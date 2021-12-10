@@ -163,7 +163,7 @@ export async function createHub(
         db,
         statsd,
         serverConfig.SITE_URL,
-        serverConfig.EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED_TEAMS
+        serverConfig.EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED
     )
     const organizationManager = new OrganizationManager(db)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)

@@ -15,6 +15,7 @@ from django.db.models.query import QuerySet
 from ee.clickhouse.client import sync_execute
 from posthog.models import Entity, Filter, Team
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.group import Group
 from posthog.models.person import Person
@@ -42,7 +43,9 @@ class ActorBaseQuery:
     aggregating_by_groups = False
     entity: Optional[Entity] = None
 
-    def __init__(self, team: Team, filter: Union[Filter, StickinessFilter], entity: Optional[Entity] = None):
+    def __init__(
+        self, team: Team, filter: Union[Filter, StickinessFilter, RetentionFilter], entity: Optional[Entity] = None
+    ):
         self._team = team
         self.entity = entity
         self._filter = filter
