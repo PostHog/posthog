@@ -36,6 +36,7 @@ jobs:
 
     cypress:
         name: Cypress E2E tests - (${{ strategy.job-index }})
+        if: ${{ github.ref != 'refs/heads/master' }} # Don't run on master, we only cace about node_modules cache
         runs-on: ubuntu-18.04
         needs: [cypress_specs]
 
@@ -104,7 +105,6 @@ jobs:
                   restore-keys: |
                       ${{ runner.os }}-cypress-node-modules-3-
             - name: Yarn build
-              if: ${{ github.ref != 'refs/heads/master' }}
               env:
                   GENERATE_SOURCEMAP: 'false'
               run: |
@@ -112,7 +112,6 @@ jobs:
                   cd plugin-server
                   yarn build
             - name: Boot PostHog
-              if: ${{ github.ref != 'refs/heads/master' }}
               env:
                   SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
                   REDIS_URL: 'redis://localhost'
@@ -135,7 +134,6 @@ jobs:
                   ./bin/docker-server &> /tmp/logs/server.txt &
             - name: Cypress run
               uses: cypress-io/github-action@v2
-              if: ${{ github.ref != 'refs/heads/master' }}
               with:
                   config-file: cypress.e2e.json
                   config: retries=2
