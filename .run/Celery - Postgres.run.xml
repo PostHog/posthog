@@ -6,6 +6,7 @@
     <envs>
       <env name="PYTHONUNBUFFERED" value="1" />
       <env name="DEBUG" value="1" />
+      <env name="DATABASE_URL" value="postgres://posthog:posthog@localhost:5432/posthog" />
     </envs>
     <option name="SDK_HOME" value="$PROJECT_DIR$/env/bin/python" />
     <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/env/bin" />
