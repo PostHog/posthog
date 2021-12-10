@@ -197,6 +197,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 ...groupAnalyticsTaxonomicGroups,
             ],
         ],
+        activeTaxonomicGroup: [
+            (s) => [s.activeTab, s.taxonomicGroups],
+            (activeTab, taxonomicGroups) => taxonomicGroups.find((g) => g.type === activeTab),
+        ],
         taxonomicGroupTypes: [
             (selectors) => [(_, props) => props.taxonomicGroupTypes, selectors.taxonomicGroups],
             (groupTypes, taxonomicGroups): TaxonomicFilterGroupType[] =>
@@ -335,6 +339,24 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     actions.setActiveTab(taxonomicGroupTypes[newIndex])
                     return
                 }
+            }
+        },
+
+        setSearchQuery: () => {
+            const { activeTaxonomicGroup, totalCounts } = values
+
+            if (activeTaxonomicGroup) {
+                console.log(activeTaxonomicGroup.type, totalCounts[activeTaxonomicGroup.type])
+            }
+
+            // Taxonomic group with a local data source, zero results after searching.
+            // Open the next tab.
+            if (
+                activeTaxonomicGroup &&
+                !activeTaxonomicGroup.endpoint &&
+                totalCounts[activeTaxonomicGroup.type] === 0
+            ) {
+                actions.tabRight()
             }
         },
     }),
