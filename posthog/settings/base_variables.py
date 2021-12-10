@@ -4,7 +4,7 @@ import sys
 from posthog.settings.utils import get_from_env, print_warning, str_to_bool
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 DEBUG = get_from_env("DEBUG", False, type_cast=str_to_bool)
 TEST = (
