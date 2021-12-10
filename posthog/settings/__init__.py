@@ -19,13 +19,18 @@ from typing import Dict, List
 from posthog.settings.overloads import *
 
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
+
 from posthog.settings.ee import EE_AVAILABLE
 from posthog.settings.base_variables import *
+
 from posthog.settings.access import *
 from posthog.settings.celery import *
 from posthog.settings.data_stores import *
+from posthog.settings.emails import *
 from posthog.settings.feature_flags import *
+from posthog.settings.logging import *
 from posthog.settings.sentry import *
+from posthog.settings.shell_plus import *
 from posthog.settings.service_requirements import *
 
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
