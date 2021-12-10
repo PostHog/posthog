@@ -6,6 +6,7 @@ from django.db import transaction
 from posthog.celery import app
 from posthog.constants import AnalyticsDBMS
 from posthog.models.special_migration import MigrationStatus, SpecialMigration
+from posthog.settings import SPECIAL_MIGRATIONS_DISABLE_AUTO_ROLLBACK
 from posthog.special_migrations.definition import SpecialMigrationOperation
 from posthog.special_migrations.setup import DEPENDENCY_TO_SPECIAL_MIGRATION
 
@@ -38,6 +39,9 @@ def process_error(migration_instance: SpecialMigration, error: Optional[str]):
         last_error=error or "",
         finished_at=datetime.now(),
     )
+
+    if SPECIAL_MIGRATIONS_DISABLE_AUTO_ROLLBACK:
+        return
 
     from posthog.special_migrations.runner import attempt_migration_rollback
 
