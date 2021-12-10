@@ -32,6 +32,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         eventWithPropertyCorrelationsLoading,
         nestedTableExpandedKeys,
         correlationPropKey,
+        filters,
     } = useValues(logic)
 
     const {
@@ -253,10 +254,13 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                     expandable={{
                         expandedRowRender: (record) => renderNestedTable(record.event.event),
                         expandedRowKeys: nestedTableExpandedKeys,
-                        rowExpandable: () => true,
+                        rowExpandable: () => filters.aggregation_group_type_index === undefined,
                         /* eslint-disable react/display-name */
-                        expandIcon: ({ expanded, onExpand, record }) =>
-                            expanded ? (
+                        expandIcon: ({ expanded, onExpand, record, expandable }) => {
+                            if (!expandable) {
+                                return null
+                            }
+                            return expanded ? (
                                 <Tooltip title="Collapse">
                                     <div
                                         style={{ cursor: 'pointer', opacity: 0.5, fontSize: 24 }}
@@ -282,7 +286,8 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                                         <IconUnfoldMore />
                                     </div>
                                 </Tooltip>
-                            ),
+                            )
+                        },
                         /* eslint-enable react/display-name */
                     }}
                 >

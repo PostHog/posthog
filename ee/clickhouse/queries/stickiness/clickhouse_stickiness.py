@@ -10,11 +10,11 @@ from sentry_sdk.api import capture_exception
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.person import ClickhousePersonSerializer
+from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
 from ee.clickhouse.queries.stickiness.stickiness_actors import ClickhouseStickinessActors
 from ee.clickhouse.queries.stickiness.stickiness_event_query import StickinessEventsQuery
 from ee.clickhouse.sql.person import (
     GET_LATEST_PERSON_SQL,
-    GET_TEAM_PERSON_DISTINCT_IDS,
     INSERT_COHORT_ALL_PEOPLE_SQL,
     PEOPLE_SQL,
     PERSON_STATIC_COHORT_TABLE,
@@ -56,7 +56,7 @@ def insert_stickiness_people_into_cohort(cohort: Cohort, target_entity: Entity, 
                 content_sql=content_sql,
                 latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
                 cohort_table=PERSON_STATIC_COHORT_TABLE,
-                GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
+                GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(cohort.team_id),
             ),
             {"cohort_id": cohort.pk, "_timestamp": datetime.now(), **params},
         )

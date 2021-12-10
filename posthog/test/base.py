@@ -211,9 +211,20 @@ class QueryMatchingTest:
     snapshot: Any
 
     # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
-    def assertQueryMatchesSnapshot(self, query, params=None):
+    def assertQueryMatchesSnapshot(self, query, params=None, replace_all_numbers=False):
         # :TRICKY: team_id changes every test, avoid it messing with snapshots.
-        query = re.sub(r"(team|cohort)_id\"? = \d+", r"\1_id = 2", query)
+        if replace_all_numbers:
+            query = re.sub(r"(\"?) = \d+", r"\1 = 2", query)
+            query = re.sub(r"(\"?) IN \(\d+(, \d+)*\)", r"\1 IN (1, 2, 3, 4, 5 /* ... */)", query)
+        else:
+            query = re.sub(r"(team|cohort)_id(\"?) = \d+", r"\1_id\2 = 2", query)
+
+        # Replace organization_id lookups, for postgres
+        query = re.sub(
+            f"organization_id\" = '[^']+'::uuid",
+            "organization_id\" = '00000000-0000-0000-0000-000000000000'::uuid",
+            query,
+        )
 
         assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
         if params is not None:
@@ -239,6 +250,7 @@ def snapshot_postgres_queries(fn):
 
         for query_with_time in context.captured_queries:
             query = query_with_time["sql"]
-            self.assertQueryMatchesSnapshot(query)
+            if "SELECT" in query and "django_session" not in query:
+                self.assertQueryMatchesSnapshot(query, replace_all_numbers=True)
 
     return wrapped

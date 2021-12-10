@@ -10,7 +10,6 @@ from django.core.cache import cache
 from django.db.models import Q
 from django.db.models.expressions import F, Subquery
 from django.utils import timezone
-from sentry_sdk import capture_exception
 
 from posthog.celery import update_cache_item_task
 from posthog.constants import (
@@ -20,7 +19,6 @@ from posthog.constants import (
     INSIGHT_SESSIONS,
     INSIGHT_STICKINESS,
     INSIGHT_TRENDS,
-    TRENDS_LINEAR,
     TRENDS_STICKINESS,
     FunnelOrderType,
     FunnelVizType,
@@ -32,13 +30,11 @@ from posthog.models.filters.utils import get_filter
 from posthog.types import FilterType
 from posthog.utils import generate_cache_key, is_clickhouse_enabled
 
-PARALLEL_DASHBOARD_ITEM_CACHE = int(os.environ.get("PARALLEL_DASHBOARD_ITEM_CACHE", 5))
+PARALLEL_INSIGHT_CACHE = int(os.environ.get("PARALLEL_DASHBOARD_ITEM_CACHE", 5))
 
 logger = logging.getLogger(__name__)
 
 if is_clickhouse_enabled():
-    from ee.clickhouse.queries import ClickhousePaths
-    from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
     from ee.clickhouse.queries.funnels import (
         ClickhouseFunnel,
         ClickhouseFunnelBase,
@@ -47,6 +43,8 @@ if is_clickhouse_enabled():
         ClickhouseFunnelTrends,
         ClickhouseFunnelUnordered,
     )
+    from ee.clickhouse.queries.paths import ClickhousePaths
+    from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
     from ee.clickhouse.queries.sessions.clickhouse_sessions import ClickhouseSessions
     from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
     from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
@@ -143,7 +141,7 @@ def update_cached_items() -> None:
 
     for item in Insight.objects.filter(
         pk__in=Subquery(items.filter(filters__isnull=False).exclude(filters={}).distinct("filters").values("pk"))
-    ).order_by(F("last_refresh").asc(nulls_first=True))[0:PARALLEL_DASHBOARD_ITEM_CACHE]:
+    ).order_by(F("last_refresh").asc(nulls_first=True))[0:PARALLEL_INSIGHT_CACHE]:
         cache_key, cache_type, payload = dashboard_item_update_task_params(item)
         tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
 

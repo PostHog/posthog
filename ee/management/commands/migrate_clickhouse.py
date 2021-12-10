@@ -2,11 +2,11 @@ import datetime
 from textwrap import indent
 
 from django.core.management.base import BaseCommand
-from infi.clickhouse_orm import Database  # type: ignore
-from infi.clickhouse_orm.migrations import MigrationHistory  # type: ignore
+from infi.clickhouse_orm import Database
+from infi.clickhouse_orm.migrations import MigrationHistory
 from infi.clickhouse_orm.utils import import_submodules
 
-from posthog.models.special_migration import MigrationStatus, SpecialMigration  # type: ignore
+from posthog.models.special_migration import MigrationStatus, SpecialMigration
 from posthog.settings import (
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_HTTP_URL,
@@ -92,6 +92,7 @@ class Command(BaseCommand):
                     if sm.status == MigrationStatus.NotStarted:
                         print("Applying special migration", migration_name)
                         started_successfully = start_special_migration(migration_name)
+                        sm.refresh_from_db()
                         if not started_successfully or sm.status != MigrationStatus.CompletedSuccessfully:
                             print(f"Unable to complete special migration {migration_name} with error", sm.last_error)
                             return

@@ -12,6 +12,7 @@ from posthog.special_migrations.runner import (
     start_special_migration,
 )
 from posthog.special_migrations.test.util import create_special_migration
+from posthog.special_migrations.utils import update_special_migration
 from posthog.test.base import BaseTest
 
 TEST_MIGRATION_DESCRIPTION = Migration().description
@@ -27,6 +28,12 @@ class TestRunner(BaseTest):
     def test_run_migration_in_full(self):
         migration_successful = start_special_migration("test")
         sm = SpecialMigration.objects.get(name="test")
+
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT * FROM test_special_migration")
+            res = cursor.fetchone()
+
+        self.assertEqual(res, ("a", "c"))
 
         self.assertTrue(migration_successful)
         self.assertEqual(sm.name, "test")
@@ -50,16 +57,25 @@ class TestRunner(BaseTest):
         sm = SpecialMigration.objects.get(name="test")
 
         attempt_migration_rollback(sm)
-
         sm.refresh_from_db()
+
+        exception = None
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT * FROM test_special_migration")
+        except Exception as e:
+            exception = e
+
+        self.assertTrue('relation "test_special_migration" does not exist' in str(exception))
+
         self.assertEqual(sm.status, MigrationStatus.RolledBack)
         self.assertEqual(sm.progress, 0)
 
     @pytest.mark.ee
     def test_run_special_migration_next_op(self):
         sm = SpecialMigration.objects.get(name="test")
-        sm.status = MigrationStatus.Running
-        sm.save()
+
+        update_special_migration(sm, status=MigrationStatus.Running)
 
         run_special_migration_next_op("test", sm, run_all=False)
 
@@ -113,6 +129,7 @@ class TestRunner(BaseTest):
         self.assertEqual(res, ("a", "b"))
 
         attempt_migration_rollback(sm)
+        sm.refresh_from_db()
 
         exception = None
         try:

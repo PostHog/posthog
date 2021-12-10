@@ -22,11 +22,14 @@ class Migration(SpecialMigrationDefinition):
             sql="INSERT INTO test_special_migration (key, value) VALUES ('a', 'b')",
             rollback="TRUNCATE TABLE test_special_migration",
         ),
-        SpecialMigrationOperation(database=AnalyticsDBMS.POSTGRES, sql="SELECT pg_sleep(1)", rollback="",),
+        SpecialMigrationOperation(
+            database=AnalyticsDBMS.POSTGRES, sql="SELECT pg_sleep(1)", rollback="", resumable=True
+        ),
         SpecialMigrationOperation(
             database=AnalyticsDBMS.POSTGRES,
             sql="UPDATE test_special_migration SET value='c' WHERE key='a'",
             rollback="UPDATE test_special_migration SET value='b' WHERE key='a'",
+            resumable=True,  # why? because 'update where' queries can safely be re-run
         ),
     ]
 

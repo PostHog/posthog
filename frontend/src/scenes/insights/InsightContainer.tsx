@@ -30,6 +30,7 @@ import clsx from 'clsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { FunnelCorrelation } from './FunnelCorrelation'
+import { InsightLegend, InsightLegendButton } from 'lib/components/InsightLegend/InsightLegend'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -41,7 +42,9 @@ const VIEW_MAP = {
     [`${InsightType.PATHS}`]: <Paths />,
 }
 
-export function InsightContainer(): JSX.Element {
+export function InsightContainer(
+    { disableCorrelation }: { disableCorrelation?: boolean } = { disableCorrelation: false }
+): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const {
@@ -175,18 +178,34 @@ export function InsightContainer(): JSX.Element {
                         align="middle"
                         justify="space-between"
                     >
+                        {/*Don't add more than two columns in this row.*/}
+                        <Col>{lastRefresh && <ComputationTimeWithRefresh />}</Col>
                         <Col>
                             <FunnelCanvasLabel />
                             <PathCanvasLabel />
+                            <InsightLegendButton />
                         </Col>
-                        {lastRefresh && <ComputationTimeWithRefresh />}
                     </Row>
-                    {!!BlockingEmptyState ? BlockingEmptyState : VIEW_MAP[activeView]}
+                    {!!BlockingEmptyState ? (
+                        BlockingEmptyState
+                    ) : featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS] &&
+                      (activeView === InsightType.TRENDS || activeView === InsightType.STICKINESS) &&
+                      !filters.legend_hidden ? (
+                        <Row className="insights-graph-container-row" wrap={false}>
+                            <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>
+                            <Col className="insights-graph-container-row-right">
+                                <InsightLegend />
+                            </Col>
+                        </Row>
+                    ) : (
+                        VIEW_MAP[activeView]
+                    )}
                 </div>
             </Card>
             {renderTable()}
-
-            {correlationAnalysisAvailable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
+            {!disableCorrelation && correlationAnalysisAvailable && activeView === InsightType.FUNNELS && (
+                <FunnelCorrelation />
+            )}
         </>
     )
 }
