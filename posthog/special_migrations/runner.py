@@ -111,7 +111,7 @@ def run_special_migration_next_op(
     current_query_id = str(UUIDT())
 
     try:
-        execute_op(op.database, op.sql, op.timeout_seconds, current_query_id)
+        execute_op(op, current_query_id)
         update_special_migration(
             migration_instance=migration_instance,
             current_query_id=current_query_id,
@@ -167,10 +167,7 @@ def attempt_migration_rollback(migration_instance: SpecialMigration, force: bool
                     continue
                 raise Exception(f"No rollback provided for operation at index {i}: {op.sql}")
             execute_op(
-                database=op.database,
-                sql=op.rollback,
-                timeout_seconds=SPECIAL_MIGRATIONS_ROLLBACK_TIMEOUT,
-                query_id=str(UUIDT()),
+                op, str(UUIDT()),
             )
             i -= 1
     except Exception as e:
