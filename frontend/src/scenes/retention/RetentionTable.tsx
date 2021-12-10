@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useValues, useActions } from 'kea'
 import { Table, Modal, Button } from 'antd'
-import { percentage } from 'lib/utils'
+import { capitalizeFirstLetter, percentage } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { retentionTableLogic } from './retentionTableLogic'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -27,7 +27,8 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
         peopleLoading,
         people: _people,
         loadingMore,
-        filters: { period, date_to, aggregation_group_type_index, breakdowns },
+        filters: { period, date_to, breakdowns },
+        aggregationTargetLabel,
     } = useValues(logic)
     const results = _results as RetentionTablePayload[]
     const people = _people as RetentionTablePeoplePayload
@@ -107,7 +108,7 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
                 loading={resultsLoading}
                 onRow={(_, rowIndex: number | undefined) => ({
                     onClick: () => {
-                        if (!dashboardItemId && rowIndex !== undefined && aggregation_group_type_index == undefined) {
+                        if (!dashboardItemId && rowIndex !== undefined) {
                             loadPeople(rowIndex)
                             setModalVisible(true)
                             selectRow(rowIndex)
@@ -144,7 +145,7 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
                                                         .map((data, index) => <th key={index}>{data.label}</th>)}
                                             </tr>
                                             <tr>
-                                                <td>user_id</td>
+                                                <td>{capitalizeFirstLetter(aggregationTargetLabel.singular)}</td>
                                                 {results &&
                                                     results[selectedRow]?.values.map((data: any, index: number) => (
                                                         <td key={index}>
