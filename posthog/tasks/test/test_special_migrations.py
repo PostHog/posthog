@@ -2,6 +2,7 @@ from typing import Any, Dict
 from unittest.mock import patch
 
 import pytest
+from celery import states
 from celery.result import AsyncResult
 
 from posthog.models.special_migration import MigrationStatus, SpecialMigration
@@ -9,7 +10,7 @@ from posthog.special_migrations.examples.test import Migration
 from posthog.special_migrations.runner import run_special_migration_next_op
 from posthog.special_migrations.setup import get_special_migration_definition
 from posthog.special_migrations.test.util import create_special_migration
-from posthog.tasks.special_migrations import CeleryTaskState, check_special_migration_health
+from posthog.tasks.special_migrations import check_special_migration_health
 from posthog.test.base import BaseTest
 
 TEST_MIGRATION_DESCRIPTION = Migration().description
@@ -42,7 +43,7 @@ class TestSpecialMigrations(BaseTest):
         return super().setUp()
 
     @pytest.mark.ee
-    @patch.object(AsyncResult, "state", CeleryTaskState.Started)
+    @patch.object(AsyncResult, "state", states.STARTED)
     @patch("posthog.celery.app.control.inspect", side_effect=inspect_mock)
     @patch("posthog.tasks.special_migrations.run_special_migration.delay", side_effect=run_special_migration_mock)
     def test_check_special_migration_health_during_resumable_op(self, _: Any, __: Any) -> None:
@@ -73,7 +74,7 @@ class TestSpecialMigrations(BaseTest):
         self.assertEqual(sm.progress, 100)
 
     @pytest.mark.ee
-    @patch.object(AsyncResult, "state", CeleryTaskState.Started)
+    @patch.object(AsyncResult, "state", states.STARTED)
     @patch("posthog.celery.app.control.inspect", side_effect=inspect_mock)
     @patch("posthog.tasks.special_migrations.run_special_migration.delay", side_effect=run_special_migration_mock)
     def test_check_special_migration_health_during_non_resumable_op(self, _: Any, __: Any) -> None:
