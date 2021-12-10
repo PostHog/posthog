@@ -37,7 +37,7 @@ export const groupsAccessLogic = kea<groupsAccessLogicType<GroupsAccessStatus>>(
         groupsEnabled: [
             (s) => [s.groupsCanBeEnabled, s.hasAvailableFeature],
             (groupsCanBeEnabled, hasAvailableFeature) =>
-                groupsCanBeEnabled && hasAvailableFeature(AvailableFeature.CORRELATION_ANALYSIS),
+                groupsCanBeEnabled && hasAvailableFeature(AvailableFeature.GROUP_ANALYTICS),
         ],
         // Used to toggle various introduction views related to groups
         groupsAccessStatus: [
