@@ -172,7 +172,6 @@ export const seekbarLogic = kea<seekbarLogicType>({
             document.addEventListener('mouseup', actions.handleUp)
         },
         handleTickClick: ({ playerPosition }) => {
-            console.log('handleTickClick', playerPosition)
             if (!values.isSeeking) {
                 actions.handleSeek(
                     convertPlayerPositionToX(

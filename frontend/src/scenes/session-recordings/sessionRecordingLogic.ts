@@ -339,7 +339,6 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
         eventsToShow: [
             (selectors) => [selectors.filters, selectors.sessionEventsData],
             (filters, sessionEventsData) => {
-                console.log('events', sessionEventsData)
                 const events = sessionEventsData?.events ?? []
                 return filters?.query
                     ? new Fuse<RecordingEventType>(makeEventsQueryable(events), {
