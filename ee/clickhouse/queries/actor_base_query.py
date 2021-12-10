@@ -15,6 +15,7 @@ from django.db.models.query import QuerySet
 from ee.clickhouse.client import sync_execute
 from posthog.models import Entity, Filter, Team
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.group import Group
 from posthog.models.person import Person
@@ -42,7 +43,9 @@ class ActorBaseQuery:
     aggregating_by_groups = False
     entity: Optional[Entity] = None
 
-    def __init__(self, team: Team, filter: Union[Filter, StickinessFilter], entity: Optional[Entity] = None):
+    def __init__(
+        self, team: Team, filter: Union[Filter, StickinessFilter, RetentionFilter], entity: Optional[Entity] = None
+    ):
         self._team = team
         self.entity = entity
         self._filter = filter
@@ -62,8 +65,14 @@ class ActorBaseQuery:
         """ Get actors in data model and dict formats. Builds query and executes """
         query, params = self.actor_query()
         raw_result = sync_execute(query, params)
+        return self.get_actors_from_result(raw_result)
+
+    def get_actors_from_result(
+        self, raw_result
+    ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]]]:
         actors: Union[QuerySet[Person], QuerySet[Group]]
         serialized_actors: Union[List[SerializedGroup], List[SerializedPerson]]
+
         if self.is_aggregating_by_groups:
             actors, serialized_actors = self._get_groups(raw_result)
         else:

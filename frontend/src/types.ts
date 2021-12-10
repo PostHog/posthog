@@ -1338,13 +1338,12 @@ export interface Experiment {
     name: string
     description?: string
     feature_flag_key: string
-    filters: Partial<FilterType>
+    filters: FilterType
     start_date?: string
     end_date?: string
     created_at: string
     created_by: UserBasicType | null
 }
-
 export interface ExperimentResults {
     funnel: FunnelStep[][]
     probability: number
@@ -1378,7 +1377,7 @@ export interface SelectOptionWithChildren extends SelectOption {
 
 export interface KeyMapping {
     label: string
-    description: string | JSX.Element
+    description?: string | JSX.Element
     examples?: string[]
     hide?: boolean
 }

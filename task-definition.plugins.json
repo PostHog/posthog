@@ -85,8 +85,8 @@
                     "value": "2"
                 },
                 {
-                    "name": "EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED_TEAMS",
-                    "value": "2,2635,572,3777,700"
+                    "name": "EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED",
+                    "value": "True"
                 },
                 {
                     "name": "PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS",
