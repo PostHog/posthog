@@ -56,7 +56,7 @@ def start_special_migration(migration_name: str, ignore_posthog_version=False) -
 
     if not migration_definition.is_required():
         complete_migration(migration_instance)
-        return False
+        return True
 
     for service_version_requirement in migration_definition.service_version_requirements:
         in_range, version = service_version_requirement.is_service_in_accepted_version()
@@ -149,7 +149,7 @@ def update_migration_progress(migration_instance: SpecialMigration):
         progress = get_special_migration_definition(migration_instance.name).progress(
             migration_instance  # type: ignore
         )
-        update_special_migration(migration_instance=migration_instance, progress=progress, lock_row=True)
+        update_special_migration(migration_instance=migration_instance, progress=progress)
     except:
         pass
 

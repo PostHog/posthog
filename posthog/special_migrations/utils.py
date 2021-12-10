@@ -36,7 +36,6 @@ def process_error(migration_instance: SpecialMigration, error: Optional[str]):
         status=MigrationStatus.Errored,
         last_error=error or "",
         finished_at=datetime.now(),
-        lock_row=True,
     )
 
     from posthog.special_migrations.runner import attempt_migration_rollback
@@ -82,7 +81,6 @@ def complete_migration(migration_instance: SpecialMigration):
         status=MigrationStatus.CompletedSuccessfully,
         finished_at=datetime.now(),
         progress=100,
-        lock_row=True,
     )
 
     from posthog.special_migrations.runner import run_next_migration
@@ -117,7 +115,7 @@ def update_special_migration(
     status: Optional[int] = None,
     started_at: Optional[datetime] = None,
     finished_at: Optional[datetime] = None,
-    lock_row=False,
+    lock_row: bool = True,
 ):
     def execute_update():
         instance = migration_instance
