@@ -3,7 +3,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.core.management.base import BaseCommand
 from semantic_version.base import Version
 
-from posthog.models.special_migration import MigrationStatus, SpecialMigration  # type: ignore
+from posthog.models.special_migration import MigrationStatus, SpecialMigration
 from posthog.special_migrations.runner import start_special_migration
 from posthog.special_migrations.setup import ALL_SPECIAL_MIGRATIONS, POSTHOG_VERSION
 

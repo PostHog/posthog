@@ -1,5 +1,6 @@
 from typing import List, Optional, Tuple
 
+from django.db.transaction import rollback
 from semantic_version.base import SimpleSpec
 
 from posthog.models.special_migration import MigrationStatus, SpecialMigration, get_all_running_special_migrations
@@ -142,6 +143,7 @@ def update_migration_progress(migration_instance: SpecialMigration):
     Progress is a nice-to-have bit of feedback about how the migration is doing, but not essential
     """
 
+    migration_instance.refresh_from_db()
     try:
         progress = get_special_migration_definition(migration_instance.name).progress(
             migration_instance  # type: ignore
@@ -156,6 +158,7 @@ def attempt_migration_rollback(migration_instance: SpecialMigration, force: bool
     Cycle through the operations in reverse order starting from the last completed op and run
     the specified rollback statements.
     """
+    migration_instance.refresh_from_db()
 
     try:
         ops = get_special_migration_definition(migration_instance.name).operations
@@ -166,9 +169,7 @@ def attempt_migration_rollback(migration_instance: SpecialMigration, force: bool
                 if op.rollback == "":
                     continue
                 raise Exception(f"No rollback provided for operation at index {i}: {op.sql}")
-            execute_op(
-                op, str(UUIDT()),
-            )
+            execute_op(op, str(UUIDT()), rollback=True)
             i -= 1
     except Exception as e:
         error = str(e)

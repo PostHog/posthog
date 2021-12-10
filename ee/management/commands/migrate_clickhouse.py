@@ -6,7 +6,7 @@ from infi.clickhouse_orm import Database
 from infi.clickhouse_orm.migrations import MigrationHistory
 from infi.clickhouse_orm.utils import import_submodules
 
-from posthog.models.special_migration import MigrationStatus, SpecialMigration  # type: ignore
+from posthog.models.special_migration import MigrationStatus, SpecialMigration
 from posthog.settings import (
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_HTTP_URL,
