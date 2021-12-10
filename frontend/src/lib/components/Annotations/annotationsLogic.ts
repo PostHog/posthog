@@ -5,12 +5,12 @@ import { deleteWithUndo, determineDifferenceType, groupBy, toParams } from '~/li
 import { annotationsModel } from '~/models/annotationsModel'
 import { getNextKey } from './utils'
 import { annotationsLogicType } from './annotationsLogicType'
-import { AnnotationScope, AnnotationType } from '~/types'
+import { AnnotationScope, AnnotationType, InsightShortId } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 interface AnnotationsLogicProps {
-    insightId?: number
+    insightId?: InsightShortId
 }
 
 export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>({
@@ -117,8 +117,11 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
     selectors: ({ selectors }) => ({
         annotationsList: [
             () => [selectors.annotationsToCreate, selectors.annotations, selectors.activeGlobalAnnotations],
-            (annotationsToCreate, annotations, activeGlobalAnnotations) =>
-                [...annotationsToCreate, ...annotations, ...activeGlobalAnnotations] as AnnotationType[],
+            (annotationsToCreate, annotations, activeGlobalAnnotations): AnnotationType[] => [
+                ...annotationsToCreate,
+                ...annotations,
+                ...activeGlobalAnnotations,
+            ],
         ],
         groupedAnnotations: [
             () => [selectors.annotationsList, selectors.diffType],

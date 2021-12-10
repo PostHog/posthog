@@ -4,14 +4,14 @@ import { toParams, deleteWithUndo } from 'lib/utils'
 import dayjs, { Dayjs } from 'dayjs'
 import { getNextKey } from 'lib/components/Annotations/utils'
 import { annotationsModelType } from './annotationsModelType'
-import { AnnotationScope, AnnotationType } from '~/types'
+import { AnnotationScope, AnnotationType, InsightShortId } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 export const annotationsModel = kea<annotationsModelType>({
     path: ['models', 'annotationsModel'],
     actions: {
-        createGlobalAnnotation: (content: string, date_marker: string, insightId?: number) => ({
+        createGlobalAnnotation: (content: string, date_marker: string, insightId?: number | InsightShortId) => ({
             content,
             date_marker,
             created_at: dayjs() as Dayjs,

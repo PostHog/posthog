@@ -1,9 +1,9 @@
 import React from 'react'
-import { LineGraph } from 'scenes/insights/LineGraph'
+import { LineGraph } from 'scenes/insights/LineGraph/LineGraph'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { useActions, useValues } from 'kea'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
-import { ChartParams } from '~/types'
+import { ChartParams, GraphTypes } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function FunnelLineGraph({
@@ -19,7 +19,7 @@ export function FunnelLineGraph({
     return (
         <LineGraph
             data-attr="trend-line-graph-funnel"
-            type="line"
+            type={GraphTypes.Line}
             color={color}
             datasets={steps}
             labels={steps?.[0]?.labels ?? ([] as string[])}

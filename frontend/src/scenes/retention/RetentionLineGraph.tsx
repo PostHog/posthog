@@ -1,11 +1,11 @@
 import React, { useState } from 'react'
 import { retentionTableLogic } from './retentionTableLogic'
-import { LineGraph } from '../insights/LineGraph'
+import { LineGraph } from '../insights/LineGraph/LineGraph'
 import { useActions, useValues } from 'kea'
 import { InsightEmptyState } from '../insights/EmptyStates'
 import { Modal, Button } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
-import { PersonType } from '~/types'
+import { GraphTypes, PersonType } from '~/types'
 import { RetentionTrendPayload, RetentionTrendPeoplePayload } from 'scenes/retention/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -43,7 +43,7 @@ export function RetentionLineGraph({
         <>
             <LineGraph
                 data-attr="trend-line-graph"
-                type="line"
+                type={GraphTypes.Line}
                 color={color}
                 datasets={results}
                 labels={(results[0] && results[0].labels) || []}

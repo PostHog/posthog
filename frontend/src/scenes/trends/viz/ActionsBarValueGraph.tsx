@@ -1,15 +1,15 @@
 import React, { useState, useEffect } from 'react'
-import { LineGraph } from '../../insights/LineGraph'
+import { LineGraph } from '../../insights/LineGraph/LineGraph'
 import { getChartColors } from 'lib/colors'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightEmptyState } from '../../insights/EmptyStates'
-import { FilterType, TrendResultWithAggregate } from '~/types'
+import { FilterType, GraphTypes, InsightShortId, TrendResultWithAggregate } from '~/types'
 import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface Props {
-    dashboardItemId?: number | null
+    dashboardItemId?: InsightShortId | null
     filters: Partial<FilterType>
     color?: string
     inSharedMode?: boolean | null
@@ -69,7 +69,7 @@ export function ActionsBarValueGraph({
     return data && total > 0 ? (
         <LineGraph
             data-attr="trend-bar-value-graph"
-            type="horizontalBar"
+            type={GraphTypes.HorizontalBar}
             color={color}
             datasets={data}
             labels={data[0].labels}

@@ -22,6 +22,7 @@ import { PostHog } from 'posthog-js'
 import React from 'react'
 import { PopupProps } from 'lib/components/Popup/Popup'
 import { dayjs } from 'lib/dayjs'
+import { ChartDataSets, InteractionItem } from 'chart.js'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -1463,4 +1464,21 @@ export interface Breadcrumb {
     path?: string
     /** Whether to show a custom popup */
     popup?: Pick<PopupProps, 'overlay' | 'sameWidth' | 'actionable'>
+}
+
+export enum GraphTypes {
+    Bar = 'bar',
+    HorizontalBar = 'horizontalBar',
+    Line = 'line',
+    Histogram = 'histogram',
+    Pie = 'doughnut',
+}
+
+export interface GraphPointPayload {
+    point: InteractionItem
+    dataset: ChartDataSets
+    index: number
+    label?: string
+    day?: string
+    value?: number
 }

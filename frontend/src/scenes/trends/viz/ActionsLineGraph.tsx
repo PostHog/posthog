@@ -1,11 +1,10 @@
 import React from 'react'
-import { LineGraph } from '../../insights/LineGraph'
+import { LineGraph } from '../../insights/LineGraph/LineGraph'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightEmptyState } from '../../insights/EmptyStates'
 import { ACTIONS_BAR_CHART } from 'lib/constants'
-import { ChartParams } from '~/types'
-import { InsightType } from '~/types'
+import { ChartParams, GraphTypes, InsightType } from '~/types'
 import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { isMultiSeriesFormula } from 'lib/utils'
@@ -26,7 +25,11 @@ export function ActionsLineGraph({
         indexedResults.filter((result) => result.count !== 0).length > 0 ? (
         <LineGraph
             data-attr="trend-line-graph"
-            type={filters.insight === InsightType.LIFECYCLE || filters.display === ACTIONS_BAR_CHART ? 'bar' : 'line'}
+            type={
+                filters.insight === InsightType.LIFECYCLE || filters.display === ACTIONS_BAR_CHART
+                    ? GraphTypes.Bar
+                    : GraphTypes.Line
+            }
             color={color}
             datasets={indexedResults}
             visibilityMap={visibilityMap}
