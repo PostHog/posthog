@@ -17,10 +17,20 @@ class EnterpriseEventDefinitionSerializer(serializers.ModelSerializer):
             "tags",
             "volume_30_day",
             "query_usage_30_day",
+            "created_at",
             "updated_at",
             "updated_by",
+            "last_seen_at",
         )
-        read_only_fields = ["id", "name", "updated_at", "volume_30_day", "query_usage_30_day"]
+        read_only_fields = [
+            "id",
+            "name",
+            "created_at",
+            "updated_at",
+            "volume_30_day",
+            "query_usage_30_day",
+            "last_seen_at",
+        ]
 
     def update(self, event_definition: EnterpriseEventDefinition, validated_data):
         validated_data["updated_by"] = self.context["request"].user

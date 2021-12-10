@@ -466,9 +466,7 @@ export class EventsProcessor {
         })
 
         if (this.kafkaProducer) {
-            for (const kafkaMessage of kafkaMessages) {
-                await this.kafkaProducer.queueMessage(kafkaMessage)
-            }
+            await this.kafkaProducer.queueMessages(kafkaMessages)
         }
     }
 
@@ -503,7 +501,7 @@ export class EventsProcessor {
         }
 
         if (!EVENTS_WITHOUT_EVENT_DEFINITION.includes(event)) {
-            await this.teamManager.updateEventNamesAndProperties(teamId, event, properties)
+            await this.teamManager.updateEventNamesAndProperties(teamId, event, properties, timestamp)
         }
 
         properties = personInitialAndUTMProperties(properties)

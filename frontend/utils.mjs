@@ -124,7 +124,8 @@ export const commonConfig = {
     publicPath: '/static',
     assetNames: 'assets/[name]-[hash]',
     chunkNames: '[name]-[hash]',
-    entryNames: '[dir]/[name]-[hash]',
+    // no hashes in dev mode for faster reloads --> we save the old hash in index.html otherwise
+    entryNames: isDev ? '[dir]/[name]' : '[dir]/[name]-[hash]',
     plugins: [sassPlugin, lessPlugin],
     define: {
         global: 'globalThis',

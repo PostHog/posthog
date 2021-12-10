@@ -1,4 +1,4 @@
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Literal, Tuple, Union, cast
 
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.group import get_aggregation_target_field
@@ -25,15 +25,8 @@ class RetentionEventsQuery(ClickhouseEventQuery):
     def __init__(self, filter: RetentionFilter, event_query_type: RetentionQueryType, *args, **kwargs):
         self._event_query_type = event_query_type
         super().__init__(
-            filter=filter,
-            *args,
-            extra_person_fields=(
-                ["person_props"]
-                if event_query_type != RetentionQueryType.RETURNING and filter.breakdown_type == "person"
-                else []
-            ),
-            **kwargs,
-        )
+            filter=filter, *args, **kwargs,
+        )  # type: ignore
 
         self._trunc_func = get_trunc_func_ch(self._filter.period)
 
@@ -53,29 +46,30 @@ class RetentionEventsQuery(ClickhouseEventQuery):
             ),
         ]
 
-        if self._event_query_type != RetentionQueryType.RETURNING:
-            if self._filter.breakdowns and self._filter.breakdown_type:
-                # NOTE: `get_single_or_multi_property_string_expr` doesn't
-                # support breakdowns with different types e.g. a person property
-                # then an event property, so for now we just take the type of
-                # the self._filter.breakdown_type.
-                # TODO: update 'get_single_or_multi_property_string_expr` to take
-                # `Breakdown` type
-                breakdown_type = self._filter.breakdown_type
-                table = "events"
+        if (
+            self._event_query_type != RetentionQueryType.RETURNING
+            and self._filter.breakdowns
+            and self._filter.breakdown_type
+        ):
+            # NOTE: `get_single_or_multi_property_string_expr` doesn't
+            # support breakdowns with different types e.g. a person property
+            # then an event property, so for now we just take the type of
+            # the self._filter.breakdown_type.
+            # TODO: update 'get_single_or_multi_property_string_expr` to take
+            # `Breakdown` type
+            breakdown_type = self._filter.breakdown_type
+            table = "events"
 
-                if breakdown_type == "person":
-                    table = "person"
+            if breakdown_type == "person":
+                table = "person"
 
-                breakdown_values_expression = get_single_or_multi_property_string_expr(
-                    breakdown=[breakdown["property"] for breakdown in self._filter.breakdowns],
-                    table=table,
-                    query_alias=None,
-                )
+            breakdown_values_expression = get_single_or_multi_property_string_expr(
+                breakdown=[breakdown["property"] for breakdown in self._filter.breakdowns],
+                table=cast(Union[Literal["events"], Literal["person"]], table),
+                query_alias=None,
+            )
 
-                _fields += [
-                    f"argMin({breakdown_values_expression}, {self._trunc_func}(e.timestamp)) AS breakdown_values"
-                ]
+            _fields += [f"argMin({breakdown_values_expression}, {self._trunc_func}(e.timestamp)) AS breakdown_values"]
 
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
@@ -121,7 +115,10 @@ class RetentionEventsQuery(ClickhouseEventQuery):
             return f"{self.EVENT_TABLE_ALIAS}.timestamp AS event_date"
 
     def _determine_should_join_distinct_ids(self) -> None:
-        self._should_join_distinct_ids = True
+        if self._filter.aggregation_group_type_index is not None:
+            self._should_join_distinct_ids = False
+        else:
+            self._should_join_distinct_ids = True
 
     def _get_entity_query(self, entity: Entity):
         prepend = self._event_query_type
