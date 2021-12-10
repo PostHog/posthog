@@ -101,13 +101,13 @@ SESSION_RECORDING_TTL = 30  # how long to keep session recording cache. Relative
 
 AUTO_LOGIN = get_from_env("AUTO_LOGIN", False, type_cast=str_to_bool)
 
-
-# Extend and override these settings with EE's ones
-if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
-    from ee.settings import *  # noqa: F401, F403
-
 # keep in sync with plugin-server
 EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC = "events_added_to_dead_letter_queue"
 
 # Teams with access to an experimental query optimization. Only ready to be used on cloud.
 PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS = get_list(os.getenv("PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS", ""))
+
+
+# Extend and override these settings with EE's ones
+if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
+    from ee.settings import *  # noqa: F401, F403
