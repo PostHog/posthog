@@ -18,6 +18,13 @@ jobs:
               # List cypress/integration and produce a JSON array of the files, in chunks
               run: echo "::set-output name=specs::$(ls cypress/integration/* | jq --slurp --raw-input -c 'split("\n")[:-1] | _nwise(3) | join("\n")' | jq --slurp -c .)"
 
+            # Prewarn the cache
+            # NOTE: this will always trigger a post cache job to run, which
+            # takes some time, even when it's just repushing the same stuff back
+            # up
+            # WARNING: we do not validate the cache is good before pushing up at
+            # the end of the workflow. Traditionally we'd only cache after e.g.
+            # the tests had passed
             - uses: actions/cache@v2
               id: cypress-node-modules-cache-3
               with:
@@ -27,6 +34,7 @@ jobs:
                   key: ${{ runner.os }}-cypress-node-modules-3-${{ hashFiles('**/yarn.lock') }}
                   restore-keys: |
                       ${{ runner.os }}-cypress-node-modules-3-
+
             - name: Yarn install deps
               if: steps.cypress-node-modules-cache-3.outputs.cache-hit != 'true'
               run: |
