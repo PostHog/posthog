@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useValues, useActions } from 'kea'
 import { Table, Modal, Button } from 'antd'
-import { capitalizeFirstLetter, percentage } from 'lib/utils'
+import { capitalizeFirstLetter, isGroupType, percentage } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { retentionTableLogic } from './retentionTableLogic'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -168,12 +168,25 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
                                                     <tr key={personAppearances.person.id}>
                                                         <td className="text-overflow" style={{ minWidth: 200 }}>
                                                             <Link
-                                                                to={urls.person(
-                                                                    personAppearances.person.distinct_ids[0]
-                                                                )}
+                                                                to={
+                                                                    isGroupType(personAppearances.person)
+                                                                        ? urls.group(
+                                                                              String(
+                                                                                  personAppearances.person
+                                                                                      .group_type_index
+                                                                              ),
+                                                                              personAppearances.person.group_key
+                                                                          )
+                                                                        : urls.person(
+                                                                              personAppearances.person.distinct_ids[0]
+                                                                          )
+                                                                }
                                                                 data-attr="retention-person-link"
                                                             >
-                                                                {personAppearances.person.name}
+                                                                {/* TODO: use groupDisplayId */}
+                                                                {isGroupType(personAppearances.person)
+                                                                    ? personAppearances.person.group_key
+                                                                    : personAppearances.person.name}
                                                             </Link>
                                                         </td>
                                                         {personAppearances.appearances.map(
