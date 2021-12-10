@@ -17,6 +17,7 @@ import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import './RetentionTable.scss'
 import { urls } from 'scenes/urls'
+import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 
 export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: number | null }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -167,27 +168,31 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
                                                 people.result.map((personAppearances: RetentionTableAppearanceType) => (
                                                     <tr key={personAppearances.person.id}>
                                                         <td className="text-overflow" style={{ minWidth: 200 }}>
-                                                            <Link
-                                                                to={
-                                                                    isGroupType(personAppearances.person)
-                                                                        ? urls.group(
-                                                                              String(
-                                                                                  personAppearances.person
-                                                                                      .group_type_index
-                                                                              ),
-                                                                              personAppearances.person.group_key
-                                                                          )
-                                                                        : urls.person(
-                                                                              personAppearances.person.distinct_ids[0]
-                                                                          )
-                                                                }
-                                                                data-attr="retention-person-link"
-                                                            >
-                                                                {/* TODO: use groupDisplayId */}
-                                                                {isGroupType(personAppearances.person)
-                                                                    ? personAppearances.person.group_key
-                                                                    : personAppearances.person.name}
-                                                            </Link>
+                                                            {isGroupType(personAppearances.person) ? (
+                                                                <Link
+                                                                    to={urls.group(
+                                                                        String(
+                                                                            personAppearances.person.group_type_index
+                                                                        ),
+                                                                        personAppearances.person.group_key
+                                                                    )}
+                                                                    data-attr="retention-person-link"
+                                                                >
+                                                                    {groupDisplayId(
+                                                                        personAppearances.person.group_key,
+                                                                        personAppearances.person.properties
+                                                                    )}
+                                                                </Link>
+                                                            ) : (
+                                                                <Link
+                                                                    to={urls.person(
+                                                                        personAppearances.person.distinct_ids[0]
+                                                                    )}
+                                                                    data-attr="retention-person-link"
+                                                                >
+                                                                    {personAppearances.person.name}
+                                                                </Link>
+                                                            )}
                                                         </td>
                                                         {personAppearances.appearances.map(
                                                             (appearance: number, index: number) => {

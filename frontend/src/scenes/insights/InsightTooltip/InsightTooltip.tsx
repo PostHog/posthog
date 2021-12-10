@@ -52,7 +52,7 @@ export function InsightTooltip({
             {inspectPersonsLabel && (
                 <div className="inspect-persons-label">
                     <IconHandClick />
-                    Click on data point to view users or groups
+                    Click on data point to view persons or groups
                 </div>
             )}
         </div>
