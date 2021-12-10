@@ -337,10 +337,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         setSearchQuery: () => {
             const { activeTaxonomicGroup, totalCounts } = values
 
-            if (activeTaxonomicGroup) {
-                console.log(activeTaxonomicGroup.type, totalCounts[activeTaxonomicGroup.type])
-            }
-
             // Taxonomic group with a local data source, zero results after searching.
             // Open the next tab.
             if (
