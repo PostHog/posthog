@@ -202,10 +202,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
             actions.seek(values.currentPlayerPosition)
         },
         loadRecordingMetaSuccess: async (_, breakpoint) => {
-            actions.setCurrentSegment(values.sessionPlayerData.metadata.segments[0])
-            actions.setCurrentPlayerPosition(values.sessionPlayerData.metadata.segments[0].startPlayerPosition)
-            if (!values.player) {
-                actions.tryInitReplayer()
+            const initialSegment = values.sessionPlayerData?.metadata?.segments[0]
+            if (initialSegment) {
+                actions.setCurrentSegment(initialSegment)
+                actions.setCurrentPlayerPosition(initialSegment.startPlayerPosition)
+                if (!values.player) {
+                    actions.tryInitReplayer()
+                }
             }
             breakpoint()
         },
