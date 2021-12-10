@@ -67,13 +67,25 @@ export function Experiment(): JSX.Element {
                         className="experiment-form"
                         form={form}
                         onValuesChange={(values) => setNewExperimentData(values)}
+                        onFinish={(values) => {
+                            setNewExperimentData(values)
+                            nextPage()
+                        }}
                     >
                         {page === 0 && (
                             <div>
-                                <Form.Item label="Name" name="name">
+                                <Form.Item
+                                    label="Name"
+                                    name="name"
+                                    rules={[{ required: true, message: 'You have to enter a name.' }]}
+                                >
                                     <Input data-attr="experiment-name" className="ph-ignore-input" />
                                 </Form.Item>
-                                <Form.Item label="Feature flag key" name="feature_flag_key">
+                                <Form.Item
+                                    label="Feature flag key"
+                                    name="feature_flag_key"
+                                    rules={[{ required: true, message: 'You have to enter a feature flag key.' }]}
+                                >
                                     <Input data-attr="experiment-feature-flag-key" />
                                 </Form.Item>
                                 <Form.Item label="Description" name="description">
@@ -83,7 +95,7 @@ export function Experiment(): JSX.Element {
                                         placeholder="Adding a helpful description can ensure others know what this experiment is about."
                                     />
                                 </Form.Item>
-                                <Button icon={<SaveOutlined />} type="primary" onClick={nextPage}>
+                                <Button icon={<SaveOutlined />} type="primary" htmlType="submit">
                                     Save and continue
                                 </Button>
                             </div>
