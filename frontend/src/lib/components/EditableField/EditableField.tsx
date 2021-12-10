@@ -87,8 +87,14 @@ export function EditableField({
                         >
                             <EditOutlined />
                         </Button>
-                    ) : <Tooltip title="This field is part of PostHog's team-oriented feature set and requires a premium plan. Check PostHog pricing." isDefaultTooltip><LockOutlined 
-                    style={{marginLeft: 6, color: 'var(--text-muted)'}}/></Tooltip>}
+                    ) : (
+                        <Tooltip
+                            title="This field is part of PostHog's team-oriented feature set and requires a premium plan. Check PostHog pricing."
+                            isDefaultTooltip
+                        >
+                            <LockOutlined style={{ marginLeft: 6, color: 'var(--text-muted)' }} />
+                        </Tooltip>
+                    )}
                 </div>
             )}
         </div>

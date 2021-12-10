@@ -36,16 +36,8 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
     useMountedLogic(insightCommandLogic)
 
     const logic = insightLogic({ dashboardItemId: shortId, syncWithUrl: true })
-    const {
-        insightProps,
-        activeView,
-        filters,
-        insight,
-        insightMode,
-        filtersChanged,
-        savedFilters,
-        tagLoading,
-    } = useValues(logic)
+    const { insightProps, activeView, filters, insight, insightMode, filtersChanged, savedFilters, tagLoading } =
+        useValues(logic)
     const {
         setActiveView,
         setInsightMode,
@@ -56,7 +48,7 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
         deleteTag,
         saveAs,
     } = useActions(logic)
-    const { hasAvailableFeature} = useValues(userLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { saveCohortWithFilters, setCohortModalVisible } = useActions(personsModalLogic)
