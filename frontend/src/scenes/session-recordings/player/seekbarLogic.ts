@@ -111,16 +111,11 @@ export const seekbarLogic = kea<seekbarLogicType>({
                 actions.setThumbLeftPos(xValue - THUMB_OFFSET, false)
             }
         },
-        // debouncedSetTime: async ({ time }, breakpoint) => {
-        //     await breakpoint(5)
-        //     actions.setRealTime(time)
-        // },
+
         setThumbLeftPos: ({ thumbLeftPos, shouldSeek }) => {
             if (!values.slider) {
                 return
             }
-
-            // If it shouldn't seek, the least we can do is set the time
             if (shouldSeek) {
                 const playerPosition = convertXToPlayerPosition(
                     thumbLeftPos + THUMB_OFFSET,
