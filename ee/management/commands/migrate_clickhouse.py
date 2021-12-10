@@ -2,8 +2,8 @@ import datetime
 from textwrap import indent
 
 from django.core.management.base import BaseCommand
-from infi.clickhouse_orm import Database  # type: ignore
-from infi.clickhouse_orm.migrations import MigrationHistory  # type: ignore
+from infi.clickhouse_orm import Database
+from infi.clickhouse_orm.migrations import MigrationHistory
 from infi.clickhouse_orm.utils import import_submodules
 
 from posthog.models.special_migration import MigrationStatus, SpecialMigration  # type: ignore

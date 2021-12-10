@@ -37,12 +37,10 @@ class PostHogConfig(AppConfig):
             for service_version_requirement in settings.SERVICE_VERSION_REQUIREMENTS:
                 in_range, version = service_version_requirement.is_service_in_accepted_version()
                 if not in_range:
-                    start_anyway = input(
-                        f"Service {service_version_requirement.service} is in version {version}. Expected range: {str(service_version_requirement.supported_version)}. PostHog may not work correctly with the current version. Continue? [y/n]"
+                    print(
+                        f"\033[91mService {service_version_requirement.service} is in version {version}. Expected range: {str(service_version_requirement.supported_version)}. PostHog may not work correctly with the current version. To continue anyway, add SKIP_SERVICE_VERSION_REQUIREMENTS=1 as an environment variable\033[0m",
                     )
-                    if start_anyway.lower() != "y":
-                        print(f"Unsupported version for service {service_version_requirement.service}, exiting...")
-                        exit(1)
+                    exit(1)
 
         from posthog.special_migrations.setup import setup_special_migrations
 

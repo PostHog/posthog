@@ -4,7 +4,7 @@ from django.conf import settings
 
 STORAGE_POLICY = lambda: "SETTINGS storage_policy = 'hot_to_cold'" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
 REPLACING_TABLE_ENGINE = lambda: (
-    "ReplicatedReplacingMergeTree('/clickhouse/tables/{{shard}}/posthog.{table}', '{{replica}}', {ver})"
+    "ReplicatedReplacingMergeTree('/clickhouse/tables/{shard_key}/posthog.{table}', '{replica_key}', {ver})"
     if settings.CLICKHOUSE_REPLICATION
     else "ReplacingMergeTree({ver})"
 )
@@ -40,11 +40,15 @@ COLLAPSING_MERGE_TREE = "collapsing_merge_tree"
 REPLACING_MERGE_TREE = "replacing_merge_tree"
 
 
-def table_engine(table: str, ver: str, engine_type: str) -> str:
+# :TODO: Most table_engines calling this with sharded=True are out of sync with reality on cloud.
+def table_engine(table: str, ver: str, engine_type: str, sharded=True) -> str:
+    shard_key = "{shard}" if sharded else "noshard"
+    replica_key = "{replica}" if sharded else "{replica}-{shard}"
+
     if engine_type == COLLAPSING_MERGE_TREE and ver:
-        return COLLAPSING_TABLE_ENGINE().format(table=table, ver=ver)
+        return COLLAPSING_TABLE_ENGINE().format(shard_key=shard_key, replica_key=replica_key, table=table, ver=ver)
     elif engine_type == REPLACING_MERGE_TREE and ver:
-        return REPLACING_TABLE_ENGINE().format(table=table, ver=ver)
+        return REPLACING_TABLE_ENGINE().format(shard_key=shard_key, replica_key=replica_key, table=table, ver=ver)
     else:
         raise ValueError(f"Unknown engine type {engine_type}")
 

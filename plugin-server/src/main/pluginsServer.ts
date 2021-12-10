@@ -46,6 +46,7 @@ export async function startPluginsServer(
     let pingJob: schedule.Job | undefined
     let piscinaStatsJob: schedule.Job | undefined
     let internalMetricsStatsJob: schedule.Job | undefined
+    let flushLastSeenAtCacheJob: schedule.Job | undefined
     let pluginMetricsJob: schedule.Job | undefined
     let piscina: Piscina | undefined
     let queue: Queue | undefined // ingestion queue
@@ -194,6 +195,13 @@ export async function startPluginsServer(
         if (hub.internalMetrics) {
             internalMetricsStatsJob = schedule.scheduleJob('0 * * * * *', async () => {
                 await hub!.internalMetrics?.flush(piscina!)
+            })
+        }
+
+        // every minute flush lastSeenAt cache
+        if (serverConfig.EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED) {
+            flushLastSeenAtCacheJob = schedule.scheduleJob('0 * * * * *', async () => {
+                await hub!.teamManager.flushLastSeenAtCache()
             })
         }
 

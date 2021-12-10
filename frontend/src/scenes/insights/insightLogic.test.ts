@@ -121,6 +121,22 @@ describe('insightLogic', () => {
         })
     })
 
+    describe('insight legend', () => {
+        it('toggles insight legend', () => {
+            logic = insightLogic({
+                dashboardItemId: undefined,
+                filters: { legend_hidden: false },
+            })
+            expectLogic(logic, () => {
+                logic.actions.toggleInsightLegend()
+            })
+                .toDispatchActions(['toggleInsightLegend', 'setFilter'])
+                .toMatchValues({
+                    filters: partial({ legend_hidden: true }),
+                })
+        })
+    })
+
     describe('analytics', () => {
         it('reports insight changes on setFilter', async () => {
             logic = insightLogic({

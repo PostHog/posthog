@@ -36,10 +36,10 @@
     &.LemonTable--scrollable-left::before {
         opacity: 1;
     }
-    h4.row-name {
+    .row-name {
+        display: block;
         font-size: 0.875rem;
         font-weight: 600;
-        color: inherit;
         margin-bottom: 0.125rem;
     }
     .row-description {
@@ -60,7 +60,7 @@
         font-weight: 600;
         letter-spacing: 0.03125rem;
         text-transform: uppercase;
-        > th {
+        > tr > th {
             text-align: left;
         }
     }
@@ -72,12 +72,12 @@
             &.LemonTable__expansion {
                 background: var(--bg-side);
                 > td {
-                    padding: 0; // DIsable padding inside the expansion for better tailored placement of contents
+                    padding: 0; // Disable padding inside the expansion for better tailored placement of contents
                 }
             }
             > td {
-                padding-top: 0.25rem;
-                padding-bottom: 0.25rem;
+                padding-top: 0.5rem;
+                padding-bottom: 0.5rem;
             }
         }
     }

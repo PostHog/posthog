@@ -18,7 +18,6 @@ from posthog.models import (
     User,
 )
 
-admin.site.register(Team)
 admin.site.register(Person)
 admin.site.register(Element)
 admin.site.register(FeatureFlag)
@@ -38,6 +37,17 @@ class PluginAdmin(admin.ModelAdmin):
     list_filter = ("plugin_type", "is_global")
     search_fields = ("name",)
     ordering = ("-created_at",)
+
+
+@admin.register(Team)
+class TeamAdmin(admin.ModelAdmin):
+    list_display = ("id", "name", "organization_link", "organization_id")
+    search_fields = ("name", "organization__id", "organization__name")
+
+    def organization_link(self, team: Team):
+        return format_html(
+            '<a href="/admin/posthog/organization/{}/change/">{}</a>', team.organization.pk, team.organization.name
+        )
 
 
 @admin.register(PluginConfig)
@@ -110,6 +120,35 @@ class OrganizationMemberInline(admin.TabularInline):
 class OrganizationTeamInline(admin.TabularInline):
     extra = 0
     model = Team
+
+    fields = (
+        "id",
+        "displayed_name",
+        "api_token",
+        "app_urls",
+        "name",
+        "created_at",
+        "updated_at",
+        "anonymize_ips",
+        "completed_snippet_onboarding",
+        "ingested_event",
+        "session_recording_opt_in",
+        "session_recording_retention_period_days",
+        "signup_token",
+        "is_demo",
+        "access_control",
+        "test_account_filters",
+        "path_cleaning_filters",
+        "timezone",
+        "data_attributes",
+        "correlation_config",
+        "plugins_opt_in",
+        "opt_out_capture",
+    )
+    readonly_fields = ("id", "displayed_name", "created_at", "updated_at")
+
+    def displayed_name(self, team: Team):
+        return format_html('<a href="/admin/posthog/team/{}/change/">{}. {}</a>', team.pk, team.pk, team.name)
 
 
 @admin.register(Organization)

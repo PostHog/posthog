@@ -159,7 +159,7 @@ export const createProcessEventTests = (
         `
         await resetTestDatabase(testCode, extraServerConfig)
         // TODO: #7422 remove experimental config
-        ;[hub, closeHub] = await createTestHub({ EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED_TEAMS: '2,3' })
+        ;[hub, closeHub] = await createTestHub({ EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: true })
         returned.hub = hub
         returned.closeHub = closeHub
         eventsProcessor = new EventsProcessor(hub)
@@ -295,8 +295,8 @@ export const createProcessEventTests = (
             )
             expect((await hub.db.fetchPersons(Database.ClickHouse)).length).toEqual(1)
 
-            // moveDistinctIds 2x, deletePerson 1x
-            expect(hub!.db.kafkaProducer!.queueMessage).toHaveBeenCalledTimes(3)
+            // moveDistinctIds 3x, deletePerson 1x
+            expect(hub!.db.kafkaProducer!.queueMessage).toHaveBeenCalledTimes(4)
         }
 
         expect((await hub.db.fetchPersons()).length).toEqual(1)

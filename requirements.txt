@@ -120,7 +120,7 @@ iso8601==0.1.12
     # via infi-clickhouse-orm
 kafka-helper==0.2
     # via -r requirements.in
-kafka-python==2.0.1
+kafka-python==2.0.2
     # via -r requirements.in
 kombu==4.6.8
     # via
@@ -132,6 +132,8 @@ lzstring==1.0.4
     # via -r requirements.in
 monotonic==1.5
     # via posthoganalytics
+numpy==1.21.4
+    # via -r requirements.in
 oauthlib==3.1.0
     # via
     #   requests-oauthlib
