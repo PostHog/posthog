@@ -38,7 +38,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
     const { showingPeople } = useValues(personsModalLogic)
     const { saveCohortWithFilters } = useActions(personsModalLogic)
     const { reportCohortCreatedFromPersonsModal } = useActions(eventUsageLogic)
-    console.log(aggregationTargetLabel)
+
     const renderViz = (): JSX.Element | undefined => {
         if (
             !_filters.display ||

@@ -191,7 +191,9 @@ export function FunnelStepTable(): JSX.Element | null {
                             renderSubColumnTitle(
                                 <>
                                     <UserOutlined
-                                        title={`Unique ${aggregationTargetLabel.plural} who completed this step`}
+                                        title={`Unique ${aggregationTargetLabel.plural} ${
+                                            filters.aggregation_group_type_index != undefined ? 'that' : 'who'
+                                        } completed this step`}
                                     />{' '}
                                     Completed
                                 </>
