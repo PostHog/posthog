@@ -64,7 +64,9 @@ RETENTION_BREAKDOWN_ACTOR_SQL = """
 
     FROM ({target_event_query}) AS target_event
 
-    WHERE (%(breakdown_values)s is NULL OR breakdown_values = %(breakdown_values)s)
+    WHERE 
+        (%(breakdown_values)s is NULL OR breakdown_values = %(breakdown_values)s)
+        AND (%(selected_interval)s is NULL OR intervals_from_base = %(selected_interval)s)
 
     LIMIT 1 BY actor_id
 """

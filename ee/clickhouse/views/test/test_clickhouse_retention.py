@@ -188,6 +188,66 @@ class RetentionTests(TestCase, ClickhouseTestMixin):
             },  # IMPORTANT: the "2" value is from past the requested `date_to`
         }
 
+    @test_with_materialized_columns(event_properties=["os"])
+    def test_can_specify_breakdown_event_property_and_retrieve_people(self):
+        """
+        This test is slightly different from the
+        get_by_cohort_by_period_for_response based tests in that here we are
+        checking a cohort/period specific people url that does not include the
+        "appearances" detail.
+
+        This is used, e.g. for the frontend retentions trend graph
+        """
+        organization = create_organization(name="test")
+        team = create_team(organization=organization)
+        user = create_user(email="test@posthog.com", password="1234", organization=organization)
+
+        self.client.force_login(user)
+
+        update_or_create_person(distinct_ids=["person 1"], team_id=team.pk)
+        update_or_create_person(distinct_ids=["person 2"], team_id=team.pk)
+
+        setup_user_activity_by_day(
+            daily_activity={
+                "2020-01-01": {
+                    "person 1": [{"event": "target event", "properties": {"os": "Chrome"}}],
+                    "person 2": [{"event": "target event", "properties": {"os": "Safari"}}],
+                },
+                "2020-01-02": {
+                    "person 1": [{"event": "target event"}],
+                    "person 2": [{"event": "target event"}],
+                },
+            },
+            team=team,
+        )
+
+        retention = get_retention_ok(
+            client=self.client,
+            team_id=team.pk,
+            request=RetentionRequest(
+                target_entity={"id": "target event", "type": "events"},
+                returning_entity={"id": "target event", "type": "events"},
+                date_from="2020-01-01",
+                total_intervals=2,
+                date_to="2020-01-02",
+                period="Day",
+                retention_type="retention_first_time",
+                breakdowns=[Breakdown(type="event", property="os")],
+                # NOTE: we need to specify breakdown_type as well, as the
+                # breakdown logic currently does not support multiple differing
+                # types
+                breakdown_type="event",
+            ),
+        )
+
+        people_url = retention["result"][0]["values"][0]["people_url"]
+        people_response = self.client.get(people_url)
+        assert people_response.status_code == 200
+
+        people = people_response.json()['result']
+
+        assert [distinct_id for person in people for distinct_id in person['distinct_ids']] == ["person 1"]
+
 
 def setup_user_activity_by_day(daily_activity, team):
     _create_all_events(
@@ -294,7 +354,7 @@ def get_by_cohort_by_period_for_response(client: Client, response: RetentionResp
 
         # Check the count is the same as the people size. We don't handle any
         # pagination so this could be wrong for large counts
-        assert value['count'] == len(people_in_period)
+        assert value["count"] == len(people_in_period)
 
         return people_in_period
 
