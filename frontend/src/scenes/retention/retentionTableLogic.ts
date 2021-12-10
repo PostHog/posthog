@@ -1,20 +1,21 @@
+import dayjs from 'dayjs'
 import { kea } from 'kea'
 import api from 'lib/api'
+import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import { toParams } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { retentionTableLogicType } from './retentionTableLogicType'
-import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
-import { actionsModel } from '~/models/actionsModel'
-import { ActionType, InsightLogicProps, FilterType, InsightType } from '~/types'
-import {
-    RetentionTablePayload,
-    RetentionTrendPayload,
-    RetentionTablePeoplePayload,
-    RetentionTrendPeoplePayload,
-} from 'scenes/retention/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import {
+    RetentionTablePayload,
+    RetentionTablePeoplePayload,
+    RetentionTrendPayload,
+    RetentionTrendPeoplePayload,
+} from 'scenes/retention/types'
+import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { ActionType, FilterType, InsightLogicProps, InsightType } from '~/types'
+import { retentionTableLogicType } from './retentionTableLogicType'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 
@@ -127,7 +128,11 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                         days: retentionPercentages.map((_, index) => `${filters.period} ${index}`),
                         labels: retentionPercentages.map((_, index) => `${filters.period} ${index}`),
                         count: 0,
-                        label: cohortRetention.label,
+                        label: cohortRetention.date
+                            ? filters.period === 'Hour'
+                                ? dayjs(cohortRetention.date).format('MMM D, h A')
+                                : dayjs.utc(cohortRetention.date).format('MMM D')
+                            : cohortRetention.label,
                         data:
                             retentionReference === 'previous'
                                 ? retentionPercentages
