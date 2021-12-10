@@ -44,6 +44,7 @@ export function FunnelStepTable(): JSX.Element | null {
         flattenedBreakdowns,
         aggregationTargetLabel,
         isModalActive,
+        filters,
     } = useValues(logic)
     const { openPersonsModalForStep, toggleVisibilityByBreakdown, setHiddenById } = useActions(logic)
     const { cohorts } = useValues(cohortsModel)

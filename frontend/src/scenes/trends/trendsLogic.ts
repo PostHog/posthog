@@ -45,7 +45,7 @@ export const trendsLogic = kea<trendsLogicType>({
         targetAction: [
             {} as Record<string, any>,
             {
-                setTargetAction: (state, { action }) => action,
+                setTargetAction: (_, { action }) => action,
             },
         ],
         visibilityMap: [
