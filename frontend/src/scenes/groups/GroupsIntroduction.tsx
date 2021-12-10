@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues } from 'kea'
-import { IconExternalLink } from 'lib/components/icons'
+import { IconOpenInNew } from 'lib/components/icons'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import './GroupsIntroduction.scss'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -33,7 +33,7 @@ export function GroupsIntroduction({ access }: Props): JSX.Element {
             data-attr="group-analytics-learn-more"
             className="groups-introduction__action-button"
         >
-            Learn how to track groups in PostHog <IconExternalLink style={{ marginLeft: 8 }} />
+            Learn how to track groups in PostHog <IconOpenInNew style={{ marginLeft: 8 }} />
         </LemonButton>
     )
 
