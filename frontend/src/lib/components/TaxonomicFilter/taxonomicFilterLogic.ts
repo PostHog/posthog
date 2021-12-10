@@ -32,7 +32,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             groupPropertiesModel,
             ['allGroupProperties'],
         ],
-        logics: props.taxonomicGroupTypes?.map((groupType) =>
+        logics: props.taxonomicGroupTypes.map((groupType) =>
             infiniteListLogic({
                 ...props,
                 listGroupType: groupType,
