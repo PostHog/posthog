@@ -1334,15 +1334,15 @@ export interface Group {
 }
 
 export interface Experiment {
-    id?: number | null
-    name?: string
+    id: number | null
+    name: string
     description?: string
-    feature_flag_key?: string
-    filters?: Partial<FilterType>
+    feature_flag_key: string
+    filters: FilterType
     start_date?: string
     end_date?: string
-    created_at?: string
-    created_by?: UserBasicType | null
+    created_at: string
+    created_by: UserBasicType | null
 }
 
 interface RelatedPerson {

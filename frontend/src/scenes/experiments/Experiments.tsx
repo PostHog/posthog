@@ -33,7 +33,7 @@ export function Experiments(): JSX.Element {
                 return (
                     <>
                         <Link to={experiment.id ? urls.experiment(experiment.id) : undefined}>
-                            <h4 className="row-name">{stringWithWBR(`${experiment.name}`, 17)}</h4>
+                            <h4 className="row-name">{stringWithWBR(experiment.name, 17)}</h4>
                         </Link>
                         {experiment.description && <span className="row-description">{experiment.description}</span>}
                     </>

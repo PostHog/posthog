@@ -42,7 +42,9 @@ const VIEW_MAP = {
     [`${InsightType.PATHS}`]: <Paths />,
 }
 
-export function InsightContainer(): JSX.Element {
+export function InsightContainer(
+    { disableCorrelation }: { disableCorrelation?: boolean } = { disableCorrelation: false }
+): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const {
@@ -116,8 +118,7 @@ export function InsightContainer(): JSX.Element {
             !showTimeoutMessage &&
             areFiltersValid &&
             filters.funnel_viz_type === FunnelVizType.Steps &&
-            (!featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] || filters?.layout === FunnelLayout.horizontal) &&
-            !featureFlags[FEATURE_FLAGS.EXPERIMENTATION]
+            (!featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] || filters?.layout === FunnelLayout.horizontal)
         ) {
             return (
                 <Card>
@@ -202,7 +203,9 @@ export function InsightContainer(): JSX.Element {
                 </div>
             </Card>
             {renderTable()}
-            {correlationAnalysisAvailable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
+            {!disableCorrelation && correlationAnalysisAvailable && activeView === InsightType.FUNNELS && (
+                <FunnelCorrelation />
+            )}
         </>
     )
 }

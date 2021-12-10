@@ -40,14 +40,15 @@ export function Experiment(): JSX.Element {
     return (
         <>
             {experimentId === 'new' ? (
-                <BindLogic
-                    logic={insightLogic}
-                    props={{
-                        dashboardItemId: experimentFunnel?.short_id,
-                        filters: experimentFunnel?.filters,
-                        syncWithUrl: false,
-                    }}
-                >
+                // <BindLogic
+                //     logic={insightLogic}
+                //     props={{
+                //         dashboardItemId: experimentFunnel?.short_id,
+                //         filters: experimentFunnel?.filters,
+                //         syncWithUrl: false,
+                //     }}
+                // >
+                <>
                     <Row
                         align="middle"
                         justify="space-between"
@@ -181,7 +182,7 @@ export function Experiment(): JSX.Element {
                                                 </Row>
                                             </Col>
                                             <Col span={16}>
-                                                <InsightContainer />
+                                                <InsightContainer disableCorrelation={true} />
                                             </Col>
                                         </Row>
                                     </BindLogic>
@@ -198,26 +199,28 @@ export function Experiment(): JSX.Element {
                         {page === 2 && (
                             <div className="confirmation">
                                 <div>Name: {newExperimentData?.name}</div>
-                                <div>
-                                    Description:{' '}
-                                    {newExperimentData?.description ||
-                                        'this is a test description, describing experiments yep'}
-                                </div>
+                                {newExperimentData?.description && (
+                                    <div>Description: {newExperimentData?.description}</div>
+                                )}
                                 <div>Feature flag key: {newExperimentData?.feature_flag_key}</div>
                                 <Row>
                                     <Col>
                                         <Row>Person allocation:</Row>
                                         <Row>The following users will participate in the experiment</Row>
                                         <ul>
-                                            {newExperimentData?.filters?.properties?.map(
-                                                (property: PropertyFilter, idx: number) => (
-                                                    <li key={idx}>
-                                                        Users with {property.key} {property.operator}{' '}
-                                                        {Array.isArray(property.value)
-                                                            ? property.value.map((val) => `${val}, `)
-                                                            : property.value}
-                                                    </li>
+                                            {newExperimentData?.filters?.properties?.length ? (
+                                                newExperimentData.filters.properties.map(
+                                                    (property: PropertyFilter, idx: number) => (
+                                                        <li key={idx}>
+                                                            Users with {property.key} {property.operator}{' '}
+                                                            {Array.isArray(property.value)
+                                                                ? property.value.map((val) => `${val}, `)
+                                                                : property.value}
+                                                        </li>
+                                                    )
                                                 )
+                                            ) : (
+                                                <li key={'all users'}>All users</li>
                                             )}
                                         </ul>
                                     </Col>
@@ -243,14 +246,14 @@ export function Experiment(): JSX.Element {
                             </div>
                         )}
                     </Form>
-                </BindLogic>
+                </>
             ) : experimentData ? (
                 <>
                     <div>
                         <PageHeader title={`${experimentData.name}`} />
                         <div>{experimentData?.description}</div>
                         <div>Owner: {experimentData.created_by?.first_name}</div>
-                        <div>Feature flag key: {experimentData?.feature_flag_key}</div>
+                        <div>Feature flag key: {experimentData.feature_flag_key}</div>
                     </div>
                 </>
             ) : (

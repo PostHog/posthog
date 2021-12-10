@@ -5,7 +5,7 @@ import { generateRandomAnimal } from 'lib/utils/randomAnimal'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
-import { Experiment, InsightType, InsightModel } from '~/types'
+import { Experiment, InsightType, InsightModel, FunnelVizType } from '~/types'
 
 import { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
@@ -30,7 +30,7 @@ export const experimentLogic = kea<experimentLogicType>({
             },
         ],
         newExperimentData: [
-            null as Experiment | null,
+            null as Partial<Experiment> | null,
             {
                 setNewExperimentData: (vals, { experimentData }) => {
                     if (experimentData.filters) {
@@ -61,7 +61,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 name: generateRandomAnimal(),
                 description: '',
                 tags: [],
-                filters: cleanFilters({ insight: InsightType.FUNNELS }),
+                filters: cleanFilters({ insight: InsightType.FUNNELS, funnel_viz_type: FunnelVizType.Steps }),
                 result: null,
             }
             const createdInsight: InsightModel = await api.create(
