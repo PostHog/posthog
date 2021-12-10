@@ -159,6 +159,23 @@ describe('taxonomicFilterLogic', () => {
                 },
             })
 
+        // move right, skipping Actions
+        await expectLogic(logic, () => logic.actions.tabRight()).toMatchValues({
+            activeTab: TaxonomicFilterGroupType.Events,
+        })
+        await expectLogic(logic, () => logic.actions.tabRight()).toMatchValues({
+            activeTab: TaxonomicFilterGroupType.Elements,
+        })
+
+        // move left, skipping Actions
+        await expectLogic(logic, () => logic.actions.tabLeft()).toMatchValues({
+            activeTab: TaxonomicFilterGroupType.Events,
+        })
+        await expectLogic(logic, () => logic.actions.tabLeft()).toMatchValues({
+            activeTab: TaxonomicFilterGroupType.Elements,
+        })
+
+        // open remote items tab after loading
         await expectLogic(logic, () => {
             logic.actions.setSearchQuery('event')
         })
