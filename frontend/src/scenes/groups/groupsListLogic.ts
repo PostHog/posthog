@@ -80,5 +80,8 @@ export const groupsListLogic = kea<groupsListLogicType<GroupsPaginatedResponse>>
                 actions.loadGroups()
             }
         },
+        '/persons': () => {
+            actions.setTab('-1')
+        },
     }),
 })
