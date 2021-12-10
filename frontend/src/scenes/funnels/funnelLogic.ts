@@ -1191,7 +1191,12 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         },
         setFilters: ({ filters, mergeWithExisting }) => {
             const cleanedParams = cleanFilters(
-                mergeWithExisting ? { ...values.filters, ...filters } : filters,
+                mergeWithExisting
+                    ? {
+                          ...values.filters,
+                          ...filters,
+                      }
+                    : filters,
                 values.filters
             )
             insightLogic(props).actions.setFilters(cleanedParams)

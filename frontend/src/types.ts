@@ -1338,7 +1338,7 @@ export interface Experiment {
     name: string
     description?: string
     feature_flag_key: string
-    filters: Partial<FilterType>
+    filters: FilterType
     start_date?: string
     end_date?: string
     created_at: string
