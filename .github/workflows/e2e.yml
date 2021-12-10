@@ -118,15 +118,17 @@ jobs:
                   NO_RESTART_LOOP: 1
               run: |
                   python manage.py collectstatic --noinput &
-                  ./bin/docker-migrate & wait
+                  ./bin/docker-migrate &
+                  wait
                   python manage.py setup_dev
-                  mkdir -p cypress/screenshots
-                  ./bin/docker-worker &
-                  ./bin/docker-server &
+                  mkdir -p /tmp/logs
+                  ./bin/docker-worker &> /tmp/logs/worker.txt &
+                  ./bin/docker-server &> /tmp/logs/server.txt &
             - name: Cypress run
               uses: cypress-io/github-action@v2
               with:
                   config-file: cypress.e2e.json
+                  config: retries=2
                   record: true
                   parallel: ${{github.event.pull_request.head.repo.full_name == github.repository}}
                   group: 'PostHog Frontend'
@@ -146,4 +148,17 @@ jobs:
               with:
                   name: screenshots
                   path: cypress/screenshots
+              if: ${{ failure() }}
+            - name: Archive test videos
+              uses: actions/upload-artifact@v1
+              with:
+                  name: videos
+                  path: cypress/videos
+              if: ${{ failure() }}
+            - name: Show logs on failure
+              # use artefact here, as I think the output will be too large for display in an action
+              uses: actions/upload-artifact@v1
+              with:
+                  name: logs
+                  path: /tmp/logs
               if: ${{ failure() }}
