@@ -200,7 +200,7 @@ def is_migration_in_range(posthog_min_version, posthog_max_version):
     return POSTHOG_VERSION in SimpleSpec(f">={posthog_min_version},<={posthog_max_version}")
 
 
-def run_next_migration(candidate: str) -> bool:
+def run_next_migration(candidate: str, after_delay: int = 0) -> bool:
     migration_instance = SpecialMigration.objects.get(name=candidate)
     migration_in_range = is_migration_in_range(
         migration_instance.posthog_min_version, migration_instance.posthog_max_version
@@ -209,7 +209,7 @@ def run_next_migration(candidate: str) -> bool:
     dependency_ok, _ = is_migration_dependency_fulfilled(candidate)
 
     if dependency_ok and migration_in_range and migration_instance.status == MigrationStatus.NotStarted:
-        trigger_migration(migration_instance)
+        trigger_migration(migration_instance, countdown=after_delay)
         return True
 
     return False

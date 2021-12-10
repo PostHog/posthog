@@ -756,7 +756,7 @@ if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
         ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0,<21.7.0"),
     ]
 
-AUTO_START_SPECIAL_MIGRATIONS = get_from_env("AUTO_START_SPECIAL_MIGRATIONS", True, type_cast=str_to_bool)
+AUTO_START_SPECIAL_MIGRATIONS = get_from_env("AUTO_START_SPECIAL_MIGRATIONS", False, type_cast=str_to_bool)
 
 _default_skip_special_migrations_setup = TEST or E2E_TESTING or SKIP_SERVICE_VERSION_REQUIREMENTS or cmd != "runserver"
 SKIP_SPECIAL_MIGRATIONS_SETUP = get_from_env(

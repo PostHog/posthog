@@ -92,7 +92,8 @@ def kickstart_migration_if_possible(migration_name: str, applied_migrations: set
 
     from posthog.special_migrations.runner import run_next_migration
 
-    run_next_migration(migration_name)
+    # start running 30 minutes from now
+    run_next_migration(migration_name, after_delay=60 * 30)
 
 
 def get_special_migration_definition(migration_name: str) -> SpecialMigrationDefinition:

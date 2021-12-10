@@ -44,10 +44,10 @@ def process_error(migration_instance: SpecialMigration, error: Optional[str]):
     attempt_migration_rollback(migration_instance)
 
 
-def trigger_migration(migration_instance: SpecialMigration, fresh_start=True):
+def trigger_migration(migration_instance: SpecialMigration, fresh_start: bool = True, countdown: int = 0):
     from posthog.tasks.special_migrations import run_special_migration
 
-    task = run_special_migration.delay(migration_instance.name, fresh_start)
+    task = run_special_migration.delay(migration_instance.name, fresh_start, countdown=countdown)
 
     update_special_migration(
         migration_instance=migration_instance, celery_task_id=str(task.id),
