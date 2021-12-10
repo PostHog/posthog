@@ -1,0 +1,5 @@
+#!/bin/bash
+
+python manage.py migrate
+python manage.py migrate_clickhouse
+python manage.py run_special_migration --all

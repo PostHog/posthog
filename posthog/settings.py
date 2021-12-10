@@ -76,6 +76,7 @@ We use pytest-env to let us set environment variables from the closest pytest.in
 We can't rely only on pytest.ini as some tests evaluate this file before its environment variables have been read
 """
 runner = sys.argv[0] if len(sys.argv) >= 1 else None
+cmd = None
 
 if runner:
     cmd = sys.argv[1] if len(sys.argv) >= 2 else None
@@ -756,3 +757,8 @@ if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
     ]
 
 AUTO_START_SPECIAL_MIGRATIONS = get_from_env("AUTO_START_SPECIAL_MIGRATIONS", True, type_cast=str_to_bool)
+
+_default_skip_special_migrations_setup = TEST or E2E_TESTING or SKIP_SERVICE_VERSION_REQUIREMENTS or cmd != "runserver"
+SKIP_SPECIAL_MIGRATIONS_SETUP = get_from_env(
+    "SKIP_SPECIAL_MIGRATIONS_SETUP", _default_skip_special_migrations_setup, type_cast=str_to_bool
+)

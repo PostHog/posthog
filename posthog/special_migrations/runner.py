@@ -25,7 +25,7 @@ Important to prevent us taking up too many celery workers and also to enable run
 MAX_CONCURRENT_SPECIAL_MIGRATIONS = 1
 
 
-def start_special_migration(migration_name: str) -> bool:
+def start_special_migration(migration_name: str, ignore_posthog_version=False) -> bool:
     """
     Performs some basic checks to ensure the migration can indeed run, and then kickstarts the chain of operations
     Checks:
@@ -40,10 +40,14 @@ def start_special_migration(migration_name: str) -> bool:
 
     migration_instance = SpecialMigration.objects.get(name=migration_name)
     over_concurrent_migrations_limit = len(get_all_running_special_migrations()) >= MAX_CONCURRENT_SPECIAL_MIGRATIONS
+    posthog_version_valid = not ignore_posthog_version and is_migration_in_range(
+        migration_instance.posthog_min_version, migration_instance.posthog_max_version
+    )
+
     if (
         not migration_instance
         or over_concurrent_migrations_limit
-        or not is_migration_in_range(migration_instance.posthog_min_version, migration_instance.posthog_max_version)
+        or not posthog_version_valid
         or migration_instance.status == MigrationStatus.Running
     ):
         return False

@@ -4,7 +4,8 @@ from django.core.exceptions import ImproperlyConfigured
 from infi.clickhouse_orm.utils import import_submodules
 from semantic_version.base import Version
 
-from posthog.settings import AUTO_START_SPECIAL_MIGRATIONS, DEBUG, E2E_TESTING, SKIP_SERVICE_VERSION_REQUIREMENTS, TEST
+from posthog.models.special_migration import SpecialMigration, get_all_completed_special_migrations
+from posthog.settings import AUTO_START_SPECIAL_MIGRATIONS, DEBUG, SKIP_SPECIAL_MIGRATIONS_SETUP, TEST
 from posthog.special_migrations.definition import SpecialMigrationDefinition
 from posthog.utils import print_warning
 from posthog.version import VERSION
@@ -22,6 +23,14 @@ POSTHOG_VERSION = Version(VERSION)
 SPECIAL_MIGRATIONS_MODULE_PATH = "posthog.special_migrations.migrations"
 SPECIAL_MIGRATIONS_EXAMPLE_MODULE_PATH = "posthog.special_migrations.examples"
 
+all_migrations = import_submodules(SPECIAL_MIGRATIONS_MODULE_PATH)
+
+if DEBUG and not TEST:
+    all_migrations["example"] = import_submodules(SPECIAL_MIGRATIONS_EXAMPLE_MODULE_PATH)["example"]
+
+for name, module in all_migrations.items():
+    ALL_SPECIAL_MIGRATIONS[name] = module.Migration()
+
 
 def setup_special_migrations():
     """
@@ -32,19 +41,9 @@ def setup_special_migrations():
     4. Populate a dependencies map and in-memory record of migration definitions
     """
 
-    from posthog.models.special_migration import SpecialMigration, get_all_completed_special_migrations
-
-    if TEST or E2E_TESTING or SKIP_SERVICE_VERSION_REQUIREMENTS:
+    if SKIP_SPECIAL_MIGRATIONS_SETUP:
         print_warning(["Skipping special migrations setup. This is unsafe in production!"])
         return
-
-    all_migrations = import_submodules(SPECIAL_MIGRATIONS_MODULE_PATH)
-
-    if DEBUG:
-        all_migrations["example"] = import_submodules(SPECIAL_MIGRATIONS_EXAMPLE_MODULE_PATH)["example"]
-
-    for name, module in all_migrations.items():
-        ALL_SPECIAL_MIGRATIONS[name] = module.Migration()
 
     applied_migrations = set(instance.name for instance in get_all_completed_special_migrations())
     unapplied_migrations = set(ALL_SPECIAL_MIGRATIONS.keys()) - applied_migrations
