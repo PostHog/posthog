@@ -1,9 +1,7 @@
 import { Button, Input } from 'antd'
 import { EditOutlined, LockOutlined } from '@ant-design/icons'
 import React, { useEffect, useState } from 'react'
-import { useValues } from 'kea'
 import './EditableField.scss'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { Tooltip } from '../Tooltip'
 
 interface EditableFieldProps {
