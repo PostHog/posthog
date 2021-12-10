@@ -1077,6 +1077,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 trueNegative: number
                 falseNegative: number
                 correlationScore: number
+                correlationScoreStrength: 'weak' | 'moderate' | 'strong' | null
             } => {
                 if (!funnelCorrelationDetails) {
                     return {
@@ -1085,6 +1086,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                         trueNegative: 0,
                         falseNegative: 0,
                         correlationScore: 0,
+                        correlationScoreStrength: null,
                     }
                 }
 
@@ -1107,7 +1109,18 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                             (trueNegative + falsePositive) *
                             (trueNegative + falseNegative)
                     )
-                return { correlationScore, truePositive, falsePositive, trueNegative, falseNegative }
+
+                const correlationScoreStrength =
+                    Math.abs(correlationScore) > 0.5 ? 'strong' : Math.abs(correlationScore) > 0.3 ? 'moderate' : 'weak'
+
+                return {
+                    correlationScore,
+                    truePositive,
+                    falsePositive,
+                    trueNegative,
+                    falseNegative,
+                    correlationScoreStrength,
+                }
             },
         ],
         advancedOptionsUsedCount: [
