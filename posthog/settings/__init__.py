@@ -29,6 +29,7 @@ from sentry_sdk.integrations.redis import RedisIntegration
 
 from posthog.constants import AnalyticsDBMS
 from posthog.settings.base_variables import *
+from posthog.settings.feature_flags import *
 from posthog.settings.utils import get_from_env, get_list, print_warning, str_to_bool
 from posthog.version_requirement import ServiceVersionRequirement
 
@@ -73,21 +74,6 @@ if runner:
         except IndexError:
             # there was no path, we don't want to set PRIMARY_DB
             pass
-
-
-# These flags will be force-enabled on the frontend **and OVERRIDE all** flags from `/decide`
-# The features here are released, but the flags are just not yet removed from the code.
-# To ignore this persisted feature flag behavior, set `PERSISTED_FEATURE_FLAGS = 0`
-env_feature_flags = os.getenv("PERSISTED_FEATURE_FLAGS", "")
-PERSISTED_FEATURE_FLAGS: List[str] = []
-default_flag_persistence = [
-    # Add hard-coded feature flags for static self-hosted releases here
-    "5440-multivariate-support",
-    "new-paths-ui-edge-weights",
-]
-
-if env_feature_flags != "0" and env_feature_flags.lower() != "false" and not DEBUG:
-    PERSISTED_FEATURE_FLAGS = default_flag_persistence + get_list(env_feature_flags)
 
 
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
