@@ -64,3 +64,6 @@ if not DEBUG and not TEST and SECRET_KEY == DEFAULT_SECRET_KEY:
         )
     )
     sys.exit("[ERROR] Default SECRET_KEY in production. Stopping Django server…\n")
+
+INTERNAL_IPS = ["127.0.0.1", "172.18.0.1"]  # Docker IP
+CORS_ORIGIN_ALLOW_ALL = True
