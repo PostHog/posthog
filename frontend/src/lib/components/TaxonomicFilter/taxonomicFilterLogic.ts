@@ -83,8 +83,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         ],
     }),
 
-    // NB, don't change to "selectors: (logic) => {}", as this causes a white screen by when infiniteListLogics
-    // connect to taxonomicFilterLogic and fetch values.
+    // NB, don't change to the async "selectors: (logic) => {}", as this causes a white screen when infiniteListLogic-s
+    // connect to taxonomicFilterLogic to select their initial values. They won't be built yet and will be unknown.
     selectors: {
         taxonomicFilterLogicKey: [
             () => [(_, props) => props.taxonomicFilterLogicKey],
