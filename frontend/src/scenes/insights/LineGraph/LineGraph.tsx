@@ -7,7 +7,6 @@ import {
     ChartDataset,
     ChartOptions,
     ChartType,
-    DefaultDataPoint,
     Color,
     TickOptions,
     TooltipOptions,
@@ -22,10 +21,10 @@ import { toast } from 'react-toastify'
 import { AnnotationMarker, annotationsLogic, renderAnnotations } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import './LineGraph.scss'
-import { InsightLabel } from 'lib/components/InsightLabel'
 import { InsightTooltip } from '../InsightTooltip/InsightTooltip'
 import { dayjs } from 'lib/dayjs'
 import { AnnotationType, GraphPointPayload, GraphTypes, InsightShortId, IntervalType, TrendResult } from '~/types'
+import { InsightLabel } from 'lib/components/InsightLabel'
 
 //--Chart Style Options--//
 console.log('CHART DEFAULTS', Chart.defaults)
@@ -35,7 +34,12 @@ Chart.defaults.elements.line.tension = 0
 //--Chart Style Options--//
 
 interface LineGraphProps {
-    datasets: (ChartDataset<any> & Partial<Pick<TrendResult, 'count' | 'label' | 'days' | 'labels' | 'data'>>)[]
+    datasets: (ChartDataset<ChartType> &
+        Partial<Pick<TrendResult, 'count' | 'label' | 'days' | 'labels' | 'data' | 'compare'>> & {
+            id: number
+            dotted?: boolean
+            borderDash?: number[]
+        })[]
     visibilityMap?: Record<string | number, any>
     labels: string[]
     color: string
@@ -229,12 +233,13 @@ export function LineGraph({
                         datasetCopy.borderDash = [10, 10]
                     }
 
-                    datasetCopy.data =
+                    datasetCopy.data = (
                         datasetCopy.data?.length > 2
-                            ? datasetCopy.data.map((datum: DefaultDataPoint<any>, idx: number) =>
+                            ? datasetCopy.data.map((datum: number, idx: number) =>
                                   idx === datasetLength - 1 || idx === datasetLength - 2 ? datum : null
                               )
                             : datasetCopy.data
+                    ) as number[]
                     return processDataset(datasetCopy, index)
                 }),
             ]
@@ -296,7 +301,7 @@ export function LineGraph({
 
                         tooltipEl.style.opacity = '1'
                         tooltipEl.style.position = 'absolute'
-                        tooltipEl.style.padding = tooltip.padding + 'px'
+                        tooltipEl.style.padding = '10px'
                         tooltipEl.style.pointerEvents = 'none'
 
                         if (tooltip.body) {
@@ -305,7 +310,9 @@ export function LineGraph({
 
                             const altTitle =
                                 tooltip.title && (dataset.compare || tooltipPreferAltTitle) ? tooltip.title[0] : '' // When comparing we show the whole range for clarity; when on stickiness we show the relative timeframe (e.g. `5 days`)
-                            const referenceDate = !dataset.compare ? dataset.days[referenceDataPoint.index] : undefined
+                            const referenceDate = dataset.compare
+                                ? dataset.days?.[referenceDataPoint.dataIndex]
+                                : undefined
                             const bodyLines = tooltip.body
                                 .flatMap(({ lines }) => lines)
                                 .map((component, idx) => ({
@@ -344,17 +351,19 @@ export function LineGraph({
                         tooltipEl.style.left = tooltipClientLeft + 'px'
                     },
                     callbacks: {
-                        label(tooltipItem: TooltipItem<any>): React.ReactNode {
+                        label(tooltipItem: TooltipItem<any>) {
+                            console.log('TOOLTIP', tooltipItem, this)
                             const entityData = tooltipItem.dataset
+                            const tooltipDatasets = this.dataPoints.map((point) => point.dataset)
                             if (entityData.dotted && !(tooltipItem.dataIndex === entityData.data.length - 1)) {
                                 return ''
                             }
 
                             const label = entityData.chartLabel || entityData.label || tooltipItem.label || ''
                             const action =
-                                entityData.action || (entityData.actions && entityData.actions[tooltipItem.index])
+                                entityData.action || (entityData.actions && entityData.actions[tooltipItem.dataIndex])
 
-                            let value = tooltipItem.yLabel.toLocaleString()
+                            let value = tooltipItem.label.toLocaleString()
                             const actionObjKey = type === 'horizontalBar' ? 'actions' : 'action'
 
                             if (type === 'horizontalBar' && totalValue) {
@@ -364,13 +373,13 @@ export function LineGraph({
 
                             let showCountedByTag = false
                             let numberOfSeries = 1
-                            if (data.datasets.find((item) => item[actionObjKey])) {
+                            if (tooltipDatasets.find((item) => item[actionObjKey])) {
                                 // The above statement will always be true except in Sessions tab
-                                showCountedByTag = !!data.datasets.find(
+                                showCountedByTag = !!tooltipDatasets.find(
                                     ({ [actionObjKey]: { math } }) => math && math !== 'total'
                                 )
                                 numberOfSeries = new Set(
-                                    data.datasets.flatMap(({ [actionObjKey]: { order } }) => order)
+                                    tooltipDatasets.flatMap(({ [actionObjKey]: { order } }) => order)
                                 ).size
                             }
 
@@ -379,16 +388,16 @@ export function LineGraph({
                             return (
                                 <InsightLabel
                                     action={action}
-                                    seriesColor={type === 'horizontalBar' ? colorSet[tooltipItem.index] : colorSet}
+                                    seriesColor={type === 'horizontalBar' ? colorSet[tooltipItem.dataIndex] : colorSet}
                                     value={value}
                                     fallbackName={label}
                                     showCountedByTag={showCountedByTag}
                                     hasMultipleSeries={numberOfSeries > 1}
                                     breakdownValue={
                                         entityData.breakdownValues // Used in `horizontalBar`
-                                            ? entityData.breakdownValues[tooltipItem.index] === ''
+                                            ? entityData.breakdownValues[tooltipItem.dataIndex] === ''
                                                 ? 'None'
-                                                : entityData.breakdownValues[tooltipItem.index]
+                                                : entityData.breakdownValues[tooltipItem.dataIndex]
                                             : entityData.breakdown_value === ''
                                             ? 'None'
                                             : entityData.breakdown_value

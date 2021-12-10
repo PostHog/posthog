@@ -982,6 +982,7 @@ export interface TrendResult {
     aggregated_value: number
     status?: string
     compare_label?: string
+    compare?: boolean
 }
 
 export interface TrendResultWithAggregate extends TrendResult {
