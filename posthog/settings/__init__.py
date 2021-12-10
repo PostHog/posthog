@@ -10,25 +10,20 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/2.2/ref/settings/
 """
 
-import logging
 import os
 import sys
 from datetime import timedelta
 from typing import Dict, List
 
-import sentry_sdk
 import structlog
 from django.core.exceptions import ImproperlyConfigured
 from kombu import Exchange, Queue
-from sentry_sdk.integrations.celery import CeleryIntegration
-from sentry_sdk.integrations.django import DjangoIntegration
-from sentry_sdk.integrations.logging import LoggingIntegration
-from sentry_sdk.integrations.redis import RedisIntegration
 
 from posthog.constants import AnalyticsDBMS
 from posthog.settings.base_variables import *
 from posthog.settings.data_stores import *
 from posthog.settings.feature_flags import *
+from posthog.settings.sentry import *
 from posthog.settings.service_requirements import *
 from posthog.settings.utils import get_from_env, get_list, print_warning, str_to_bool
 
@@ -126,19 +121,6 @@ SESSION_COOKIE_SECURE = secure_cookies
 CSRF_COOKIE_SECURE = secure_cookies
 SECURE_SSL_REDIRECT = secure_cookies
 SECURE_REDIRECT_EXEMPT = [r"^_health/?"]
-
-if not TEST:
-    if os.getenv("SENTRY_DSN"):
-        sentry_sdk.utils.MAX_STRING_LENGTH = 10_000_000
-        # https://docs.sentry.io/platforms/python/
-        sentry_logging = sentry_logging = LoggingIntegration(level=logging.INFO, event_level=None)
-        sentry_sdk.init(
-            dsn=os.environ["SENTRY_DSN"],
-            integrations=[DjangoIntegration(), CeleryIntegration(), RedisIntegration(), sentry_logging],
-            request_bodies="always",
-            send_default_pii=True,
-            environment=os.getenv("SENTRY_ENVIRONMENT", "production"),
-        )
 
 if get_from_env("DISABLE_SECURE_SSL_REDIRECT", False, type_cast=str_to_bool):
     SECURE_SSL_REDIRECT = False
