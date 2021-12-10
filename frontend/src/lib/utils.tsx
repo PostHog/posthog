@@ -625,8 +625,8 @@ export function isURL(input: any): boolean {
     if (!input || typeof input !== 'string') {
         return false
     }
-    // Adapted from https://mathiasbynens.be/demo/url-regex – @imme_emosol
-    const regexp = new RegExp('^https?://(-.)?([^s/?.#-]+.?)+(/[^s]*)?$', 'iu')
+    // Regex by elmervc
+    const regexp = new RegExp('^([a-zA-Z]+):\/\/(-\.)?(([^\s\/?\.#\-]+|([^\s\/?\.#\-]-[^\s\/?\.#\-]))\.?)+(\/[^\s]*)?', 'iu')
     return !!input.trim().match(regexp)
 }
 
