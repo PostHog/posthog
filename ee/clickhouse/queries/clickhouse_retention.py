@@ -82,6 +82,11 @@ class ClickhouseRetention(Retention):
                 ],
                 "label": "::".join(breakdown_values),
                 "breakdown_values": breakdown_values,
+                # NOTE: we add this date purely for backwards compatability for
+                # the non-breakdown case, where we'd previously return the date
+                # that defines the cohort. This is a little brittle and coding
+                # by coincidence
+                "date": breakdown_values[0] if breakdown_values and not filter.breakdowns else None,
                 "people_url": (
                     "/api/person/retention/?"
                     f"{urlencode(RetentionPeopleRequest({**filter._data, 'display': 'ActionsTable', 'breakdown_values': breakdown_values}).to_params())}"
