@@ -199,23 +199,17 @@ def is_active_event(event: SnapshotData) -> bool:
     """
     Determines which rr-web events are "active" - meaning user generated
     """
-    # Event type 3 means incremental_update (not a full snapshot, metadata etc)
-    # And the following are the defined source types:
-    # Mutation = 0
-    # MouseMove = 1
-    # MouseInteraction = 2
-    # Scroll = 3
-    # ViewportResize = 4
-    # Input = 5
-    # TouchMove = 6
-    # MediaInteraction = 7
-    # StyleSheetRule = 8
-    # CanvasMutation = 9
-    # Font = 10
-    # Log = 11
-    # Drag = 12
-    # StyleDeclaration = 13
-    return event.get("type") == 3 and event.get("data", {}).get("source") in [1, 2, 3, 4, 5, 6, 7, 12]
+    active_rr_web_sources = [
+        1,  # "MouseMove"
+        2,  # "MouseInteraction"
+        3,  # "Scroll"
+        4,  # "ViewportResize"
+        5,  # "Input"
+        6,  # "TouchMove"
+        7,  # "MediaInteraction"
+        12,  # "Drag"
+    ]
+    return event.get("type") == 3 and event.get("data", {}).get("source") in active_rr_web_sources
 
 
 ACTIVITY_THRESHOLD_SECONDS = 60
