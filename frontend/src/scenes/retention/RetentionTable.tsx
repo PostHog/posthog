@@ -18,6 +18,7 @@ import { Spinner } from 'lib/components/Spinner/Spinner'
 import './RetentionTable.scss'
 import { urls } from 'scenes/urls'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
+import { asDisplay } from 'scenes/persons/PersonHeader'
 
 export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: number | null }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -190,7 +191,7 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
                                                                     )}
                                                                     data-attr="retention-person-link"
                                                                 >
-                                                                    {personAppearances.person.name}
+                                                                    {asDisplay(personAppearances.person)}
                                                                 </Link>
                                                             )}
                                                         </td>

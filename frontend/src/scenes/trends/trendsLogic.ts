@@ -15,7 +15,7 @@ export const trendsLogic = kea<trendsLogicType>({
     path: (key) => ['scenes', 'trends', 'trendsLogic', key],
 
     connect: (props: InsightLogicProps) => ({
-        values: [insightLogic(props), ['filters', 'insight', 'insightLoading'], groupsModel, ['groupTypes']],
+        values: [insightLogic(props), ['filters', 'insight', 'insightLoading'], groupsModel, ['aggregationLabel']],
         actions: [insightLogic(props), ['loadResultsSuccess'], personsModalLogic, ['loadPeople', 'loadPeopleFromUrl']],
     }),
 
@@ -135,19 +135,15 @@ export const trendsLogic = kea<trendsLogicType>({
             },
         ],
         aggregationTargetLabel: [
-            (s) => [s.groupTypes, s.targetAction],
+            (s) => [s.aggregationLabel, s.targetAction],
             (
-                groupTypes,
+                aggregationLabel,
                 targetAction
             ): {
                 singular: string
                 plural: string
             } => {
-                if (targetAction.math_group_type_index != undefined && groupTypes.length > 0) {
-                    const groupType = groupTypes[targetAction.math_group_type_index]
-                    return { singular: groupType.group_type, plural: `${groupType.group_type}(s)` }
-                }
-                return { singular: 'user', plural: 'users' }
+                return aggregationLabel(targetAction.math_group_type_index)
             },
         ],
     },

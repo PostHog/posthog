@@ -42,7 +42,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
             actionsModel,
             ['actions'],
             groupsModel,
-            ['groupTypes'],
+            ['aggregationLabel'],
         ],
         actions: [insightLogic(props), ['loadResultsSuccess']],
     }),
@@ -100,19 +100,15 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         actionFilterTargetEntity: [(s) => [s.filters], (filters) => ({ events: [filters.target_entity] })],
         actionFilterReturningEntity: [(s) => [s.filters], (filters) => ({ events: [filters.returning_entity] })],
         aggregationTargetLabel: [
-            (s) => [s.filters, s.groupTypes],
+            (s) => [s.filters, s.aggregationLabel],
             (
                 filters,
-                groupTypes
+                aggregationLabel
             ): {
                 singular: string
                 plural: string
             } => {
-                if (filters.aggregation_group_type_index != undefined && groupTypes.length > 0) {
-                    const groupType = groupTypes[filters.aggregation_group_type_index]
-                    return { singular: groupType.group_type, plural: `${groupType.group_type}(s)` }
-                }
-                return { singular: 'user', plural: 'users' }
+                return aggregationLabel(filters.aggregation_group_type_index)
             },
         ],
     },
