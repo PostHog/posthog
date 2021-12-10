@@ -126,3 +126,42 @@
   LIMIT 100
   '
 ---
+# name: ClickhouseTestInsights.test_insights_does_not_nplus1.5
+  '
+  SELECT "posthog_dashboard"."id",
+         "posthog_dashboard"."name",
+         "posthog_dashboard"."description",
+         "posthog_dashboard"."team_id",
+         "posthog_dashboard"."pinned",
+         "posthog_dashboard"."created_at",
+         "posthog_dashboard"."created_by_id",
+         "posthog_dashboard"."deleted",
+         "posthog_dashboard"."share_token",
+         "posthog_dashboard"."is_shared",
+         "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."filters",
+         "posthog_dashboard"."creation_mode",
+         "posthog_dashboard"."tags"
+  FROM "posthog_dashboard"
+  WHERE "posthog_dashboard"."id" IN (41,
+                                     42,
+                                     43,
+                                     44,
+                                     45,
+                                     46,
+                                     47,
+                                     48,
+                                     49,
+                                     50,
+                                     51,
+                                     52,
+                                     53,
+                                     54,
+                                     55,
+                                     56,
+                                     57,
+                                     58,
+                                     59,
+                                     60)
+  '
+---

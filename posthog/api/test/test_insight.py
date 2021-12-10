@@ -158,14 +158,16 @@ def insight_test_factory(event_factory, person_factory):
             for i in range(20):
                 user = User.objects.create(email=f"testuser{i}@posthog.com")
                 OrganizationMembership.objects.create(user=user, organization=self.organization)
+                dashboard = Dashboard.objects.create(name=f"Dashboard {i}", team=self.team)
                 Insight.objects.create(
                     filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
                     team=self.team,
                     short_id=f"insight{i}",
+                    dashboard=dashboard,
                 )
 
-            # 3 for request overhead (sess), 3 for
-            with self.assertNumQueries(6):
+            # 3 for request overhead (django sessions/auth), then item count + items + dashboards + users
+            with self.assertNumQueries(7):
                 response = self.client.get(f"/api/projects/{self.team.id}/insights")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 20)
