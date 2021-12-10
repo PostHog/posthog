@@ -9,22 +9,20 @@ https://docs.djangoproject.com/en/2.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/2.2/ref/settings/
 """
+# isort: skip_file
 
 import os
 import sys
 from datetime import timedelta
 from typing import Dict, List
 
-from kombu import Exchange, Queue
+# :TRICKY: Imported before anything else to support overloads
+from posthog.settings.overloads import *
 
-from posthog.constants import AnalyticsDBMS
 from posthog.settings.base_variables import *
 from posthog.settings.celery import *
 from posthog.settings.data_stores import *
 from posthog.settings.feature_flags import *
-
-# :TRICKY: Imported before anything else to support overloads
-from posthog.settings.overloads import *
 from posthog.settings.sentry import *
 from posthog.settings.service_requirements import *
 from posthog.settings.utils import get_from_env, get_list, print_warning, str_to_bool
