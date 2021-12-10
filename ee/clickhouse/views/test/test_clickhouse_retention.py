@@ -240,13 +240,14 @@ class RetentionTests(TestCase, ClickhouseTestMixin):
             ),
         )
 
-        people_url = retention["result"][0]["values"][0]["people_url"]
+        chrome_cohort = [cohort for cohort in retention["result"] if cohort["label"] == "Chrome"][0]
+        people_url = chrome_cohort["values"][0]["people_url"]
         people_response = self.client.get(people_url)
         assert people_response.status_code == 200
 
-        people = people_response.json()['result']
+        people = people_response.json()["result"]
 
-        assert [distinct_id for person in people for distinct_id in person['distinct_ids']] == ["person 1"]
+        assert [distinct_id for person in people for distinct_id in person["distinct_ids"]] == ["person 1"]
 
 
 def setup_user_activity_by_day(daily_activity, team):
