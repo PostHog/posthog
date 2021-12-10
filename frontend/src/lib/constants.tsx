@@ -79,8 +79,6 @@ export const FEATURE_FLAGS = {
     NEW_SESSIONS_PLAYER: 'new-sessions-player', // owner: @rcmarron
     NEW_SESSIONS_PLAYER_EVENTS_LIST: 'new-sessions-player-events-list', // owner: @rcmarron / @alexkim205
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
-    GROUP_ANALYTICS: 'group-analytics', // owner: @macobo
-    GROUP_ANALYTICS_INTRODUCTION: 'group-analytics-introduction', // owner: @macobo
     SESSION_INSIGHT_REMOVAL: 'session-insight-removal', // owner: @paolodamico
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @paolodamico
     FUNNELS_CUE_ENABLED: 'funnels-cue-enabled', // owner: @paolodamico
