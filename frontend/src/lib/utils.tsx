@@ -626,7 +626,7 @@ export function isURL(input: any): boolean {
         return false
     }
     // Regex by elmervc
-    const regexp = new RegExp('^([a-zA-Z]+):\/\/(-\.)?(([^\s\/?\.#\-]+|([^\s\/?\.#\-]-[^\s\/?\.#\-]))\.?)+(\/[^\s]*)?', 'iu')
+    const regexp = new RegExp('^([a-zA-Z]+)://(-.)?(([^s/?.#-]+|([^s/?.#-]-[^s/?.#-])).?)+(/[^s]*)?', 'iu')
     return !!input.trim().match(regexp)
 }
 
