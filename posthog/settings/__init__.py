@@ -12,21 +12,21 @@ https://docs.djangoproject.com/en/2.2/ref/settings/
 # isort: skip_file
 
 import os
-import sys
 from datetime import timedelta
 from typing import Dict, List
 
 # :TRICKY: Imported before anything else to support overloads
 from posthog.settings.overloads import *
 
+from posthog.settings.utils import get_from_env, get_list, print_warning, str_to_bool
 from posthog.settings.ee import EE_AVAILABLE
 from posthog.settings.base_variables import *
+from posthog.settings.access import *
 from posthog.settings.celery import *
 from posthog.settings.data_stores import *
 from posthog.settings.feature_flags import *
 from posthog.settings.sentry import *
 from posthog.settings.service_requirements import *
-from posthog.settings.utils import get_from_env, get_list, print_warning, str_to_bool
 
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
 CALCULATE_X_COHORTS_PARALLEL = get_from_env("CALCULATE_X_COHORTS_PARALLEL", 2, type_cast=int)
@@ -67,46 +67,6 @@ NPM_TOKEN = os.getenv("NPM_TOKEN", None)
 # Its existence is used by the toolbar to see that we are logged in.
 TOOLBAR_COOKIE_NAME = "phtoolbar"
 
-# SSL & cookie defaults
-if os.getenv("SECURE_COOKIES", None) is None:
-    # Default to True if in production
-    secure_cookies = not DEBUG and not TEST
-else:
-    secure_cookies = get_from_env("SECURE_COOKIES", True, type_cast=str_to_bool)
-
-TOOLBAR_COOKIE_SECURE = secure_cookies
-SESSION_COOKIE_SECURE = secure_cookies
-CSRF_COOKIE_SECURE = secure_cookies
-SECURE_SSL_REDIRECT = secure_cookies
-SECURE_REDIRECT_EXEMPT = [r"^_health/?"]
-
-if get_from_env("DISABLE_SECURE_SSL_REDIRECT", False, type_cast=str_to_bool):
-    SECURE_SSL_REDIRECT = False
-
-
-# Proxy settings
-IS_BEHIND_PROXY = get_from_env("IS_BEHIND_PROXY", False, type_cast=str_to_bool)
-TRUSTED_PROXIES = os.getenv("TRUSTED_PROXIES", None)
-TRUST_ALL_PROXIES = os.getenv("TRUST_ALL_PROXIES", False)
-
-
-if IS_BEHIND_PROXY:
-    USE_X_FORWARDED_HOST = True
-    USE_X_FORWARDED_PORT = True
-    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-
-    if not TRUST_ALL_PROXIES and not TRUSTED_PROXIES:
-        print_warning(
-            (
-                "️You indicated your instance is behind a proxy (IS_BEHIND_PROXY env var),",
-                " but you haven't configured any trusted proxies. See",
-                " https://posthog.com/docs/configuring-posthog/running-behind-proxy for details.",
-            )
-        )
-
-# IP Block settings
-ALLOWED_IP_BLOCKS = get_list(os.getenv("ALLOWED_IP_BLOCKS", ""))
-
 ACTION_EVENT_MAPPING_INTERVAL_SECONDS = get_from_env("ACTION_EVENT_MAPPING_INTERVAL_SECONDS", 300, type_cast=int)
 
 ASYNC_EVENT_PROPERTY_USAGE = get_from_env("ASYNC_EVENT_PROPERTY_USAGE", False, type_cast=str_to_bool)
@@ -118,15 +78,6 @@ UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = get_from_env(
     "UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS", 90, type_cast=int
 )
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/2.2/howto/deployment/checklist/
-
-DEFAULT_SECRET_KEY = "<randomly generated secret key>"
-
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv("SECRET_KEY", DEFAULT_SECRET_KEY)
-
-ALLOWED_HOSTS = get_list(os.getenv("ALLOWED_HOSTS", "*"))
 
 # Metrics - StatsD
 STATSD_HOST = os.getenv("STATSD_HOST")
@@ -374,16 +325,6 @@ if DEBUG and not TEST:
             "Be sure to unset DEBUG if this is supposed to be a PRODUCTION ENVIRONMENT!",
         )
     )
-
-if not DEBUG and not TEST and SECRET_KEY == DEFAULT_SECRET_KEY:
-    print_warning(
-        (
-            "You are using the default SECRET_KEY in a production environment!",
-            "For the safety of your instance, you must generate and set a unique key.",
-            "More information on https://posthog.com/docs/self-host/configure/securing-posthog",
-        )
-    )
-    sys.exit("[ERROR] Default SECRET_KEY in production. Stopping Django server…\n")
 
 
 # Extend and override these settings with EE's ones
