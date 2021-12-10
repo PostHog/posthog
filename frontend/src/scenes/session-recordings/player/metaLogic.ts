@@ -55,20 +55,22 @@ export const metaLogic = kea<metaLogicType>({
                 if (!currentPlayerPosition) {
                     return null
                 }
-                const snapshots = sessionPlayerData.snapshotsByWindowId[currentPlayerPosition.windowId]
-                const lastIndex = findLastIndex(snapshots, (s: eventWithTime) => 'width' in s.data)
-                if (lastIndex === -1) {
-                    return null
-                }
+                const snapshots = sessionPlayerData.snapshotsByWindowId[currentPlayerPosition.windowId] ?? []
+
                 const currentEpochTime =
                     getEpochTimeFromPlayerPosition(
                         currentPlayerPosition,
                         sessionPlayerData.metadata.startAndEndTimesByWindowId
                     ) ?? 0
-                const currIndex = snapshots.findIndex(
-                    (s: eventWithTime) => s.timestamp > currentEpochTime && 'width' in s.data
+
+                const currIndex = findLastIndex(
+                    snapshots,
+                    (s: eventWithTime) => s.timestamp < currentEpochTime && 'width' in s.data
                 )
-                const snapshot = snapshots[currIndex === -1 ? lastIndex : currIndex]
+                if (currIndex === -1) {
+                    return null
+                }
+                const snapshot = snapshots[currIndex]
                 return {
                     width: snapshot.data.width,
                     height: snapshot.data.height,

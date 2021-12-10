@@ -150,7 +150,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
             console.log('tryInitReplayer', windowId)
             if (
                 !values.rootFrame ||
-                !windowId ||
+                windowId === null ||
                 !values.sessionPlayerData.snapshotsByWindowId[windowId] ||
                 values.sessionPlayerData.snapshotsByWindowId[windowId].length < 2
             ) {
@@ -399,7 +399,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
                     actions.setCurrentPlayerPosition(nextSegment.startPlayerPosition)
                     actions.setCurrentSegment(nextSegment)
                 } else {
-                    console.log('end of session')
+                    actions.setCurrentPlayerPosition(nextPlayerPosition)
+                    actions.setPause()
                 }
             }
 
