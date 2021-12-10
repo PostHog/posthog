@@ -56,7 +56,7 @@ export function DashboardItems(): JSX.Element {
             isResizable={dashboardMode === DashboardMode.Edit}
             layouts={layouts}
             rowHeight={80}
-            margin={[8, 8]}
+            margin={[16, 16]}
             containerPadding={[0, 0]}
             onLayoutChange={(_, newLayouts) => {
                 updateLayouts(newLayouts)

@@ -371,8 +371,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                                 y: Number.isInteger(y) ? y : Infinity,
                                 w: width,
                                 h: h || defaultHeight,
-                                minW: MIN_W,
-                                minH: MIN_H,
                             }
                         })
 
@@ -416,8 +414,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                                 y: lowestDepth + 1,
                                 w,
                                 h,
-                                minW: MIN_W,
-                                minH: MIN_H,
                             })
 
                             for (let k = lowestIndex; k <= lowestIndex + w - 1; k++) {
