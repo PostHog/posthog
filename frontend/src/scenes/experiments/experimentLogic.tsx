@@ -5,8 +5,7 @@ import { generateRandomAnimal } from 'lib/utils/randomAnimal'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
-import { Experiment, InsightType } from '~/types'
-import { DashboardItemType } from '~/types'
+import { Experiment, InsightType, InsightModel } from '~/types'
 
 import { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
@@ -17,11 +16,11 @@ export const experimentLogic = kea<experimentLogicType>({
     actions: {
         setExperiment: (experiment: Experiment) => ({ experiment }),
         createExperiment: (draft?: boolean) => ({ draft }),
-        setExperimentFunnel: (funnel: DashboardItemType) => ({ funnel }),
+        setExperimentFunnel: (funnel: InsightModel) => ({ funnel }),
         createNewExperimentFunnel: true,
         setFilters: (filters) => ({ filters }),
         setExperimentId: (experimentId: number | 'new') => ({ experimentId }),
-        setNewExperimentData: (experimentData: Experiment) => ({ experimentData }),
+        setNewExperimentData: (experimentData: Partial<Experiment>) => ({ experimentData }),
     },
     reducers: {
         experimentId: [
@@ -35,7 +34,7 @@ export const experimentLogic = kea<experimentLogicType>({
             {
                 setNewExperimentData: (vals, { experimentData }) => {
                     if (experimentData.filters) {
-                        const newFilters = { ...vals.filters, ...experimentData.filters }
+                        const newFilters = { ...vals?.filters, ...experimentData.filters }
                         return { ...vals, ...experimentData, filters: newFilters }
                     }
                     return { ...vals, ...experimentData }
@@ -43,7 +42,7 @@ export const experimentLogic = kea<experimentLogicType>({
             },
         ],
         experimentFunnel: [
-            null as DashboardItemType | null,
+            null as InsightModel | null,
             {
                 setExperimentFunnel: (_, { funnel }) => funnel,
             },
@@ -65,7 +64,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 filters: cleanFilters({ insight: InsightType.FUNNELS }),
                 result: null,
             }
-            const createdInsight: DashboardItemType = await api.create(
+            const createdInsight: InsightModel = await api.create(
                 `api/projects/${teamLogic.values.currentTeamId}/insights`,
                 newInsight
             )

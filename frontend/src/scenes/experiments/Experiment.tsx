@@ -105,7 +105,9 @@ export function Experiment(): JSX.Element {
                                                 pageKey={'EditFunnel-property'}
                                                 propertyFilters={filters.properties || []}
                                                 onChange={(anyProperties) => {
-                                                    setNewExperimentData({ filters: { properties: anyProperties } })
+                                                    setNewExperimentData({
+                                                        filters: { properties: anyProperties as PropertyFilter[] },
+                                                    })
                                                     setFilters({
                                                         properties: anyProperties.filter(isValidPropertyFilter),
                                                     })
@@ -222,7 +224,7 @@ export function Experiment(): JSX.Element {
             ) : experimentData ? (
                 <>
                     <div>
-                        <PageHeader title={experimentData.name} />
+                        <PageHeader title={`${experimentData.name}`} />
                         <div>{experimentData?.description}</div>
                         <div>Owner: {experimentData.created_by?.first_name}</div>
                         <div>Feature flag key: {experimentData?.feature_flag_key}</div>
