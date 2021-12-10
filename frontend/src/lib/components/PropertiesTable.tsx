@@ -13,17 +13,6 @@ import { CopyToClipboardInline } from './CopyToClipboard'
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
 
-const iconStyle: CSSProperties = { display: 'inline-block', marginRight: '0.5rem', opacity: 0.75 }
-
-const typeToIcon: Record<HandledType, JSX.Element> = {
-    string: <IconText />,
-    number: <NumberOutlined />,
-    bigint: <NumberOutlined />,
-    boolean: <BulbOutlined />,
-    undefined: <StopOutlined />,
-    null: <StopOutlined />,
-}
-
 interface BasePropertyType {
     rootKey?: string // The key name of the object if it's nested
     onEdit?: (key: string, newValue: any, oldValue?: any) => void // If set, it will allow inline editing
@@ -93,21 +82,14 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
             className={canEdit ? 'editable ph-no-capture' : 'ph-no-capture'}
             onClick={() => canEdit && textBasedTypes.includes(valueType) && setEditing(true)}
         >
-            {value}
+            {value.toString()}
         </span>
     )
 
     return (
         <div className="properties-table-value">
-            {typeToIcon[valueType as HandledType] ? (
-                <>
                     {!editing ? (
                         <>
-                            <div style={iconStyle}>
-                                <Tooltip title={`Property of type ${valueType}.`}>
-                                    <span>{typeToIcon[valueType as HandledType]}</span>
-                                </Tooltip>
-                            </div>
                             {canEdit && boolNullTypes.includes(valueType) ? (
                                 <Dropdown overlay={boolNullSelect}>{valueComponent}</Dropdown>
                             ) : (
@@ -120,20 +102,18 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
                                     {valueComponent}
                                 </CopyToClipboardInline>
                             )}
-
                             {isURL(value) && (
                                 <a href={value} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 4 }}>
                                     <IconExternalLink />
                                 </a>
                             )}
+                            <div className="value-type">
+                                {valueType}
+                            </div>
                         </>
                     ) : (
                         <EditTextValueComponent value={value} onChange={handleValueChange} />
                     )}
-                </>
-            ) : (
-                value
-            )}
         </div>
     )
 }
