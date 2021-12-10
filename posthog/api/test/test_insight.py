@@ -17,13 +17,14 @@ from posthog.models import (
     Team,
     User,
 )
+from posthog.models.organization import OrganizationMembership
 from posthog.tasks.update_cache import update_dashboard_item_cache
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from posthog.utils import is_clickhouse_enabled
 
 
 def insight_test_factory(event_factory, person_factory):
-    class TestInsight(APIBaseTest):
+    class TestInsight(APIBaseTest, QueryMatchingTest):
         maxDiff = None
 
         CLASS_DATA_LEVEL_SETUP = False
@@ -151,6 +152,23 @@ def insight_test_factory(event_factory, person_factory):
                     "updated_at",
                 ],
             )
+
+        @snapshot_postgres_queries
+        def test_insights_does_not_nplus1(self):
+            for i in range(20):
+                user = User.objects.create(email=f"testuser{i}@posthog.com")
+                OrganizationMembership.objects.create(user=user, organization=self.organization)
+                Insight.objects.create(
+                    filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+                    team=self.team,
+                    short_id=f"insight{i}",
+                )
+
+            # 3 for request overhead (sess), 3 for
+            with self.assertNumQueries(6):
+                response = self.client.get(f"/api/projects/{self.team.id}/insights")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(len(response.json()["results"]), 20)
 
         def test_create_insight_items(self):
             # Make sure the endpoint works with and without the trailing slash
