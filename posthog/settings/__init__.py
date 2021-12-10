@@ -366,25 +366,6 @@ EMAIL_REPLY_TO = os.getenv("EMAIL_REPLY_TO", None)
 
 MULTI_TENANCY = False  # overriden by posthog-cloud
 
-CACHES = {
-    "default": {
-        "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": REDIS_URL,
-        "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
-        "KEY_PREFIX": "posthog",
-    }
-}
-
-if TEST:
-    CACHES["default"] = {
-        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-    }
-
-    import celery
-
-    celery.current_app.conf.CELERY_ALWAYS_EAGER = True
-    celery.current_app.conf.CELERY_EAGER_PROPAGATES_EXCEPTIONS = True
-
 
 def add_recorder_js_headers(headers, path, url):
     if url.endswith("/recorder.js"):

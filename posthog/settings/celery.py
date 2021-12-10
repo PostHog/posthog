@@ -3,6 +3,7 @@ from datetime import timedelta
 from kombu import Exchange, Queue
 
 from posthog.constants import AnalyticsDBMS
+from posthog.settings.base_variables import TEST
 from posthog.settings.data_stores import PRIMARY_DB, REDIS_URL
 
 # Only listen to the default queue "celery", unless overridden via the cli
@@ -24,3 +25,9 @@ if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
         pass
     finally:
         CELERY_IMPORTS.append("ee.tasks.materialized_columns")
+
+if TEST:
+    import celery
+
+    celery.current_app.conf.CELERY_ALWAYS_EAGER = True
+    celery.current_app.conf.CELERY_EAGER_PROPAGATES_EXCEPTIONS = True

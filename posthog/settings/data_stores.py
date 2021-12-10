@@ -127,3 +127,17 @@ if not REDIS_URL:
         "If upgrading from PostHog 1.0.10 or earlier, see here: "
         "https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
     )
+
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": REDIS_URL,
+        "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
+        "KEY_PREFIX": "posthog",
+    }
+}
+
+if TEST:
+    CACHES["default"] = {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+    }
