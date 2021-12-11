@@ -12,7 +12,6 @@ import {
     Radio,
     InputNumber,
     Popconfirm,
-    Tag,
     Select,
 } from 'antd'
 import { useActions, useValues } from 'kea'
@@ -27,17 +26,16 @@ import {
     MergeCellsOutlined,
 } from '@ant-design/icons'
 import { featureFlagLogic } from './featureFlagLogic'
-import { featureFlagLogic as featureFlagClientLogic } from 'lib/logic/featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
 import { IconOpenInNew, IconJavascript, IconPython } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { SceneExport } from 'scenes/sceneTypes'
 import { APISnippet, JSSnippet, PythonSnippet, UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { LemonSpacer } from 'lib/components/LemonRow'
 import { groupsModel } from '~/models/groupsModel'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
+import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -80,7 +78,6 @@ export function FeatureFlag(): JSX.Element {
         setFeatureFlag,
         setAggregationGroupTypeIndex,
     } = useActions(featureFlagLogic)
-    const { featureFlags: enabledFeatureFlags } = useValues(featureFlagClientLogic)
     const { showGroupsOptions } = useValues(groupsModel)
 
     // whether the key for an existing flag is being changed
@@ -277,199 +274,192 @@ export function FeatureFlag(): JSX.Element {
                         </Col>
                     </Row>
 
-                    {enabledFeatureFlags[FEATURE_FLAGS.MULTIVARIATE_SUPPORT] && (
-                        <div className="mb-2">
-                            <h3 className="l3">Served value</h3>
-                            <div className="mb-05">
-                                <Popconfirm
-                                    placement="top"
-                                    title="Change value type? The variants below will be lost."
-                                    visible={showVariantDiscardWarning}
-                                    onConfirm={() => {
-                                        setMultivariateEnabled(false)
-                                        setShowVariantDiscardWarning(false)
+                    <div className="mb-2">
+                        <h3 className="l3">Served value</h3>
+                        <div className="mb-05">
+                            <Popconfirm
+                                placement="top"
+                                title="Change value type? The variants below will be lost."
+                                visible={showVariantDiscardWarning}
+                                onConfirm={() => {
+                                    setMultivariateEnabled(false)
+                                    setShowVariantDiscardWarning(false)
+                                }}
+                                onCancel={() => setShowVariantDiscardWarning(false)}
+                                okText="OK"
+                                cancelText="Cancel"
+                            >
+                                <Radio.Group
+                                    options={[
+                                        {
+                                            label: 'Boolean value (A/B test)',
+                                            value: false,
+                                        },
+                                        {
+                                            label: (
+                                                <div>
+                                                    String value (Multivariate test){' '}
+                                                    <LemonTag type="warning">Beta</LemonTag>
+                                                </div>
+                                            ),
+                                            value: true,
+                                        },
+                                    ]}
+                                    onChange={(e) => {
+                                        const { value } = e.target
+                                        if (value === false && nonEmptyVariants.length) {
+                                            setShowVariantDiscardWarning(true)
+                                        } else {
+                                            setMultivariateEnabled(value)
+                                            focusVariantKeyField(0)
+                                        }
                                     }}
-                                    onCancel={() => setShowVariantDiscardWarning(false)}
-                                    okText="OK"
-                                    cancelText="Cancel"
-                                >
-                                    <Radio.Group
-                                        options={[
-                                            {
-                                                label: 'Boolean value (A/B test)',
-                                                value: false,
-                                            },
-                                            {
-                                                label: (
-                                                    <div>
-                                                        String value (Multivariate test){' '}
-                                                        <Tag
-                                                            color={'orange'}
-                                                            style={{ fontSize: 12, fontWeight: 'bold' }}
-                                                        >
-                                                            ALPHA
-                                                        </Tag>
-                                                    </div>
-                                                ),
-                                                value: true,
-                                            },
-                                        ]}
-                                        onChange={(e) => {
-                                            const { value } = e.target
-                                            if (value === false && nonEmptyVariants.length) {
-                                                setShowVariantDiscardWarning(true)
-                                            } else {
-                                                setMultivariateEnabled(value)
-                                                focusVariantKeyField(0)
-                                            }
-                                        }}
-                                        value={multivariateEnabled}
-                                        optionType="button"
-                                    />
-                                </Popconfirm>
-                            </div>
-                            <div className="text-muted mb">
-                                {capitalizeFirstLetter(aggregationTargetName)} will be served{' '}
-                                {multivariateEnabled ? (
-                                    <>
-                                        <strong>a variant key</strong> according to the below distribution
-                                    </>
-                                ) : (
-                                    <strong>
-                                        <code>true</code>
-                                    </strong>
-                                )}{' '}
-                                if they match one or more release condition groups.
-                            </div>
-                            {multivariateEnabled && (
-                                <div className="variant-form-list">
-                                    <Row gutter={8} className="label-row">
-                                        <Col span={7}>Variant key</Col>
-                                        <Col span={7}>Description</Col>
-                                        <Col span={9}>
-                                            <span>Rollout percentage</span>
-                                            <Button
-                                                type="link"
-                                                onClick={distributeVariantsEqually}
-                                                icon={<MergeCellsOutlined />}
-                                                style={{ padding: '0 0 0 0.5em' }}
-                                                title="Distribute variants equally"
-                                            >
-                                                Distribute
-                                            </Button>
-                                        </Col>
-                                    </Row>
-                                    {variants.map(({ rollout_percentage }, index) => (
-                                        <Form
-                                            key={index}
-                                            onValuesChange={(changedValues) => updateVariant(index, changedValues)}
-                                            initialValues={variants[index]}
-                                            validateTrigger={['onChange', 'onBlur']}
-                                        >
-                                            <Row gutter={8}>
-                                                <Col span={7}>
-                                                    <Form.Item
-                                                        name="key"
-                                                        rules={[
-                                                            { required: true, message: 'Key should not be empty.' },
-                                                            {
-                                                                pattern: /^([A-z]|[a-z]|[0-9]|-|_)+$/,
-                                                                message:
-                                                                    'Only letters, numbers, hyphens (-) & underscores (_) are allowed.',
-                                                            },
-                                                        ]}
-                                                    >
-                                                        <Input
-                                                            data-attr="feature-flag-variant-key"
-                                                            data-key-index={index.toString()}
-                                                            className="ph-ignore-input"
-                                                            placeholder={`example-variant-${index + 1}`}
-                                                            autoComplete="off"
-                                                            autoCapitalize="off"
-                                                            autoCorrect="off"
-                                                            spellCheck={false}
-                                                        />
-                                                    </Form.Item>
-                                                </Col>
-                                                <Col span={7}>
-                                                    <Form.Item name="name">
-                                                        <Input
-                                                            data-attr="feature-flag-variant-name"
-                                                            className="ph-ignore-input"
-                                                            placeholder="Description"
-                                                        />
-                                                    </Form.Item>
-                                                </Col>
-                                                <Col span={7}>
-                                                    <Slider
-                                                        tooltipPlacement="top"
-                                                        value={rollout_percentage}
-                                                        onChange={(value: number) =>
-                                                            updateVariant(index, { rollout_percentage: value })
-                                                        }
-                                                    />
-                                                </Col>
-                                                <Col span={2}>
-                                                    <InputNumber
-                                                        min={0}
-                                                        max={100}
-                                                        value={rollout_percentage}
-                                                        onChange={(value) => {
-                                                            if (value !== null && value !== undefined) {
-                                                                const valueInt = parseInt(value.toString())
-                                                                if (!isNaN(valueInt)) {
-                                                                    updateVariant(index, {
-                                                                        rollout_percentage: valueInt,
-                                                                    })
-                                                                }
-                                                            }
-                                                        }}
-                                                        style={{
-                                                            width: '100%',
-                                                            borderColor: areVariantRolloutsValid
-                                                                ? undefined
-                                                                : 'var(--danger)',
-                                                        }}
-                                                    />
-                                                </Col>
-                                                {variants.length > 1 && (
-                                                    <Col span={1}>
-                                                        <Tooltip title="Delete this variant" placement="bottomLeft">
-                                                            <Button
-                                                                type="link"
-                                                                icon={<DeleteOutlined />}
-                                                                onClick={() => removeVariant(index)}
-                                                                style={{ color: 'var(--danger)' }}
-                                                            />
-                                                        </Tooltip>
-                                                    </Col>
-                                                )}
-                                            </Row>
-                                        </Form>
-                                    ))}
-                                    {variants.length > 0 && !areVariantRolloutsValid && (
-                                        <p className="text-danger">
-                                            Percentage rollouts for variants must sum to 100 (currently{' '}
-                                            {variantRolloutSum}).
-                                        </p>
-                                    )}
-                                    <Button
-                                        type="dashed"
-                                        block
-                                        icon={<PlusOutlined />}
-                                        onClick={() => {
-                                            const newIndex = variants.length
-                                            addVariant()
-                                            focusVariantKeyField(newIndex)
-                                        }}
-                                        style={{ marginBottom: 16 }}
-                                    >
-                                        Add Variant
-                                    </Button>
-                                </div>
-                            )}
+                                    value={multivariateEnabled}
+                                    optionType="button"
+                                />
+                            </Popconfirm>
                         </div>
-                    )}
+                        <div className="text-muted mb">
+                            {capitalizeFirstLetter(aggregationTargetName)} will be served{' '}
+                            {multivariateEnabled ? (
+                                <>
+                                    <strong>a variant key</strong> according to the below distribution
+                                </>
+                            ) : (
+                                <strong>
+                                    <code>true</code>
+                                </strong>
+                            )}{' '}
+                            if they match one or more release condition groups.
+                        </div>
+                        {multivariateEnabled && (
+                            <div className="variant-form-list">
+                                <Row gutter={8} className="label-row">
+                                    <Col span={7}>Variant key</Col>
+                                    <Col span={7}>Description</Col>
+                                    <Col span={9}>
+                                        <span>Rollout percentage</span>
+                                        <Button
+                                            type="link"
+                                            onClick={distributeVariantsEqually}
+                                            icon={<MergeCellsOutlined />}
+                                            style={{ padding: '0 0 0 0.5em' }}
+                                            title="Distribute variants equally"
+                                        >
+                                            Distribute
+                                        </Button>
+                                    </Col>
+                                </Row>
+                                {variants.map(({ rollout_percentage }, index) => (
+                                    <Form
+                                        key={index}
+                                        onValuesChange={(changedValues) => updateVariant(index, changedValues)}
+                                        initialValues={variants[index]}
+                                        validateTrigger={['onChange', 'onBlur']}
+                                    >
+                                        <Row gutter={8}>
+                                            <Col span={7}>
+                                                <Form.Item
+                                                    name="key"
+                                                    rules={[
+                                                        { required: true, message: 'Key should not be empty.' },
+                                                        {
+                                                            pattern: /^([A-z]|[a-z]|[0-9]|-|_)+$/,
+                                                            message:
+                                                                'Only letters, numbers, hyphens (-) & underscores (_) are allowed.',
+                                                        },
+                                                    ]}
+                                                >
+                                                    <Input
+                                                        data-attr="feature-flag-variant-key"
+                                                        data-key-index={index.toString()}
+                                                        className="ph-ignore-input"
+                                                        placeholder={`example-variant-${index + 1}`}
+                                                        autoComplete="off"
+                                                        autoCapitalize="off"
+                                                        autoCorrect="off"
+                                                        spellCheck={false}
+                                                    />
+                                                </Form.Item>
+                                            </Col>
+                                            <Col span={7}>
+                                                <Form.Item name="name">
+                                                    <Input
+                                                        data-attr="feature-flag-variant-name"
+                                                        className="ph-ignore-input"
+                                                        placeholder="Description"
+                                                    />
+                                                </Form.Item>
+                                            </Col>
+                                            <Col span={7}>
+                                                <Slider
+                                                    tooltipPlacement="top"
+                                                    value={rollout_percentage}
+                                                    onChange={(value: number) =>
+                                                        updateVariant(index, { rollout_percentage: value })
+                                                    }
+                                                />
+                                            </Col>
+                                            <Col span={2}>
+                                                <InputNumber
+                                                    min={0}
+                                                    max={100}
+                                                    value={rollout_percentage}
+                                                    onChange={(value) => {
+                                                        if (value !== null && value !== undefined) {
+                                                            const valueInt = parseInt(value.toString())
+                                                            if (!isNaN(valueInt)) {
+                                                                updateVariant(index, {
+                                                                    rollout_percentage: valueInt,
+                                                                })
+                                                            }
+                                                        }
+                                                    }}
+                                                    style={{
+                                                        width: '100%',
+                                                        borderColor: areVariantRolloutsValid
+                                                            ? undefined
+                                                            : 'var(--danger)',
+                                                    }}
+                                                />
+                                            </Col>
+                                            {variants.length > 1 && (
+                                                <Col span={1}>
+                                                    <Tooltip title="Delete this variant" placement="bottomLeft">
+                                                        <Button
+                                                            type="link"
+                                                            icon={<DeleteOutlined />}
+                                                            onClick={() => removeVariant(index)}
+                                                            style={{ color: 'var(--danger)' }}
+                                                        />
+                                                    </Tooltip>
+                                                </Col>
+                                            )}
+                                        </Row>
+                                    </Form>
+                                ))}
+                                {variants.length > 0 && !areVariantRolloutsValid && (
+                                    <p className="text-danger">
+                                        Percentage rollouts for variants must sum to 100 (currently{' '}
+                                        {variantRolloutSum}).
+                                    </p>
+                                )}
+                                <Button
+                                    type="dashed"
+                                    block
+                                    icon={<PlusOutlined />}
+                                    onClick={() => {
+                                        const newIndex = variants.length
+                                        addVariant()
+                                        focusVariantKeyField(newIndex)
+                                    }}
+                                    style={{ marginBottom: 16 }}
+                                >
+                                    Add Variant
+                                </Button>
+                            </div>
+                        )}
+                    </div>
 
                     <div className="feature-flag-form-row">
                         <div>
@@ -565,9 +555,8 @@ export function FeatureFlag(): JSX.Element {
                                     <LemonSpacer large />
                                     <PropertyFilters
                                         style={{ marginLeft: 15 }}
-                                        pageKey={`feature-flag-${featureFlag.id}-${index}-${
-                                            featureFlag.filters.groups.length
-                                        }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
+                                        pageKey={`feature-flag-${featureFlag.id}-${index}-${featureFlag.filters.groups.length
+                                            }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
                                         propertyFilters={group?.properties}
                                         onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                         taxonomicGroupTypes={taxonomicGroupTypes}
