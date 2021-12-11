@@ -117,7 +117,6 @@ env_feature_flags = os.getenv("PERSISTED_FEATURE_FLAGS", "")
 PERSISTED_FEATURE_FLAGS: List[str] = []
 default_flag_persistence = [
     # Add hard-coded feature flags for static self-hosted releases here
-    "3638-trailing-wau-mau",  # pending UI/UX improvements; functionality ready
     "new-paths-ui-edge-weights",
 ]
 
