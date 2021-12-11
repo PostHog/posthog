@@ -11,7 +11,7 @@ import { useThrottledCallback } from 'use-debounce'
 import './FunnelBarGraph.scss'
 import { useActions, useValues } from 'kea'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
-import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
+import { FunnelLayout } from 'lib/constants'
 import {
     formatDisplayPercentage,
     getBreakdownMaxIndex,
@@ -24,7 +24,6 @@ import {
 import { FunnelStepReference, StepOrderValue } from '~/types'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepTable'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/InsightTabs/FunnelTab/funnelStepTableUtils'
 import { FunnelStepDropdown } from './FunnelStepDropdown'
@@ -327,10 +326,9 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
         isModalActive,
     } = useValues(logic)
     const { openPersonsModalForStep } = useActions(logic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     // If the layout is vertical, we render bars using the table as a legend. See FunnelStepTable
-    if (featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] && layout === FunnelLayout.vertical) {
+    if (layout === FunnelLayout.vertical) {
         return <FunnelStepTable />
     }
 
@@ -577,8 +575,7 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                     </>
                                 )}
                             </div>
-                            {(!featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] ||
-                                layout === FunnelLayout.horizontal) && (
+                            {layout === FunnelLayout.horizontal && (
                                 <div className="funnel-conversion-metadata funnel-step-metadata">
                                     <div className="step-stat">
                                         <div className="center-flex">

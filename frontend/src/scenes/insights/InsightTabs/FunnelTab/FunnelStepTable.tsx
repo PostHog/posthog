@@ -49,8 +49,7 @@ export function FunnelStepTable(): JSX.Element | null {
     const { openPersonsModalForStep, toggleVisibilityByBreakdown, setHiddenById } = useActions(logic)
     const { cohorts } = useValues(cohortsModel)
     const { featureFlags } = useValues(featureFlagLogic)
-    const isNewVertical =
-        featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] && barGraphLayout === FunnelLayout.vertical
+    const isNewVertical = barGraphLayout === FunnelLayout.vertical
     const showLabels = (visibleStepsWithConversionMetrics?.[0]?.nested_breakdown?.length ?? 0) < 6
 
     function getColumns(): ColumnsType<FlattenedFunnelStep> | ColumnsType<FlattenedFunnelStepByBreakdown> {
@@ -377,7 +376,7 @@ export function FunnelStepTable(): JSX.Element | null {
             align: 'center',
         })
 
-        if (featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] && !!steps[0]?.breakdown) {
+        if (!!steps[0]?.breakdown) {
             _columns.push({
                 title: '',
                 render: function RenderCheckbox({}, step: FlattenedFunnelStep): JSX.Element | null {
