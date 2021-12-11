@@ -124,6 +124,7 @@ default_flag_persistence = [
     "new-sessions-player-events-list",
     "938-breakdown-by-multiple-properties",
     "session-insight-removal",
+    "funnel-simple-mode",
 ]
 
 if env_feature_flags != "0" and env_feature_flags.lower() != "false" and not DEBUG:
