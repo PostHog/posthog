@@ -342,7 +342,7 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                 const basisStep = getReferenceStep(steps, stepReference, stepIndex)
                 const previousStep = getReferenceStep(steps, FunnelStepReference.previous, stepIndex)
                 const showLineBefore = layout === FunnelLayout.horizontal && stepIndex > 0
-                const showLineAfter = layout === FunnelLayout.vertical || stepIndex < steps.length - 1
+                const showLineAfter = stepIndex < steps.length - 1
                 const breakdownMaxIndex = getBreakdownMaxIndex(
                     Array.isArray(step.nested_breakdown) ? step.nested_breakdown : undefined
                 )
