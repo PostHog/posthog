@@ -21,7 +21,7 @@ const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
 
 export function FunnelConversionWindowFilter({ horizontal }: { horizontal?: boolean }): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { conversionWindow, aggregationTargetLabel } = useValues(funnelLogic(insightProps))
+    const { conversionWindow, aggregationTargetLabel, filters } = useValues(funnelLogic(insightProps))
     const { setFilters } = useActions(funnelLogic(insightProps))
     const [localConversionWindow, setLocalConversionWindow] = useState<FunnelConversionWindow>(conversionWindow)
     const timeUnitRef: React.RefObject<RefSelectProps> | null = useRef(null)
@@ -52,9 +52,11 @@ export function FunnelConversionWindowFilter({ horizontal }: { horizontal?: bool
                 <Tooltip
                     title={
                         <>
-                            <b>Recommended!</b> Limit to {aggregationTargetLabel.plural} who converted within a specific
-                            time frame. {capitalizeFirstLetter(aggregationTargetLabel.plural)} who do not convert in
-                            this time frame will be considered as drop-offs.
+                            <b>Recommended!</b> Limit to {aggregationTargetLabel.plural}{' '}
+                            {filters.aggregation_group_type_index != undefined ? 'that' : 'who'} converted within a
+                            specific time frame. {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
+                            {filters.aggregation_group_type_index != undefined ? 'that' : 'who'} do not convert in this
+                            time frame will be considered as drop-offs.
                         </>
                     }
                 >
