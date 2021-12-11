@@ -6,10 +6,15 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { Breadcrumb, Experiment, ExperimentResults, FilterType } from '~/types'
-
-import { Experiment, InsightType, InsightModel, FunnelVizType } from '~/types'
-
+import {
+    Breadcrumb,
+    Experiment,
+    ExperimentResults,
+    FilterType,
+    FunnelVizType,
+    InsightModel,
+    InsightType,
+} from '~/types'
 import { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
 
