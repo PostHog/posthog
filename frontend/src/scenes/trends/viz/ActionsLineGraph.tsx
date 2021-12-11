@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightEmptyState } from '../../insights/EmptyStates'
 import { ACTIONS_BAR_CHART } from 'lib/constants'
-import { ChartParams, GraphTypes, InsightType } from '~/types'
+import { ActionFilter, ChartParams, GraphTypes, InsightType } from '~/types'
 import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { isMultiSeriesFormula } from 'lib/utils'
@@ -15,7 +15,7 @@ export function ActionsLineGraph({
     inSharedMode = false,
     showPersonsModal = true,
 }: ChartParams): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, isViewedOnDashboard } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { filters, indexedResults, visibilityMap } = useValues(logic)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
@@ -35,7 +35,7 @@ export function ActionsLineGraph({
             visibilityMap={visibilityMap}
             labels={(indexedResults[0] && indexedResults[0].labels) || []}
             isInProgress={!filters.date_to}
-            dashboardItemId={dashboardItemId}
+            dashboardItemId={dashboardItemId ?? insightProps.dashboardItemId}
             inSharedMode={inSharedMode}
             interval={filters.interval}
             showPersonsModal={showPersonsModal}
@@ -43,15 +43,15 @@ export function ActionsLineGraph({
             isCompare={!!filters.compare}
             onClick={
                 dashboardItemId || isMultiSeriesFormula(filters.formula) || !showPersonsModal
-                    ? null
+                    ? undefined
                     : (point) => {
                           const { dataset, day, value: pointValue, index } = point
 
                           const params = {
-                              action: dataset.action || 'session',
-                              label: dataset.label,
-                              date_from: day,
-                              date_to: day,
+                              action: (dataset.action || 'session') as ActionFilter | 'session',
+                              label: dataset.label ?? '',
+                              date_from: day ?? '',
+                              date_to: day ?? '',
                               filters: filters,
                               breakdown_value:
                                   dataset.breakdown_value === undefined ? dataset.status : dataset.breakdown_value,
@@ -70,6 +70,6 @@ export function ActionsLineGraph({
             }
         />
     ) : (
-        <InsightEmptyState color={color} isDashboard={!!dashboardItemId} />
+        <InsightEmptyState color={color} isDashboard={isViewedOnDashboard} />
     )
 }

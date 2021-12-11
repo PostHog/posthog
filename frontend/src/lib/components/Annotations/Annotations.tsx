@@ -11,10 +11,11 @@ interface AnnotationsProps {
     interval: number
     topExtent: number
     insightId?: InsightShortId
+    dashboardItemId?: number // only used for annotations
     color: string | null
     graphColor: string
     accessoryColor: string | null
-    currentDateMarker: string
+    currentDateMarker?: string | null
     onClick: () => void
     onClose: () => void
 }
@@ -32,6 +33,7 @@ export function renderAnnotations({
     graphColor,
     currentDateMarker,
 }: AnnotationsProps): JSX.Element[] {
+    console.log('INSIGHTID', insightId)
     const { diffType, groupedAnnotations } = useValues(annotationsLogic({ insightId }))
 
     const { createAnnotation, createAnnotationNow, deleteAnnotation, deleteGlobalAnnotation, createGlobalAnnotation } =
@@ -41,6 +43,7 @@ export function renderAnnotations({
 
     const makeAnnotationMarker = (index: number, date: string, annotationsToMark: AnnotationType[]): JSX.Element => (
         <AnnotationMarker
+            dashboardItemId={insightId}
             elementId={date}
             label={dayjs(date).format('MMMM Do YYYY')}
             key={index}
@@ -48,6 +51,17 @@ export function renderAnnotations({
             top={topExtent}
             annotations={annotationsToMark}
             onCreate={(input: string, applyAll: boolean) => {
+                console.log('ON CREATE ANNOTATION', input, applyAll, insightId)
+                if (applyAll) {
+                    createGlobalAnnotation(input, date, insightId)
+                } else if (insightId) {
+                    createAnnotationNow(input, date)
+                } else {
+                    createAnnotation(input, date)
+                }
+            }}
+            onCreateAnnotation={(input: string, applyAll: boolean) => {
+                console.log('ON CREATE ANNOTATION', input, applyAll, insightId)
                 if (applyAll) {
                     createGlobalAnnotation(input, date, insightId)
                 } else if (insightId) {

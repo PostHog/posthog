@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { InsightEmptyState } from '../insights/EmptyStates'
 import { Modal, Button } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
-import { GraphTypes, PersonType } from '~/types'
+import { GraphTypes, PersonType, InsightShortId, GraphDataset } from '~/types'
 import { RetentionTrendPayload, RetentionTrendPeoplePayload } from 'scenes/retention/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -45,15 +45,15 @@ export function RetentionLineGraph({
                 data-attr="trend-line-graph"
                 type={GraphTypes.Line}
                 color={color}
-                datasets={results}
+                datasets={results as GraphDataset[]}
                 labels={(results[0] && results[0].labels) || []}
                 isInProgress={!filters.date_to}
-                dashboardItemId={dashboardItemId}
-                inSharedMode={inSharedMode}
+                dashboardItemId={dashboardItemId ? (String(dashboardItemId) as InsightShortId) : undefined}
+                inSharedMode={!!inSharedMode}
                 percentage={true}
                 onClick={
                     dashboardItemId
-                        ? null
+                        ? undefined
                         : (point) => {
                               const { index } = point
                               loadPeople(index) // start from 0

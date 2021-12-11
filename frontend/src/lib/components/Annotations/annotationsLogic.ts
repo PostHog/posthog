@@ -8,6 +8,7 @@ import { annotationsLogicType } from './annotationsLogicType'
 import { AnnotationScope, AnnotationType, InsightShortId } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
+import { getInsightId } from 'scenes/insights/utils'
 
 interface AnnotationsLogicProps {
     insightId?: InsightShortId
@@ -19,7 +20,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
     key: (props) => String(props.insightId || 'default'),
     connect: {
         actions: [annotationsModel, ['deleteGlobalAnnotation', 'createGlobalAnnotation']],
-        values: [annotationsModel, ['activeGlobalAnnotations']],
+        values: [annotationsModel, ['activeGlobalAnnotations'], userLogic, ['user']],
     },
     actions: () => ({
         createAnnotation: (content: string, date_marker: string, scope: AnnotationScope = AnnotationScope.Insight) => ({
@@ -47,8 +48,14 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
         annotations: {
             __default: [] as AnnotationType[],
             loadAnnotations: async () => {
+                const insightId = props.insightId ? await getInsightId(props.insightId) : undefined
+
+                if (!insightId) {
+                    return []
+                }
+
                 const params = {
-                    ...(props.insightId ? { dashboardItemId: props.insightId } : {}),
+                    ...(insightId ? { dashboardItemId: insightId } : {}),
                     scope: AnnotationScope.Insight,
                     deleted: false,
                 }
@@ -69,7 +76,6 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
                     date_marker: date_marker,
                     created_at: created_at.toISOString(),
                     updated_at: created_at.toISOString(),
-                    created_by: userLogic.values.user,
                     scope,
                 },
             ],
@@ -93,7 +99,6 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
                         date_marker: date_marker,
                         created_at: created_at.toISOString(),
                         updated_at: created_at.toISOString(),
-                        created_by: userLogic.values.user,
                         scope,
                     },
                 ],
@@ -135,11 +140,18 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
     }),
     listeners: ({ actions, props }) => ({
         createAnnotationNow: async ({ content, date_marker, created_at, scope }) => {
+            const insightId = props.insightId ? await getInsightId(props.insightId) : undefined
+            console.log('CREATE ANNOTATION NOW', insightId)
+
+            if (!insightId) {
+                throw new Error('Can only create annotations for saved insight')
+            }
+
             await api.create(`api/projects/${teamLogic.values.currentTeamId}/annotations`, {
                 content,
                 date_marker: dayjs(date_marker).toISOString(),
                 created_at: created_at.toISOString(),
-                dashboard_item: props.insightId,
+                dashboard_item: insightId,
                 scope,
             } as Partial<AnnotationType>)
             actions.loadAnnotations()

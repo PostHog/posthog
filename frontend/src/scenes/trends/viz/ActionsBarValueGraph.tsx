@@ -78,23 +78,23 @@ export function ActionsBarValueGraph({
             interval={filtersParam?.interval}
             onClick={
                 dashboardItemId || filtersParam.formula || !showPersonsModal
-                    ? null
+                    ? undefined
                     : (point) => {
                           const { dataset, value: pointValue, index } = point
-                          const action = dataset.actions[point.index]
-                          const label = dataset.labels[point.index]
+                          const action = dataset.actions?.[point.index]
+                          const label = dataset.labels?.[point.index]
                           const date_from = filtersParam?.date_from || ''
                           const date_to = filtersParam?.date_to || ''
-                          const breakdown_value = dataset.breakdownValues[point.index]
+                          const breakdown_value = dataset.breakdownValues?.[point.index]
                               ? dataset.breakdownValues[point.index]
                               : null
                           const params = {
                               action,
-                              label,
+                              label: label ?? '',
                               date_from,
                               date_to,
                               filters: filtersParam,
-                              breakdown_value,
+                              breakdown_value: breakdown_value ?? '',
                               pointValue,
                           }
                           if (dataset.persons_urls?.[index].url) {

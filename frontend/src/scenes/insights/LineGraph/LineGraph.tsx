@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import ReactDOM from 'react-dom'
 import { Provider } from 'react-redux'
-import { BuiltLogic, getContext, useActions, useValues } from 'kea'
+import { getContext, useActions, useValues } from 'kea'
 import {
     Chart,
     ChartDataset,
@@ -12,7 +12,10 @@ import {
     TooltipOptions,
     TooltipModel,
     TooltipItem,
+    ChartEvent,
+    ChartItem,
 } from 'chart.js'
+import { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs'
 import { compactNumber, lightenDarkenColor, noop, mapRange } from '~/lib/utils'
 import { getBarColorFromStatus, getChartColors, getGraphColors } from 'lib/colors'
@@ -23,23 +26,18 @@ import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import './LineGraph.scss'
 import { InsightTooltip } from '../InsightTooltip/InsightTooltip'
 import { dayjs } from 'lib/dayjs'
-import { AnnotationType, GraphPointPayload, GraphTypes, InsightShortId, IntervalType, TrendResult } from '~/types'
+import { AnnotationType, GraphDataset, GraphPointPayload, GraphTypes, InsightShortId, IntervalType } from '~/types'
 import { InsightLabel } from 'lib/components/InsightLabel'
 
 //--Chart Style Options--//
 console.log('CHART DEFAULTS', Chart.defaults)
 Chart.defaults.plugins.legend.display = false
-Chart.defaults.animation.duration = 0
+Chart.defaults.animation['duration'] = 0
 Chart.defaults.elements.line.tension = 0
 //--Chart Style Options--//
 
 interface LineGraphProps {
-    datasets: (ChartDataset<ChartType> &
-        Partial<Pick<TrendResult, 'count' | 'label' | 'days' | 'labels' | 'data' | 'compare'>> & {
-            id: number
-            dotted?: boolean
-            borderDash?: number[]
-        })[]
+    datasets: GraphDataset[]
     visibilityMap?: Record<string | number, any>
     labels: string[]
     color: string
@@ -48,7 +46,7 @@ interface LineGraphProps {
     onClick?: (payload: GraphPointPayload) => void
     ['data-attr']: string
     dashboardItemId?: InsightShortId | null
-    inSharedMode: boolean
+    inSharedMode?: boolean
     percentage?: boolean
     interval?: IntervalType
     totalValue?: number
@@ -67,7 +65,7 @@ export function LineGraph({
     onClick,
     ['data-attr']: dataAttr,
     dashboardItemId /* used only for annotations, not to init any other logic */,
-    inSharedMode,
+    inSharedMode = false,
     percentage = false,
     interval = undefined,
     totalValue,
@@ -83,15 +81,15 @@ export function LineGraph({
     const [enabled, setEnabled] = useState(false)
     const [focused, setFocused] = useState(false)
     const [annotationsFocused, setAnnotationsFocused] = useState(false)
-    const [labelIndex, setLabelIndex] = useState(null)
-    const [holdLabelIndex, setHoldLabelIndex] = useState(null)
-    const [selectedDayLabel, setSelectedDayLabel] = useState(null)
+    const [labelIndex, setLabelIndex] = useState<number | null>(null)
+    const [holdLabelIndex, setHoldLabelIndex] = useState<number | null>(null)
+    const [selectedDayLabel, setSelectedDayLabel] = useState<string | null>(null)
     const { createAnnotation, createAnnotationNow, updateDiffType, createGlobalAnnotation } = !inSharedMode
-        ? useActions(annotationsLogic({ insightId: dashboardItemId || undefined }) as BuiltLogic)
+        ? useActions(annotationsLogic({ insightId: dashboardItemId || undefined }))
         : { createAnnotation: noop, createAnnotationNow: noop, updateDiffType: noop, createGlobalAnnotation: noop }
 
     const { annotationsList, annotationsLoading } = !inSharedMode
-        ? useValues(annotationsLogic({ insightId: dashboardItemId || undefined }) as BuiltLogic)
+        ? useValues(annotationsLogic({ insightId: dashboardItemId || undefined }))
         : { annotationsList: [], annotationsLoading: false }
     const [leftExtent, setLeftExtent] = useState(0)
     const [boundaryInterval, setBoundaryInterval] = useState(0)
@@ -194,6 +192,7 @@ export function LineGraph({
             pointRadius: 0,
             pointHoverBorderWidth: 2,
             pointHitRadius: 8,
+            ...(type === 'histogram' ? { barPercentage: 1 } : {}),
             ...dataset,
             type: (type === 'horizontalBar' ? GraphTypes.Bar : type) as ChartType,
         }
@@ -266,7 +265,7 @@ export function LineGraph({
             itemSort: (a, b) => a.label.localeCompare(b.label),
         }
 
-        let options: ChartOptions = {
+        let options: ChartOptions & { plugins: { crosshair: CrosshairOptions } } = {
             responsive: true,
             maintainAspectRatio: false,
             scaleShowHorizontalLines: false,
@@ -293,6 +292,8 @@ export function LineGraph({
                         if (!chartRef.current) {
                             return
                         }
+
+                        console.log('TOOLTIPAlex', tooltip)
 
                         tooltipEl.classList.remove('above', 'below', 'no-transform')
                         tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
@@ -351,10 +352,11 @@ export function LineGraph({
                         tooltipEl.style.left = tooltipClientLeft + 'px'
                     },
                     callbacks: {
+                        // @ts-ignore: label callback is typed to return string | string[], but practically can return ReactNode
                         label(tooltipItem: TooltipItem<any>) {
                             console.log('TOOLTIP', tooltipItem, this)
                             const entityData = tooltipItem.dataset
-                            const tooltipDatasets = this.dataPoints.map((point) => point.dataset)
+                            const tooltipDatasets = this.dataPoints.map((point) => point.dataset as ChartDataset<any>)
                             if (entityData.dotted && !(tooltipItem.dataIndex === entityData.data.length - 1)) {
                                 return ''
                             }
@@ -367,7 +369,7 @@ export function LineGraph({
                             const actionObjKey = type === 'horizontalBar' ? 'actions' : 'action'
 
                             if (type === 'horizontalBar' && totalValue) {
-                                const perc = Math.round((tooltipItem.label / totalValue) * 100)
+                                const perc = Math.round((Number(tooltipItem.raw) / totalValue) * 100)
                                 value = `${tooltipItem.label.toLocaleString()} (${perc}%)`
                             }
 
@@ -376,10 +378,10 @@ export function LineGraph({
                             if (tooltipDatasets.find((item) => item[actionObjKey])) {
                                 // The above statement will always be true except in Sessions tab
                                 showCountedByTag = !!tooltipDatasets.find(
-                                    ({ [actionObjKey]: { math } }) => math && math !== 'total'
+                                    ({ [actionObjKey]: actionObj }) => actionObj?.math && actionObj.math !== 'total'
                                 )
                                 numberOfSeries = new Set(
-                                    tooltipDatasets.flatMap(({ [actionObjKey]: { order } }) => order)
+                                    tooltipDatasets.flatMap(({ [actionObjKey]: actionObj }) => actionObj?.order)
                                 ).size
                             }
 
@@ -409,7 +411,7 @@ export function LineGraph({
                         },
                     },
                 },
-                ...(type !== 'horizontalBar' && !datasets?.[0]?.status
+                ...(type !== 'horizontalBar'
                     ? {
                           crosshair: {
                               snap: {
@@ -432,22 +434,31 @@ export function LineGraph({
                       }),
             },
             hover: {
-                mode: 'nearestX',
-                axis: 'xy',
+                mode: 'nearest',
+                axis: 'x',
                 intersect: false,
-                onHover(evt: Event, _, chart) {
-                    const point = chart.getElementAtEvent(evt)
+            },
+            onHover(event: ChartEvent, _, chart: Chart) {
+                const nativeEvent = event.native
+                if (!nativeEvent) {
+                    return
+                }
+
+                const target = nativeEvent?.target as HTMLDivElement
+                const point = chart.getElementsAtEventForMode(nativeEvent, 'nearest', { intersect: true }, true)
+                if (target.style) {
                     if (onClick && point.length) {
-                        evt.target.style.cursor = 'pointer'
+                        target.style.cursor = 'pointer'
                     } else {
-                        evt.target.style.cursor = 'default'
+                        target.style.cursor = 'default'
                     }
-                    if (evt.type === 'mouseout') {
-                        setTooltipVisible(false)
-                    } else {
-                        setTooltipVisible(true)
-                    }
-                },
+                }
+
+                if (event.type === 'mouseout') {
+                    setTooltipVisible(false)
+                } else {
+                    setTooltipVisible(true)
+                }
             },
             onClick: (evt, _, chart) => {
                 const point = chart.getElementsAtEventForMode(
@@ -478,22 +489,22 @@ export function LineGraph({
             options.scales = {
                 x: {
                     min: 0,
-                    precision: 0,
                     beginAtZero: true,
                     stacked: true,
                     ticks: {
-                        color: colors.axisLabel,
+                        precision: 0,
+                        color: colors.axisLabel as string,
                     },
                 },
                 y: {
                     min: 0,
-                    precision: 0,
                     beginAtZero: true,
                     stacked: true,
                     ticks: {
-                        color: colors.axisLabel,
+                        precision: 0,
+                        color: colors.axisLabel as string,
                         callback: (value) => {
-                            return compactNumber(value)
+                            return compactNumber(Number(value))
                         },
                     },
                 },
@@ -504,53 +515,61 @@ export function LineGraph({
                     min: 0,
                     beginAtZero: true,
                     display: true,
-                    gridLines: { lineWidth: 0, color: colors.axisLine, zeroLineColor: colors.axis },
                     ticks: {
                         ...tickOptions,
                         padding: annotationsLoading || !annotationInRange ? 0 : 35,
                     },
+                    grid: {
+                        display: false,
+                        borderColor: colors.axisLine as string,
+                    },
                 },
                 y: {
                     min: 0,
-                    precision: 0,
                     beginAtZero: true,
                     display: true,
-                    gridLines: { color: colors.axisLine, zeroLineColor: colors.axis },
-                    ticks: percentage
-                        ? {
-                              callback: function (value) {
-                                  const fixedValue = value < 1 ? value.toFixed(2) : value.toFixed(0)
-                                  return `${fixedValue}%` // convert it to percentage
-                              },
-                          }
-                        : {
-                              ...tickOptions,
-                              callback: (value) => {
-                                  return compactNumber(value)
-                              },
-                          },
+                    ticks: {
+                        precision: 0,
+                        ...(percentage
+                            ? {
+                                  callback: function (value) {
+                                      const numVal = Number(value)
+                                      const fixedValue = numVal < 1 ? numVal.toFixed(2) : numVal.toFixed(0)
+                                      return `${fixedValue}%` // convert it to percentage
+                                  },
+                              }
+                            : {
+                                  ...tickOptions,
+                                  callback: (value) => {
+                                      return compactNumber(Number(value))
+                                  },
+                              }),
+                    },
+                    grid: {
+                        borderColor: colors.axisLine as string,
+                    },
                 },
             }
         } else if (type === 'horizontalBar') {
             options.scales = {
                 x: {
                     min: 0,
-                    precision: 0,
                     beginAtZero: true,
                     display: true,
                     ticks: {
                         ...tickOptions,
+                        precision: 0,
                         callback: (value) => {
-                            return compactNumber(value)
+                            return compactNumber(Number(value))
                         },
                     },
                 },
                 y: {
                     min: 0,
-                    precision: 0,
                     beginAtZero: true,
                     ticks: {
-                        color: colors.axisLabel,
+                        precision: 0,
+                        color: colors.axisLabel as string,
                     },
                 },
             }
@@ -561,36 +580,23 @@ export function LineGraph({
                 maintainAspectRatio: false,
                 hover: {
                     mode: 'index',
-                    onHover: options.hover.onHover,
                 },
+                onHover: options.onHover,
                 plugins: {
                     crosshair: false,
                 },
                 onClick: options.onClick,
             }
-        } else if (type === 'histogram') {
-            options = {
-                ...options,
-                barPercentage: 1,
-            }
         }
 
-        console.log(
-            'TYPE',
-            ['histogram', 'horizontalBar'].includes(type),
-            type,
-            options,
-            labels,
-            datasets,
-            ['histogram', 'horizontalBar'].includes(type) ? 'bar' : type
-        )
-
-        myLineChart.current = new Chart(myChartRef, {
+        myLineChart.current = new Chart(myChartRef as ChartItem, {
             type: (['histogram', 'horizontalBar'].includes(type) ? 'bar' : type) as ChartType,
             data: { labels, datasets },
             options,
         })
     }
+
+    console.log('LINEGRAPH', dashboardItemId)
 
     return (
         <div
@@ -630,17 +636,16 @@ export function LineGraph({
             <div className="annotations-root" ref={annotationsRoot} />
             {annotationsCondition &&
                 renderAnnotations({
-                    labeledDays: datasets[0].labels,
-                    dates: datasets[0].days,
+                    dates: datasets[0].days ?? [],
                     leftExtent,
                     interval: boundaryInterval,
                     topExtent,
-                    dashboardItemId,
+                    insightId: dashboardItemId || undefined,
                     currentDateMarker:
                         focused || annotationsFocused
                             ? selectedDayLabel
-                            : enabled
-                            ? datasets[0].days[labelIndex]
+                            : enabled && labelIndex
+                            ? datasets[0].days?.[labelIndex]
                             : null,
                     onClick: () => {
                         setFocused(false)
@@ -653,23 +658,28 @@ export function LineGraph({
                 })}
             {annotationsCondition && !annotationsFocused && (enabled || focused) && left >= 0 && (
                 <AnnotationMarker
-                    dashboardItemId={dashboardItemId}
-                    currentDateMarker={focused ? selectedDayLabel : datasets[0].days[labelIndex]}
+                    dashboardItemId={dashboardItemId || undefined}
+                    currentDateMarker={focused ? selectedDayLabel : labelIndex ? datasets[0].days?.[labelIndex] : null}
                     onClick={() => {
                         setFocused(true)
                         setHoldLeft(left)
                         setHoldLabelIndex(labelIndex)
-                        setSelectedDayLabel(datasets[0].days[labelIndex])
+                        setSelectedDayLabel(labelIndex ? datasets[0].days?.[labelIndex] ?? null : null)
                     }}
-                    getPopupContainer={() => annotationsRoot?.current}
+                    getPopupContainer={
+                        annotationsRoot?.current ? () => annotationsRoot.current as HTMLDivElement : undefined
+                    }
                     onCreateAnnotation={(textInput, applyAll) => {
-                        if (applyAll) {
-                            createGlobalAnnotation(textInput, datasets[0].days[holdLabelIndex], dashboardItemId)
-                        } else if (dashboardItemId) {
-                            createAnnotationNow(textInput, datasets[0].days[holdLabelIndex])
-                        } else {
-                            createAnnotation(textInput, datasets[0].days[holdLabelIndex])
-                            toast('This annotation will be saved if the graph is made into a dashboard item!')
+                        const date = holdLabelIndex ? datasets[0].days?.[holdLabelIndex] : null
+                        if (date) {
+                            if (applyAll) {
+                                createGlobalAnnotation(textInput, date, dashboardItemId || undefined)
+                            } else if (dashboardItemId) {
+                                createAnnotationNow(textInput, date)
+                            } else {
+                                createAnnotation(textInput, date)
+                                toast('This annotation will be saved if the graph is made into a dashboard item!')
+                            }
                         }
                     }}
                     onClose={() => setFocused(false)}

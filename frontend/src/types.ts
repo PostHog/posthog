@@ -22,7 +22,7 @@ import { PostHog } from 'posthog-js'
 import React from 'react'
 import { PopupProps } from 'lib/components/Popup/Popup'
 import { dayjs } from 'lib/dayjs'
-import { ChartDataSets, InteractionItem } from 'chart.js'
+import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -972,6 +972,7 @@ export interface ActionFilter extends EntityFilter {
 
 export interface TrendResult {
     action: ActionFilter
+    actions?: ActionFilter
     count: number
     data: number[]
     days: string[]
@@ -1475,9 +1476,32 @@ export enum GraphTypes {
     Pie = 'doughnut',
 }
 
+export type GraphDataset = ChartDataset<ChartType> &
+    Partial<
+        Pick<
+            TrendResult,
+            | 'count'
+            | 'label'
+            | 'days'
+            | 'labels'
+            | 'data'
+            | 'compare'
+            | 'status'
+            | 'action'
+            | 'actions'
+            | 'breakdown_value'
+        >
+    > & {
+        id: number
+        dotted?: boolean
+        borderDash?: number[]
+        breakdownValues?: string[]
+        persons_urls?: { url: string }[]
+    }
+
 export interface GraphPointPayload {
     point: InteractionItem
-    dataset: ChartDataSets
+    dataset: GraphDataset
     index: number
     label?: string
     day?: string

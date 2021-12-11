@@ -6,7 +6,7 @@ import { LineGraph } from '../../insights/LineGraph/LineGraph'
 import { getChartColors } from 'lib/colors'
 import { useValues, useActions } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { ChartParams, GraphTypes, TrendResultWithAggregate } from '~/types'
+import { ChartParams, GraphTypes, TrendResultWithAggregate, GraphDataset } from '~/types'
 import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -64,7 +64,7 @@ export function ActionsPie({
                         data-attr="trend-pie-graph"
                         color={color}
                         type={GraphTypes.Pie}
-                        datasets={data}
+                        datasets={data as GraphDataset[]}
                         labels={data[0].labels}
                         inSharedMode={!!inSharedMode}
                         dashboardItemId={dashboardItemId}
@@ -73,20 +73,20 @@ export function ActionsPie({
                                 ? undefined
                                 : (payload) => {
                                       const { dataset, index } = payload
-                                      const action = dataset.actions[index]
-                                      const label = dataset.labels[index]
+                                      const action = dataset.actions?.[index]
+                                      const label = dataset.labels?.[index]
                                       const date_from = filtersParam.date_from || ''
                                       const date_to = filtersParam.date_to || ''
-                                      const breakdown_value = dataset.breakdownValues[index]
+                                      const breakdown_value = dataset.breakdownValues?.[index]
                                           ? dataset.breakdownValues[index]
                                           : null
                                       const params = {
                                           action,
-                                          label,
+                                          label: label ?? '',
                                           date_from,
                                           date_to,
                                           filters: filtersParam,
-                                          breakdown_value,
+                                          breakdown_value: breakdown_value ?? '',
                                       }
                                       if (dataset.persons_urls?.[index].url) {
                                           loadPeopleFromUrl({

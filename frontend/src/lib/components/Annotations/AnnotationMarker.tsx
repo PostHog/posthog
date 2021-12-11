@@ -9,7 +9,7 @@ import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import { dashboardColors } from 'lib/colors'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Tooltip } from 'lib/components/Tooltip'
-import { AnnotationScope, AnnotationType } from '~/types'
+import { AnnotationScope, AnnotationType, InsightShortId } from '~/types'
 import { styles } from '~/vars'
 import { teamLogic } from 'scenes/teamLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -31,12 +31,12 @@ function coordinateContains(e: MouseEvent, element: DOMRect): boolean {
 }
 
 interface AnnotationMarkerProps {
-    elementId: string
+    elementId?: string
     label: string
-    annotations: AnnotationType[]
+    annotations?: AnnotationType[]
     left: number
     top: number
-    onCreate: (textInput: string, applyAll: boolean) => void
+    onCreate?: (textInput: string, applyAll: boolean) => void
     onDelete?: (annotation: AnnotationType) => void
     onClick?: () => void
     onClose?: () => void
@@ -44,18 +44,18 @@ interface AnnotationMarkerProps {
     size?: number
     color: string | null
     accessoryColor: string | null
-    insightId?: number
-    currentDateMarker: string
+    dashboardItemId?: InsightShortId
+    currentDateMarker?: string | null
     dynamic?: boolean
     graphColor: string | null
-    index: number
+    index?: number
     getPopupContainer?: () => HTMLElement
 }
 
 export function AnnotationMarker({
     elementId,
     label,
-    annotations,
+    annotations = [],
     left,
     top,
     onCreate,
@@ -64,7 +64,7 @@ export function AnnotationMarker({
     size = 25,
     color,
     accessoryColor,
-    insightId,
+    dashboardItemId,
     currentDateMarker,
     onClose,
     dynamic,
@@ -96,7 +96,8 @@ export function AnnotationMarker({
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
-    const { diffType, groupedAnnotations } = useValues(annotationsLogic({ insightId: insightId }))
+    console.log('INSIGHTID', dashboardItemId)
+    const { diffType, groupedAnnotations } = useValues(annotationsLogic({ insightId: dashboardItemId || undefined }))
 
     function closePopup(): void {
         setFocused(false)
@@ -171,8 +172,9 @@ export function AnnotationMarker({
                                 <Button
                                     type="primary"
                                     onClick={() => {
+                                        console.log('CLLICK', onCreateAnnotation, textInput, applyAll)
+                                        onCreateAnnotation && onCreateAnnotation(textInput, applyAll)
                                         closePopup()
-                                        onCreateAnnotation?.(textInput, applyAll)
                                         setTextInput('')
                                     }}
                                 >
@@ -251,7 +253,8 @@ export function AnnotationMarker({
                                         <Button
                                             type="primary"
                                             onClick={() => {
-                                                onCreate(textInput, applyAll)
+                                                console.log('CLLICK')
+                                                onCreate && onCreate(textInput, applyAll)
                                                 setTextInput('')
                                                 setTextAreaVisible(false)
                                             }}
@@ -265,6 +268,7 @@ export function AnnotationMarker({
                                     <Button
                                         type="primary"
                                         onClick={() => {
+                                            console.log('CLLICK')
                                             setTextAreaVisible(true)
                                         }}
                                     >
@@ -319,7 +323,7 @@ export function AnnotationMarker({
                 onMouseOver={() => setHovered(true)}
                 onMouseLeave={() => setHovered(false)}
             >
-                {annotations ? (
+                {(annotations?.length || 0) > 0 ? (
                     <span
                         style={{
                             color: focused || hovered || elementId === currentDateMarker ? _accessoryColor : _color,
