@@ -50,7 +50,7 @@ export function FunnelStepTable(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const isNewVertical =
         featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] && barGraphLayout === FunnelLayout.vertical
-    const showLabels = (visibleStepsWithConversionMetrics?.[0]?.nested_breakdown?.length ?? 0) < 6
+    const showLabels = false // (visibleStepsWithConversionMetrics?.[0]?.nested_breakdown?.length ?? 0) < 6
 
     function getColumns(): ColumnsType<FlattenedFunnelStep> | ColumnsType<FlattenedFunnelStepByBreakdown> {
         if (isNewVertical) {
