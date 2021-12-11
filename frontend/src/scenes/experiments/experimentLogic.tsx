@@ -1,14 +1,18 @@
 import { kea } from 'kea'
+import React from 'react'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { errorToast } from 'lib/utils'
 import { generateRandomAnimal } from 'lib/utils/randomAnimal'
+import { toast } from 'react-toastify'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { Experiment, InsightType, InsightModel, FunnelVizType } from '~/types'
 
 import { experimentLogicType } from './experimentLogicType'
-import { experimentsLogic } from './experimentsLogic'
+import { urls } from 'scenes/urls'
+import { router } from 'kea-router'
 
 export const experimentLogic = kea<experimentLogicType>({
     path: ['scenes', 'experiment', 'experimentLogic'],
@@ -50,11 +54,34 @@ export const experimentLogic = kea<experimentLogicType>({
     },
     listeners: ({ values, actions }) => ({
         createExperiment: async ({ draft }) => {
-            await api.create(`api/projects/${values.currentTeamId}/experiments`, {
-                ...values.newExperimentData,
-                ...(!draft && { start_date: dayjs() }),
-            })
-            experimentsLogic.actions.loadExperiments()
+            try {
+                await api.create(`api/projects/${values.currentTeamId}/experiments`, {
+                    ...values.newExperimentData,
+                    ...(!draft && { start_date: dayjs() }),
+                })
+            } catch (error) {
+                errorToast(
+                    'Error creating your experiment',
+                    'Attempting to create this experiment returned an error:',
+                    error.status !== 0
+                        ? error.detail
+                        : "Check your internet connection and make sure you don't have an extension blocking our requests.",
+                    error.code
+                )
+                return
+            }
+            toast.success(
+                <div data-attr="success-toast">
+                    <h1>Experimentation created successfully!</h1>
+                    <p>Click here to go back to the feature flag list.</p>
+                </div>,
+                {
+                    onClick: () => {
+                        router.actions.push(urls.experiments())
+                    },
+                    closeOnClick: true,
+                }
+            )
         },
         createNewExperimentFunnel: async () => {
             const newInsight = {
@@ -107,8 +134,5 @@ export const experimentLogic = kea<experimentLogicType>({
                 }
             }
         },
-    }),
-    actionToUrl: () => ({
-        createExperiment: () => '/experiments',
     }),
 })
