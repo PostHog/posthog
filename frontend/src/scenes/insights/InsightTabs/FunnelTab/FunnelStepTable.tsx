@@ -44,13 +44,14 @@ export function FunnelStepTable(): JSX.Element | null {
         flattenedBreakdowns,
         aggregationTargetLabel,
         isModalActive,
+        filters,
     } = useValues(logic)
     const { openPersonsModalForStep, toggleVisibilityByBreakdown, setHiddenById } = useActions(logic)
     const { cohorts } = useValues(cohortsModel)
     const { featureFlags } = useValues(featureFlagLogic)
     const isNewVertical =
         featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] && barGraphLayout === FunnelLayout.vertical
-    const showLabels = (visibleStepsWithConversionMetrics?.[0]?.nested_breakdown?.length ?? 0) < 6
+    const showLabels = false // #7653 - replaces (visibleStepsWithConversionMetrics?.[0]?.nested_breakdown?.length ?? 0) < 6
 
     function getColumns(): ColumnsType<FlattenedFunnelStep> | ColumnsType<FlattenedFunnelStepByBreakdown> {
         if (isNewVertical) {
@@ -191,7 +192,9 @@ export function FunnelStepTable(): JSX.Element | null {
                             renderSubColumnTitle(
                                 <>
                                     <UserOutlined
-                                        title={`Unique ${aggregationTargetLabel.plural} who completed this step`}
+                                        title={`Unique ${aggregationTargetLabel.plural} ${
+                                            filters.aggregation_group_type_index != undefined ? 'that' : 'who'
+                                        } completed this step`}
                                     />{' '}
                                     Completed
                                 </>

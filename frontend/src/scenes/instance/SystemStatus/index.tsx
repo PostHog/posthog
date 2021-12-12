@@ -6,7 +6,7 @@ import { systemStatusLogic, TabName } from './systemStatusLogic'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { IconExternalLink } from 'lib/components/icons'
+import { IconOpenInNew } from 'lib/components/icons'
 import { OverviewTab } from 'scenes/instance/SystemStatus/OverviewTab'
 import { InternalMetricsTab } from 'scenes/instance/SystemStatus/InternalMetricsTab'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -56,7 +56,7 @@ export function SystemStatus(): JSX.Element {
                                 rel="noopener"
                                 href="https://posthog.com/docs/configuring-posthog/environment-variables?utm_medium=in-product&utm_campaign=system-status-site-url-misconfig"
                             >
-                                Learn more <IconExternalLink />
+                                Learn more <IconOpenInNew />
                             </a>
                         </>
                     }
