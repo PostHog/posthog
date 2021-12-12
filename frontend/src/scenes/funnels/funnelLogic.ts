@@ -750,6 +750,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             (steps): FlattenedFunnelStep[] => {
                 const flattenedSteps: FlattenedFunnelStep[] = []
                 steps.forEach((step) => {
+                    const isBreakdownParent = !!step.nested_breakdown?.length
                     flattenedSteps.push({
                         ...step,
                         rowKey: step.order,
@@ -758,15 +759,18 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                                   getVisibilityIndex(step, breakdownStep.breakdown_value)
                               )
                             : [],
-                        isBreakdownParent: !!step.nested_breakdown?.length,
+                        isBreakdownParent,
+                        breakdown_value: isBreakdownParent ? ['Baseline'] : step.breakdown_value,
+                        breakdown: isBreakdownParent ? ['baseline'] : step.breakdown,
                     })
                     if (step.nested_breakdown?.length) {
                         step.nested_breakdown.forEach((breakdownStep, i) => {
                             flattenedSteps.push({
                                 ...breakdownStep,
                                 order: step.order,
-                                rowKey: getVisibilityIndex(step, breakdownStep.breakdown_value),
                                 breakdownIndex: i,
+                                rowKey: getVisibilityIndex(step, breakdownStep.breakdown_value),
+                                isBreakdownParent: false,
                             })
                         })
                     }

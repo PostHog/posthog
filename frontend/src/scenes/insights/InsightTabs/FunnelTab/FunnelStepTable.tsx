@@ -424,36 +424,36 @@ export function FunnelStepTable(): JSX.Element | null {
         _columns.push({
             title: 'Step',
             render: function RenderLabel({}, step: FlattenedFunnelStep): JSX.Element {
-                const isBreakdownChild = !!step.breakdown && !step.isBreakdownParent
                 const color = getStepColor(step, !!step.breakdown)
 
                 return (
                     <InsightLabel
                         seriesColor={color}
                         fallbackName={
-                            isBreakdownChild && isBreakdownChildType(step.breakdown)
+                            !step.isBreakdownParent && isBreakdownChildType(step.breakdown)
                                 ? formatBreakdownLabel(cohorts, step.breakdown)
                                 : step.name
                         }
                         action={
-                            isBreakdownChild && isBreakdownChildType(step.breakdown)
+                            !step.isBreakdownParent && isBreakdownChildType(step.breakdown)
                                 ? undefined
                                 : getActionFilterFromFunnelStep(step)
                         }
-                        hasMultipleSeries={!isBreakdownChild && steps.length > 1}
+                        hasMultipleSeries={step.isBreakdownParent && steps.length > 1}
                         breakdownValue={
                             step.breakdown === ''
                                 ? 'None'
                                 : isBreakdownChildType(step.breakdown)
-                                ? step.breakdown
+                                ? step.breakdown_value
                                 : undefined
                         }
-                        hideBreakdown={!isBreakdownChild}
+                        hideBreakdown={step.isBreakdownParent}
                         iconSize={IconSize.Small}
                         iconStyle={{ marginRight: 12 }}
                         hideIcon
                         allowWrap
                         useCustomName
+                        showEventName={step.isBreakdownParent}
                     />
                 )
             },
