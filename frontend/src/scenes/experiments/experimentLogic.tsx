@@ -20,7 +20,7 @@ export const experimentLogic = kea<experimentLogicType>({
     connect: { values: [teamLogic, ['currentTeamId']] },
     actions: {
         setExperiment: (experiment: Experiment) => ({ experiment }),
-        createExperiment: (draft: boolean) => ({ draft }),
+        createExperiment: (draft?: boolean) => ({ draft }),
         setExperimentFunnel: (funnel: InsightModel) => ({ funnel }),
         createNewExperimentFunnel: true,
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
