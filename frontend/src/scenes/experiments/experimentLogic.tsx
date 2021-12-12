@@ -22,7 +22,7 @@ export const experimentLogic = kea<experimentLogicType>({
         setExperiment: (experiment: Experiment) => ({ experiment }),
         createExperiment: (draft?: boolean) => ({ draft }),
         setExperimentFunnel: (funnel: InsightModel) => ({ funnel }),
-        createNewExperimentFunnel: true,
+        createNewExperimentFunnel: (filters?: Partial<FilterType>) => ({ filters }),
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
         setExperimentId: (experimentId: number | 'new') => ({ experimentId }),
         setNewExperimentData: (experimentData: Partial<Experiment>) => ({ experimentData }),
@@ -104,12 +104,16 @@ export const experimentLogic = kea<experimentLogicType>({
                 }
             )
         },
-        createNewExperimentFunnel: async () => {
+        createNewExperimentFunnel: async ({ filters }) => {
             const newInsight = {
                 name: generateRandomAnimal(),
                 description: '',
                 tags: [],
-                filters: cleanFilters({ insight: InsightType.FUNNELS, funnel_viz_type: FunnelVizType.Steps }),
+                filters: cleanFilters({
+                    insight: InsightType.FUNNELS,
+                    funnel_viz_type: FunnelVizType.Steps,
+                    ...filters,
+                }),
                 result: null,
             }
             const createdInsight: InsightModel = await api.create(
@@ -123,6 +127,8 @@ export const experimentLogic = kea<experimentLogicType>({
         },
         loadExperimentSuccess: ({ experimentData }) => {
             if (!experimentData?.start_date) {
+                // loading a draft mode experiment
+                actions.createNewExperimentFunnel(experimentData?.filters)
                 actions.setPage(2)
                 actions.setNewExperimentData({ ...experimentData })
             }
