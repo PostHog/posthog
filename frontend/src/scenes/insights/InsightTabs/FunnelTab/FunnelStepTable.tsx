@@ -44,6 +44,7 @@ export function FunnelStepTable(): JSX.Element | null {
         flattenedBreakdowns,
         aggregationTargetLabel,
         isModalActive,
+        filters,
     } = useValues(logic)
     const { openPersonsModalForStep, toggleVisibilityByBreakdown, setHiddenById } = useActions(logic)
     const { cohorts } = useValues(cohortsModel)
@@ -191,7 +192,9 @@ export function FunnelStepTable(): JSX.Element | null {
                             renderSubColumnTitle(
                                 <>
                                     <UserOutlined
-                                        title={`Unique ${aggregationTargetLabel.plural} who completed this step`}
+                                        title={`Unique ${aggregationTargetLabel.plural} ${
+                                            filters.aggregation_group_type_index != undefined ? 'that' : 'who'
+                                        } completed this step`}
                                     />{' '}
                                     Completed
                                 </>

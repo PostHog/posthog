@@ -134,12 +134,13 @@ describe('isURL()', () => {
         expect(isURL('https://www.posthog.com')).toEqual(true)
         expect(isURL('http://www.posthog.com')).toEqual(true)
         expect(isURL('http://www.posthog.com:8000/images')).toEqual(true)
+        expect(isURL('http://localhost:8000/login?next=/insights')).toEqual(true)
+        expect(isURL('http://localhost:8000/events?properties=%5B%5D')).toEqual(true)
     })
 
     it('recognizes non-URLs propertly', () => {
         expect(isURL('1234567890')).toEqual(false)
         expect(isURL('www.posthog')).toEqual(false)
-        expect(isURL('http://posthog')).toEqual(false)
         expect(isURL('-.posthog')).toEqual(false)
         expect(isURL('posthog.3')).toEqual(false)
         expect(isURL(1)).toEqual(false)

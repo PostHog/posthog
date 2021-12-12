@@ -1,4 +1,4 @@
-import { PersonType } from '~/types'
+import { PersonActorType, PersonType } from '~/types'
 import React from 'react'
 import './PersonHeader.scss'
 import { Link } from 'lib/components/Link'
@@ -11,7 +11,7 @@ export interface PersonHeaderProps {
     noLink?: boolean
 }
 
-export const asDisplay = (person: Partial<PersonType> | null | undefined): string => {
+export const asDisplay = (person: Partial<PersonType> | PersonActorType | null | undefined): string => {
     let displayId
     const propertyIdentifier = person?.properties
         ? person.properties.email || person.properties.name || person.properties.username
