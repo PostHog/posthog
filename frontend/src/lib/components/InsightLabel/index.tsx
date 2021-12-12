@@ -153,7 +153,7 @@ export function InsightLabel({
                         <Space direction={'horizontal'} wrap={true}>
                             {breakdownValue.map((bv) => (
                                 <Tag className="tag-pill" key={bv} closable={false}>
-                                    <Typography.Text ellipsis={{ tooltip: bv }} style={{ maxWidth: 400 }}>
+                                    <Typography.Text ellipsis={{ tooltip: bv }} style={{ maxWidth: 165 }}>
                                         {bv}
                                     </Typography.Text>
                                 </Tag>
