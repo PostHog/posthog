@@ -110,17 +110,43 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
 
     let properties_local: string[] = []
 
-    const events = Array.isArray(filters.events) ? filters.events : []
-    for (const event of events) {
-        properties_local = properties_local.concat(flattenProperties(event.properties || []))
-    }
+    // // If we're aggregating this query by groups
+    // properties.aggregating_by_groups = filters.aggregation_group_type_index != undefined
+    // // If groups are being used in this query
+    // properties.using_groups =
+    //     hasGroupProperties(filters.properties) || filters.breakdown_group_type_index != undefined
 
-    const actions = Array.isArray(filters.actions) ? filters.actions : []
-    for (const action of actions) {
-        properties_local = properties_local.concat(flattenProperties(action.properties || []))
-    }
+    // let totalEventActionFilters = 0
+    // const entities = (filters.events || []).concat(filters.actions || [])
+    // entities.forEach((entity) => {
+    //     if (entity.properties?.length) {
+    //         totalEventActionFilters += entity.properties.length
+    //         properties.using_groups = properties.using_groups || hasGroupProperties(entity.properties)
+    //     }
+    //     if (entity.math_group_type_index != undefined) {
+    //         properties.aggregating_by_groups = true
+    //     }
+    // })
+    // properties.using_groups = properties.using_groups || properties.aggregating_by_groups
 
     const properties = Array.isArray(filters.properties) ? filters.properties : []
+    const events = Array.isArray(filters.events) ? filters.events : []
+    const actions = Array.isArray(filters.actions) ? filters.actions : []
+    const entities = events.concat(actions)
+
+    // If we're aggregating this query by groups
+    let aggregating_by_groups = filters.aggregation_group_type_index != undefined
+    // If groups are being used in this query
+    let using_groups = hasGroupProperties(filters.properties) || filters.breakdown_group_type_index != undefined
+
+    for (const entity of entities) {
+        properties_local = properties_local.concat(flattenProperties(entity.properties || []))
+
+        using_groups = using_groups || hasGroupProperties(entity.properties || [])
+        if (entity.math_group_type_index != undefined) {
+            aggregating_by_groups = true
+        }
+    }
     const properties_global = flattenProperties(properties)
 
     return {
@@ -142,6 +168,8 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
         properties_local,
         properties_local_custom_count: properties_local.filter((item) => item === 'custom').length,
         properties_all: properties_global.concat(properties_local), // Global and local properties together
+        aggregating_by_groups,
+        using_groups: using_groups || aggregating_by_groups,
     }
 }
 
@@ -375,24 +403,14 @@ export const eventUsageLogic = kea<
             }
 
             properties.total_event_actions_count = (properties.events_count || 0) + (properties.actions_count || 0)
-            // If we're aggregating this query by groups
-            properties.aggregating_by_groups = filters.aggregation_group_type_index != undefined
-            // If groups are being used in this query
-            properties.using_groups =
-                hasGroupProperties(filters.properties) || filters.breakdown_group_type_index != undefined
 
             let totalEventActionFilters = 0
             const entities = (filters.events || []).concat(filters.actions || [])
             entities.forEach((entity) => {
                 if (entity.properties?.length) {
                     totalEventActionFilters += entity.properties.length
-                    properties.using_groups = properties.using_groups || hasGroupProperties(entity.properties)
-                }
-                if (entity.math_group_type_index != undefined) {
-                    properties.aggregating_by_groups = true
                 }
             })
-            properties.using_groups = properties.using_groups || properties.aggregating_by_groups
 
             // The total # of filters applied on events and actions.
             properties.total_event_action_filters_count = totalEventActionFilters
