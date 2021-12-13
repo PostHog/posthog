@@ -20,9 +20,10 @@ from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.utils import UUIDT
+from posthog.settings import TEST
 from posthog.utils import is_clickhouse_enabled
 
-if is_clickhouse_enabled():
+if is_clickhouse_enabled() and TEST:
 
     @receiver(post_save, sender=Person)
     def person_created(sender, instance: Person, created, **kwargs):
