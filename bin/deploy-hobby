@@ -56,8 +56,7 @@ rm -rf compose
 mkdir -p compose
 cat > compose/start <<EOF
 #!/bin/bash
-python manage.py migrate
-python manage.py migrate_clickhouse
+./bin/migrate
 ./bin/docker-server
 ./bin/docker-frontend
 EOF
