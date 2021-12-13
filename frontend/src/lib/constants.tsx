@@ -90,6 +90,7 @@ export const FEATURE_FLAGS = {
     RETENTION_BREAKDOWN: 'retention-breakdown', // owner: @hazzadous
     STALE_EVENTS: 'stale-events', // owner: @paolodamico
     INSIGHT_LEGENDS: 'insight-legends', // owner @alexkim205
+    QUERY_EVENTS_BY_DATETIME: '6619-query-events-by-date', // owner @pauldambra
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

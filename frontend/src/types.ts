@@ -295,6 +295,8 @@ export enum PropertyOperator {
     LessThan = 'lt',
     IsSet = 'is_set',
     IsNotSet = 'is_not_set',
+    IsBefore = 'is_before',
+    IsAfter = 'is_after',
 }
 
 export enum SavedInsightsTabs {

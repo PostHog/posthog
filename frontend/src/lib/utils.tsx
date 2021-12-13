@@ -366,6 +366,8 @@ export const operatorMap: Record<string, string> = {
     lt: '< lower than',
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
+    is_before: '< before',
+    is_after: '> after',
 }
 
 export function isOperatorMulti(operator: string): boolean {
