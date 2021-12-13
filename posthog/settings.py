@@ -321,6 +321,8 @@ INSTALLED_APPS = [
     "social_django",
     "django_filters",
     "axes",
+    "constance",
+    "constance.backends.database"
 ]
 
 
@@ -753,3 +755,15 @@ if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
     SERVICE_VERSION_REQUIREMENTS = SERVICE_VERSION_REQUIREMENTS + [
         ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0,<21.7.0"),
     ]
+
+
+## Dynamic configs settings
+
+CONSTANCE_BACKEND = 'constance.backends.database.DatabaseBackend'
+
+CONSTANCE_DATABASE_PREFIX = 'constance:posthog:'
+
+CONSTANCE_CONFIG = {
+    'MATERIALIZED_COLUMNS_ENABLED': (True, 'Whether materialized columns should be,',
+                                     ' created or used at query time', bool),
+}
