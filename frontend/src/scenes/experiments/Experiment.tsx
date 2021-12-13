@@ -25,12 +25,11 @@ export function Experiment(): JSX.Element {
         newExperimentData,
         experimentId,
         experimentData,
-        experimentFunnel,
+        experimentFunnelId,
         minimimumDetectableChange,
         experimentFunnelConversionRate,
         recommendedSampleSize,
         expectedRunningTime,
-        insight,
     } = useValues(experimentLogic)
     const { setNewExperimentData, createExperiment, setFilters } = useActions(experimentLogic)
     const [form] = Form.useForm()
@@ -40,12 +39,16 @@ export function Experiment(): JSX.Element {
 
     const { insightProps } = useValues(
         insightLogic({
-            dashboardItemId: experimentFunnel?.short_id,
-            filters: experimentFunnel?.filters,
+            dashboardItemId: experimentFunnelId,
             syncWithUrl: false,
         })
     )
-    const { isStepsEmpty, filterSteps, filters } = useValues(funnelLogic(insightProps))
+    const { isStepsEmpty, filterSteps, filters, results, conversionMetrics } = useValues(funnelLogic(insightProps))
+
+    const conversionRate = conversionMetrics.totalRate * 100
+    const entrants = results[0]?.count
+    const rate = experimentFunnelConversionRate
+    console.log('conv rate: ', conversionRate, minimimumDetectableChange, entrants, rate)
 
     return (
         <>
@@ -139,8 +142,7 @@ export function Experiment(): JSX.Element {
                                     <BindLogic
                                         logic={insightLogic}
                                         props={{
-                                            dashboardItemId: experimentFunnel?.short_id,
-                                            filters: experimentFunnel?.filters,
+                                            dashboardItemId: experimentFunnelId,
                                             syncWithUrl: false,
                                         }}
                                     >
@@ -209,24 +211,19 @@ export function Experiment(): JSX.Element {
                                                 setNewExperimentData({
                                                     parameters: { minimum_detectable_effect: value },
                                                 })
-                                                console.log(insight?.result)
                                             }}
                                         />
                                         <div>
                                             This means you don't care about which variant you choose if the new
-                                            conversion rate is between{' '}
-                                            {experimentFunnelConversionRate(experimentFunnel?.result) -
-                                                minimimumDetectableChange}
-                                            % and{' '}
-                                            {experimentFunnelConversionRate(experimentFunnel?.result) +
-                                                minimimumDetectableChange}
-                                            %
+                                            conversion rate is between {conversionRate - minimimumDetectableChange}% and{' '}
+                                            {conversionRate + minimimumDetectableChange}%
                                         </div>
                                     </Col>
                                     <Col span={12}>
                                         Based on the threshold of caring and the persons selection above, we recommend
-                                        running this experiment on {recommendedSampleSize} people. That means{' '}
-                                        {expectedRunningTime} days.
+                                        running this experiment on {recommendedSampleSize(conversionRate)} people. That
+                                        means {expectedRunningTime(entrants, recommendedSampleSize(conversionRate))}{' '}
+                                        days.
                                     </Col>
                                 </Row>
                                 <Row justify="space-between">

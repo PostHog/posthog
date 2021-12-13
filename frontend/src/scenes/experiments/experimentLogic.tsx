@@ -3,10 +3,10 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { generateRandomAnimal } from 'lib/utils/randomAnimal'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { findInsightFromMountedLogic } from 'scenes/insights/utils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
-import { Experiment, InsightType, InsightModel, FunnelVizType, FunnelStep } from '~/types'
+import { urls } from 'scenes/urls'
+import { Experiment, InsightType, InsightModel, FunnelVizType, Breadcrumb, InsightShortId } from '~/types'
 
 import { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
@@ -17,7 +17,7 @@ export const experimentLogic = kea<experimentLogicType>({
     actions: {
         setExperiment: (experiment: Experiment) => ({ experiment }),
         createExperiment: (draft?: boolean) => ({ draft }),
-        setExperimentFunnel: (funnel: InsightModel) => ({ funnel }),
+        setExperimentFunnelId: (shortId: InsightShortId) => ({ shortId }),
         createNewExperimentFunnel: true,
         setFilters: (filters) => ({ filters }),
         setExperimentId: (experimentId: number | 'new') => ({ experimentId }),
@@ -38,15 +38,14 @@ export const experimentLogic = kea<experimentLogicType>({
                         const newFilters = { ...vals?.filters, ...experimentData.filters }
                         return { ...vals, ...experimentData, filters: newFilters }
                     }
-                    console.log(experimentData)
                     return { ...vals, ...experimentData }
                 },
             },
         ],
-        experimentFunnel: [
-            null as InsightModel | null,
+        experimentFunnelId: [
+            null as InsightShortId | null,
             {
-                setExperimentFunnel: (_, { funnel }) => funnel,
+                setExperimentFunnelId: (_, { shortId }) => shortId,
             },
         ],
     },
@@ -70,10 +69,10 @@ export const experimentLogic = kea<experimentLogicType>({
                 `api/projects/${teamLogic.values.currentTeamId}/insights`,
                 newInsight
             )
-            actions.setExperimentFunnel(createdInsight)
+            actions.setExperimentFunnelId(createdInsight.short_id)
         },
         setFilters: ({ filters }) => {
-            funnelLogic.findMounted({ dashboardItemId: values.experimentFunnel?.short_id })?.actions.setFilters(filters)
+            funnelLogic.findMounted({ dashboardItemId: values.experimentFunnelId })?.actions.setFilters(filters)
         },
     }),
     loaders: ({ values }) => ({
@@ -92,48 +91,68 @@ export const experimentLogic = kea<experimentLogicType>({
             },
         ],
     }),
-    selectors: {
+    selectors: ({ values }) => ({
+        breadcrumbs: [
+            (s) => [s.experimentData, s.experimentId],
+            (experimentData, experimentId): Breadcrumb[] => [
+                {
+                    name: 'Experiments',
+                    path: urls.experiments(),
+                },
+                {
+                    name: experimentData?.name || 'New Experiment',
+                    path: urls.experiment(experimentId || 'new'),
+                },
+            ],
+        ],
+        funnel: [
+            (s) => [
+                funnelLogic({ dashboardItemId: values.experimentFunnelId, syncWithUrl: false }).selectors.results,
+                s.newExperimentData,
+            ],
+            (results) => {
+                // eslint-disable-line
+                const newResults = funnelLogic.findMounted({ dashboardItemId: values.experimentFunnelId })?.values
+                    .results // valid results
+                const newResultsWithoutFound = funnelLogic({
+                    dashboardItemId: values.experimentFunnelId,
+                    syncWithUrl: false,
+                })?.values.results // valid results
+                console.log('id: ', values.experimentFunnelId, results, newResults, newResultsWithoutFound)
+                // results is empty??
+                return results
+            },
+        ],
         minimimumDetectableChange: [
             (s) => [s.newExperimentData],
             (newExperimentData): number => {
-                console.log('changing med', newExperimentData)
-                return newExperimentData?.parameters?.minimum_detectable_change || 5
-            },
-        ],
-        insight: [
-            (s) => [s.experimentFunnel],
-            (experimentFunnel) => {
-                if (!experimentFunnel?.short_id) {return undefined}
-
-                const insight = findInsightFromMountedLogic(experimentFunnel.short_id, undefined)
-                console.log(insight?.result)
-                return insight
+                const med = newExperimentData?.parameters?.minimum_detectable_effect || 5
+                return med
             },
         ],
         experimentFunnelConversionRate: [
-            (s) => [s.experimentFunnel],
-            (experimentFunnel) => (experimentResult: FunnelStep[]) => {
-                console.log(experimentFunnel)
-                return experimentResult[0]?.average_conversion_time || 20
+            (s) => [s.funnel],
+            (funnelResult): number => {
+                console.log('conversion rate change: ', funnelResult)
+                return funnelResult?.[0]?.average_conversion_time || 20
             },
         ],
         recommendedSampleSize: [
-            (s) => [s.experimentFunnel, s.minimimumDetectableChange],
-            (funnel, mde): number => {
-                console.log(funnel, mde)
-                const conversionRate = funnel?.result?.slice[-1]?.average_conversion_time || 20
+            (s) => [s.minimimumDetectableChange],
+            (mde) => (conversionRate: number) => {
                 return (1600 * conversionRate * (1 - conversionRate / 100)) / (mde * mde)
             },
         ],
         expectedRunningTime: [
-            (s) => [s.experimentFunnel, s.recommendedSampleSize],
-            (funnel, sampleSize): number => {
-                const funnelEntrants = funnel?.result[0]?.count
-                const time = 7 // days
-                return (sampleSize / funnelEntrants) * time
-            },
+            () => [],
+            () =>
+                (entrants: number, sampleSize: number): number => {
+                    // TODO: connect to broken insight date filter
+                    const time = 7 // days
+                    return (sampleSize / entrants) * time
+                },
         ],
-    },
+    }),
     urlToAction: ({ actions, values }) => ({
         '/experiments/:id': ({ id }) => {
             if (id) {
