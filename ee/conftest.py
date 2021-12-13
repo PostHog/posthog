@@ -26,6 +26,7 @@ def create_clickhouse_tables(num_tables: int):
     from ee.clickhouse.sql.events import EVENTS_TABLE_SQL
     from ee.clickhouse.sql.groups import GROUPS_TABLE_SQL
     from ee.clickhouse.sql.person import (
+        PERSON_DISTINCT_ID2_TABLE_SQL,
         PERSON_STATIC_COHORT_TABLE_SQL,
         PERSONS_DISTINCT_ID_TABLE_SQL,
         PERSONS_TABLE_SQL,
@@ -35,17 +36,18 @@ def create_clickhouse_tables(num_tables: int):
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
     TABLES_TO_CREATE_DROP = [
-        EVENTS_TABLE_SQL,
-        PERSONS_TABLE_SQL,
-        PERSONS_DISTINCT_ID_TABLE_SQL,
-        PERSON_STATIC_COHORT_TABLE_SQL,
-        SESSION_RECORDING_EVENTS_TABLE_SQL,
-        PLUGIN_LOG_ENTRIES_TABLE_SQL,
-        CREATE_COHORTPEOPLE_TABLE_SQL,
+        EVENTS_TABLE_SQL(),
+        PERSONS_TABLE_SQL(),
+        PERSONS_DISTINCT_ID_TABLE_SQL(),
+        PERSON_DISTINCT_ID2_TABLE_SQL(),
+        PERSON_STATIC_COHORT_TABLE_SQL(),
+        SESSION_RECORDING_EVENTS_TABLE_SQL(),
+        PLUGIN_LOG_ENTRIES_TABLE_SQL(),
+        CREATE_COHORTPEOPLE_TABLE_SQL(),
         KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
-        DEAD_LETTER_QUEUE_TABLE_SQL,
+        DEAD_LETTER_QUEUE_TABLE_SQL(),
         DEAD_LETTER_QUEUE_TABLE_MV_SQL,
-        GROUPS_TABLE_SQL,
+        GROUPS_TABLE_SQL(),
     ]
 
     if num_tables == len(TABLES_TO_CREATE_DROP):
@@ -63,6 +65,7 @@ def reset_clickhouse_tables():
     from ee.clickhouse.sql.events import TRUNCATE_EVENTS_TABLE_SQL
     from ee.clickhouse.sql.groups import TRUNCATE_GROUPS_TABLE_SQL
     from ee.clickhouse.sql.person import (
+        TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
         TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
         TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
         TRUNCATE_PERSON_TABLE_SQL,
@@ -75,6 +78,7 @@ def reset_clickhouse_tables():
         TRUNCATE_EVENTS_TABLE_SQL,
         TRUNCATE_PERSON_TABLE_SQL,
         TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
+        TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
         TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
         TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL,
         TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,

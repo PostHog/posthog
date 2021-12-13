@@ -117,7 +117,6 @@ env_feature_flags = os.getenv("PERSISTED_FEATURE_FLAGS", "")
 PERSISTED_FEATURE_FLAGS: List[str] = []
 default_flag_persistence = [
     # Add hard-coded feature flags for static self-hosted releases here
-    "3638-trailing-wau-mau",  # pending UI/UX improvements; functionality ready
     "5440-multivariate-support",
     "new-paths-ui-edge-weights",
 ]
@@ -734,6 +733,9 @@ structlog.configure(
 
 # keep in sync with plugin-server
 EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC = "events_added_to_dead_letter_queue"
+
+# Teams with access to an experimental query optimization. Only ready to be used on cloud.
+PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS = get_list(os.getenv("PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS", ""))
 
 SKIP_SERVICE_VERSION_REQUIREMENTS = get_from_env(
     "SKIP_SERVICE_VERSION_REQUIREMENTS", TEST or IS_COLLECT_STATIC, type_cast=str_to_bool

@@ -10,10 +10,39 @@
     }
 }
 
+.property-value-type {
+    display: flex;
+    align-items: center;
+    width: fit-content;
+    padding: 0.125rem 0.25rem;
+    letter-spacing: 0.25px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border-light);
+    background: var(--bg-mid);
+    color: var(--muted-alt);
+    font-size: 0.625rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    cursor: default;
+    &:not(:first-child) {
+        margin-left: 0.25rem;
+    }
+}
+
 .properties-table-value {
     max-width: fit-content;
     display: flex;
     align-items: center;
+
+    .value-link {
+        > * {
+            vertical-align: middle;
+        }
+        > svg {
+            margin-left: 0.25rem;
+            font-size: 1rem;
+        }
+    }
 
     .editable {
         text-decoration: underline dotted;

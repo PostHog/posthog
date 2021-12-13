@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
-import { Button, Card, Divider, Input, Skeleton, Tag } from 'antd'
+import { Button, Card, Divider, Input, Skeleton } from 'antd'
 import { IPCapture } from './IPCapture'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { SessionRecording } from './SessionRecording'
@@ -31,6 +31,7 @@ import { userLogic } from 'scenes/userLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { CorrelationConfig } from './CorrelationConfig'
 import { urls } from 'scenes/urls'
+import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -197,6 +198,9 @@ export function ProjectSettings(): JSX.Element {
                 <Divider />
                 <h2 className="subtitle" id="path_cleaning_filtering">
                     Path cleaning rules
+                    <LemonTag type="warning" style={{ marginLeft: 8 }}>
+                        Beta
+                    </LemonTag>
                 </h2>
                 <p>
                     Make your <Link to={urls.insightNew({ insight: InsightType.PATHS })}>Paths</Link> clearer by
@@ -220,12 +224,13 @@ export function ProjectSettings(): JSX.Element {
                 </p>
                 <PathCleaningFiltersConfig />
                 <Divider />
+                <div id="permitted-domains" />
                 <h2 className="subtitle" id="urls">
                     Permitted domains/URLs
                 </h2>
                 <p>
                     These are the domains and URLs where the <b>Toolbar will automatically launch</b> (if you're logged
-                    in) and where we'll <a href="#session-recording">record sessions</a> (if enabled).
+                    in) and where we'll <b>record sessions</b> (if <a href="#session-recording">enabled</a>).
                 </p>
                 <p>
                     Wilcard subdomains are permitted: <pre>https://*.example.com</pre>. You cannot wildcard domains or
@@ -254,22 +259,25 @@ export function ProjectSettings(): JSX.Element {
                 <div id="session-recording" />
                 <h2 id="recordings" className="subtitle" style={{ display: 'flex', alignItems: 'center' }}>
                     Recordings
-                    <Tag color="orange" style={{ marginLeft: 8 }}>
-                        BETA
-                    </Tag>
+                    <LemonTag type="warning" style={{ marginLeft: 8 }}>
+                        Beta
+                    </LemonTag>
                 </h2>
                 <p>
-                    Watch replays to see how users interact with your app and find out what can be improved. Recordings
-                    are found in the <Link to={urls.sessionRecordings()}>recordings page</Link>. Please note{' '}
-                    <b>your website needs to have</b> the <a href="#snippet">PostHog snippet</a> or the latest version
-                    of{' '}
+                    Watch recordings of how users interact with your web app to see what can be improved. Recordings are
+                    found in the <Link to={urls.sessionRecordings()}>recordings page</Link>.
+                </p>
+                <p>
+                    Please note <b>your website needs to have</b> the <a href="#snippet">PostHog snippet</a> or the
+                    latest version of{' '}
                     <a
                         href="https://posthog.com/docs/integrations/js-integration?utm_campaign=session-recording&utm_medium=in-product"
                         target="_blank"
                     >
                         posthog-js
                     </a>{' '}
-                    <b>directly</b> installed. For more details, check out our{' '}
+                    <b>directly</b> installed, and the domains you wish to record must be set in{' '}
+                    <a href="#permitted-domains">Permitted domains/URLs</a>. For more details, check out our{' '}
                     <a
                         href="https://posthog.com/docs/user-guides/recordings?utm_campaign=session-recording&utm_medium=in-product"
                         target="_blank"

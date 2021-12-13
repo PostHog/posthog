@@ -2,19 +2,19 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { errorToast, objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
-import { DashboardItemType, LayoutView, SavedInsightsTabs } from '~/types'
+import { InsightModel, LayoutView, SavedInsightsTabs } from '~/types'
 import { savedInsightsLogicType } from './savedInsightsLogicType'
 import { Dayjs } from 'dayjs'
-import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { insightsModel } from '~/models/insightsModel'
 import { teamLogic } from '../teamLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Sorting } from 'lib/components/LemonTable'
 import { urls } from 'scenes/urls'
 
-export const INSIGHTS_PER_PAGE = 15
+export const INSIGHTS_PER_PAGE = 20
 
 export interface InsightsResult {
-    results: DashboardItemType[]
+    results: InsightModel[]
     count: number
     previous?: string
     next?: string
@@ -57,9 +57,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
     actions: {
         setSavedInsightsFilters: (filters: Partial<SavedInsightFilters>, merge = true) => ({ filters, merge }),
         addGraph: (type: string) => ({ type }),
-        updateFavoritedInsight: (insight: DashboardItemType, favorited: boolean) => ({ insight, favorited }),
-        renameInsight: (insight: DashboardItemType) => ({ insight }),
-        duplicateInsight: (insight: DashboardItemType) => ({ insight }),
+        updateFavoritedInsight: (insight: InsightModel, favorited: boolean) => ({ insight, favorited }),
+        renameInsight: (insight: InsightModel) => ({ insight }),
+        duplicateInsight: (insight: InsightModel) => ({ insight }),
         loadInsights: true,
     },
     loaders: ({ values }) => ({
@@ -77,7 +77,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
 
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
                     try {
-                        const insight: DashboardItemType = await api.get(
+                        const insight: InsightModel = await api.get(
                             `api/projects/${teamLogic.values.currentTeamId}/insights/${filters.search}`
                         )
                         return {
@@ -110,7 +110,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                 )
                 return { ...values.insights, results: updatedInsights }
             },
-            setInsight: (insight: DashboardItemType) => {
+            setInsight: (insight: InsightModel) => {
                 const results = values.insights.results.map((i) => (i.short_id === insight.short_id ? insight : i))
                 return { ...values.insights, results }
             },
@@ -212,7 +212,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
             }
         },
         renameInsight: async ({ insight }) => {
-            dashboardItemsModel.actions.renameDashboardItem(insight)
+            insightsModel.actions.renameInsight(insight)
         },
         duplicateInsight: async ({ insight }) => {
             await api.create(`api/projects/${values.currentTeamId}/insights`, insight)
@@ -221,7 +221,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         setDates: () => {
             actions.loadInsights()
         },
-        [dashboardItemsModel.actionTypes.renameDashboardItemSuccess]: ({ item }) => {
+        [insightsModel.actionTypes.renameInsightSuccess]: ({ item }) => {
             actions.setInsight(item)
         },
     }),
@@ -253,7 +253,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                 // `fromItem` for legacy /insights url redirect support
                 const insightId = parseInt(hashParams.fromItem)
                 try {
-                    const { short_id }: DashboardItemType = await api.get(
+                    const { short_id }: InsightModel = await api.get(
                         `api/projects/${teamLogic.values.currentTeamId}/insights/${insightId}`
                     )
                     if (!short_id) {

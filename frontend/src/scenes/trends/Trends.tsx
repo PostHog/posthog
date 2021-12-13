@@ -32,6 +32,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
         loadMoreBreakdownUrl,
         breakdownValuesLoading,
         showModalActions,
+        aggregationTargetLabel,
     } = useValues(trendsLogic(insightProps))
     const { loadMoreBreakdownValues } = useActions(trendsLogic(insightProps))
     const { showingPeople } = useValues(personsModalLogic)
@@ -108,6 +109,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
                     setCohortModalVisible(true)
                 }}
                 showModalActions={showModalActions}
+                aggregationTargetLabel={aggregationTargetLabel}
             />
             <SaveCohortModal
                 visible={cohortModalVisible}

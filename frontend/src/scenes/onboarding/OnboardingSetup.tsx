@@ -17,7 +17,7 @@ import { useActions, useValues } from 'kea'
 import { onboardingSetupLogic } from './onboardingSetupLogic'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { Link } from 'lib/components/Link'
-import { IconExternalLink } from 'lib/components/icons'
+import { IconOpenInNew } from 'lib/components/icons'
 import { BulkInviteModal } from 'scenes/organization/Settings/BulkInviteModal'
 import { LinkButton } from 'lib/components/LinkButton'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -304,7 +304,7 @@ export function OnboardingSetup(): JSX.Element {
                                         rel="noopener"
                                         target="_blank"
                                     >
-                                        best practices <IconExternalLink />
+                                        best practices <IconOpenInNew />
                                     </Link>
                                 </div>
                             </div>
@@ -323,7 +323,7 @@ export function OnboardingSetup(): JSX.Element {
                             target="_blank"
                             rel="noopener"
                         >
-                            our docs <IconExternalLink />
+                            our docs <IconOpenInNew />
                         </Link>
                     </div>
                     <div style={{ marginTop: 32 }}>
