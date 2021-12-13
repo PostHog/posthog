@@ -97,6 +97,13 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                     "value": f"{postgres_version // 10000}.{(postgres_version // 100) % 100}.{postgres_version % 100}",
                 }
             )
+            metrics.append(
+                {
+                    "key": "special_migrations_ok",
+                    "metric": "Special migrations up-to-date",
+                    "value": special_migrations_ok(),
+                }
+            )
 
             if not is_clickhouse_enabled():
                 event_table_count = get_table_approx_count(Event._meta.db_table)
@@ -123,13 +130,7 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                         "value": f"{session_recording_event_table_count} rows (~{session_recording_event_table_size})",
                     }
                 )
-                metrics.append(
-                    {
-                        "key": "special_migrations_ok",
-                        "metric": "Special migrations up-to-date",
-                        "value": special_migrations_ok(),
-                    }
-                )
+
         if is_clickhouse_enabled():
             from ee.clickhouse.system_status import system_status
 
