@@ -1,3 +1,5 @@
+from typing import Optional, Tuple
+
 from semantic_version.base import SimpleSpec, Version
 
 from posthog import redis
@@ -22,11 +24,11 @@ class ServiceVersionRequirement:
                 f"The provided supported_version for service {service} is invalid. See the Docs for SimpleSpec: https://pypi.org/project/semantic-version/"
             )
 
-    def is_service_in_accepted_version(self):
+    def is_service_in_accepted_version(self) -> Tuple[bool, Version]:
         service_version = self.get_service_version()
-        return [service_version in self.supported_version, service_version]
+        return service_version in self.supported_version, service_version
 
-    def get_service_version(self):
+    def get_service_version(self) -> Version:
         if self.service == "postgresql":
             return self.get_postgres_version()
 
@@ -36,7 +38,7 @@ class ServiceVersionRequirement:
         if self.service == "redis":
             return self.get_redis_version()
 
-    def get_postgres_version(self):
+    def get_postgres_version(self) -> Version:
         from django.db import connection
 
         with connection.cursor() as cursor:
@@ -47,7 +49,7 @@ class ServiceVersionRequirement:
 
         return self.version_string_to_semver(version)
 
-    def get_clickhouse_version(self):
+    def get_clickhouse_version(self) -> Version:
         from ee.clickhouse.client import default_client
 
         client = default_client()
@@ -56,13 +58,13 @@ class ServiceVersionRequirement:
 
         return self.version_string_to_semver(version)
 
-    def get_redis_version(self):
+    def get_redis_version(self) -> Version:
         client = redis.get_client()
         version = client.execute_command("INFO")["redis_version"]
         return self.version_string_to_semver(version)
 
     @staticmethod
-    def version_string_to_semver(version):
+    def version_string_to_semver(version: str) -> Version:
         minor = 0
         patch = 0
 
