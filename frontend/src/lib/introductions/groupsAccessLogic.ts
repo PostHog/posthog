@@ -1,8 +1,6 @@
 import { kea } from 'kea'
 import { AvailableFeature } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -21,8 +19,6 @@ export const groupsAccessLogic = kea<groupsAccessLogicType<GroupsAccessStatus>>(
         values: [
             teamLogic,
             ['currentTeam'],
-            featureFlagLogic,
-            ['featureFlags'],
             preflightLogic,
             ['clickhouseEnabled', 'preflight'],
             userLogic,
@@ -30,10 +26,7 @@ export const groupsAccessLogic = kea<groupsAccessLogicType<GroupsAccessStatus>>(
         ],
     },
     selectors: {
-        groupsCanBeEnabled: [
-            (s) => [s.featureFlags, s.clickhouseEnabled],
-            (featureFlags, clickhouseEnabled) => featureFlags[FEATURE_FLAGS.GROUP_ANALYTICS] && clickhouseEnabled,
-        ],
+        groupsCanBeEnabled: [(s) => [s.clickhouseEnabled], (clickhouseEnabled) => clickhouseEnabled],
         groupsEnabled: [
             (s) => [s.groupsCanBeEnabled, s.hasAvailableFeature],
             (groupsCanBeEnabled, hasAvailableFeature) =>
@@ -41,14 +34,10 @@ export const groupsAccessLogic = kea<groupsAccessLogicType<GroupsAccessStatus>>(
         ],
         // Used to toggle various introduction views related to groups
         groupsAccessStatus: [
-            (s) => [s.featureFlags, s.groupsCanBeEnabled, s.groupsEnabled, s.currentTeam, s.preflight],
-            (featureFlags, canBeEnabled, isEnabled, currentTeam, preflight): GroupsAccessStatus => {
+            (s) => [s.groupsCanBeEnabled, s.groupsEnabled, s.currentTeam, s.preflight],
+            (canBeEnabled, isEnabled, currentTeam, preflight): GroupsAccessStatus => {
                 const hasGroups = currentTeam?.has_group_types
-                if (
-                    !canBeEnabled ||
-                    preflight?.instance_preferences?.disable_paid_fs ||
-                    !featureFlags[FEATURE_FLAGS.GROUP_ANALYTICS_INTRODUCTION]
-                ) {
+                if (!canBeEnabled || preflight?.instance_preferences?.disable_paid_fs) {
                     return GroupsAccessStatus.Hidden
                 } else if (isEnabled && hasGroups) {
                     return GroupsAccessStatus.AlreadyUsing
