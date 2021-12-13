@@ -120,10 +120,8 @@ default_flag_persistence = [
     # Add hard-coded feature flags for static self-hosted releases here
     "5440-multivariate-support",
     "new-paths-ui-edge-weights",
-    "sigma-analysis",
     "new-sessions-player",
     "new-sessions-player-events-list",
-    "938-breakdown-by-multiple-properties",
     "session-insight-removal",
     "funnel-simple-mode",
 ]
