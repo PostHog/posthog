@@ -329,7 +329,7 @@ jobs:
                   cp deploy/ee/conftest.py messaging/conftest.py
                   cp -r multi_tenancy deploy/
                   cp -r messaging deploy/
-                  cat multi_tenancy_settings.py >> deploy/posthog/settings.py
+                  cat multi_tenancy_settings.py >> deploy/posthog/settings/__init__.py
                   cat requirements.txt >> deploy/requirements.txt
 
             - name: Check migrations
