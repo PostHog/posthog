@@ -18,6 +18,7 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     extract_organization,
 )
+from posthog.tasks.delete_clickhouse_data import delete_clickhouse_data
 
 
 class PremiumMultiorganizationPermissions(permissions.BasePermission):
@@ -176,6 +177,8 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, organization: Organization):
         user = cast(User, self.request.user)
         report_organization_deleted(user, organization)
+        team_ids = [team.pk for team in organization.teams.all()]
+        delete_clickhouse_data.delay(team_ids=team_ids)
         return super().perform_destroy(organization)
 
 

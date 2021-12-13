@@ -8,7 +8,7 @@ from django.db import DEFAULT_DB_ALIAS
 
 from ee.clickhouse.client import ch_pool, sync_execute
 from ee.clickhouse.sql.events import DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
-from ee.clickhouse.sql.person import DROP_PERSON_TABLE_SQL, PERSONS_TABLE_SQL
+from ee.clickhouse.sql.person import DROP_PERSON_TABLE_SQL, PERSONS_TABLE_SQL, TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL
 from ee.clickhouse.sql.session_recording_events import (
     DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
     SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL,
@@ -69,6 +69,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         sync_execute(DROP_EVENTS_TABLE_SQL)
         sync_execute(EVENTS_TABLE_SQL())
         sync_execute(DROP_PERSON_TABLE_SQL)
+        sync_execute(TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL)
         sync_execute(PERSONS_TABLE_SQL())
         sync_execute(DROP_SESSION_RECORDING_EVENTS_TABLE_SQL)
         sync_execute(SESSION_RECORDING_EVENTS_TABLE_SQL())
@@ -79,6 +80,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         sync_execute(DROP_EVENTS_TABLE_SQL)
         sync_execute(EVENTS_TABLE_SQL())
         sync_execute(DROP_PERSON_TABLE_SQL)
+        sync_execute(TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL)
         sync_execute(PERSONS_TABLE_SQL())
         sync_execute(DROP_SESSION_RECORDING_EVENTS_TABLE_SQL)
         sync_execute(SESSION_RECORDING_EVENTS_TABLE_SQL())
