@@ -321,8 +321,6 @@ INSTALLED_APPS = [
     "social_django",
     "django_filters",
     "axes",
-    "constance",
-    "constance.backends.database"
 ]
 
 
@@ -759,11 +757,17 @@ if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
 
 ## Dynamic configs settings
 
-CONSTANCE_BACKEND = 'constance.backends.database.DatabaseBackend'
+INSTALLED_APPS.append("constance")
+INSTALLED_APPS.append("constance.backends.database")
 
-CONSTANCE_DATABASE_PREFIX = 'constance:posthog:'
+CONSTANCE_BACKEND = "constance.backends.database.DatabaseBackend"
+
+CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
 
 CONSTANCE_CONFIG = {
-    'MATERIALIZED_COLUMNS_ENABLED': (True, 'Whether materialized columns should be,',
-                                     ' created or used at query time', bool),
+    "MATERIALIZED_COLUMNS_ENABLED": (
+        get_from_env("MATERIALIZED_COLUMNS_ENABLED", True, type_cast=str_to_bool),
+        "Whether materialized columns should be, created or used at query time",
+        bool,
+    ),
 }
