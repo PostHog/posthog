@@ -20,10 +20,10 @@
 }
 
 .LemonButton--primary {
-    background: var(--primary);
+    background: $primary;
     color: #fff;
     &:not(:disabled):hover {
-        background: var(--primary-hover);
+        background: $primary_hover;
     }
     &:not(:disabled):active {
         background: var(--primary-active);

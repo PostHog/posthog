@@ -5,7 +5,7 @@ from semantic_version.base import Version
 
 from posthog.models.special_migration import MigrationStatus, SpecialMigration
 from posthog.special_migrations.runner import start_special_migration
-from posthog.special_migrations.setup import ALL_SPECIAL_MIGRATIONS, POSTHOG_VERSION
+from posthog.special_migrations.setup import ALL_SPECIAL_MIGRATIONS, POSTHOG_VERSION, setup_special_migrations
 
 logger = structlog.get_logger(__name__)
 
@@ -35,6 +35,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
 
+        setup_special_migrations(ignore_posthog_version=True)
         necessary_migrations = get_necessary_migrations()
 
         if options["plan"]:

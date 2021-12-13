@@ -6,7 +6,6 @@ from infi.clickhouse_orm import Database
 from infi.clickhouse_orm.migrations import MigrationHistory
 from infi.clickhouse_orm.utils import import_submodules
 
-from posthog.models.special_migration import MigrationStatus, SpecialMigration
 from posthog.settings import (
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_HTTP_URL,
@@ -14,8 +13,6 @@ from posthog.settings import (
     CLICKHOUSE_REPLICATION,
     CLICKHOUSE_USER,
 )
-from posthog.special_migrations.runner import start_special_migration
-from posthog.special_migrations.setup import ALL_SPECIAL_MIGRATIONS
 
 MIGRATIONS_PACKAGE_NAME = "ee.clickhouse.migrations"
 
@@ -35,12 +32,6 @@ class Command(BaseCommand):
             "--print-sql",
             action="store_true",
             help="Only use with --plan. Also prints SQL for each migration to be applied.",
-        )
-        parser.add_argument(
-            "--skip-special-migrations",
-            type=bool,
-            default=False,
-            help="Skip running special migrations on a fresh instance",
         )
 
     def handle(self, *args, **options):
@@ -79,23 +70,7 @@ class Command(BaseCommand):
                 )
             print("Migrations done")
         else:
-            is_fresh_instance = len(self.get_applied_migrations(database)) == 0
             database.migrate(MIGRATIONS_PACKAGE_NAME, options["upto"], replicated=CLICKHOUSE_REPLICATION)
-            if is_fresh_instance and not options["skip_special_migrations"]:
-                for migration_name, definition in ALL_SPECIAL_MIGRATIONS.items():
-                    sm = SpecialMigration.objects.get_or_create(
-                        name=migration_name,
-                        description=definition.description,
-                        posthog_min_version=definition.posthog_min_version,
-                        posthog_max_version=definition.posthog_max_version,
-                    )[0]
-                    if sm.status == MigrationStatus.NotStarted:
-                        print("Applying special migration", migration_name)
-                        started_successfully = start_special_migration(migration_name)
-                        sm.refresh_from_db()
-                        if not started_successfully or sm.status != MigrationStatus.CompletedSuccessfully:
-                            print(f"Unable to complete special migration {migration_name} with error", sm.last_error)
-                            return
             print("✅ Migration successful")
 
     def get_migrations(self, database, upto):

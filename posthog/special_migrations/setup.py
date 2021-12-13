@@ -5,9 +5,8 @@ from infi.clickhouse_orm.utils import import_submodules
 from semantic_version.base import Version
 
 from posthog.models.special_migration import SpecialMigration, get_all_completed_special_migrations
-from posthog.settings import AUTO_START_SPECIAL_MIGRATIONS, DEBUG, SKIP_SPECIAL_MIGRATIONS_SETUP, TEST
+from posthog.settings import AUTO_START_SPECIAL_MIGRATIONS, DEBUG, TEST
 from posthog.special_migrations.definition import SpecialMigrationDefinition
-from posthog.utils import print_warning
 from posthog.version import VERSION
 
 ALL_SPECIAL_MIGRATIONS: Dict[str, SpecialMigrationDefinition] = {}
@@ -32,7 +31,7 @@ for name, module in all_migrations.items():
     ALL_SPECIAL_MIGRATIONS[name] = module.Migration()
 
 
-def setup_special_migrations():
+def setup_special_migrations(ignore_posthog_version: bool = False):
     """
     Execute the necessary setup for special migrations to work:
     1. Import all the migration definitions 
@@ -40,10 +39,6 @@ def setup_special_migrations():
     3. Check if all migrations necessary for this PostHog version have completed (else don't start)
     4. Populate a dependencies map and in-memory record of migration definitions
     """
-
-    if SKIP_SPECIAL_MIGRATIONS_SETUP:
-        print_warning(["Skipping special migrations setup. This is unsafe in production!"])
-        return
 
     applied_migrations = set(instance.name for instance in get_all_completed_special_migrations())
     unapplied_migrations = set(ALL_SPECIAL_MIGRATIONS.keys()) - applied_migrations
@@ -70,7 +65,11 @@ def setup_special_migrations():
 
         SPECIAL_MIGRATION_TO_DEPENDENCY[migration_name] = dependency
 
-        if migration_name in unapplied_migrations and POSTHOG_VERSION > Version(migration.posthog_max_version):
+        if (
+            (not ignore_posthog_version)
+            and (migration_name in unapplied_migrations)
+            and (POSTHOG_VERSION > Version(migration.posthog_max_version))
+        ):
             raise ImproperlyConfigured(f"Migration {migration_name} is required for PostHog versions above {VERSION}.")
 
     for key, val in SPECIAL_MIGRATION_TO_DEPENDENCY.items():

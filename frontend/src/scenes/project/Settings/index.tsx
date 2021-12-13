@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
-import { Button, Card, Divider, Input, Skeleton, Tag } from 'antd'
+import { Button, Card, Divider, Input, Skeleton } from 'antd'
 import { IPCapture } from './IPCapture'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { SessionRecording } from './SessionRecording'
@@ -31,6 +31,7 @@ import { userLogic } from 'scenes/userLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { CorrelationConfig } from './CorrelationConfig'
 import { urls } from 'scenes/urls'
+import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -197,6 +198,9 @@ export function ProjectSettings(): JSX.Element {
                 <Divider />
                 <h2 className="subtitle" id="path_cleaning_filtering">
                     Path cleaning rules
+                    <LemonTag type="warning" style={{ marginLeft: 8 }}>
+                        Beta
+                    </LemonTag>
                 </h2>
                 <p>
                     Make your <Link to={urls.insightNew({ insight: InsightType.PATHS })}>Paths</Link> clearer by
@@ -255,9 +259,9 @@ export function ProjectSettings(): JSX.Element {
                 <div id="session-recording" />
                 <h2 id="recordings" className="subtitle" style={{ display: 'flex', alignItems: 'center' }}>
                     Recordings
-                    <Tag color="orange" style={{ marginLeft: 8 }}>
-                        BETA
-                    </Tag>
+                    <LemonTag type="warning" style={{ marginLeft: 8 }}>
+                        Beta
+                    </LemonTag>
                 </h2>
                 <p>
                     Watch recordings of how users interact with your web app to see what can be improved. Recordings are

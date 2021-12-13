@@ -42,7 +42,7 @@ def start_special_migration(migration_name: str, ignore_posthog_version=False) -
 
     migration_instance = SpecialMigration.objects.get(name=migration_name)
     over_concurrent_migrations_limit = len(get_all_running_special_migrations()) >= MAX_CONCURRENT_SPECIAL_MIGRATIONS
-    posthog_version_valid = not ignore_posthog_version and is_posthog_version_compatible(
+    posthog_version_valid = ignore_posthog_version or is_posthog_version_compatible(
         migration_instance.posthog_min_version, migration_instance.posthog_max_version
     )
 

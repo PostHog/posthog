@@ -172,6 +172,7 @@ export function PathTab(): JSX.Element {
                 onSaveCohort={() => {
                     setCohortModalVisible(true)
                 }}
+                aggregationTargetLabel={{ singular: 'user', plural: 'users' }}
             />
             <Row>
                 <Col span={12}>
