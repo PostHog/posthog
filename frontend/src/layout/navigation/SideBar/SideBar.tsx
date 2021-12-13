@@ -193,12 +193,7 @@ function Pages(): JSX.Element {
                     identifier: Scene.Insight,
                 }}
             />
-            <PageButton
-                icon={<IconRecording />}
-                identifier={Scene.SessionRecordings}
-                to={urls.sessionRecordings()}
-                highlight="beta"
-            />
+            <PageButton icon={<IconRecording />} identifier={Scene.SessionRecordings} to={urls.sessionRecordings()} />
             <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
             {featureFlags[FEATURE_FLAGS.EXPERIMENTATION] && (
                 <PageButton icon={<IconFlag />} identifier={Scene.Experiments} to={urls.experiments()} />
