@@ -136,8 +136,9 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
 
     // If we're aggregating this query by groups
     let aggregating_by_groups = filters.aggregation_group_type_index != undefined
+    const breakdown_by_groups = filters.breakdown_group_type_index != undefined
     // If groups are being used in this query
-    let using_groups = hasGroupProperties(filters.properties) || filters.breakdown_group_type_index != undefined
+    let using_groups = hasGroupProperties(filters.properties)
 
     for (const entity of entities) {
         properties_local = properties_local.concat(flattenProperties(entity.properties || []))
@@ -169,7 +170,8 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
         properties_local_custom_count: properties_local.filter((item) => item === 'custom').length,
         properties_all: properties_global.concat(properties_local), // Global and local properties together
         aggregating_by_groups,
-        using_groups: using_groups || aggregating_by_groups,
+        breakdown_by_groups,
+        using_groups: using_groups || aggregating_by_groups || breakdown_by_groups,
     }
 }
 
