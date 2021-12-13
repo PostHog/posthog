@@ -118,7 +118,7 @@ export function InsightContainer(
             !showTimeoutMessage &&
             areFiltersValid &&
             filters.funnel_viz_type === FunnelVizType.Steps &&
-            (!featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] || filters?.layout === FunnelLayout.horizontal)
+            filters?.layout === FunnelLayout.horizontal
         ) {
             return (
                 <Card>
