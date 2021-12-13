@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { PlayerPosition, RecordingSegment, SessionPlayerState, SessionPlayerTime } from '~/types'
+import { PlayerPosition, RecordingSegment, SessionPlayerState } from '~/types'
 import { eventWithTime } from 'rrweb/typings/types'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
@@ -36,8 +36,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
         setSkip: true,
         setScrub: true,
         setCurrentPlayerPosition: (playerPosition: PlayerPosition | null) => ({ playerPosition }),
-        setCurrentTime: (time: number) => ({ time }),
-        setLastBufferedTime: (time: number) => ({ time }),
         setSpeed: (speed: number) => ({ speed }),
         setScale: (scale: number) => ({ scale }),
         togglePlayPause: true,
@@ -62,16 +60,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
             null as Player | null,
             {
                 setPlayer: (_, { player }) => player,
-            },
-        ],
-        time: [
-            {
-                current: 0,
-                lastBuffered: 10000000,
-            } as SessionPlayerTime,
-            {
-                setCurrentTime: (state, { time }) => ({ ...state, current: time }),
-                setLastBufferedTime: (state, { time }) => ({ ...state, lastBuffered: time }),
             },
         ],
         currentPlayerPosition: [
@@ -167,12 +155,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
                 ],
             })
 
-            replayer.on('finish', () => {
-                // Use 500ms buffer because current time is not always exactly identical to end time.
-                if (values.time.current + 500 >= values.sessionPlayerData.metadata.endTime) {
-                    actions.setPause()
-                }
-            })
             replayer.on('skip-start', () => {
                 if (values.loadingState !== SessionPlayerState.BUFFER) {
                     actions.setSkip()

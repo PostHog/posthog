@@ -9,12 +9,11 @@ import { sessionRecordingLogic } from '../sessionRecordingLogic'
 function Tick({ event }: { event: RecordingEventType }): JSX.Element {
     const [hovering, setHovering] = useState(false)
     const { handleTickClick } = useActions(seekbarLogic)
-    const { sessionPlayerData } = useValues(sessionRecordingLogic)
     return (
         <div
             className="tick-hover-box"
             style={{
-                left: `calc(${(100 * event.playerTime) / sessionPlayerData.metadata.recordingDurationMs}% - 2px)`,
+                left: `calc(${event.percentageOfRecordingDuration}% - 2px)`,
             }}
             onClick={(e) => {
                 e.stopPropagation()

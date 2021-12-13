@@ -64,7 +64,9 @@ export function SessionRecordingPlayerV2(): JSX.Element {
 function PlayerSidebar(): JSX.Element {
     return (
         <Col className="player-sidebar">
-            <div className="player-meta">{<PlayerMeta />}</div>
+            <div className="player-meta">
+                <PlayerMeta />
+            </div>
             <div className="player-events">
                 <PlayerEvents />
             </div>

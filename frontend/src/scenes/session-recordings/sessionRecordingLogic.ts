@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import Fuse from 'fuse.js'
 import api from 'lib/api'
-import { errorToast, eventToDescription, toParams } from 'lib/utils'
+import { errorToast, eventToDescription, sum, toParams } from 'lib/utils'
 import { sessionRecordingLogicType } from './sessionRecordingLogicType'
 import {
     EventType,
@@ -59,8 +59,8 @@ export const parseMetadataResponse = (metadata: UnparsedMetadata): Partial<Sessi
                 durationMs,
                 startTimeEpochMs,
                 endTimeEpochMs,
-                windowId: segment?.window_id,
-                isActive: segment?.is_active,
+                windowId: segment.window_id,
+                isActive: segment.is_active,
             }
         }
     )
@@ -74,27 +74,34 @@ export const parseMetadataResponse = (metadata: UnparsedMetadata): Partial<Sessi
     return {
         segments,
         startAndEndTimesByWindowId,
-        recordingDurationMs: segments.map((s) => s.durationMs).reduce((a, b) => a + b),
+        recordingDurationMs: sum(segments.map((s) => s.durationMs)),
     }
 }
 
+// Returns the maximum player position that the recording has been buffered to.
+// Data can be received out of order (e.g. events from a later segment are received
+// before events from an earlier segment). So this function iterates through the
+// segments in their order and returns when it first detects data is not loaded.
 const calculateBufferedTo = (
     segments: RecordingSegment[] = [],
     snapshotsByWindowId: Record<string, eventWithTime[]>,
     startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime> = {}
 ): PlayerPosition | null => {
     let bufferedTo: PlayerPosition | null = null
+    // If we don't have metadata or snapshots yet, then we can't calculate the bufferedTo.
     if (segments && snapshotsByWindowId && startAndEndTimesByWindowId) {
         for (const segment of segments) {
             const lastEventForWindowId = (snapshotsByWindowId[segment.windowId] ?? []).slice(-1).pop()
 
             if (lastEventForWindowId && lastEventForWindowId.timestamp >= segment.startTimeEpochMs) {
+                // If we've buffered past the start of the segment, see how far.
                 const windowStartTime = startAndEndTimesByWindowId[segment.windowId].startTimeEpochMs
                 bufferedTo = {
                     windowId: segment.windowId,
-                    time: lastEventForWindowId.timestamp - windowStartTime,
+                    time: Math.min(lastEventForWindowId.timestamp - windowStartTime, segment.endPlayerPosition.time),
                 }
             } else {
+                // If we haven't buffered past the start of the segment, then return our current bufferedTo.
                 return bufferedTo
             }
         }
@@ -240,7 +247,6 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
             loadRecordingMeta: async ({ sessionRecordingId }, breakpoint): Promise<SessionPlayerData> => {
                 const params = toParams({
                     save_view: true,
-                    include_active_segments: true,
                 })
                 const response = await api.get(
                     `api/projects/${values.currentTeamId}/session_recordings/${sessionRecordingId}?${params}`
@@ -316,6 +322,8 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                                 ...event,
                                 playerTime: eventPlayerTime,
                                 playerPosition: eventPlayerPosition,
+                                percentageOfRecordingDuration:
+                                    (100 * eventPlayerTime) / values.sessionPlayerData.metadata.recordingDurationMs,
                             })
                         }
                     }

@@ -385,11 +385,6 @@ export enum SessionPlayerState {
     SCRUB = 'scrub',
 }
 
-export interface SessionPlayerTime {
-    current: number
-    lastBuffered: number
-}
-
 /** Sync with plugin-server/src/types.ts */
 export type ActionStepProperties =
     | EventPropertyFilter
@@ -587,6 +582,7 @@ export interface EventType {
 export interface RecordingEventType extends EventType {
     playerTime: number
     playerPosition: PlayerPosition
+    percentageOfRecordingDuration: number // Used to place the event on the seekbar
 }
 
 export interface EventsTableRowItem {

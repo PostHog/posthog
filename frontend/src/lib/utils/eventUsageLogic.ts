@@ -655,7 +655,7 @@ export const eventUsageLogic = kea<
                 load_time: loadTime,
                 duration: eventIndex.getDuration(),
                 start_time: recordingData?.session_recording?.segments[0]?.startTimeEpochMs,
-                end_time: recordingData?.session_recording?.segments.slice(-1).pop()?.endTimeEpochMs,
+                end_time: recordingData?.session_recording?.segments.slice(-1)[0]?.endTimeEpochMs,
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingMetadata(0)[0]?.width,
                 source: source,
