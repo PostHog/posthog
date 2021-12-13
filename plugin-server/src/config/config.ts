@@ -77,7 +77,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         PISCINA_ATOMICS_TIMEOUT: 5000,
         SITE_URL: null,
         NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS: '',
-        EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED_TEAMS: '', // e.g. 2,3
+        EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: false,
     }
 }
 
@@ -135,6 +135,7 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
             '(advanced) corresponds to the length of time a piscina worker should block for when looking for tasks',
         NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS:
             '(advanced) teams for which to run the new person properties update flow on',
+        EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: 'enable experimental feature to track lastSeenAt',
     }
 }
 

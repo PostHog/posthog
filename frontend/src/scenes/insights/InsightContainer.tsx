@@ -42,7 +42,9 @@ const VIEW_MAP = {
     [`${InsightType.PATHS}`]: <Paths />,
 }
 
-export function InsightContainer(): JSX.Element {
+export function InsightContainer(
+    { disableCorrelation }: { disableCorrelation?: boolean } = { disableCorrelation: false }
+): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const {
@@ -201,7 +203,9 @@ export function InsightContainer(): JSX.Element {
                 </div>
             </Card>
             {renderTable()}
-            {correlationAnalysisAvailable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
+            {!disableCorrelation && correlationAnalysisAvailable && activeView === InsightType.FUNNELS && (
+                <FunnelCorrelation />
+            )}
         </>
     )
 }

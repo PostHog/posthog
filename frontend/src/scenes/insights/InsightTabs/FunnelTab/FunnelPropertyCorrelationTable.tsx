@@ -17,6 +17,7 @@ import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySens
 import { Popup } from 'lib/components/Popup/Popup'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Tooltip } from 'lib/components/Tooltip'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -32,6 +33,8 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         propertyNames,
         correlationPropKey,
         allProperties,
+        filters,
+        aggregationTargetLabel,
     } = useValues(logic)
 
     const { setPropertyCorrelationTypes, setPropertyNames, openCorrelationPersonsModal } = useActions(logic)
@@ -104,7 +107,8 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                     )}
                 </h4>
                 <div>
-                    People who converted were{' '}
+                    {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
+                    {filters.aggregation_group_type_index != undefined ? 'that' : 'who'} converted were{' '}
                     <mark>
                         <b>
                             {get_friendly_numeric_value(record.odds_ratio)}x {is_success ? 'more' : 'less'} likely
@@ -196,7 +200,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                     }}
                 >
                     <Column
-                        title="Person property"
+                        title={`${capitalizeFirstLetter(aggregationTargetLabel.singular)} property`}
                         key="propertName"
                         render={(_, record: FunnelCorrelation) => renderOddsRatioTextRecord(record)}
                         align="left"
@@ -205,7 +209,11 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         title={
                             <div className="flex-center">
                                 Completed
-                                <Tooltip title="Users who have this property and completed the entire funnel.">
+                                <Tooltip
+                                    title={`${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${
+                                        filters.aggregation_group_type_index != undefined ? 'that' : 'who'
+                                    } have this property and completed the entire funnel.`}
+                                >
                                     <InfoCircleOutlined className="column-info" />
                                 </Tooltip>
                             </div>
@@ -222,7 +230,9 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                                 <Tooltip
                                     title={
                                         <>
-                                            Users who have this property and did <b>not complete</b> the entire funnel.
+                                            {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
+                                            {filters.aggregation_group_type_index != undefined ? 'that' : 'who'} have
+                                            this property and did <b>not complete</b> the entire funnel.
                                         </>
                                     }
                                 >
@@ -280,7 +290,7 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
                     </>
                 }
             >
-                <LemonButton type="stealth" style={{ paddingLeft: 0 }} onClick={() => setPopoverOpen(!popoverOpen)}>
+                <LemonButton type="stealth" onClick={() => setPopoverOpen(!popoverOpen)}>
                     <EllipsisOutlined
                         style={{ color: 'var(--primary)', fontSize: 24 }}
                         className="insight-dropdown-actions"

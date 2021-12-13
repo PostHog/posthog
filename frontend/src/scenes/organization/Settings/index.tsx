@@ -9,7 +9,7 @@ import { DangerZone } from './DangerZone'
 import { RestrictedArea, RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from '../../../lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { IconExternalLink } from 'lib/components/icons'
+import { IconOpenInNew } from 'lib/components/icons'
 import { userLogic } from 'scenes/userLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -101,7 +101,7 @@ function DomainWhitelist({ isRestricted }: RestrictedComponentProps): JSX.Elemen
                         target="_blank"
                         rel="noopener"
                     >
-                        Learn more <IconExternalLink />
+                        Learn more <IconOpenInNew />
                     </a>
                 </div>
             )}

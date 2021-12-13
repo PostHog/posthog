@@ -10,20 +10,6 @@
             e.uuid AS uuid,
             e.event AS event
      FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, _timestamp) as person_id
-        FROM
-          (SELECT distinct_id,
-                  person_id,
-                  max(_timestamp) as _timestamp
-           FROM person_distinct_id
-           WHERE team_id = 2
-           GROUP BY person_id,
-                    distinct_id,
-                    team_id
-           HAVING max(is_deleted) = 0)
-        GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
@@ -35,20 +21,6 @@
                      e.uuid AS uuid,
                      e.event AS event
      FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, _timestamp) as person_id
-        FROM
-          (SELECT distinct_id,
-                  person_id,
-                  max(_timestamp) as _timestamp
-           FROM person_distinct_id
-           WHERE team_id = 2
-           GROUP BY person_id,
-                    distinct_id,
-                    team_id
-           HAVING max(is_deleted) = 0)
-        GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
@@ -72,20 +44,6 @@
                      e.uuid AS uuid,
                      e.event AS event
      FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, _timestamp) as person_id
-        FROM
-          (SELECT distinct_id,
-                  person_id,
-                  max(_timestamp) as _timestamp
-           FROM person_distinct_id
-           WHERE team_id = 2
-           GROUP BY person_id,
-                    distinct_id,
-                    team_id
-           HAVING max(is_deleted) = 0)
-        GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
@@ -98,6 +56,33 @@
 # name: TestClickhouseRetention.test_groups_aggregating.2
   '
   
+  SELECT DISTINCT e.$group_0 AS actor_id
+  FROM events e
+  where toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
+    AND toDateTime(e.timestamp) <= toDateTime('2020-06-14 00:00:00')
+    AND e.team_id = 2
+    AND actor_id IN
+      (SELECT target
+       FROM
+         (SELECT DISTINCT toStartOfWeek(e.timestamp) AS event_date,
+                          e.$group_0 as target,
+                          e.uuid AS uuid,
+                          e.event AS event
+          FROM events e
+          WHERE team_id = 2
+            AND e.event = '$pageview'
+            AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
+            AND toDateTime(e.timestamp) <= toDateTime('2020-06-14 00:00:00')
+            AND NOT has([''], $group_0) ) as actors)
+    AND e.event = '$pageview'
+    AND NOT has([''], $group_0)
+  LIMIT 100
+  OFFSET 0
+  '
+---
+# name: TestClickhouseRetention.test_groups_aggregating.3
+  '
+  
   SELECT datediff('Week', toStartOfWeek(toDateTime('2020-06-07 00:00:00')), reference_event.event_date) as base_interval,
          datediff('Week', reference_event.event_date, toStartOfWeek(toDateTime(event_date))) as intervals_from_base,
          COUNT(DISTINCT event.target) count
@@ -107,20 +92,6 @@
             e.uuid AS uuid,
             e.event AS event
      FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, _timestamp) as person_id
-        FROM
-          (SELECT distinct_id,
-                  person_id,
-                  max(_timestamp) as _timestamp
-           FROM person_distinct_id
-           WHERE team_id = 2
-           GROUP BY person_id,
-                    distinct_id,
-                    team_id
-           HAVING max(is_deleted) = 0)
-        GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
@@ -132,20 +103,6 @@
                      e.uuid AS uuid,
                      e.event AS event
      FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, _timestamp) as person_id
-        FROM
-          (SELECT distinct_id,
-                  person_id,
-                  max(_timestamp) as _timestamp
-           FROM person_distinct_id
-           WHERE team_id = 2
-           GROUP BY person_id,
-                    distinct_id,
-                    team_id
-           HAVING max(is_deleted) = 0)
-        GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
@@ -158,7 +115,7 @@
            intervals_from_base
   '
 ---
-# name: TestClickhouseRetention.test_groups_aggregating.3
+# name: TestClickhouseRetention.test_groups_aggregating.4
   '
   
   SELECT datediff('Week', toStartOfWeek(toDateTime('2020-06-07 00:00:00')), event_date) event_date,
@@ -169,20 +126,6 @@
                      e.uuid AS uuid,
                      e.event AS event
      FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, _timestamp) as person_id
-        FROM
-          (SELECT distinct_id,
-                  person_id,
-                  max(_timestamp) as _timestamp
-           FROM person_distinct_id
-           WHERE team_id = 2
-           GROUP BY person_id,
-                    distinct_id,
-                    team_id
-           HAVING max(is_deleted) = 0)
-        GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND e.event = '$pageview'
        AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
@@ -429,5 +372,52 @@
        AND JSONHas(group_properties_0, 'industry') )
   GROUP BY event_date
   ORDER BY event_date
+  '
+---
+# name: TestClickhouseRetention.test_groups_in_period
+  '
+  
+  SELECT toString(actor_id),
+         count(actor_id) appearance_count,
+         groupArray(intervals_from_base) appearances
+  FROM
+    (SELECT DISTINCT datediff('Week', toStartOfWeek(toDateTime('2020-06-07 00:00:00')), reference_event.event_date) as base_interval,
+                     datediff('Week', reference_event.event_date, toStartOfWeek(toDateTime(event_date))) as intervals_from_base,
+                     event.actor_id
+     FROM
+       (SELECT timestamp AS event_date,
+                            e.$group_0 AS actor_id,
+                            e.uuid as uuid,
+                            e.event as event
+        FROM events e
+        where toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00')
+          AND e.team_id = 2
+          AND e.event = '$pageview'
+          AND NOT has([''], $group_0) ) event
+     JOIN
+       (SELECT DISTINCT toStartOfWeek(e.timestamp) as event_date,
+                        e.$group_0 AS actor_id,
+                        e.uuid as uuid,
+                        e.event as event
+        from events e
+        where event_date = toStartOfWeek(toDateTime('2020-06-07 00:00:00'))
+          AND e.team_id = 2
+          AND e.event = '$pageview'
+          AND NOT has([''], $group_0) ) reference_event ON (event.actor_id = reference_event.actor_id)
+     WHERE toStartOfWeek(event.event_date) > toStartOfWeek(reference_event.event_date)
+     UNION ALL SELECT DISTINCT 0,
+                               0,
+                               e.$group_0 AS actor_id
+     from events e
+     where toStartOfWeek(e.timestamp) = toStartOfWeek(toDateTime('2020-06-07 00:00:00'))
+       AND e.team_id = 2
+       AND e.event = '$pageview'
+       AND NOT has([''], $group_0) ) person_appearances
+  WHERE base_interval = 0
+  GROUP BY actor_id
+  ORDER BY appearance_count DESC
+  LIMIT 100
+  OFFSET 0
   '
 ---

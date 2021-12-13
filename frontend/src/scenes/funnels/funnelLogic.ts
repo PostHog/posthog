@@ -116,7 +116,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             featureFlagLogic,
             ['featureFlags'],
             groupsModel,
-            ['groupTypes'],
+            ['aggregationLabel'],
             groupPropertiesModel,
             ['groupProperties'],
         ],
@@ -1051,20 +1051,14 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             },
         ],
         aggregationTargetLabel: [
-            (s) => [s.filters, s.groupTypes],
+            (s) => [s.filters, s.aggregationLabel],
             (
                 filters,
-                groupTypes
+                aggregationLabel
             ): {
                 singular: string
                 plural: string
-            } => {
-                if (filters.aggregation_group_type_index != undefined && groupTypes.length > 0) {
-                    const groupType = groupTypes[filters.aggregation_group_type_index]
-                    return { singular: groupType.group_type, plural: `${groupType.group_type}(s)` }
-                }
-                return { singular: 'user', plural: 'users' }
-            },
+            } => aggregationLabel(filters.aggregation_group_type_index),
         ],
         correlationMatrixAndScore: [
             (s) => [s.funnelCorrelationDetails, s.steps],
@@ -1077,6 +1071,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 trueNegative: number
                 falseNegative: number
                 correlationScore: number
+                correlationScoreStrength: 'weak' | 'moderate' | 'strong' | null
             } => {
                 if (!funnelCorrelationDetails) {
                     return {
@@ -1085,6 +1080,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                         trueNegative: 0,
                         falseNegative: 0,
                         correlationScore: 0,
+                        correlationScoreStrength: null,
                     }
                 }
 
@@ -1107,7 +1103,18 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                             (trueNegative + falsePositive) *
                             (trueNegative + falseNegative)
                     )
-                return { correlationScore, truePositive, falsePositive, trueNegative, falseNegative }
+
+                const correlationScoreStrength =
+                    Math.abs(correlationScore) > 0.5 ? 'strong' : Math.abs(correlationScore) > 0.3 ? 'moderate' : 'weak'
+
+                return {
+                    correlationScore,
+                    truePositive,
+                    falsePositive,
+                    trueNegative,
+                    falseNegative,
+                    correlationScoreStrength,
+                }
             },
         ],
         advancedOptionsUsedCount: [
@@ -1191,7 +1198,12 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         },
         setFilters: ({ filters, mergeWithExisting }) => {
             const cleanedParams = cleanFilters(
-                mergeWithExisting ? { ...values.filters, ...filters } : filters,
+                mergeWithExisting
+                    ? {
+                          ...values.filters,
+                          ...filters,
+                      }
+                    : filters,
                 values.filters
             )
             insightLogic(props).actions.setFilters(cleanedParams)
@@ -1245,10 +1257,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             })
         },
         openCorrelationPersonsModal: ({ correlation, success }) => {
-            // :TODO: Support 'person' modal for groups
-            if (values.filters.aggregation_group_type_index != undefined) {
-                return
-            }
             if (correlation.result_type === FunnelCorrelationResultsType.Properties) {
                 const { breakdown, breakdown_value } = parseBreakdownValue(correlation.event.event)
                 personsModalLogic.actions.loadPeopleFromUrl({

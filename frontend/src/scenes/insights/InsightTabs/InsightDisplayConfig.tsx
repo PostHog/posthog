@@ -13,7 +13,7 @@ import { FunnelBinsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBi
 import { PathStepPicker } from './PathTab/PathStepPicker'
 import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getFormattedLastWeekDate } from 'lib/utils'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface InsightDisplayConfigProps {
     clearAnnotationsToCreate: () => void
@@ -89,15 +89,16 @@ export function InsightDisplayConfig({
     const showPathOptions = activeView === InsightType.PATHS
     const dateFilterDisabled = showFunnelBarOptions && isFunnelEmpty(filters)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { currentFormattedDateRange } = useValues(insightLogic)
 
     return (
         <div className="display-config-inner">
-            <div>
+            <div className="display-config-inner-row">
                 {showDateFilter[activeView] && (
                     <span className="filter">
                         <span className="head-title-item">Date range</span>
                         <InsightDateFilter
-                            defaultValue={getFormattedLastWeekDate()}
+                            defaultValue={currentFormattedDateRange}
                             disabled={dateFilterDisabled}
                             bordered
                             makeLabel={(key) => (
@@ -111,7 +112,9 @@ export function InsightDisplayConfig({
                 )}
                 {showIntervalFilter(activeView, filters) && (
                     <span className="filter">
-                        <span className="head-title-item">grouped by</span>
+                        <span className="head-title-item">
+                            <span className="hide-lte-md">grouped </span>by
+                        </span>
                         <IntervalFilter view={activeView} />
                     </span>
                 )}
@@ -130,7 +133,7 @@ export function InsightDisplayConfig({
                     </span>
                 )}
             </div>
-            <div>
+            <div className="display-config-inner-row">
                 {showChartFilter(activeView) && (
                     <span className="filter">
                         <span className="head-title-item">Chart type</span>

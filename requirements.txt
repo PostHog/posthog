@@ -120,7 +120,7 @@ iso8601==0.1.12
     # via infi-clickhouse-orm
 kafka-helper==0.2
     # via -r requirements.in
-kafka-python==2.0.1
+kafka-python==2.0.2
     # via -r requirements.in
 kombu==4.6.8
     # via

@@ -675,7 +675,7 @@ export interface DashboardType {
     _highlight?: boolean
 }
 
-export type DashboardLayoutSize = 'lg' | 'sm' | 'xs' | 'xxs'
+export type DashboardLayoutSize = 'sm' | 'xs'
 
 export interface OrganizationInviteType {
     id: string
@@ -754,7 +754,7 @@ export interface PluginLogEntry {
 }
 
 export enum AnnotationScope {
-    Insight = 'insight',
+    Insight = 'dashboard_item',
     Project = 'project',
     Organization = 'organization',
 }
@@ -1336,11 +1336,15 @@ export interface Group {
 }
 
 export interface Experiment {
-    id: string
+    id: number | null
     name: string
-    description: string
-    feature_flag: string[]
-    filters: Partial<FilterType>
+    description?: string
+    feature_flag_key: string
+    filters: FilterType
+    start_date?: string
+    end_date?: string
+    created_at: string
+    created_by: UserBasicType | null
 }
 
 interface RelatedPerson {
@@ -1370,7 +1374,7 @@ export interface SelectOptionWithChildren extends SelectOption {
 
 export interface KeyMapping {
     label: string
-    description: string | JSX.Element
+    description?: string | JSX.Element
     examples?: string[]
     hide?: boolean
 }
