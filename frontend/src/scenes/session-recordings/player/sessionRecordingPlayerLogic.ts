@@ -35,6 +35,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
         setBuffer: true,
         setSkip: true,
         setScrub: true,
+        endScrub: true,
         setCurrentPlayerPosition: (playerPosition: PlayerPosition | null) => ({ playerPosition }),
         setSpeed: (speed: number) => ({ speed }),
         setScale: (scale: number) => ({ scale }),
@@ -260,11 +261,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
             values.player?.replayer?.setConfig({ speed })
         },
         seek: async ({ playerPosition, forcePlay }, breakpoint) => {
+            actions.setCurrentPlayerPosition(playerPosition)
+
             // Real seeking is debounced so as not to overload rrweb.
             await breakpoint(100)
             actions.stopAnimation()
-
-            actions.setCurrentPlayerPosition(playerPosition)
 
             // Check if we're seeking to a new segment
             let nextSegment = null

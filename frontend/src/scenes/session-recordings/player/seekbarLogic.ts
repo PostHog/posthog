@@ -25,7 +25,10 @@ export const seekbarLogic = kea<seekbarLogicType>({
             sessionRecordingLogic,
             ['eventsToShow'],
         ],
-        actions: [sessionRecordingPlayerLogic, ['seek', 'clearLoadingState', 'setScrub', 'setCurrentPlayerPosition']],
+        actions: [
+            sessionRecordingPlayerLogic,
+            ['seek', 'clearLoadingState', 'setScrub', 'endScrub', 'setCurrentPlayerPosition'],
+        ],
     },
     actions: {
         setThumbLeftPos: (thumbLeftPos: number, shouldSeek: boolean) => ({ thumbLeftPos, shouldSeek }),
@@ -73,6 +76,13 @@ export const seekbarLogic = kea<seekbarLogicType>({
                 endSeeking: () => false,
             },
         ],
+        isScrubbing: [
+            false,
+            {
+                setScrub: () => true,
+                endScrub: () => false,
+            },
+        ],
     },
     selectors: {
         bufferPercent: [
@@ -89,6 +99,18 @@ export const seekbarLogic = kea<seekbarLogicType>({
                             sessionPlayerData.metadata.segments
                         ) ?? 0
                     return (100 * bufferedToPlayerTime) / sessionPlayerData.metadata.recordingDurationMs
+                }
+                return 0
+            },
+        ],
+        scrubbingTime: [
+            (selectors) => [selectors.thumbLeftPos, selectors.slider, selectors.sessionPlayerData],
+            (thumbLeftPos, slider, sessionPlayerData) => {
+                if (thumbLeftPos && slider && sessionPlayerData?.metadata?.recordingDurationMs) {
+                    return (
+                        ((thumbLeftPos + THUMB_OFFSET) / slider.offsetWidth) *
+                        sessionPlayerData.metadata.recordingDurationMs
+                    )
                 }
                 return 0
             },
@@ -145,6 +167,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
             }
             const newX = getXPos(event) - values.cursorDiff - values.slider.getBoundingClientRect().left
             actions.handleSeek(newX)
+            actions.endScrub()
             actions.clearLoadingState()
 
             document.removeEventListener('touchmove', actions.handleMove)
