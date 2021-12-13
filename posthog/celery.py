@@ -79,6 +79,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS, check_cached_items.s(), name="check dashboard items"
     )
 
+    sender.add_periodic_task(crontab(minute=30, hour="*"), check_special_migration_health.s())
+
     sender.add_periodic_task(
         crontab(
             hour=0, minute=randrange(0, 40)
@@ -400,3 +402,10 @@ def sync_all_organization_available_features():
     from posthog.tasks.sync_all_organization_available_features import sync_all_organization_available_features
 
     sync_all_organization_available_features()
+
+
+@app.task(ignore_result=False, track_started=True, max_retries=0)
+def check_special_migration_health():
+    from posthog.tasks.special_migrations import check_special_migration_health
+
+    check_special_migration_health()

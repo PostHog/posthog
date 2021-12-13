@@ -1,11 +1,10 @@
 import { kea } from 'kea'
 import { prompt } from 'lib/logic/prompt'
-import { errorToast, objectsEqual, toParams, uuid } from 'lib/utils'
+import { dateFilterToText, errorToast, getFormattedLastWeekDate, objectsEqual, toParams, uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
 import {
-    AvailableFeature,
     Breadcrumb,
     InsightModel,
     FilterType,
@@ -29,12 +28,12 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { extractObjectDiffKeys, findInsightFromMountedLogic, getInsightId } from './utils'
 import { teamLogic } from '../teamLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 import { generateRandomAnimal } from 'lib/utils/randomAnimal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -148,8 +147,11 @@ export const insightLogic = kea<insightLogicType>({
                         result: response.result || values.insight.result,
                     }
                     callback?.(updatedInsight)
-                    savedInsightsLogic.findMounted()?.actions.loadInsights()
                     dashboardsModel.actions.updateDashboardItem(updatedInsight)
+                    savedInsightsLogic.findMounted()?.actions.loadInsights()
+                    if (updatedInsight.dashboard) {
+                        dashboardLogic.findMounted({ id: updatedInsight.dashboard })?.actions.loadDashboardItems()
+                    }
                     return updatedInsight
                 },
                 setInsightMetadata: async ({ metadata }, breakpoint) => {
@@ -418,10 +420,6 @@ export const insightLogic = kea<insightLogicType>({
             (savedFilters, filters) =>
                 filters && savedFilters && !objectsEqual(cleanFilters(savedFilters), cleanFilters(filters)),
         ],
-        metadataEditable: [
-            () => [userLogic.selectors.user],
-            (user) => user?.organization?.available_features?.includes(AvailableFeature.DASHBOARD_COLLABORATION),
-        ],
         syncWithUrl: [
             () => [(_, props: InsightLogicProps) => props.syncWithUrl, router.selectors.location],
             (syncWithUrl, { pathname }) => syncWithUrl && pathname.startsWith('/insights/'),
@@ -446,6 +444,20 @@ export const insightLogic = kea<insightLogicType>({
                     short_id
                         ? urls.insightEdit(short_id, cleanFilters({ ...filters, insight: insightType }, filters))
                         : undefined,
+        ],
+        currentFormattedDateRange: [
+            (s) => [s.insight],
+            (insight) => {
+                return dateFilterToText(
+                    insight?.result?.[0]?.filter?.date_from ?? insight?.result?.[0]?.days?.[0],
+                    insight?.last_refresh ??
+                        insight?.result?.[0]?.filter?.date_to ??
+                        insight?.result?.[0]?.days?.[insight?.result?.[0]?.days.length - 1],
+                    getFormattedLastWeekDate(),
+                    undefined,
+                    true
+                )
+            },
         ],
     },
     listeners: ({ actions, selectors, values, props }) => ({

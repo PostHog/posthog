@@ -22,8 +22,7 @@ describe('TeamManager()', () => {
     let teamManager: TeamManager
 
     beforeEach(async () => {
-        // TODO: #7422 remove experimental config
-        ;[hub, closeHub] = await createHub({ ...defaultConfig, EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: true })
+        ;[hub, closeHub] = await createHub()
         await resetTestDatabase()
         teamManager = hub.teamManager
     })
@@ -233,7 +232,10 @@ describe('TeamManager()', () => {
 
         // TODO: #7422 temporary test
         it('last_seen_at feature is experimental and completely disabled', async () => {
-            const [newHub, closeNewHub] = await createHub({ ...defaultConfig })
+            const [newHub, closeNewHub] = await createHub({
+                ...defaultConfig,
+                EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: false,
+            })
             const newTeamManager = newHub.teamManager
             newTeamManager.lastFlushAt = DateTime.fromISO('2010-01-01T22:22:22.000Z') // a long time ago
             await newTeamManager.updateEventNamesAndProperties(2, '$pageview', {}, DateTime.now())
