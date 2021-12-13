@@ -1,5 +1,8 @@
 # Changelog
 
+### 1.31.0 - Wednesday 15 December 2021
+- Changelog coming soon.
+
 ### 1.30.0 - Wednesday 17 November 2021
 
 -   **Fresh new look-and-feel**. PostHog just got a lot fresher! We have a brand new UI and layout that had been in the works, codenamed `lemonade` (because it's fresh). It's not only a new coat of paint - we've also pushed a lot of improvements to overall navigation and performance too. We call it turbo mode.
