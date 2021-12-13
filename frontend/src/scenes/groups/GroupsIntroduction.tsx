@@ -21,7 +21,7 @@ export function GroupsIntroduction({ access }: Props): JSX.Element {
             data-attr="group-analytics-upgrade"
             className="groups-introduction__action-button"
         >
-            Upgrade to get Group analytics
+            Upgrade to get Group Analytics
         </LemonButton>
     )
 
