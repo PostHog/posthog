@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { AutoComplete, Select } from 'antd'
+import { AutoComplete, DatePicker, Select } from 'antd'
 import { useThrottledCallback } from 'use-debounce'
 import api from 'lib/api'
-import { isOperatorFlag, isOperatorMulti, isOperatorRegex, toString } from 'lib/utils'
+import { isOperatorDate, isOperatorFlag, isOperatorMulti, isOperatorRegex, toString } from 'lib/utils'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { PropertyOperator } from '~/types'
 
@@ -180,7 +180,19 @@ export function PropertyValue({
 
     return (
         <>
-            {isMultiSelect ? (
+            {operator && isOperatorDate(operator) ? (
+                <>
+                    <DatePicker
+                        {...commonInputProps}
+                        format="YYYY-MM-DD HH:mm:ss"
+                        showTime={true}
+                        onChange={(val, payload) => {
+                            console.log({ setting: val, payload })
+                            val && setValue(val.format('YYYY-MM-DD HH:MM:SS'))
+                        }}
+                    />
+                </>
+            ) : isMultiSelect ? (
                 <SelectGradientOverflow
                     {...commonInputProps}
                     autoFocus={autoFocus}

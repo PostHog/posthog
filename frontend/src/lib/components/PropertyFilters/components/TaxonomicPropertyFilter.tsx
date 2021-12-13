@@ -13,6 +13,8 @@ import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 let uniqueMemoizedIndex = 0
 
@@ -25,6 +27,7 @@ export function TaxonomicPropertyFilter({
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const { setFilter } = useActions(propertyFilterLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const logic = taxonomicPropertyFilterLogic({ pageKey, filterIndex: index })
     const { filter, dropdownOpen, selectedCohortName, activeTaxonomicGroup } = useValues(logic)
@@ -102,6 +105,7 @@ export function TaxonomicPropertyFilter({
 
                     {showOperatorValueSelect && (
                         <OperatorValueSelect
+                            allowQueryingEventsByDateTime={featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME]}
                             type={filter?.type}
                             propkey={filter?.key}
                             operator={filter?.operator}
