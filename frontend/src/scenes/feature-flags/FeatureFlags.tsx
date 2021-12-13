@@ -2,7 +2,7 @@ import React from 'react'
 import { useValues, useActions } from 'kea'
 import { featureFlagsLogic } from './featureFlagsLogic'
 import { featureFlagLogic as featureFlagClientLogic } from 'lib/logic/featureFlagLogic'
-import { Input, Select, Space } from 'antd'
+import { Col, Input, Row, Select, Space } from 'antd'
 import { Link } from 'lib/components/Link'
 import { copyToClipboard, deleteWithUndo } from 'lib/utils'
 import { PlusOutlined } from '@ant-design/icons'
@@ -22,6 +22,7 @@ import { More } from '../../lib/components/LemonButton/More'
 import { createdAtColumn, createdByColumn } from '../../lib/components/LemonTable/columnUtils'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { TagFilter } from './TagFilter/TagFilter'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -193,18 +194,31 @@ export function FeatureFlags(): JSX.Element {
                 <div className="mb float-right">
                     <Space>
                         {enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAGS_TAGS] && (
-                            <Select
-                                bordered={true}
-                                disabled={false}
-                                defaultValue={'all-tags'}
-                                value={selectedTag || 'all-tags'}
-                                dropdownMatchSelectWidth={false}
-                                onChange={(key, option) => {
-                                    setSelectedTag(option.value)
-                                }}
-                                data-attr="tag-filter"
-                                options={allTagOptions}
-                            />
+                            <Row align="middle">
+                                <Col>
+                                    <Space>
+                                        Type:
+                                        <Select
+                                            bordered={true}
+                                            disabled={false}
+                                            defaultValue={'all-tags'}
+                                            value={selectedTag || 'all-tags'}
+                                            dropdownMatchSelectWidth={false}
+                                            onChange={(key) => {
+                                                setSelectedTag(key)
+                                            }}
+                                            data-attr="tag-filter"
+                                            options={allTagOptions}
+                                        />
+                                        <TagFilter
+                                            setTags={function (tags: string[]): void {
+                                                console.log(`set tags`, tags)
+                                            }}
+                                            tags={undefined}
+                                        />
+                                    </Space>
+                                </Col>
+                            </Row>
                         )}
 
                         <LinkButton
