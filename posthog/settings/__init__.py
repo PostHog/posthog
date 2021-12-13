@@ -15,7 +15,7 @@ import os
 from typing import Dict, List
 
 # :TRICKY: Imported before anything else to support overloads
-from posthog.settings.overloads import *
+from posthog.settings.overrides import *
 
 from posthog.settings.ee import EE_AVAILABLE
 from posthog.settings.base_variables import *
