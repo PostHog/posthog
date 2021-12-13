@@ -237,7 +237,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     Object.fromEntries(
                         Object.entries(s.infiniteListLogics(state, props)).map(([groupType, logic]) => [
                             groupType,
-                            logic.selectors.totalCount(state, logic.props),
+                            logic.isMounted() ? logic.selectors.totalCount(state, logic.props) : 0,
                         ])
                     ),
             ],
