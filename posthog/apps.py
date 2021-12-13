@@ -4,7 +4,8 @@ import posthoganalytics
 from django.apps import AppConfig
 from django.conf import settings
 
-from posthog.utils import get_git_branch, get_git_commit, get_machine_id
+from posthog.settings import SKIP_SPECIAL_MIGRATIONS_SETUP
+from posthog.utils import get_git_branch, get_git_commit, get_machine_id, print_warning
 from posthog.version import VERSION
 
 
@@ -44,4 +45,7 @@ class PostHogConfig(AppConfig):
 
         from posthog.special_migrations.setup import setup_special_migrations
 
-        setup_special_migrations()
+        if SKIP_SPECIAL_MIGRATIONS_SETUP:
+            print_warning(["Skipping special migrations setup. This is unsafe in production!"])
+        else:
+            setup_special_migrations()
