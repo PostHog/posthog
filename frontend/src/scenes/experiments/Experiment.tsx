@@ -21,8 +21,14 @@ export const scene: SceneExport = {
 }
 
 export function Experiment(): JSX.Element {
-    const { newExperimentData, experimentId, experimentData, experimentFunnel, newExperimentCurrentPage, experimentResults } =
-        useValues(experimentLogic)
+    const {
+        newExperimentData,
+        experimentId,
+        experimentData,
+        experimentFunnel,
+        newExperimentCurrentPage,
+        experimentResults,
+    } = useValues(experimentLogic)
     const { setNewExperimentData, createExperiment, setFilters, nextPage, prevPage } = useActions(experimentLogic)
     const [form] = Form.useForm()
 
@@ -170,7 +176,7 @@ export function Experiment(): JSX.Element {
                                                 </Row>
                                             </Col>
                                             <Col span={16}>
-                                                <InsightContainer disableCorrelation={true} />
+                                                <InsightContainer disableTable={true} />
                                             </Col>
                                         </Row>
                                     </BindLogic>
@@ -236,7 +242,7 @@ export function Experiment(): JSX.Element {
                     </Form>
                 </>
             ) : experimentData ? (
-                <>
+                <div className="experiment-result">
                     <div>
                         <PageHeader title={experimentData.name} />
                         <div>{experimentData?.description}</div>
@@ -257,11 +263,11 @@ export function Experiment(): JSX.Element {
                             <div>
                                 <PageHeader title="Results" />
                                 <div>Probability: {experimentResults.probability}</div>
-                                <InsightContainer disableCorrelation={true} />
+                                <InsightContainer disableTable={true} />
                             </div>
                         </BindLogic>
                     )}
-                </>
+                </div>
             ) : (
                 <div>Loading...</div>
             )}
