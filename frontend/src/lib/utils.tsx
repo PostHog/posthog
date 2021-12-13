@@ -625,10 +625,9 @@ export function isURL(input: any): boolean {
     if (!input || typeof input !== 'string') {
         return false
     }
-    // https://stackoverflow.com/questions/3809401/what-is-a-good-regular-expression-to-match-a-url
-    const regexp =
-        /^\s*https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi
-    return !!input.match?.(regexp)
+    // Regex by elmervc
+    const regexp = new RegExp('^([a-zA-Z]+)://(-.)?(([^s/?.#-]+|([^s/?.#-]-[^s/?.#-])).?)+(/[^s]*)?', 'iu')
+    return !!input.trim().match(regexp)
 }
 
 export function isEmail(string: string): boolean {
@@ -788,8 +787,8 @@ export const dateMapping: Record<string, dateMappingOption> = {
 
 export const isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
 
-export function getFormattedLastWeekDate(): string {
-    return `${dayjs().subtract(7, 'week').format(DATE_FORMAT)} - ${dayjs().endOf('d').format(DATE_FORMAT)}`
+export function getFormattedLastWeekDate(lastDay: dayjs.Dayjs = dayjs()): string {
+    return `${lastDay.subtract(7, 'week').format(DATE_FORMAT)} - ${lastDay.endOf('d').format(DATE_FORMAT)}`
 }
 
 export function dateFilterToText(

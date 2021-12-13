@@ -13,7 +13,7 @@ export function GroupsIntroductionBanner(): JSX.Element | null {
 
     let introductionSegment = (
         <>
-            <strong>🎉 Introducing group analytics!</strong> Analyze how groups interact with your product as a whole.
+            <strong>🎉 Introducing Group Analytics!</strong> Analyze how groups interact with your product as a whole.
         </>
     )
     if (groupsAccessStatus === GroupsAccessStatus.HasGroupTypes) {

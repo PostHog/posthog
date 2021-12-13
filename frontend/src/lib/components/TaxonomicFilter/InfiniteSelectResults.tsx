@@ -33,7 +33,7 @@ function CategoryPill({
         <Tag
             data-attr={`taxonomic-tab-${groupType}`}
             className={clsx({ 'taxonomic-pill-active': isActive, 'taxonomic-count-zero': totalCount === 0 })}
-            onClick={onClick}
+            onClick={totalCount > 0 ? onClick : undefined}
         >
             {group?.name}: {totalCount || 0}
         </Tag>

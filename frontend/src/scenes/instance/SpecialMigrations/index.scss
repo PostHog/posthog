@@ -1,0 +1,19 @@
+@import '~/vars';
+
+.special-migrations-scene {
+    .migration-btn {
+        cursor: pointer;
+    }
+
+    .success {
+        color: $success;
+    }
+
+    .danger {
+        color: $danger;
+    }
+
+    .warning {
+        color: $warning;
+    }
+}
