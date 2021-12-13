@@ -32,23 +32,14 @@ class Migration(SpecialMigrationDefinition):
         ),
         SpecialMigrationOperation(
             database=AnalyticsDBMS.CLICKHOUSE,
-            sql=EVENTS_TABLE_SQL.replace(EVENTS_TABLE, TEMPORARY_TABLE_NAME, 1),
+            sql=f"CREATE TABLE IF NOT EXISTS {TEMPORARY_TABLE_NAME} AS {EVENTS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}",
             rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
         ),
         SpecialMigrationOperation(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"""
             INSERT INTO {TEMPORARY_TABLE_NAME}
-            (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at) 
-            SELECT
-            uuid,
-            event,
-            properties,
-            timestamp,
-            team_id,
-            distinct_id,
-            elements_chain,
-            created_at 
+            SELECT * 
             FROM {EVENTS_TABLE}""",
             rollback=f"TRUNCATE TABLE {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
         ),
