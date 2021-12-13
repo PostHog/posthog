@@ -4,7 +4,7 @@ from rest_framework.decorators import action
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models.special_migration import MigrationStatus, SpecialMigration, get_all_running_special_migrations
 from posthog.permissions import StaffUser
-from posthog.special_migrations.runner import MAX_CONCURRENT_SPECIAL_MIGRATIONS, is_migration_in_range
+from posthog.special_migrations.runner import MAX_CONCURRENT_SPECIAL_MIGRATIONS, is_posthog_version_compatible
 from posthog.special_migrations.utils import force_rollback_migration, force_stop_migration, trigger_migration
 
 
@@ -61,7 +61,9 @@ class SpecialMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         migration_instance = self.get_object()
 
-        if not is_migration_in_range(migration_instance.posthog_min_version, migration_instance.posthog_max_version):
+        if not is_posthog_version_compatible(
+            migration_instance.posthog_min_version, migration_instance.posthog_max_version
+        ):
             return response.Response(
                 {
                     "success": False,
