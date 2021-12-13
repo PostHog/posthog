@@ -1,15 +1,12 @@
 @import '~/vars';
 
 .person-header {
-    display: flex;
-    align-items: center;
-
-    .icon {
-        font-size: 1.125rem;
-        margin-right: 0.5rem;
+    .profile-picture {
+        transition: opacity 200ms ease;
     }
-
-    &:hover {
-        text-decoration: underline;
+    a:hover {
+        .profile-picture {
+            opacity: 0.75;
+        }
     }
 }
