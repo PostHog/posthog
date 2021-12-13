@@ -12,7 +12,9 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function FunnelInsight(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { isValidFunnel, isLoading, filters, areFiltersValid, barGraphLayout } = useValues(funnelLogic(insightProps))
+    const { isValidFunnel, isLoading, filters, areFiltersValid, barGraphLayout, aggregationTargetLabel } = useValues(
+        funnelLogic(insightProps)
+    )
     const { featureFlags } = useValues(featureFlagLogic)
     const { showingPeople, cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
@@ -27,6 +29,7 @@ export function FunnelInsight(): JSX.Element {
                     setCohortModalVisible(true)
                 }}
                 showModalActions={filters.aggregation_group_type_index != undefined}
+                aggregationTargetLabel={aggregationTargetLabel}
             />
             <div
                 className={clsx('funnel-insights-container', {

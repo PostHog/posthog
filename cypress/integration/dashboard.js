@@ -12,6 +12,18 @@ describe('Dashboard', () => {
         cy.get('[data-attr=breadcrumb-2]').should('have.text', 'Dashboards')
     })
 
+    it('Adding new insight to dashboard works', () => {
+        cy.get('[data-attr=menu-item-insight]').click() // Create a new insight
+        cy.get('[data-attr="insight-save-button"]').click() // Save the insight
+        cy.get('[data-attr="edit-prop-name"]').click() // Rename insight
+        cy.focused().clear().type('Test Insight Zeus')
+        cy.get('button').contains('Done').click() // Save the new name
+        cy.get('[data-attr="save-to-dashboard-button"]').click() // Open the Save to dashboard modal
+        cy.get('button').contains('Add insight to dashboard').click() // Add the insight to a dashboard
+        cy.get('[data-attr="save-to-dashboard-button"]').click() // Go to the dashboard
+        cy.get('[data-attr="insight-name"]').should('contain', 'Test Insight Zeus') // Check if the insight is there
+    })
+
     it('Cannot see tags or description (non-FOSS feature)', () => {
         cy.get('h1').should('contain', 'Dashboards')
         cy.get('th').contains('Description').should('not.exist')

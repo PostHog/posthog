@@ -1,14 +1,18 @@
 import { kea } from 'kea'
+import React from 'react'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { errorToast } from 'lib/utils'
 import { generateRandomAnimal } from 'lib/utils/randomAnimal'
+import { toast } from 'react-toastify'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { Experiment, InsightType, InsightModel, FunnelVizType, Breadcrumb, InsightShortId } from '~/types'
+import { Experiment, InsightType, InsightModel, FunnelVizType, Breadcrumb, InsightShortId, FilterType } from '~/types'
 
 import { experimentLogicType } from './experimentLogicType'
+import { router } from 'kea-router'
 import { experimentsLogic } from './experimentsLogic'
 
 export const experimentLogic = kea<experimentLogicType>({
@@ -18,10 +22,14 @@ export const experimentLogic = kea<experimentLogicType>({
         setExperiment: (experiment: Experiment) => ({ experiment }),
         createExperiment: (draft?: boolean) => ({ draft }),
         setExperimentFunnelId: (shortId: InsightShortId) => ({ shortId }),
-        createNewExperimentFunnel: true,
-        setFilters: (filters) => ({ filters }),
+        createNewExperimentFunnel: (filters?: Partial<FilterType>) => ({ filters }),
+        setFilters: (filters: Partial<FilterType>) => ({ filters }),
         setExperimentId: (experimentId: number | 'new') => ({ experimentId }),
         setNewExperimentData: (experimentData: Partial<Experiment>) => ({ experimentData }),
+        nextPage: true,
+        prevPage: true,
+        setPage: (page: number) => ({ page }),
+        emptyData: true,
     },
     reducers: {
         experimentId: [
@@ -40,6 +48,7 @@ export const experimentLogic = kea<experimentLogicType>({
                     }
                     return { ...vals, ...experimentData }
                 },
+                emptyData: () => null,
             },
         ],
         experimentFunnelId: [
@@ -48,16 +57,54 @@ export const experimentLogic = kea<experimentLogicType>({
                 setExperimentFunnelId: (_, { shortId }) => shortId,
             },
         ],
+        newExperimentCurrentPage: [
+            0,
+            {
+                nextPage: (page) => page + 1,
+                prevPage: (page) => page - 1,
+                setPage: (_, { page }) => page,
+            },
+        ],
     },
     listeners: ({ values, actions }) => ({
         createExperiment: async ({ draft }) => {
-            await api.create(`api/projects/${values.currentTeamId}/experiments`, {
-                ...values.newExperimentData,
-                ...(!draft && { start_date: dayjs() }),
-            })
-            experimentsLogic.actions.loadExperiments()
+            try {
+                if (values.newExperimentData?.id) {
+                    await api.update(`api/projects/${values.currentTeamId}/experiments/${values.experimentId}`, {
+                        start_date: dayjs(),
+                    })
+                } else {
+                    await api.create(`api/projects/${values.currentTeamId}/experiments`, {
+                        ...values.newExperimentData,
+                        ...(!draft && { start_date: dayjs() }),
+                    })
+                }
+            } catch (error) {
+                errorToast(
+                    'Error creating your experiment',
+                    'Attempting to create this experiment returned an error:',
+                    error.status !== 0
+                        ? error.detail
+                        : "Check your internet connection and make sure you don't have an extension blocking our requests.",
+                    error.code
+                )
+                return
+            }
+            toast.success(
+                <div data-attr="success-toast">
+                    <h1>Experimentation created successfully!</h1>
+                    <p>Click here to go back to the experiments list.</p>
+                </div>,
+                {
+                    onClick: () => {
+                        experimentsLogic.actions.loadExperiments()
+                        router.actions.push(urls.experiments())
+                    },
+                    closeOnClick: true,
+                }
+            )
         },
-        createNewExperimentFunnel: async () => {
+        createNewExperimentFunnel: async ({ filters }) => {
             const newInsight = {
                 name: generateRandomAnimal(),
                 description: '',
@@ -67,6 +114,7 @@ export const experimentLogic = kea<experimentLogicType>({
                     funnel_viz_type: FunnelVizType.Steps,
                     date_from: dayjs().subtract(14, 'day').format('YYYY-MM-DDTHH:mm'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                    ...filters,
                 }),
                 result: null,
             }
@@ -78,6 +126,14 @@ export const experimentLogic = kea<experimentLogicType>({
         },
         setFilters: ({ filters }) => {
             funnelLogic.findMounted({ dashboardItemId: values.experimentFunnelId })?.actions.setFilters(filters)
+        },
+        loadExperimentSuccess: ({ experimentData }) => {
+            if (!experimentData?.start_date) {
+                // loading a draft mode experiment
+                actions.createNewExperimentFunnel(experimentData?.filters)
+                actions.setPage(2)
+                actions.setNewExperimentData({ ...experimentData })
+            }
         },
     }),
     loaders: ({ values }) => ({
@@ -166,6 +222,8 @@ export const experimentLogic = kea<experimentLogicType>({
                 // like in featureFlagLogic.tsx
                 if (parsedId === 'new') {
                     actions.createNewExperimentFunnel()
+                    actions.emptyData()
+                    actions.setPage(0)
                 }
                 if (parsedId !== values.experimentId) {
                     actions.setExperimentId(parsedId)
@@ -175,8 +233,5 @@ export const experimentLogic = kea<experimentLogicType>({
                 }
             }
         },
-    }),
-    actionToUrl: () => ({
-        createExperiment: () => '/experiments',
     }),
 })

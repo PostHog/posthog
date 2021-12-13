@@ -1,0 +1,27 @@
+@import '~/vars';
+
+.lemon-tag {
+    font-size: 0.75rem;
+    font-weight: $medium;
+    background: $border;
+    padding: 0.125rem 0.25rem;
+    border-radius: $radius;
+    text-transform: uppercase;
+    display: inline;
+    color: $text_default;
+    line-height: 1rem;
+
+    &.warning {
+        background-color: $warning;
+    }
+
+    &.danger {
+        background-color: $danger;
+        color: $text_light;
+    }
+
+    &.success {
+        background-color: $success;
+        color: $text_light;
+    }
+}

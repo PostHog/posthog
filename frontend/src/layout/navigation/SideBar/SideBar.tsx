@@ -37,6 +37,7 @@ import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { groupsModel } from '~/models/groupsModel'
+import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 
 function ProjectSwitcherInternal(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -70,9 +71,10 @@ interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClick' | 'p
     identifier: string | number
     sideAction?: Omit<SideAction, 'type'> & { identifier?: string }
     title?: string
+    highlight?: 'beta' | 'new'
 }
 
-function PageButton({ title, sideAction, identifier, ...buttonProps }: PageButtonProps): JSX.Element {
+function PageButton({ title, sideAction, identifier, highlight, ...buttonProps }: PageButtonProps): JSX.Element {
     const { aliasedActiveScene, activeScene } = useValues(sceneLogic)
     const { lastDashboardId } = useValues(dashboardsModel)
 
@@ -104,7 +106,16 @@ function PageButton({ title, sideAction, identifier, ...buttonProps }: PageButto
             data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
             {...buttonProps}
         >
-            {title || sceneConfigurations[identifier].name}
+            <span style={{ flexGrow: 1 }}>{title || sceneConfigurations[identifier].name}</span>
+            {highlight === 'beta' ? (
+                <LemonTag type="warning" style={{ marginLeft: 4, float: 'right' }}>
+                    Beta
+                </LemonTag>
+            ) : highlight === 'new' ? (
+                <LemonTag type="success" style={{ marginLeft: 4, float: 'right' }}>
+                    New
+                </LemonTag>
+            ) : null}
         </LemonButton>
     )
 }

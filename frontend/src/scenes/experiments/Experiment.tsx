@@ -5,7 +5,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import React, { useState } from 'react'
+import React from 'react'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -30,12 +30,11 @@ export function Experiment(): JSX.Element {
         experimentFunnelConversionRate,
         recommendedSampleSize,
         expectedRunningTime,
+        newExperimentCurrentPage,
     } = useValues(experimentLogic)
-    const { setNewExperimentData, createExperiment, setFilters } = useActions(experimentLogic)
+    const { setNewExperimentData, createExperiment, setFilters, nextPage, prevPage } = useActions(experimentLogic)
+
     const [form] = Form.useForm()
-    const [page, setPage] = useState(0)
-    const nextPage = (): void => setPage(page + 1)
-    const prevPage = (): void => setPage(page - 1)
 
     const { insightProps } = useValues(
         insightLogic({
@@ -52,7 +51,7 @@ export function Experiment(): JSX.Element {
 
     return (
         <>
-            {experimentId === 'new' ? (
+            {experimentId === 'new' || !experimentData?.start_date ? (
                 <>
                     <Row
                         align="middle"
@@ -73,12 +72,17 @@ export function Experiment(): JSX.Element {
                         className="experiment-form"
                         form={form}
                         onValuesChange={(values) => setNewExperimentData(values)}
+                        initialValues={{
+                            name: newExperimentData?.name,
+                            feature_flag_key: newExperimentData?.feature_flag_key,
+                            description: newExperimentData?.description,
+                        }}
                         onFinish={(values) => {
                             setNewExperimentData(values)
                             nextPage()
                         }}
                     >
-                        {page === 0 && (
+                        {newExperimentCurrentPage === 0 && (
                             <div>
                                 <Form.Item
                                     label="Name"
@@ -107,7 +111,7 @@ export function Experiment(): JSX.Element {
                             </div>
                         )}
 
-                        {page === 1 && (
+                        {newExperimentCurrentPage === 1 && (
                             <div>
                                 <Row className="person-selection">
                                     <div className="l3 mb">Person selection</div>
@@ -139,13 +143,7 @@ export function Experiment(): JSX.Element {
                                     </div>
                                 </Row>
                                 <Row className="metrics-selection">
-                                    <BindLogic
-                                        logic={insightLogic}
-                                        props={{
-                                            dashboardItemId: experimentFunnelId,
-                                            syncWithUrl: false,
-                                        }}
-                                    >
+                                    <BindLogic logic={insightLogic} props={insightProps}>
                                         <Row style={{ width: '100%' }}>
                                             <Col span={8} style={{ paddingRight: 8 }}>
                                                 <div className="l3 mb">Goal metric</div>
@@ -235,7 +233,7 @@ export function Experiment(): JSX.Element {
                             </div>
                         )}
 
-                        {page === 2 && (
+                        {newExperimentCurrentPage === 2 && (
                             <div className="confirmation">
                                 <div>Name: {newExperimentData?.name}</div>
                                 {newExperimentData?.description && (

@@ -1,14 +1,15 @@
 import { Button, Input } from 'antd'
-import { EditOutlined } from '@ant-design/icons'
+import { EditOutlined, LockOutlined } from '@ant-design/icons'
 import React, { useEffect, useState } from 'react'
-import { useValues } from 'kea'
 import './EditableField.scss'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { Tooltip } from '../Tooltip'
 
 interface EditableFieldProps {
     name: string
     value: string
     placeholder?: string
+    /** Whether editing is locked due to this being a premium feature. */
+    locked?: boolean
     className: string
     dataAttr: string
     onChange: (value: string) => void
@@ -22,20 +23,22 @@ export function EditableField({
     className,
     dataAttr,
     placeholder,
+    locked,
     multiline,
 }: EditableFieldProps): JSX.Element {
-    const { metadataEditable } = useValues(insightLogic)
     const [isEditing, setIsEditing] = useState(false)
     const [editedValue, setEditedValue] = useState(value)
+
     useEffect(() => {
         setEditedValue(value)
     }, [value])
+
     return (
         <div
             className={`editable-field${className ? ` ${className}` : ''} ${isEditing ? 'edit-mode' : 'view-mode'}`}
             data-attr={dataAttr}
         >
-            {metadataEditable && isEditing ? (
+            {isEditing ? (
                 <div className="edit-container ant-input-affix-wrapper ant-input-affix-wrapper-lg editable-textarea-wrapper">
                     <Input.TextArea
                         autoFocus
@@ -69,7 +72,7 @@ export function EditableField({
             ) : (
                 <div className="view-container">
                     <span className="field">{value || <i>{placeholder}</i>}</span>
-                    {metadataEditable && (
+                    {!locked ? (
                         <Button
                             type="link"
                             onClick={() => {
@@ -82,6 +85,13 @@ export function EditableField({
                         >
                             <EditOutlined />
                         </Button>
+                    ) : (
+                        <Tooltip
+                            title="This field is part of PostHog's team-oriented feature set and requires a premium plan. Check PostHog pricing."
+                            isDefaultTooltip
+                        >
+                            <LockOutlined style={{ marginLeft: 6, color: 'var(--text-muted)' }} />
+                        </Tooltip>
                     )}
                 </div>
             )}
