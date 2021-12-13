@@ -215,8 +215,7 @@ export function FunnelStepTable(): JSX.Element | null {
                             step.order === 0 ? 4 : (stepIndex - 1) * 5 + 6,
                             breakdown.steps?.[step.order]?.conversionRates.fromBasisStep != undefined ? (
                                 <>
-                                    {featureFlags[FEATURE_FLAGS.SIGMA_ANALYSIS] &&
-                                    getSignificanceFromBreakdownStep(breakdown, step.order)?.fromBasisStep ? (
+                                    {getSignificanceFromBreakdownStep(breakdown, step.order)?.fromBasisStep ? (
                                         <Tooltip title="Significantly different from other breakdown values">
                                             <span className="table-text-highlight">
                                                 <FlagOutlined style={{ marginRight: 2 }} />{' '}
@@ -295,8 +294,7 @@ export function FunnelStepTable(): JSX.Element | null {
                                 (stepIndex - 1) * 5 + 8,
                                 breakdown.steps?.[step.order]?.conversionRates.fromPrevious != undefined ? (
                                     <>
-                                        {featureFlags[FEATURE_FLAGS.SIGMA_ANALYSIS] &&
-                                        !getSignificanceFromBreakdownStep(breakdown, step.order)?.fromBasisStep &&
+                                        {!getSignificanceFromBreakdownStep(breakdown, step.order)?.fromBasisStep &&
                                         getSignificanceFromBreakdownStep(breakdown, step.order)?.fromPrevious ? (
                                             <Tooltip title="Significantly different from other breakdown values">
                                                 <span className="table-text-highlight">
@@ -547,7 +545,7 @@ export function FunnelStepTable(): JSX.Element | null {
                   return clsx(
                       `funnel-steps-table-row-${index}`,
                       index === 2 && 'funnel-table-cell',
-                      featureFlags[FEATURE_FLAGS.SIGMA_ANALYSIS] && record.significant && 'table-cell-highlight'
+                      record.significant && 'table-cell-highlight'
                   )
               },
           }
