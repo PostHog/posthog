@@ -77,7 +77,7 @@ class ClickhouseTestEventApi(
                         {
                             "key": "prop_that_is_a_unix_timestamp",
                             "value": "2012-01-07 18:30:00",
-                            "operator": "is_after",
+                            "operator": "is_date_after",
                             "type": "event",
                         }
                     ]
@@ -116,7 +116,7 @@ class ClickhouseTestEventApi(
                         {
                             "key": "prop_that_is_a_unix_timestamp",
                             "value": "2012-01-07 18:30:00",
-                            "operator": "is_before",
+                            "operator": "is_date_before",
                             "type": "event",
                         }
                     ]

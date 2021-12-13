@@ -30,8 +30,8 @@ OperatorType = Literal[
     "lt",
     "is_set",
     "is_not_set",
-    "is_after",
-    "is_before",
+    "is_date_after",
+    "is_date_before",
 ]
 
 GroupTypeName = str
