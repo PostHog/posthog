@@ -36,7 +36,7 @@ import {
     TeamType,
     TrendResult,
 } from '~/types'
-import { BinCountAuto, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
+import { BinCountAuto, FunnelLayout } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import {
     aggregateBreakdownResult,
@@ -53,7 +53,6 @@ import {
 } from './funnelUtils'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { teamLogic } from '../teamLogic'
@@ -113,8 +112,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             ['personProperties'],
             userLogic,
             ['hasAvailableFeature'],
-            featureFlagLogic,
-            ['featureFlags'],
             groupsModel,
             ['aggregationLabel'],
             groupPropertiesModel,
@@ -721,9 +718,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         hiddenLegendKeys: [
             () => [selectors.filters],
             (filters) => {
-                if (!featureFlagLogic.values.featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN]) {
-                    return {}
-                }
                 return filters.hiddenLegendKeys ?? {}
             },
         ],
@@ -756,6 +750,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             (steps): FlattenedFunnelStep[] => {
                 const flattenedSteps: FlattenedFunnelStep[] = []
                 steps.forEach((step) => {
+                    const isBreakdownParent = !!step.nested_breakdown?.length
                     flattenedSteps.push({
                         ...step,
                         rowKey: step.order,
@@ -764,14 +759,18 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                                   getVisibilityIndex(step, breakdownStep.breakdown_value)
                               )
                             : [],
-                        isBreakdownParent: !!step.nested_breakdown?.length,
+                        isBreakdownParent,
+                        breakdown_value: isBreakdownParent ? ['Baseline'] : step.breakdown_value,
+                        breakdown: isBreakdownParent ? ['baseline'] : step.breakdown,
                     })
                     if (step.nested_breakdown?.length) {
                         step.nested_breakdown.forEach((breakdownStep, i) => {
                             flattenedSteps.push({
                                 ...breakdownStep,
-                                rowKey: getVisibilityIndex(step, breakdownStep.breakdown_value),
+                                order: step.order,
                                 breakdownIndex: i,
+                                rowKey: getVisibilityIndex(step, breakdownStep.breakdown_value),
+                                isBreakdownParent: false,
                             })
                         })
                     }

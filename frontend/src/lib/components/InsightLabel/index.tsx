@@ -38,6 +38,7 @@ interface InsightsLabelProps {
     hideSeriesSubtitle?: boolean // Whether to show the base event/action name (if a custom name is set) in the insight label
     onLabelClick?: () => void // Click handler for inner label
     swapTitleAndSubtitle?: boolean // If true, emphases on subtitle and title are switched.
+    showEventName?: boolean // Override internally calculated to always show event name
 }
 
 interface MathTagProps {
@@ -93,11 +94,12 @@ export function InsightLabel({
     showCountedByTag,
     allowWrap = false,
     useCustomName = false,
+    showEventName: _showEventName = false,
     hideSeriesSubtitle,
     onLabelClick,
     swapTitleAndSubtitle = false,
 }: InsightsLabelProps): JSX.Element {
-    const showEventName = !breakdownValue || (hasMultipleSeries && !Array.isArray(breakdownValue))
+    const showEventName = _showEventName || !breakdownValue || (hasMultipleSeries && !Array.isArray(breakdownValue))
     const eventName = seriesStatus ? capitalizeFirstLetter(seriesStatus) : action?.name || fallbackName || ''
     const iconSizePx = iconSize === IconSize.Large ? 14 : iconSize === IconSize.Medium ? 12 : 10
 
