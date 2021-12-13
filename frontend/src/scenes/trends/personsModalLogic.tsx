@@ -3,7 +3,7 @@ import { Link } from 'lib/components/Link'
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
-import { errorToast, isGroupType, pluralize, toParams } from 'lib/utils'
+import { errorToast, toParams } from 'lib/utils'
 import {
     ActionFilter,
     FilterType,
@@ -208,20 +208,6 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         clickhouseFeaturesEnabled: [
             () => [preflightLogic.selectors.preflight],
             (preflight) => !!preflight?.is_clickhouse_enabled,
-        ],
-        isGroupType: [(s) => [s.people], (people) => people?.people?.[0] && isGroupType(people.people[0])],
-        actorLabel: [
-            (s) => [s.people, s.isGroupType, s.groupTypes],
-            (result, _isGroupType, groupTypes) => {
-                if (_isGroupType && result?.action !== 'session') {
-                    return result?.action.math_group_type_index != undefined &&
-                        groupTypes.length > result?.action.math_group_type_index
-                        ? `${groupTypes[result?.action.math_group_type_index].group_type}(s)`
-                        : ''
-                } else {
-                    return pluralize(result?.count || 0, 'user', undefined, false)
-                }
-            },
         ],
     },
     loaders: ({ actions, values }) => ({
