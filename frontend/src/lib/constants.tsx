@@ -76,7 +76,6 @@ export const FEATURE_FLAGS = {
     NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights', // owner: @neilkakkar
     FUNNEL_VERTICAL_BREAKDOWN: '5733-funnel-vertical-breakdown', // owner: @alexkim205
     SIGMA_ANALYSIS: 'sigma-analysis', // owner: @neilkakkar
-    NEW_SESSIONS_PLAYER: 'new-sessions-player', // owner: @rcmarron
     NEW_SESSIONS_PLAYER_EVENTS_LIST: 'new-sessions-player-events-list', // owner: @rcmarron / @alexkim205
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
     SESSION_INSIGHT_REMOVAL: 'session-insight-removal', // owner: @paolodamico
