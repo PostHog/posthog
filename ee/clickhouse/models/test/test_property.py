@@ -423,6 +423,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(self._run_query(filter)), 1)
 
 
+@pytest.mark.django_db
 def test_parse_prop_clauses_defaults(snapshot):
     filter = Filter(
         data={
@@ -455,6 +456,7 @@ TEST_BREAKDOWN_PROCESSING = [
 ]
 
 
+@pytest.mark.django_db
 @pytest.mark.parametrize("breakdown, table, query_alias, expected", TEST_BREAKDOWN_PROCESSING)
 def test_breakdown_query_expression(
     breakdown: Union[str, List[str]], table: TableWithProperties, query_alias: Literal["prop", "value"], expected: str,
