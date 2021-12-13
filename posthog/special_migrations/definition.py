@@ -1,16 +1,25 @@
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from posthog.models.special_migration import SpecialMigration
 from posthog.version_requirement import ServiceVersionRequirement
 
 
 class SpecialMigrationOperation:
-    def __init__(self, sql="", database="clickhouse", timeout_seconds=60, rollback=None, resumable=False):
+    def __init__(
+        self,
+        sql: str = "",
+        database: str = "clickhouse",
+        timeout_seconds: int = 60,
+        rollback: str = None,
+        resumable: bool = False,
+        side_effect: Callable = lambda: None,
+    ):
         self.sql = sql
         self.database = database
         self.timeout_seconds = timeout_seconds
         self.resumable = resumable
         self.rollback = rollback
+        self.side_effect = side_effect
 
 
 class SpecialMigrationDefinition:
