@@ -11,6 +11,7 @@ from posthog.gitsha import GIT_SHA
 from posthog.internal_metrics.team import get_internal_metrics_dashboards
 from posthog.models import Element, Event, SessionRecordingEvent
 from posthog.permissions import OrganizationAdminAnyPermissions, SingleTenancyOrAdmin
+from posthog.special_migrations.status import special_migrations_ok
 from posthog.utils import (
     dict_from_cursor_fetchall,
     get_helm_info_env,
@@ -120,6 +121,13 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                     {
                         "metric": "Postgres session recording table size",
                         "value": f"{session_recording_event_table_count} rows (~{session_recording_event_table_size})",
+                    }
+                )
+                metrics.append(
+                    {
+                        "key": "special_migrations_ok",
+                        "metric": "Special migrations up-to-date",
+                        "value": special_migrations_ok(),
                     }
                 )
         if is_clickhouse_enabled():
