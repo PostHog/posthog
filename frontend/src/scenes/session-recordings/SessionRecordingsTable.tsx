@@ -198,7 +198,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                                     <span> {key}</span>
                                 </>
                             )}
-                            defaultValue="Last 7 days"
+                            fallbackValue="Last 7 days"
                             bordered={true}
                             dateFrom={fromDate ?? undefined}
                             dateTo={toDate ?? undefined}

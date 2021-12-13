@@ -7,7 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import { dateMappingOption } from '~/types'
 
 export interface DateFilterProps {
-    defaultValue: string
+    fallbackValue: string
     showCustom?: boolean
     bordered?: boolean
     makeLabel?: (key: React.ReactNode) => React.ReactNode
@@ -18,16 +18,13 @@ export interface DateFilterProps {
     dateOptions?: Record<string, dateMappingOption>
     isDateFormatted?: boolean
     selectProps?: SelectProps<any>
-}
-
-interface RawDateFilterProps extends DateFilterProps {
     dateFrom?: string | dayjs.Dayjs
     dateTo?: string | dayjs.Dayjs
 }
 
 export function DateFilter({
     bordered,
-    defaultValue,
+    fallbackValue,
     showCustom,
     style,
     disabled,
@@ -39,7 +36,7 @@ export function DateFilter({
     dateOptions = dateMapping,
     isDateFormatted = false,
     selectProps = {},
-}: RawDateFilterProps): JSX.Element {
+}: DateFilterProps): JSX.Element {
     const [rangeDateFrom, setRangeDateFrom] = useState(
         dateFrom && isDate.test(dateFrom as string) ? dayjs(dateFrom) : undefined
     )
@@ -94,8 +91,8 @@ export function DateFilter({
     }
 
     const currKey = useMemo(
-        () => dateFilterToText(dateFrom, dateTo, defaultValue, dateOptions, false),
-        [dateFrom, dateTo, defaultValue]
+        () => dateFilterToText(dateFrom, dateTo, fallbackValue, dateOptions, false),
+        [dateFrom, dateTo, fallbackValue]
     )
 
     return (
@@ -105,7 +102,7 @@ export function DateFilter({
             id="daterange_selector"
             value={
                 isDateFormatted && !(currKey in dateOptions)
-                    ? dateFilterToText(dateFrom, dateTo, defaultValue, dateOptions, true)
+                    ? dateFilterToText(dateFrom, dateTo, fallbackValue, dateOptions, true)
                     : currKey
             }
             onChange={_onChange}
@@ -148,7 +145,13 @@ export function DateFilter({
                         return null
                     }
 
-                    const dateValue = dateFilterToText(values[0], values[1], defaultValue, dateOptions, isDateFormatted)
+                    const dateValue = dateFilterToText(
+                        values[0],
+                        values[1],
+                        fallbackValue,
+                        dateOptions,
+                        isDateFormatted
+                    )
 
                     return (
                         <Select.Option key={key} value={key} label={makeLabel ? makeLabel(dateValue) : undefined}>

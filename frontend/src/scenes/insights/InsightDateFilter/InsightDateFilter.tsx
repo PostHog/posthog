@@ -5,11 +5,12 @@ import { DateFilterProps, DateFilter } from 'lib/components/DateFilter/DateFilte
 import './index.scss'
 
 export function InsightDateFilter(props: DateFilterProps): JSX.Element {
+    const logic = insightDateFilterLogic({ dateFrom: props.dateFrom, dateTo: props.dateTo })
     const {
         dates: { dateFrom, dateTo },
         highlightDateChange,
-    } = useValues(insightDateFilterLogic)
-    const { setDates } = useActions(insightDateFilterLogic)
+    } = useValues(logic)
+    const { setDates } = useActions(logic)
 
     return (
         <span className={highlightDateChange ? 'insights-date-filter highlighted' : ''}>

@@ -89,7 +89,7 @@ export function InsightDisplayConfig({
     const showPathOptions = activeView === InsightType.PATHS
     const dateFilterDisabled = showFunnelBarOptions && isFunnelEmpty(filters)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { currentFormattedDateRange } = useValues(insightLogic)
+    const { fallbackDateRange } = useValues(insightLogic)
 
     return (
         <div className="display-config-inner">
@@ -98,7 +98,9 @@ export function InsightDisplayConfig({
                     <span className="filter">
                         <span className="head-title-item">Date range</span>
                         <InsightDateFilter
-                            defaultValue={currentFormattedDateRange}
+                            dateFrom={fallbackDateRange.dateFrom}
+                            dateTo={fallbackDateRange.dateTo}
+                            fallbackValue={fallbackDateRange.fallback}
                             disabled={dateFilterDisabled}
                             bordered
                             makeLabel={(key) => (

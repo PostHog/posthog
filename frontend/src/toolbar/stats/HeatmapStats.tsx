@@ -18,7 +18,7 @@ export function HeatmapStats(): JSX.Element {
                 <>
                     <div style={{ marginTop: 0, marginBottom: 10 }} className="flex-center">
                         <DateFilter
-                            defaultValue="Last 7 days"
+                            fallbackValue="Last 7 days"
                             dateFrom={heatmapFilter.date_from}
                             dateTo={heatmapFilter.date_to}
                             onChange={(date_from, date_to) => setHeatmapFilter({ date_from, date_to })}

@@ -10,12 +10,15 @@ describe('the insightDateFilterLogic', () => {
 
     initKeaTestLogic({
         logic: insightDateFilterLogic,
-        props: {},
+        props: {
+            dateFrom: '2021-12-11',
+            dateTo: '2021-12-13',
+        },
         onLogic: (l) => (logic = l),
     })
 
-    it('defaults to no dates', () => {
-        expectLogic(logic).toMatchValues({ dates: { dateFrom: undefined, dateTo: undefined } })
+    it('defaults to prop dates', () => {
+        expectLogic(logic).toMatchValues({ dates: { dateFrom: '2021-12-11', dateTo: '2021-12-13' } })
     })
 
     it('reads "date from" and "date to" from URL when editing', () => {

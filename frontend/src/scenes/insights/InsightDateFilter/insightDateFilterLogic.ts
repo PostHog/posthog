@@ -9,7 +9,13 @@ interface UrlParams {
     date_to?: string
 }
 
-export const insightDateFilterLogic = kea<insightDateFilterLogicType>({
+interface InsightDateFilterProps {
+    dateFrom?: string | Dayjs
+    dateTo?: string | Dayjs
+}
+
+export const insightDateFilterLogic = kea<insightDateFilterLogicType<InsightDateFilterProps>>({
+    props: {} as InsightDateFilterProps,
     path: ['scenes', 'insights', 'InsightDateFilter', 'insightDateFilterLogic'],
     actions: () => ({
         setDates: (dateFrom: string | Dayjs | undefined, dateTo: string | Dayjs | undefined) => ({
@@ -20,11 +26,11 @@ export const insightDateFilterLogic = kea<insightDateFilterLogicType>({
         endHighlightChange: true,
         setInitialLoad: true,
     }),
-    reducers: () => ({
+    reducers: ({ props }) => ({
         dates: [
             {
-                dateFrom: undefined as string | Dayjs | undefined,
-                dateTo: undefined as string | Dayjs | undefined,
+                dateFrom: props.dateFrom as string | Dayjs | undefined,
+                dateTo: props.dateTo as string | Dayjs | undefined,
             },
             {
                 setDates: (_, dates) => dates,

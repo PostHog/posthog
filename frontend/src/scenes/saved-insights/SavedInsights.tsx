@@ -352,7 +352,7 @@ export function SavedInsights(): JSX.Element {
                         Last modified:
                         <DateFilter
                             style={{ paddingLeft: 8 }}
-                            defaultValue="All time"
+                            fallbackValue="All time"
                             disabled={false}
                             bordered={true}
                             dateFrom={dateFrom}

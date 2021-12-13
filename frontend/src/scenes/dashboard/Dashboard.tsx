@@ -127,7 +127,7 @@ function DashboardView(): JSX.Element {
                             >
                                 <TZIndicator style={{ marginRight: 8, fontWeight: 'bold' }} />
                                 <DateFilter
-                                    defaultValue="Custom"
+                                    fallbackValue="Custom"
                                     showCustom
                                     dateFrom={dashboardFilters?.date_from ?? undefined}
                                     dateTo={dashboardFilters?.date_to ?? undefined}
