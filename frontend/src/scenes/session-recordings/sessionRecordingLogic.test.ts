@@ -208,6 +208,7 @@ describe('sessionRecordingLogic', () => {
                 time: 0,
                 windowId: events[1].properties.$window_id as string,
             },
+            percentageOfRecordingDuration: 0,
         })
 
         expected_events.push({
@@ -217,6 +218,7 @@ describe('sessionRecordingLogic', () => {
                 time: 40000,
                 windowId: events[2].properties.$window_id as string,
             },
+            percentageOfRecordingDuration: 10,
         })
 
         it('load events after metadata with 1min buffer', async () => {
