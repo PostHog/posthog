@@ -5,6 +5,17 @@ import { useValues } from 'kea'
 import { SystemStatusSubrows } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { IconOpenInNew } from 'lib/components/icons'
+import { Link } from 'lib/components/Link'
+
+interface MetricRow {
+    metric: string
+    key: string
+    value: any
+}
+
+const METRIC_KEY_TO_INTERNAL_LINK = {
+    special_migrations_ok: '/instance/special_migrations',
+}
 
 function RenderValue(value: any): JSX.Element | string {
     if (typeof value === 'boolean') {
@@ -16,6 +27,19 @@ function RenderValue(value: any): JSX.Element | string {
     return value.toString()
 }
 
+function RenderMetric(metricRow: MetricRow): JSX.Element {
+    return (
+        <span>
+            {metricRow.metric}{' '}
+            {METRIC_KEY_TO_INTERNAL_LINK[metricRow.key] ? (
+                <Link to={METRIC_KEY_TO_INTERNAL_LINK[metricRow.key]}>
+                    <IconOpenInNew style={{ verticalAlign: 'middle' }} />
+                </Link>
+            ) : null}
+        </span>
+    )
+}
+
 export function OverviewTab(): JSX.Element {
     const { overview, systemStatusLoading } = useValues(systemStatusLogic)
     const { configOptions, preflightLoading } = useValues(preflightLogic)
@@ -23,8 +47,8 @@ export function OverviewTab(): JSX.Element {
     const columns = [
         {
             title: 'Metric',
-            dataIndex: 'metric',
             className: 'metric-column',
+            render: RenderMetric,
         },
         {
             title: 'Value',

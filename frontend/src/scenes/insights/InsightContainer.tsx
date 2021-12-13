@@ -116,7 +116,7 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
             !showTimeoutMessage &&
             areFiltersValid &&
             filters.funnel_viz_type === FunnelVizType.Steps &&
-            (!featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] || filters?.layout === FunnelLayout.horizontal) &&
+            filters?.layout === FunnelLayout.horizontal &&
             !disableTable
         ) {
             return (
@@ -190,8 +190,8 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
                     {!!BlockingEmptyState ? (
                         BlockingEmptyState
                     ) : featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS] &&
-                      (activeView === InsightType.TRENDS || activeView === InsightType.STICKINESS) &&
-                      !filters.legend_hidden ? (
+                        (activeView === InsightType.TRENDS || activeView === InsightType.STICKINESS) &&
+                        !filters.legend_hidden ? (
                         <Row className="insights-graph-container-row" wrap={false}>
                             <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>
                             <Col className="insights-graph-container-row-right">

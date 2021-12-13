@@ -40,7 +40,7 @@ export function GroupsIntroduction({ access }: Props): JSX.Element {
     if (access === GroupsAccessStatus.NoAccess) {
         title = (
             <>
-                Introducing <span className="highlight">Group analytics</span>!
+                Introducing <span className="highlight">Group Analytics</span>!
             </>
         )
         subtext = (
