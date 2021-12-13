@@ -10,9 +10,10 @@ import { capitalizeFirstLetter } from 'lib/utils'
 
 export const groupLogic = kea<groupLogicType>({
     path: ['groups', 'groupLogic'],
-    connect: { values: [teamLogic, ['currentTeamId'], groupsModel, ['groupsEnabled', 'groupTypes']] },
+    connect: { values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes']] },
     actions: () => ({
         setGroup: (groupTypeIndex: number, groupKey: string) => ({ groupTypeIndex, groupKey }),
+        setActiveCardTab: (tab: 'properties' | 'related') => ({ tab }),
     }),
     loaders: ({ values }) => ({
         groupData: [
@@ -37,6 +38,13 @@ export const groupLogic = kea<groupLogicType>({
             '',
             {
                 setGroup: (_, { groupKey }) => groupKey,
+            },
+        ],
+        activeCardTab: [
+            'properties' as 'properties' | 'related',
+            {
+                setActiveCardTab: (_, { tab }) => tab,
+                setGroup: () => 'properties',
             },
         ],
     },

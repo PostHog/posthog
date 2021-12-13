@@ -90,3 +90,6 @@ class PersonDistinctId(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     person: models.ForeignKey = models.ForeignKey(Person, on_delete=models.CASCADE)
     distinct_id: models.CharField = models.CharField(max_length=400)
+
+    # current version of the id, used to sync with ClickHouse and collapse rows correctly for new clickhouse table
+    version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)

@@ -1,8 +1,6 @@
 import dayjs from 'dayjs'
 import { kea } from 'kea'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -24,12 +22,11 @@ type WarningType =
 export const navigationLogic = kea<navigationLogicType<WarningType>>({
     path: ['layout', 'navigation', 'navigationLogic'],
     connect: {
-        values: [featureFlagLogic, ['featureFlags'], sceneLogic, ['sceneConfig']],
+        values: [sceneLogic, ['sceneConfig']],
     },
     actions: {
         toggleSideBar: true,
         hideSideBar: true,
-        hideAnnouncement: true,
         openSitePopover: true,
         closeSitePopover: true,
         toggleSitePopover: true,
@@ -51,12 +48,6 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
             {
                 toggleSideBar: (state) => !state,
                 hideSideBar: () => false,
-            },
-        ],
-        isAnnouncementShown: [
-            true,
-            {
-                hideAnnouncement: () => false,
             },
         ],
         isSitePopoverOpen: [
@@ -118,15 +109,6 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
         isSideBarShown: [
             (s) => [s.isSideBarShownRaw, s.bareNav],
             (isSideBarShownRaw, bareNav) => isSideBarShownRaw && !bareNav,
-        ],
-        announcementMessage: [
-            (s) => [s.featureFlags],
-            (featureFlags): string | null => {
-                const flagValue = featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]
-                return flagValue && typeof flagValue === 'string'
-                    ? featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]
-                    : null
-            },
         ],
         systemStatus: [
             () => [

@@ -23,10 +23,6 @@
             "essential": true,
             "environment": [
                 {
-                    "name": "JS_URL",
-                    "value": "https://app-static.posthog.com"
-                },
-                {
                     "name": "USING_PGBOUNCER",
                     "value": "True"
                 },
@@ -129,6 +125,10 @@
                 {
                     "name": "CALCULATE_X_COHORTS_PARALLEL",
                     "value": "50"
+                },
+                {
+                    "name": "PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS",
+                    "value": "2,2635"
                 }
             ],
             "secrets": [

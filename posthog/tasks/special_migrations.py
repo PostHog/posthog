@@ -1,4 +1,6 @@
+from celery import states
 from celery.result import AsyncResult
+from sentry_sdk.integrations import celery
 
 from posthog.celery import app
 from posthog.special_migrations.runner import (
@@ -9,14 +11,6 @@ from posthog.special_migrations.runner import (
     update_migration_progress,
 )
 from posthog.special_migrations.utils import force_stop_migration, process_error, trigger_migration
-
-
-class CeleryTaskState:
-    Pending = "PENDING"
-    Started = "STARTED"
-    Retry = "RETRY"
-    Failure = "FAILURE"
-    Success = "SUCCESS"
 
 
 # we're hijacking an entire worker to do this - consider:
@@ -50,7 +44,7 @@ def check_special_migration_health() -> None:
     # failures and successes are handled elsewhere
     # pending means we haven't picked up the task yet
     # retry is not possible as max_retries == 0
-    if migration_task_celery_state != CeleryTaskState.Started:
+    if migration_task_celery_state != states.STARTED:
         return
 
     inspector = app.control.inspect()
@@ -58,13 +52,13 @@ def check_special_migration_health() -> None:
 
     active_task_ids = []
 
-    for _, tasks in active_tasks_per_node:
+    for _, tasks in active_tasks_per_node.items():
         active_task_ids += [task["id"] for task in tasks]
 
     # the worker crashed - this is how we find out and process the error
     if migration_instance.celery_task_id not in active_task_ids:
         if is_current_operation_resumable(migration_instance):
-            trigger_migration(migration_instance.name, fresh_start=False)
+            trigger_migration(migration_instance, fresh_start=False)
         else:
             process_error(migration_instance, "Celery worker crashed while running migration.")
         return

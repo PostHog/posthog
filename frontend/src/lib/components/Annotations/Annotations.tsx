@@ -58,7 +58,7 @@ export function Annotations({
             }}
             onDelete={(data: AnnotationType) => {
                 annotationsToMark.length === 1 && onClose?.()
-                if (data.scope !== AnnotationScope.DashboardItem) {
+                if (data.scope !== AnnotationScope.Insight) {
                     deleteGlobalAnnotation(data.id)
                 } else {
                     deleteAnnotation(data.id)

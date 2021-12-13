@@ -14,6 +14,7 @@ import {
 } from 'scenes/retention/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { groupsModel } from '~/models/groupsModel'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 
@@ -35,7 +36,14 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
     key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
     path: (key) => ['scenes', 'retention', 'retentionTableLogic', key],
     connect: (props: InsightLogicProps) => ({
-        values: [insightLogic(props), ['filters', 'insight', 'insightLoading'], actionsModel, ['actions']],
+        values: [
+            insightLogic(props),
+            ['filters', 'insight', 'insightLoading'],
+            actionsModel,
+            ['actions'],
+            groupsModel,
+            ['aggregationLabel'],
+        ],
         actions: [insightLogic(props), ['loadResultsSuccess']],
     }),
     actions: () => ({
@@ -91,6 +99,18 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         ],
         actionFilterTargetEntity: [(s) => [s.filters], (filters) => ({ events: [filters.target_entity] })],
         actionFilterReturningEntity: [(s) => [s.filters], (filters) => ({ events: [filters.returning_entity] })],
+        aggregationTargetLabel: [
+            (s) => [s.filters, s.aggregationLabel],
+            (
+                filters,
+                aggregationLabel
+            ): {
+                singular: string
+                plural: string
+            } => {
+                return aggregationLabel(filters.aggregation_group_type_index)
+            },
+        ],
     },
     listeners: ({ actions, values, props }) => ({
         setProperties: ({ properties }) => {

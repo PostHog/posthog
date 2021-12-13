@@ -4,7 +4,7 @@ import { systemStatusLogic } from './systemStatusLogic'
 import { useValues } from 'kea'
 import { SystemStatusSubrows } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { IconExternalLink } from 'lib/components/icons'
+import { IconOpenInNew } from 'lib/components/icons'
 import { Link } from 'lib/components/Link'
 
 interface MetricRow {
@@ -33,7 +33,7 @@ function RenderMetric(metricRow: MetricRow): JSX.Element {
             {metricRow.metric}{' '}
             {METRIC_KEY_TO_INTERNAL_LINK[metricRow.key] ? (
                 <Link to={METRIC_KEY_TO_INTERNAL_LINK[metricRow.key]}>
-                    <IconExternalLink style={{ verticalAlign: 'middle' }} />
+                    <IconOpenInNew style={{ verticalAlign: 'middle' }} />
                 </Link>
             ) : null}
         </span>
@@ -87,7 +87,7 @@ export function OverviewTab(): JSX.Element {
                         rel="noopener"
                         target="_blank"
                     >
-                        Learn more <IconExternalLink style={{ verticalAlign: 'middle' }} />
+                        Learn more <IconOpenInNew style={{ verticalAlign: 'middle' }} />
                     </a>
                 </p>
                 <Table

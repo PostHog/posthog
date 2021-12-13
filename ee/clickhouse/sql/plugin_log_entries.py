@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 ) ENGINE = {engine}
 """
 
-PLUGIN_LOG_ENTRIES_TABLE_SQL = (
+PLUGIN_LOG_ENTRIES_TABLE_SQL = lambda: (
     PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL
     + """PARTITION BY plugin_id ORDER BY (team_id, id)
 {ttl_period}

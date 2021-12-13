@@ -29,7 +29,7 @@ class Migration(SpecialMigrationDefinition):
     operations = [
         SpecialMigrationOperation(
             database=AnalyticsDBMS.CLICKHOUSE,
-            sql=PERSONS_DISTINCT_ID_TABLE_SQL.replace(PERSONS_DISTINCT_ID_TABLE, TEMPORARY_TABLE_NAME, 1),
+            sql=PERSONS_DISTINCT_ID_TABLE_SQL().replace(PERSONS_DISTINCT_ID_TABLE, TEMPORARY_TABLE_NAME, 1),
             rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
         ),
         SpecialMigrationOperation(
@@ -56,20 +56,20 @@ class Migration(SpecialMigrationDefinition):
                     _offset
                 FROM {PERSONS_DISTINCT_ID_TABLE}
             """,
-            rollback="DROP TABLE IF EXISTS person_distinct_id_failed",
+            rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME}",
         ),
         SpecialMigrationOperation(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"""
                 RENAME TABLE
-                    {CLICKHOUSE_DATABASE}.{PERSONS_DISTINCT_ID_TABLE} to {CLICKHOUSE_DATABASE}.person_distinct_id_backup,
+                    {CLICKHOUSE_DATABASE}.{PERSONS_DISTINCT_ID_TABLE} to {CLICKHOUSE_DATABASE}.person_distinct_id_special_migration_backup,
                     {CLICKHOUSE_DATABASE}.{TEMPORARY_TABLE_NAME} to {CLICKHOUSE_DATABASE}.{PERSONS_DISTINCT_ID_TABLE}
                 ON CLUSTER {CLICKHOUSE_CLUSTER}
             """,
             rollback=f"""
                 RENAME TABLE
-                    {CLICKHOUSE_DATABASE}.{TEMPORARY_TABLE_NAME} to {CLICKHOUSE_DATABASE}.person_distinct_id_failed,
                     {CLICKHOUSE_DATABASE}.{PERSONS_DISTINCT_ID_TABLE} to {CLICKHOUSE_DATABASE}.{TEMPORARY_TABLE_NAME}
+                    {CLICKHOUSE_DATABASE}.person_distinct_id_special_migration_backup to {CLICKHOUSE_DATABASE}.person_distinct_id,
                 ON CLUSTER {CLICKHOUSE_CLUSTER}
             """,
         ),
@@ -102,3 +102,7 @@ class Migration(SpecialMigrationDefinition):
 
         progress = 100 * total_events_moved / total_events_to_move
         return progress
+
+    def is_required(self):
+        res = sync_execute("SHOW CREATE TABLE person_distinct_id")
+        return "ReplacingMergeTree" in res[0][0]

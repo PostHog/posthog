@@ -1,14 +1,14 @@
 import React from 'react'
-import { Dropdown, Menu, Skeleton, Table } from 'antd'
+import { Dropdown, Menu, Skeleton, Table, Typography } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { getChartColors } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
-import { BreakdownKeyType, CohortType, IntervalType } from '~/types'
+import { BreakdownKeyType, CohortType, IntervalType, TrendResult } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
-import { average, median, maybeAddCommasToInteger } from 'lib/utils'
+import { average, median, maybeAddCommasToInteger, capitalizeFirstLetter } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
@@ -62,8 +62,7 @@ export function InsightsTable({
     const { calcColumnState } = useValues(logic)
     const { setCalcColumnState } = useActions(logic)
 
-    const isSingleEntity = indexedResults.length === 1
-    const colorList = getChartColors('white')
+    const colorList = getChartColors('white', indexedResults.length, !!filters.compare)
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
 
     const handleEditClick = (item: IndexedTrendResult): void => {
@@ -101,7 +100,6 @@ export function InsightsTable({
                         color={colorList[item.id]}
                         checked={visibilityMap[item.id]}
                         onChange={() => toggleVisibility(item.id)}
-                        disabled={isSingleEntity}
                     />
                 )
             },
@@ -116,10 +114,10 @@ export function InsightsTable({
                 <PropertyKeyInfo disableIcon disablePopover value={filters.breakdown.toString() || 'Breakdown Value'} />
             ),
             render: function RenderBreakdownValue({}, item: IndexedTrendResult) {
-                const label = formatBreakdownLabel(cohorts, item.breakdown_value)
+                const breakdownLabel = formatBreakdownLabel(cohorts, item.breakdown_value)
                 return (
                     <SeriesToggleWrapper id={item.id} toggleVisibility={toggleVisibility}>
-                        <div title={label}>{label}</div>
+                        {breakdownLabel && <span title={breakdownLabel}>{breakdownLabel}</span>}
                     </SeriesToggleWrapper>
                 )
             },
@@ -128,6 +126,27 @@ export function InsightsTable({
             sorter: (a, b) => {
                 const labelA = formatBreakdownLabel(cohorts, a.breakdown_value)
                 const labelB = formatBreakdownLabel(cohorts, b.breakdown_value)
+                return labelA.localeCompare(labelB)
+            },
+        })
+    }
+
+    if (filters.compare) {
+        columns.push({
+            title: <PropertyKeyInfo disableIcon disablePopover value="Compare Value" />,
+            render: function RenderCompareValue({}, item: IndexedTrendResult) {
+                const compareLabel = formatCompareLabel(item)
+                return (
+                    <SeriesToggleWrapper id={item.id} toggleVisibility={toggleVisibility}>
+                        {compareLabel && <Typography.Text title={compareLabel}>{compareLabel}</Typography.Text>}
+                    </SeriesToggleWrapper>
+                )
+            },
+            fixed: 'left',
+            width: 150,
+            sorter: (a, b) => {
+                const labelA = formatCompareLabel(a)
+                const labelB = formatCompareLabel(b)
                 return labelA.localeCompare(labelB)
             },
         })
@@ -156,6 +175,7 @@ export function InsightsTable({
                         className={clsx({
                             editable: canEditSeriesNameInline,
                         })}
+                        compareValue={filters.compare ? formatCompareLabel(item) : undefined}
                         hideSeriesSubtitle
                         onLabelClick={canEditSeriesNameInline ? () => handleEditClick(item) : undefined}
                     />
@@ -172,11 +192,15 @@ export function InsightsTable({
     })
 
     if (indexedResults?.length > 0 && indexedResults[0].data) {
+        const previousResult = !!filters.compare
+            ? indexedResults.find((r) => r.compare_label === 'previous')
+            : undefined
         const valueColumns: ColumnsType<IndexedTrendResult> = indexedResults[0].data.map(({}, index: number) => ({
             title: (
                 <DateDisplay
                     interval={(filters.interval as IntervalType) || 'day'}
-                    date={(indexedResults[0].dates || indexedResults[0].days)[index]}
+                    date={(indexedResults[0].dates || indexedResults[0].days)[index]} // current
+                    secondaryDate={!!previousResult ? (previousResult.dates || previousResult.days)[index] : undefined} // previous
                     hideWeekRange
                 />
             ),
@@ -184,7 +208,7 @@ export function InsightsTable({
                 return maybeAddCommasToInteger(item.data[index])
             },
             sorter: (a, b) => a.data[index] - b.data[index],
-            align: 'center',
+            align: 'center', // doesn't matter since it's overridden in css
         }))
 
         columns.push(...valueColumns)
@@ -223,7 +247,6 @@ export function InsightsTable({
                     </>
                 )
             },
-            defaultSortOrder: 'descend',
             sorter: (a, b) => (a.count || a.aggregated_value) - (b.count || b.aggregated_value),
             dataIndex: 'count',
             fixed: 'right',
@@ -254,9 +277,9 @@ export function InsightsTable({
     )
 }
 
-export function formatBreakdownLabel(cohorts: CohortType[], breakdown_value?: BreakdownKeyType): string {
+export function formatBreakdownLabel(cohorts?: CohortType[], breakdown_value?: BreakdownKeyType): string {
     if (breakdown_value && typeof breakdown_value == 'number') {
-        return cohorts.filter((c) => c.id == breakdown_value)[0]?.name || breakdown_value.toString()
+        return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name || breakdown_value.toString()
     } else if (typeof breakdown_value == 'string') {
         return breakdown_value === 'nan' ? 'Other' : breakdown_value === '' ? 'None' : breakdown_value
     } else if (Array.isArray(breakdown_value)) {
@@ -264,4 +287,10 @@ export function formatBreakdownLabel(cohorts: CohortType[], breakdown_value?: Br
     } else {
         return ''
     }
+}
+
+export function formatCompareLabel(trendResult: TrendResult): string {
+    // label splitting ensures backwards compatibility for api results that don't contain the new compare_label
+    const labels = trendResult.label.split(' - ')
+    return capitalizeFirstLetter(trendResult.compare_label ?? labels?.[labels.length - 1] ?? 'current')
 }

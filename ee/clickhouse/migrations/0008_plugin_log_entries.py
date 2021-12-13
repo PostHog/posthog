@@ -7,7 +7,7 @@ from ee.clickhouse.sql.plugin_log_entries import (
 )
 
 operations = [
-    migrations.RunSQL(PLUGIN_LOG_ENTRIES_TABLE_SQL),
+    migrations.RunSQL(PLUGIN_LOG_ENTRIES_TABLE_SQL()),
     migrations.RunSQL(KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL),
     migrations.RunSQL(PLUGIN_LOG_ENTRIES_TABLE_MV_SQL),
 ]
