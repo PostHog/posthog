@@ -30,6 +30,7 @@ class AsyncMigrationOperation:
         timeout_seconds: int = 60,
         rollback="",
         resumable=False,
+        side_effect=lambda: None,
     ):
         self.sql = sql
         self.database = database
@@ -46,6 +47,10 @@ class AsyncMigrationOperation:
         # This should not be a long operation as it will be executed synchronously!
         # Defaults to a no-op ("") - None causes a failure to rollback
         self.rollback = rollback
+
+        # This is a function on the operation that will be called just after the migration is run against the database
+        # This is to trigger some side effect that is required for that step (disable mat columns, trigger a refresh, etc)
+        self.side_effect = side_effect
 
 
 class AsyncMigrationDefinition:
