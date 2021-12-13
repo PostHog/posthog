@@ -97,12 +97,9 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                     "value": f"{postgres_version // 10000}.{(postgres_version // 100) % 100}.{postgres_version % 100}",
                 }
             )
+
             metrics.append(
-                {
-                    "key": "async_migrations_ok",
-                    "metric": "Async migrations up-to-date",
-                    "value": async_migrations_ok(),
-                }
+                {"key": "async_migrations_ok", "metric": "Async migrations up-to-date", "value": async_migrations_ok()}
             )
 
             if not is_clickhouse_enabled():
