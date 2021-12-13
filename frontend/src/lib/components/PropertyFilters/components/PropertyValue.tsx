@@ -1,10 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { AutoComplete, DatePicker, Select } from 'antd'
+import { AutoComplete, Select } from 'antd'
 import { useThrottledCallback } from 'use-debounce'
 import api from 'lib/api'
 import { isOperatorDate, isOperatorFlag, isOperatorMulti, isOperatorRegex, toString } from 'lib/utils'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { PropertyOperator } from '~/types'
+import dayjs, { Dayjs } from 'dayjs'
+import generatePicker from 'antd/lib/date-picker/generatePicker'
+import dayjsGenerateConfig from 'rc-picker/es/generate/dayjs'
+
+export const DatePicker = generatePicker<Dayjs>(dayjsGenerateConfig)
 
 type PropValue = {
     id?: number
@@ -178,21 +183,14 @@ export function PropertyValue({
         },
     }
 
+    const dayJSMightParse = (
+        candidateDateTimeValue: string | number | (string | number)[] | null | undefined
+    ): candidateDateTimeValue is string | number | undefined =>
+        ['string', 'number'].includes(typeof candidateDateTimeValue)
+
     return (
         <>
-            {operator && isOperatorDate(operator) ? (
-                <>
-                    <DatePicker
-                        {...commonInputProps}
-                        format="YYYY-MM-DD HH:mm:ss"
-                        showTime={true}
-                        onChange={(val, payload) => {
-                            console.log({ setting: val, payload })
-                            val && setValue(val.format('YYYY-MM-DD HH:MM:SS'))
-                        }}
-                    />
-                </>
-            ) : isMultiSelect ? (
+            {isMultiSelect ? (
                 <SelectGradientOverflow
                     {...commonInputProps}
                     autoFocus={autoFocus}
@@ -229,6 +227,19 @@ export function PropertyValue({
                         )
                     })}
                 </SelectGradientOverflow>
+            ) : operator && isOperatorDate(operator) ? (
+                <>
+                    <DatePicker
+                        {...commonInputProps}
+                        onOpenChange={() => setShouldBlur(false)}
+                        format="YYYY-MM-DD HH:mm:ss"
+                        showTime={true}
+                        value={dayJSMightParse(value) ? dayjs(value) : null}
+                        onSelect={(selectedDate) => {
+                            setValue(selectedDate.format('YYYY-MM-DD HH:MM:ss'))
+                        }}
+                    />
+                </>
             ) : (
                 <AutoComplete
                     {...commonInputProps}
