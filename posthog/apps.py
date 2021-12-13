@@ -43,9 +43,9 @@ class PostHogConfig(AppConfig):
                     )
                     exit(1)
 
-        from posthog.special_migrations.setup import setup_special_migrations
+        from posthog.async_migrations.setup import setup_async_migrations
 
         if SKIP_SPECIAL_MIGRATIONS_SETUP:
-            print_warning(["Skipping special migrations setup. This is unsafe in production!"])
+            print_warning(["Skipping async migrations setup. This is unsafe in production!"])
         else:
-            setup_special_migrations()
+            setup_async_migrations()

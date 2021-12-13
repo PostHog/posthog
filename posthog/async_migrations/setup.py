@@ -4,12 +4,12 @@ from django.core.exceptions import ImproperlyConfigured
 from infi.clickhouse_orm.utils import import_submodules
 from semantic_version.base import Version
 
-from posthog.models.special_migration import SpecialMigration, get_all_completed_special_migrations
+from posthog.async_migrations.definition import AsyncMigrationDefinition
+from posthog.models.async_migration import AsyncMigration, get_all_completed_async_migrations
 from posthog.settings import AUTO_START_SPECIAL_MIGRATIONS, DEBUG, TEST
-from posthog.special_migrations.definition import SpecialMigrationDefinition
 from posthog.version import VERSION
 
-ALL_SPECIAL_MIGRATIONS: Dict[str, SpecialMigrationDefinition] = {}
+ALL_SPECIAL_MIGRATIONS: Dict[str, AsyncMigrationDefinition] = {}
 
 SPECIAL_MIGRATION_TO_DEPENDENCY: Dict[str, Optional[str]] = {}
 
@@ -19,8 +19,8 @@ DEPENDENCY_TO_SPECIAL_MIGRATION: Dict[Optional[str], str] = {}
 
 POSTHOG_VERSION = Version(VERSION)
 
-SPECIAL_MIGRATIONS_MODULE_PATH = "posthog.special_migrations.migrations"
-SPECIAL_MIGRATIONS_EXAMPLE_MODULE_PATH = "posthog.special_migrations.examples"
+SPECIAL_MIGRATIONS_MODULE_PATH = "posthog.async_migrations.migrations"
+SPECIAL_MIGRATIONS_EXAMPLE_MODULE_PATH = "posthog.async_migrations.examples"
 
 all_migrations = import_submodules(SPECIAL_MIGRATIONS_MODULE_PATH)
 
@@ -31,22 +31,22 @@ for name, module in all_migrations.items():
     ALL_SPECIAL_MIGRATIONS[name] = module.Migration()
 
 
-def setup_special_migrations(ignore_posthog_version: bool = False):
+def setup_async_migrations(ignore_posthog_version: bool = False):
     """
-    Execute the necessary setup for special migrations to work:
+    Execute the necessary setup for async migrations to work:
     1. Import all the migration definitions 
     2. Create a database record for each
     3. Check if all migrations necessary for this PostHog version have completed (else don't start)
     4. Populate a dependencies map and in-memory record of migration definitions
     """
 
-    applied_migrations = set(instance.name for instance in get_all_completed_special_migrations())
+    applied_migrations = set(instance.name for instance in get_all_completed_async_migrations())
     unapplied_migrations = set(ALL_SPECIAL_MIGRATIONS.keys()) - applied_migrations
 
     first_migration = None
     for migration_name, migration in ALL_SPECIAL_MIGRATIONS.items():
 
-        SpecialMigration.objects.get_or_create(
+        AsyncMigration.objects.get_or_create(
             name=migration_name,
             description=migration.description,
             posthog_max_version=migration.posthog_max_version,
@@ -58,7 +58,7 @@ def setup_special_migrations(ignore_posthog_version: bool = False):
         if not dependency:
             if first_migration:
                 raise ImproperlyConfigured(
-                    "Two or more special migrations have no dependency. Make sure only the first migration has no dependency."
+                    "Two or more async migrations have no dependency. Make sure only the first migration has no dependency."
                 )
 
             first_migration = migration_name
@@ -89,20 +89,20 @@ def kickstart_migration_if_possible(migration_name: str, applied_migrations: set
         if not migration_name:
             return
 
-    from posthog.special_migrations.runner import run_next_migration
+    from posthog.async_migrations.runner import run_next_migration
 
     # start running 30 minutes from now
     run_next_migration(migration_name, after_delay=60 * 30)
 
 
-def get_special_migration_definition(migration_name: str) -> SpecialMigrationDefinition:
+def get_async_migration_definition(migration_name: str) -> AsyncMigrationDefinition:
     if TEST:
         return import_submodules(SPECIAL_MIGRATIONS_EXAMPLE_MODULE_PATH)[migration_name].Migration()
 
     return ALL_SPECIAL_MIGRATIONS[migration_name]
 
 
-def get_special_migration_dependency(migration_name: str) -> Optional[str]:
+def get_async_migration_dependency(migration_name: str) -> Optional[str]:
     if TEST:
         return None
 

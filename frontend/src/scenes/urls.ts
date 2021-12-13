@@ -56,5 +56,5 @@ export const urls = {
     instanceLicenses: () => '/instance/licenses',
     systemStatus: () => '/instance/status',
     systemStatusPage: (page: string) => `/instance/status/${page}`,
-    specialMigrations: () => '/instance/special_migrations',
+    asyncMigrations: () => '/instance/async_migrations',
 }

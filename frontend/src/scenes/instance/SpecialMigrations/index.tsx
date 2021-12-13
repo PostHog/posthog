@@ -5,7 +5,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { Button, Modal, Progress, Space, Table } from 'antd'
 import { useActions, useValues } from 'kea'
-import { SpecialMigration, migrationStatusNumberToMessage, specialMigrationsLogic } from './specialMigrationsLogic'
+import { AsyncMigration, migrationStatusNumberToMessage, asyncMigrationsLogic } from './asyncMigrationsLogic'
 import {
     PlayCircleOutlined,
     StopOutlined,
@@ -19,7 +19,7 @@ import { Spinner } from 'lib/components/Spinner/Spinner'
 import { userLogic } from 'scenes/userLogic'
 
 export const scene: SceneExport = {
-    component: SpecialMigrations,
+    component: AsyncMigrations,
 }
 
 export const tooltipMessageForStatus = {
@@ -30,34 +30,34 @@ export const tooltipMessageForStatus = {
     4: 'Re-run migration',
 }
 
-export function SpecialMigrations(): JSX.Element {
+export function AsyncMigrations(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { specialMigrations, specialMigrationsLoading } = useValues(specialMigrationsLogic)
-    const { triggerMigration, forceStopMigration, loadSpecialMigrations } = useActions(specialMigrationsLogic)
+    const { asyncMigrations, asyncMigrationsLoading } = useValues(asyncMigrationsLogic)
+    const { triggerMigration, forceStopMigration, loadAsyncMigrations } = useActions(asyncMigrationsLogic)
 
     const columns = [
         {
             title: '',
-            render: function RenderTriggerButton(specialMigration: SpecialMigration): JSX.Element {
-                const status = specialMigration.status
+            render: function RenderTriggerButton(asyncMigration: AsyncMigration): JSX.Element {
+                const status = asyncMigration.status
                 return (
                     <Tooltip title={tooltipMessageForStatus[status]}>
                         {status === 0 ? (
                             <PlayCircleOutlined
                                 className="migration-btn success"
-                                onClick={() => triggerMigration(specialMigration.id)}
+                                onClick={() => triggerMigration(asyncMigration.id)}
                             />
                         ) : status === 1 ? (
                             <StopOutlined
                                 className="migration-btn danger"
-                                onClick={() => forceStopMigration(specialMigration.id)}
+                                onClick={() => forceStopMigration(asyncMigration.id)}
                             />
                         ) : status === 2 ? (
                             <CheckCircleOutlined className="success" />
                         ) : status === 3 || status === 4 ? (
                             <RedoOutlined
                                 className="migration-btn warning"
-                                onClick={() => triggerMigration(specialMigration.id)}
+                                onClick={() => triggerMigration(asyncMigration.id)}
                             />
                         ) : status === 5 ? (
                             <Spinner size="sm" />
@@ -72,8 +72,8 @@ export function SpecialMigrations(): JSX.Element {
         },
         {
             title: 'Description',
-            render: function RenderError(specialMigration: SpecialMigration): JSX.Element {
-                const description = specialMigration.description
+            render: function RenderError(asyncMigration: AsyncMigration): JSX.Element {
+                const description = asyncMigration.description
                 return (
                     <small>
                         <span>{description.slice(0, 40)}</span>
@@ -81,7 +81,7 @@ export function SpecialMigrations(): JSX.Element {
                             <a
                                 onClick={() => {
                                     Modal.info({
-                                        title: `'${specialMigration.name}' description`,
+                                        title: `'${asyncMigration.name}' description`,
                                         content: <pre>{description}</pre>,
                                         icon: <InfoCircleOutlined />,
                                         okText: 'Close',
@@ -116,8 +116,8 @@ export function SpecialMigrations(): JSX.Element {
         },
         {
             title: 'Error',
-            render: function RenderError(specialMigration: SpecialMigration): JSX.Element {
-                const error = specialMigration.last_error || ''
+            render: function RenderError(asyncMigration: AsyncMigration): JSX.Element {
+                const error = asyncMigration.last_error || ''
                 return (
                     <small>
                         <span>{error.slice(0, 40)}</span>
@@ -125,7 +125,7 @@ export function SpecialMigrations(): JSX.Element {
                             <a
                                 onClick={() => {
                                     Modal.info({
-                                        title: `Error on migration '${specialMigration.name}'`,
+                                        title: `Error on migration '${asyncMigration.name}'`,
                                         content: <pre>{error}</pre>,
                                         icon: <InfoCircleOutlined />,
                                         okText: 'Close',
@@ -182,14 +182,14 @@ export function SpecialMigrations(): JSX.Element {
         },
     ]
     return (
-        <div className="special-migrations-scene">
+        <div className="async-migrations-scene">
             {user?.is_staff ? (
                 <>
-                    <PageHeader title="Special Migrations" caption="Manage special migrations in your instance" />
+                    <PageHeader title="Async Migrations" caption="Manage async migrations in your instance" />
                     <div className="mb float-right">
                         <Button
-                            icon={specialMigrationsLoading ? <Spinner size="sm" /> : <RedoOutlined />}
-                            onClick={loadSpecialMigrations}
+                            icon={asyncMigrationsLoading ? <Spinner size="sm" /> : <RedoOutlined />}
+                            onClick={loadAsyncMigrations}
                         >
                             Refresh
                         </Button>
@@ -197,18 +197,18 @@ export function SpecialMigrations(): JSX.Element {
                     <Space />
                     <Table
                         pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                        loading={specialMigrationsLoading}
+                        loading={asyncMigrationsLoading}
                         columns={columns}
-                        dataSource={specialMigrations}
+                        dataSource={asyncMigrations}
                     />
                 </>
             ) : (
                 <PageHeader
-                    title="Special Migrations"
+                    title="Async Migrations"
                     caption={
                         <>
                             <p>
-                                Only users with staff access can manage special migrations. Please contact your instance
+                                Only users with staff access can manage async migrations. Please contact your instance
                                 admin.
                             </p>
                             <p>

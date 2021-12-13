@@ -11,7 +11,7 @@ class MigrationStatus:
     Starting = 5  # only relevant for the UI
 
 
-class SpecialMigration(models.Model):
+class AsyncMigration(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["name"], name="unique name",)]
 
@@ -39,17 +39,17 @@ class SpecialMigration(models.Model):
     posthog_max_version: models.CharField = models.CharField(max_length=20, null=True, blank=True)
 
 
-def get_all_completed_special_migrations():
-    return SpecialMigration.objects.filter(status=MigrationStatus.CompletedSuccessfully)
+def get_all_completed_async_migrations():
+    return AsyncMigration.objects.filter(status=MigrationStatus.CompletedSuccessfully)
 
 
-def get_all_running_special_migrations():
-    return SpecialMigration.objects.filter(status=MigrationStatus.Running)
+def get_all_running_async_migrations():
+    return AsyncMigration.objects.filter(status=MigrationStatus.Running)
 
 
 # allow for splitting code paths
-def is_special_migration_complete(migration_name: str) -> bool:
-    migration_instance = SpecialMigration.objects.filter(
+def is_async_migration_complete(migration_name: str) -> bool:
+    migration_instance = AsyncMigration.objects.filter(
         name=migration_name, status=MigrationStatus.CompletedSuccessfully
     ).first()
     return migration_instance is not None

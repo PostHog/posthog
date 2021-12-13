@@ -3,22 +3,22 @@ from unittest.mock import patch
 
 import pytest
 
-from posthog.constants import AnalyticsDBMS
-from posthog.models.special_migration import MigrationStatus
-from posthog.special_migrations.definition import SpecialMigrationOperation
-from posthog.special_migrations.test.util import create_special_migration
-from posthog.special_migrations.utils import (
+from posthog.async_migrations.definition import AsyncMigrationOperation
+from posthog.async_migrations.test.util import create_async_migration
+from posthog.async_migrations.utils import (
     complete_migration,
     execute_op,
     force_stop_migration,
     process_error,
     trigger_migration,
 )
+from posthog.constants import AnalyticsDBMS
+from posthog.models.async_migration import MigrationStatus
 from posthog.test.base import BaseTest
 
-DEFAULT_CH_OP = SpecialMigrationOperation(sql="SELECT 1", timeout_seconds=10)
+DEFAULT_CH_OP = AsyncMigrationOperation(sql="SELECT 1", timeout_seconds=10)
 
-DEFAULT_POSTGRES_OP = SpecialMigrationOperation(database=AnalyticsDBMS.POSTGRES, sql="SELECT 1",)
+DEFAULT_POSTGRES_OP = AsyncMigrationOperation(database=AnalyticsDBMS.POSTGRES, sql="SELECT 1",)
 
 
 class TestUtils(BaseTest):
@@ -37,9 +37,9 @@ class TestUtils(BaseTest):
         # correctly routes to postgres
         mock_cursor.assert_called_once()
 
-    @patch("posthog.special_migrations.runner.attempt_migration_rollback")
+    @patch("posthog.async_migrations.runner.attempt_migration_rollback")
     def test_process_error(self, _):
-        sm = create_special_migration()
+        sm = create_async_migration()
         process_error(sm, "some error")
 
         sm.refresh_from_db()
@@ -47,16 +47,16 @@ class TestUtils(BaseTest):
         self.assertEqual(sm.last_error, "some error")
         self.assertGreater(sm.finished_at, datetime.now(timezone.utc) - timedelta(hours=1))
 
-    @patch("posthog.tasks.special_migrations.run_special_migration.delay")
-    def test_trigger_migration(self, mock_run_special_migration):
-        sm = create_special_migration()
+    @patch("posthog.tasks.async_migrations.run_async_migration.delay")
+    def test_trigger_migration(self, mock_run_async_migration):
+        sm = create_async_migration()
         trigger_migration(sm)
 
-        mock_run_special_migration.assert_called_once()
+        mock_run_async_migration.assert_called_once()
 
     @patch("posthog.celery.app.control.revoke")
     def test_force_stop_migration(self, mock_app_control_revoke):
-        sm = create_special_migration()
+        sm = create_async_migration()
         force_stop_migration(sm)
 
         sm.refresh_from_db()
@@ -66,7 +66,7 @@ class TestUtils(BaseTest):
 
     def test_complete_migration(self):
 
-        sm = create_special_migration()
+        sm = create_async_migration()
         complete_migration(sm)
 
         sm.refresh_from_db()
