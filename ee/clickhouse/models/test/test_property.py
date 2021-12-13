@@ -509,6 +509,7 @@ def test_events(db, team) -> List[UUID]:
             distinct_id="whatever",
             properties={"short_date": f"{datetime(2021, 4, 6):%Y-%m-%d}"},
         ),
+        _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"sdk_$time": 1639427152.339},),
     ]
 
 
@@ -517,12 +518,12 @@ TEST_PROPERTIES = [
     (Property(key="email", value="test@posthog.com", operator="exact"), [0]),
     (Property(key="email", value=["pineapple@pizza.com", "mongo@example.com"], operator="exact"), [1]),
     (Property(key="attr", value="5"), [4]),
-    (Property(key="email", value="test@posthog.com", operator="is_not"), range(1, 11)),
-    (Property(key="email", value=["test@posthog.com", "mongo@example.com"], operator="is_not"), range(2, 11)),
+    (Property(key="email", value="test@posthog.com", operator="is_not"), range(1, 12)),
+    (Property(key="email", value=["test@posthog.com", "mongo@example.com"], operator="is_not"), range(2, 12)),
     (Property(key="email", value=r".*est@.*", operator="regex"), [0]),
     (Property(key="email", value=r"?.", operator="regex"), []),
     (Property(key="email", operator="is_set", value="is_set"), [0, 1]),
-    (Property(key="email", operator="is_not_set", value="is_not_set"), range(2, 11)),
+    (Property(key="email", operator="is_not_set", value="is_not_set"), range(2, 12)),
     (Property(key="unix_timestamp", operator="is_date_before", value="2021-04-02"), [5, 6]),
     (Property(key="unix_timestamp", operator="is_date_after", value="2021-04-01"), [5, 6]),
     (Property(key="unix_timestamp", operator="is_date_before", value="2021-04-01 18:30:00"), [5]),
@@ -535,6 +536,7 @@ TEST_PROPERTIES = [
     (Property(key="short_date", operator="is_date_after", value="2021-04-05"), [10]),
     (Property(key="short_date", operator="is_date_before", value="2021-04-07"), [9, 10]),
     (Property(key="short_date", operator="is_date_after", value="2021-04-03"), [9, 10]),
+    (Property(key="sdk_$time", operator="is_date_before", value="2021-12-25"), [11]),
 ]
 
 
@@ -563,6 +565,7 @@ def test_prop_filter_json_extract_materialized(test_events, property, expected_e
     materialize("events", "unix_timestamp")
     materialize("events", "long_date")
     materialize("events", "short_date")
+    materialize("events", "sdk_$time")
 
     query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=True)
 
