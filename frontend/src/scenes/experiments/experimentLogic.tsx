@@ -62,7 +62,12 @@ export const experimentLogic = kea<experimentLogicType>({
                 name: generateRandomAnimal(),
                 description: '',
                 tags: [],
-                filters: cleanFilters({ insight: InsightType.FUNNELS, funnel_viz_type: FunnelVizType.Steps }),
+                filters: cleanFilters({
+                    insight: InsightType.FUNNELS,
+                    funnel_viz_type: FunnelVizType.Steps,
+                    date_from: dayjs().subtract(14, 'day').format('YYYY-MM-DDTHH:mm'),
+                    date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                }),
                 result: null,
             }
             const createdInsight: InsightModel = await api.create(

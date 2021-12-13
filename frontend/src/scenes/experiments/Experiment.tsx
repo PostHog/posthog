@@ -46,7 +46,7 @@ export function Experiment(): JSX.Element {
     const { isStepsEmpty, filterSteps, filters, results, conversionMetrics } = useValues(funnelLogic(insightProps))
 
     const conversionRate = conversionMetrics.totalRate * 100
-    const entrants = results[0]?.count
+    const entrants = results?.[0]?.count
     const rate = experimentFunnelConversionRate
     console.log('conv rate: ', conversionRate, minimimumDetectableChange, entrants, rate)
 
