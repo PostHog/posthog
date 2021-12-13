@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { IconPlus } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonRow, LemonSpacer } from 'lib/components/LemonRow'
+import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { Lettermark } from 'lib/components/Lettermark/Lettermark'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import React from 'react'
@@ -14,9 +15,9 @@ import { navigationLogic } from './navigationLogic'
 
 export function AccessLevelIndicator({ organization }: { organization: OrganizationBasicType }): JSX.Element {
     return (
-        <div className="AccessLevelIndicator" title={`Your ${organization.name} organization access level`}>
-            {organization.membership_level ? membershipLevelToName.get(organization.membership_level) : '?'}
-        </div>
+        <LemonTag className="AccessLevelIndicator" title={`Your ${organization.name} organization access level`}>
+            {(organization.membership_level ? membershipLevelToName.get(organization.membership_level) : null) || '?'}
+        </LemonTag>
     )
 }
 

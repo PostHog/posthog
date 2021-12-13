@@ -36,17 +36,15 @@ export function PersonHeader(props: PersonHeaderProps): JSX.Element {
     const content = (
         <div className="flex-center">
             {props.withIcon && (
-                <span className="mr-025">
-                    <ProfilePicture
-                        name={
-                            props.person?.properties?.email ||
-                            props.person?.properties?.name ||
-                            props.person?.properties?.username ||
-                            'U'
-                        }
-                        size="md"
-                    />
-                </span>
+                <ProfilePicture
+                    name={
+                        props.person?.properties?.email ||
+                        props.person?.properties?.name ||
+                        props.person?.properties?.username ||
+                        'U'
+                    }
+                    size="md"
+                />
             )}
             <span className="ph-no-capture text-ellipsis">{asDisplay(props.person)}</span>
         </div>

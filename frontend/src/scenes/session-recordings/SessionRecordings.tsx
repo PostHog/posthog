@@ -1,7 +1,7 @@
 import React from 'react'
 import { SessionRecordingsTable } from './SessionRecordingsTable'
 import { PageHeader } from 'lib/components/PageHeader'
-import { Alert, Button, Row, Tag } from 'antd'
+import { Alert, Button, Row } from 'antd'
 import { teamLogic } from 'scenes/teamLogic'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { ArrowRightOutlined } from '@ant-design/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { sessionRecordingsTableLogic } from 'scenes/session-recordings/sessionRecordingsTableLogic'
+import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -18,9 +19,9 @@ export function SessionsRecordings(): JSX.Element {
                 title={
                     <Row align="middle">
                         Recordings
-                        <Tag color="orange" style={{ marginLeft: 8 }}>
-                            BETA
-                        </Tag>
+                        <LemonTag type="warning" style={{ marginLeft: 8 }}>
+                            Beta
+                        </LemonTag>
                     </Row>
                 }
             />
