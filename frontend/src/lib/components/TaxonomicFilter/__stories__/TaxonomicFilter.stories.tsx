@@ -9,6 +9,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { worker } from '~/mocks/browser'
 import { ResponseResolver, rest, RestContext, RestRequest } from 'msw'
 import { CohortType, PersonProperty, PropertyDefinition } from '~/types'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export default {
     title: 'PostHog/Components/TaxonomicFilter',
@@ -95,7 +96,13 @@ export const AllGroups = (): JSX.Element => {
 
     return (
         <Provider>
-            <TaxonomicFilter />
+            <TaxonomicFilter
+                taxonomicGroupTypes={[
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.Cohorts,
+                ]}
+            />
         </Provider>
     )
 }

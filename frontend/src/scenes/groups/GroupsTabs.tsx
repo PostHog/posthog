@@ -23,7 +23,7 @@ export function GroupsTabs(): JSX.Element {
             <Tabs.TabPane tab="Persons" key="-1" />
 
             {showGroupsIntroductionPage ? (
-                <Tabs.TabPane tab="Introducing Group analytics" key="0" />
+                <Tabs.TabPane tab="Introducing Group Analytics" key="0" />
             ) : (
                 groupTypes.map((groupType) => (
                     <Tabs.TabPane tab={capitalizeFirstLetter(groupType.group_type)} key={groupType.group_type_index} />

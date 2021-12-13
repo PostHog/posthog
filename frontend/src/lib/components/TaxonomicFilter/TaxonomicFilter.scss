@@ -39,6 +39,7 @@
             border-color: var(--bg-side);
             &.taxonomic-count-zero {
                 color: var(--text-muted);
+                cursor: not-allowed;
             }
             &.taxonomic-pill-active {
                 color: var(--text-light);
