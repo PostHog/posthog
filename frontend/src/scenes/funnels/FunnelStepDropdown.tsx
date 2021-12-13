@@ -89,7 +89,7 @@ export function FunnelStepDropdown({ index }: { index: number }): JSX.Element | 
                             </Menu.Item>
                         )}
                         {adjustedIndex > 1 && (
-                            <Menu.Item key="3">
+                            <Menu.Item key="4">
                                 <A
                                     href={urls.insightNew({
                                         funnel_filter: { ...filterProps, funnel_step: adjustedIndex * -1 },
