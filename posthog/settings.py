@@ -753,21 +753,3 @@ if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
     SERVICE_VERSION_REQUIREMENTS = SERVICE_VERSION_REQUIREMENTS + [
         ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0,<21.7.0"),
     ]
-
-
-## Dynamic configs settings
-
-INSTALLED_APPS.append("constance")
-INSTALLED_APPS.append("constance.backends.database")
-
-CONSTANCE_BACKEND = "constance.backends.database.DatabaseBackend"
-
-CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
-
-CONSTANCE_CONFIG = {
-    "MATERIALIZED_COLUMNS_ENABLED": (
-        get_from_env("MATERIALIZED_COLUMNS_ENABLED", True, type_cast=str_to_bool),
-        "Whether materialized columns should be, created or used at query time",
-        bool,
-    ),
-}
