@@ -15,7 +15,6 @@ interface OperatorValueSelectProps {
     endpoint?: string
     onChange: (operator: PropertyOperator, value: PropertyFilterValue) => void
     operatorSelectProps?: Omit<SelectProps<any>, 'onChange'>
-    allowQueryingEventsByDateTime?: boolean
 }
 
 interface OperatorSelectProps extends SelectProps<any> {
@@ -34,18 +33,15 @@ export function OperatorValueSelect({
     endpoint,
     onChange,
     operatorSelectProps,
-    allowQueryingEventsByDateTime,
 }: OperatorValueSelectProps): JSX.Element {
     const [currentOperator, setCurrentOperator] = useState(operator)
-    const operators = allowQueryingEventsByDateTime
-        ? (Object.keys(operatorMap).filter((o) => o != 'is_before' && o != 'is_after') as Array<PropertyOperator>)
-        : (Object.keys(operatorMap) as Array<PropertyOperator>)
+
     return (
         <>
             <Col {...(Array.isArray(columnOptions) ? columnOptions[0] : columnOptions)}>
                 <OperatorSelect
                     operator={currentOperator || PropertyOperator.Exact}
-                    operators={operators}
+                    operators={Object.keys(operatorMap) as Array<PropertyOperator>}
                     onChange={(newOperator: PropertyOperator) => {
                         setCurrentOperator(newOperator)
                         if (isOperatorFlag(newOperator)) {
