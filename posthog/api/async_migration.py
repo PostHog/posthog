@@ -2,7 +2,7 @@ from rest_framework import response, serializers, viewsets
 from rest_framework.decorators import action
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.async_migrations.runner import MAX_CONCURRENT_SPECIAL_MIGRATIONS, is_posthog_version_compatible
+from posthog.async_migrations.runner import MAX_CONCURRENT_ASYNC_MIGRATIONS, is_posthog_version_compatible
 from posthog.async_migrations.utils import force_rollback_migration, force_stop_migration, trigger_migration
 from posthog.models.async_migration import AsyncMigration, MigrationStatus, get_all_running_async_migrations
 from posthog.permissions import StaffUser
@@ -50,11 +50,11 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["POST"], detail=True)
     def trigger(self, request, **kwargs):
-        if len(get_all_running_async_migrations()) >= MAX_CONCURRENT_SPECIAL_MIGRATIONS:
+        if len(get_all_running_async_migrations()) >= MAX_CONCURRENT_ASYNC_MIGRATIONS:
             return response.Response(
                 {
                     "success": False,
-                    "error": f"No more than {MAX_CONCURRENT_SPECIAL_MIGRATIONS} async migration can run at once.",
+                    "error": f"No more than {MAX_CONCURRENT_ASYNC_MIGRATIONS} async migration can run at once.",
                 },
                 status=400,
             )

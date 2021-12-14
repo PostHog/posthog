@@ -4,7 +4,7 @@ from django.core.management.base import BaseCommand
 from semantic_version.base import Version
 
 from posthog.async_migrations.runner import start_async_migration
-from posthog.async_migrations.setup import ALL_SPECIAL_MIGRATIONS, POSTHOG_VERSION, setup_async_migrations
+from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS, POSTHOG_VERSION, setup_async_migrations
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
 
 logger = structlog.get_logger(__name__)
@@ -12,14 +12,14 @@ logger = structlog.get_logger(__name__)
 
 def get_necessary_migrations():
     necessary_migrations = []
-    for migration_name, definition in ALL_SPECIAL_MIGRATIONS.items():
+    for migration_name, definition in ALL_ASYNC_MIGRATIONS.items():
         sm = AsyncMigration.objects.get_or_create(
             name=migration_name,
             description=definition.description,
             posthog_min_version=definition.posthog_min_version,
             posthog_max_version=definition.posthog_max_version,
         )[0]
-        if POSTHOG_VERSION > Version(sm.posthog_max_version) and ALL_SPECIAL_MIGRATIONS[migration_name].is_required():
+        if POSTHOG_VERSION > Version(sm.posthog_max_version) and ALL_ASYNC_MIGRATIONS[migration_name].is_required():
             necessary_migrations.append(sm)
 
     return necessary_migrations

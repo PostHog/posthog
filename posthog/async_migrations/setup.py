@@ -6,29 +6,29 @@ from semantic_version.base import Version
 
 from posthog.async_migrations.definition import AsyncMigrationDefinition
 from posthog.models.async_migration import AsyncMigration, get_all_completed_async_migrations
-from posthog.settings import AUTO_START_SPECIAL_MIGRATIONS, DEBUG, TEST
+from posthog.settings import AUTO_START_ASYNC_MIGRATIONS, DEBUG, TEST
 from posthog.version import VERSION
 
-ALL_SPECIAL_MIGRATIONS: Dict[str, AsyncMigrationDefinition] = {}
+ALL_ASYNC_MIGRATIONS: Dict[str, AsyncMigrationDefinition] = {}
 
-SPECIAL_MIGRATION_TO_DEPENDENCY: Dict[str, Optional[str]] = {}
+ASYNC_MIGRATION_TO_DEPENDENCY: Dict[str, Optional[str]] = {}
 
-# inverted mapping of SPECIAL_MIGRATION_TO_DEPENDENCY
-DEPENDENCY_TO_SPECIAL_MIGRATION: Dict[Optional[str], str] = {}
+# inverted mapping of ASYNC_MIGRATION_TO_DEPENDENCY
+DEPENDENCY_TO_ASYNC_MIGRATION: Dict[Optional[str], str] = {}
 
 
 POSTHOG_VERSION = Version(VERSION)
 
-SPECIAL_MIGRATIONS_MODULE_PATH = "posthog.async_migrations.migrations"
-SPECIAL_MIGRATIONS_EXAMPLE_MODULE_PATH = "posthog.async_migrations.examples"
+ASYNC_MIGRATIONS_MODULE_PATH = "posthog.async_migrations.migrations"
+ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH = "posthog.async_migrations.examples"
 
-all_migrations = import_submodules(SPECIAL_MIGRATIONS_MODULE_PATH)
+all_migrations = import_submodules(ASYNC_MIGRATIONS_MODULE_PATH)
 
 if DEBUG and not TEST:
-    all_migrations["example"] = import_submodules(SPECIAL_MIGRATIONS_EXAMPLE_MODULE_PATH)["example"]
+    all_migrations["example"] = import_submodules(ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH)["example"]
 
 for name, module in all_migrations.items():
-    ALL_SPECIAL_MIGRATIONS[name] = module.Migration()
+    ALL_ASYNC_MIGRATIONS[name] = module.Migration()
 
 
 def setup_async_migrations(ignore_posthog_version: bool = False):
@@ -41,10 +41,10 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
     """
 
     applied_migrations = set(instance.name for instance in get_all_completed_async_migrations())
-    unapplied_migrations = set(ALL_SPECIAL_MIGRATIONS.keys()) - applied_migrations
+    unapplied_migrations = set(ALL_ASYNC_MIGRATIONS.keys()) - applied_migrations
 
     first_migration = None
-    for migration_name, migration in ALL_SPECIAL_MIGRATIONS.items():
+    for migration_name, migration in ALL_ASYNC_MIGRATIONS.items():
 
         AsyncMigration.objects.get_or_create(
             name=migration_name,
@@ -63,7 +63,7 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
 
             first_migration = migration_name
 
-        SPECIAL_MIGRATION_TO_DEPENDENCY[migration_name] = dependency
+        ASYNC_MIGRATION_TO_DEPENDENCY[migration_name] = dependency
 
         if (
             (not ignore_posthog_version)
@@ -72,10 +72,10 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
         ):
             raise ImproperlyConfigured(f"Migration {migration_name} is required for PostHog versions above {VERSION}.")
 
-    for key, val in SPECIAL_MIGRATION_TO_DEPENDENCY.items():
-        DEPENDENCY_TO_SPECIAL_MIGRATION[val] = key
+    for key, val in ASYNC_MIGRATION_TO_DEPENDENCY.items():
+        DEPENDENCY_TO_ASYNC_MIGRATION[val] = key
 
-    if AUTO_START_SPECIAL_MIGRATIONS and first_migration:
+    if AUTO_START_ASYNC_MIGRATIONS and first_migration:
         kickstart_migration_if_possible(first_migration, applied_migrations)
 
 
@@ -85,7 +85,7 @@ def kickstart_migration_if_possible(migration_name: str, applied_migrations: set
     """
 
     while migration_name in applied_migrations:
-        migration_name = DEPENDENCY_TO_SPECIAL_MIGRATION.get(migration_name) or ""
+        migration_name = DEPENDENCY_TO_ASYNC_MIGRATION.get(migration_name) or ""
         if not migration_name:
             return
 
@@ -97,13 +97,13 @@ def kickstart_migration_if_possible(migration_name: str, applied_migrations: set
 
 def get_async_migration_definition(migration_name: str) -> AsyncMigrationDefinition:
     if TEST:
-        return import_submodules(SPECIAL_MIGRATIONS_EXAMPLE_MODULE_PATH)[migration_name].Migration()
+        return import_submodules(ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH)[migration_name].Migration()
 
-    return ALL_SPECIAL_MIGRATIONS[migration_name]
+    return ALL_ASYNC_MIGRATIONS[migration_name]
 
 
 def get_async_migration_dependency(migration_name: str) -> Optional[str]:
     if TEST:
         return None
 
-    return SPECIAL_MIGRATION_TO_DEPENDENCY[migration_name]
+    return ASYNC_MIGRATION_TO_DEPENDENCY[migration_name]

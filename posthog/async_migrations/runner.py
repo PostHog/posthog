@@ -18,13 +18,13 @@ from posthog.async_migrations.utils import (
 )
 from posthog.models.async_migration import AsyncMigration, MigrationStatus, get_all_running_async_migrations
 from posthog.models.utils import UUIDT
-from posthog.settings import SPECIAL_MIGRATIONS_ROLLBACK_TIMEOUT
+from posthog.settings import ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT
 from posthog.version_requirement import ServiceVersionRequirement
 
 """
 Important to prevent us taking up too many celery workers and also to enable running migrations sequentially
 """
-MAX_CONCURRENT_SPECIAL_MIGRATIONS = 1
+MAX_CONCURRENT_ASYNC_MIGRATIONS = 1
 
 
 def start_async_migration(migration_name: str, ignore_posthog_version=False) -> bool:
@@ -41,7 +41,7 @@ def start_async_migration(migration_name: str, ignore_posthog_version=False) -> 
     """
 
     migration_instance = AsyncMigration.objects.get(name=migration_name)
-    over_concurrent_migrations_limit = len(get_all_running_async_migrations()) >= MAX_CONCURRENT_SPECIAL_MIGRATIONS
+    over_concurrent_migrations_limit = len(get_all_running_async_migrations()) >= MAX_CONCURRENT_ASYNC_MIGRATIONS
     posthog_version_valid = ignore_posthog_version or is_posthog_version_compatible(
         migration_instance.posthog_min_version, migration_instance.posthog_max_version
     )
