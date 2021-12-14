@@ -94,7 +94,7 @@ class RetentionBreakdownTests(TestCase, ClickhouseTestMixin):
 
         assert retention_by_cohort_by_period == {
             "Day 0": {"1": ["person 1", "person 2"], "2": ["person 1"],},
-            "Day 1": {"1": ["person 1", "person 3"]},
+            "Day 1": {"1": ["person 3", "person 1"]},
         }
 
     @test_with_materialized_columns(person_properties=["os"])
