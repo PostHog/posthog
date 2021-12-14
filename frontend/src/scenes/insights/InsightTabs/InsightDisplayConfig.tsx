@@ -113,7 +113,7 @@ export function InsightDisplayConfig({
                         />
                     </span>
                 )}
-                
+
                 {activeView === InsightType.RETENTION && <RetentionDatePicker />}
 
                 {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.Steps && (
