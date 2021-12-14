@@ -2,7 +2,7 @@ import { DateTime, Settings } from 'luxon'
 
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
-import { EventPropertyCounter } from '../../../src/worker/ingestion/event-property-counter'
+import { detectDateFormat, EventPropertyCounter } from '../../../src/worker/ingestion/event-property-counter'
 import { resetTestDatabase } from '../../helpers/sql'
 
 describe('EventPropertyCounter()', () => {
@@ -116,5 +116,19 @@ describe('EventPropertyCounter()', () => {
             const eventProperties = await hub.db.fetchEventProperties()
             expect(eventProperties.length).toEqual(50001)
         })
+    })
+
+    describe('detectDateFormat', () => {
+        const matches = [
+            { value: '2021-01-21', response: 'YYYY-MM-DD' },
+            { value: '2021-12-14T16:25:56.777Z', response: 'ISO8601-UTC' },
+            { value: '2021-12-14T16:25:56.777+02:00', response: 'ISO8601-TZ' },
+        ]
+
+        for (const { value, response } of matches) {
+            test(`${value} --> ${response}`, () => {
+                expect(detectDateFormat(value)).toEqual(response)
+            })
+        }
     })
 })

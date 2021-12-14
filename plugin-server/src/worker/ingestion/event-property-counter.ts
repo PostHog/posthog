@@ -164,8 +164,16 @@ export class EventPropertyCounter {
     }
 }
 
-function detectDateFormat(value: string): string | void {
-    if (value.match(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/)) {
+export function detectDateFormat(value: string): string | void {
+    if (value.match(/^\d{4}-\d{2}-\d{2}$/)) {
         return 'YYYY-MM-DD'
+    }
+
+    if (value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(.\d{1,3}?Z?|)$/)) {
+        return 'ISO8601 UTC'
+    }
+
+    if (value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(.\d{1,3}|)\+\d{2}:\d{2}$/)) {
+        return 'ISO8601 TZ'
     }
 }
