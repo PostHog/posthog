@@ -397,7 +397,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             )
 
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
-            result = retention().people(
+            result = retention().actors(
                 RetentionFilter(data={"date_to": self._date(10, hour=6), "selected_interval": 2}), self.team
             )
             self.assertEqual(len(result), 1)
@@ -408,7 +408,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
 
             target_entity = json.dumps({"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS})
-            result = retention().people(
+            result = retention().actors(
                 RetentionFilter(
                     data={
                         "date_to": self._date(10, hour=6),
@@ -424,7 +424,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             self.assertEqual(len(result), 1)
             self.assertIn(result[0]["id"], [p3.pk, str(p3.uuid)])
 
-            result = retention().people(
+            result = retention().actors(
                 RetentionFilter(
                     data={
                         "date_to": self._date(14, hour=6),
@@ -491,7 +491,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             )
 
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
-            result = retention().people_in_period(
+            result = retention().actors_in_period(
                 RetentionFilter(data={"date_to": self._date(10, hour=6), "selected_interval": 2}), self.team
             )
 
@@ -505,7 +505,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             p1, p2, p3, p4 = self._create_first_time_retention_events()
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
             target_entity = json.dumps({"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS})
-            result1 = retention().people_in_period(
+            result1 = retention().actors_in_period(
                 RetentionFilter(
                     data={
                         "date_to": self._date(10, hour=6),

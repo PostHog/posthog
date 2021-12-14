@@ -117,7 +117,7 @@ class ClickhouseRetention:
 
         return result
 
-    def people(self, filter: RetentionFilter, team: Team):
+    def actors(self, filter: RetentionFilter, team: Team):
         actor_appearances = get_actor_appearances(
             filter=filter,
             # NOTE: If we don't have breakdown_values specified, and do not specify
@@ -137,7 +137,7 @@ class ClickhouseRetention:
 
         return actors
 
-    def people_in_period(self, filter: RetentionFilter, team: Team):
+    def actors_in_period(self, filter: RetentionFilter, team: Team):
         """
         Creates a response of the form
 
