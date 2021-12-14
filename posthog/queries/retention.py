@@ -213,11 +213,11 @@ class Retention(BaseQuery):
             result = self.process_table_result(resultset, filter)
         return result
 
-    def people(self, filter: RetentionFilter, team: Team, *args, **kwargs):
+    def people(self, filter: RetentionPeopleRequest, team: Team, *args, **kwargs):
         results = self._retrieve_people(filter, team)
         return results
 
-    def _retrieve_people(self, filter: RetentionFilter, team: Team):
+    def _retrieve_people(self, filter: RetentionPeopleRequest, team: Team):
         period = filter.period
         trunc, fields = self._get_trunc_func("timestamp", period)
         is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
@@ -390,4 +390,4 @@ class Retention(BaseQuery):
 
 
 def appearance_to_markers(appearance_dates: List[float], num_intervals: int) -> List[int]:
-    return [interval_number in appearance_dates for interval_number in range(num_intervals)]
+    return [1 if interval_number in appearance_dates else 0 for interval_number in range(num_intervals)]

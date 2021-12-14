@@ -1,10 +1,12 @@
 RETENTION_BREAKDOWN_SQL = """
+    WITH actor_query AS ({actor_query})
+    
     SELECT
         actor_activity.breakdown_values AS breakdown_values,
         actor_activity.intervals_from_base AS intervals_from_base,
         COUNT(DISTINCT actor_activity.actor_id) AS count
 
-    FROM ({actor_query}) AS actor_activity
+    FROM actor_query AS actor_activity
 
     GROUP BY 
         breakdown_values, 
@@ -16,39 +18,49 @@ RETENTION_BREAKDOWN_SQL = """
 """
 
 RETENTION_BREAKDOWN_ACTOR_SQL = """
-    SELECT
-        target_event.breakdown_values AS breakdown_values,
-        datediff(
-            %(period)s, 
-            target_event.event_date, 
-            dateTrunc(%(period)s, toDateTime(returning_event.event_date))
-        ) AS intervals_from_base,
-        returning_event.target AS actor_id
+    WITH %(period)s as period,
+         %(breakdown_values)s as breakdown_values_filter,
+         %(selected_interval)s as selected_interval,
+         returning_event_query as ({returning_event_query}),
+         target_event_query as ({target_event_query})
 
-    FROM
-        ({returning_event_query}) AS returning_event
-        JOIN ({target_event_query}) target_event
-            ON returning_event.target = target_event.target
+    -- Wrap such that CTE is shared across both sides of the union
+    SELECT 
+        breakdown_values,
+        intervals_from_base,
+        actor_id
+    
+    FROM (
+        SELECT
+            target_event.breakdown_values AS breakdown_values,
+            datediff(
+                period, 
+                target_event.event_date, 
+                returning_event.event_date
+            ) AS intervals_from_base,
+            returning_event.target AS actor_id
+
+        FROM
+            target_event_query AS target_event
+            JOIN returning_event_query AS returning_event
+                ON returning_event.target = target_event.target
+
+        WHERE 
+            returning_event.event_date > target_event.event_date
+
+        UNION ALL
+
+        SELECT 
+            target_event.breakdown_values AS breakdown_values,
+            0 AS intervals_from_base,
+            target_event.target AS actor_id
+
+        FROM target_event_query AS target_event
+    )
 
     WHERE 
-        dateTrunc(%(period)s, returning_event.event_date) >
-        dateTrunc(%(period)s, target_event.event_date)
-        AND (%(breakdown_values)s is NULL OR breakdown_values = %(breakdown_values)s)
+        (breakdown_values_filter is NULL OR breakdown_values = breakdown_values_filter)
+        AND (selected_interval is NULL OR intervals_from_base = selected_interval)
 
     LIMIT 1 BY actor_id, intervals_from_base
-
-    UNION ALL
-
-    SELECT 
-        target_event.breakdown_values AS breakdown_values,
-        0 AS intervals_from_base,
-        target_event.target AS actor_id
-
-    FROM ({target_event_query}) AS target_event
-
-    WHERE 
-        (%(breakdown_values)s is NULL OR breakdown_values = %(breakdown_values)s)
-        AND (%(selected_interval)s is NULL OR intervals_from_base = %(selected_interval)s)
-
-    LIMIT 1 BY actor_id
 """

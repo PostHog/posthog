@@ -495,11 +495,11 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                 RetentionFilter(data={"date_to": self._date(10, hour=6), "selected_interval": 2}), self.team
             )
 
-            self.assertEqual(result[0]["person"]["id"], person2.pk)
-            self.assertEqual(result[0]["appearances"], [1, 1, 0, 0, 1, 1, 0, 0, 0])
+            self.assertEqual(result[0]["person"]["id"], person1.pk)
+            self.assertEqual(result[0]["appearances"], [1, 0, 0, 1, 1, 0, 0, 0, 0])
 
-            self.assertEqual(result[1]["person"]["id"], person1.pk)
-            self.assertEqual(result[1]["appearances"], [1, 0, 0, 1, 1, 0, 0, 0, 0])
+            self.assertEqual(result[1]["person"]["id"], person2.pk)
+            self.assertEqual(result[1]["appearances"], [1, 1, 0, 0, 1, 1, 0, 0, 0])
 
         def test_retention_people_in_period_first_time(self):
             _, _, p3, _ = self._create_first_time_retention_events()

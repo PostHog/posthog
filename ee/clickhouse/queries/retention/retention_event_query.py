@@ -48,46 +48,65 @@ class RetentionEventsQuery(ClickhouseEventQuery):
             ),
         ]
 
-        if self._event_query_type != RetentionQueryType.RETURNING:
-            if self._filter.breakdowns and self._filter.breakdown_type:
-                # NOTE: `get_single_or_multi_property_string_expr` doesn't
-                # support breakdowns with different types e.g. a person property
-                # then an event property, so for now we just take the type of
-                # the self._filter.breakdown_type.
-                # TODO: update 'get_single_or_multi_property_string_expr` to take
-                # `Breakdown` type
-                breakdown_type = self._filter.breakdown_type
-                table = "events"
+        if self._filter.breakdowns and self._filter.breakdown_type:
+            # NOTE: `get_single_or_multi_property_string_expr` doesn't
+            # support breakdowns with different types e.g. a person property
+            # then an event property, so for now we just take the type of
+            # the self._filter.breakdown_type.
+            # TODO: update 'get_single_or_multi_property_string_expr` to take
+            # `Breakdown` type
+            breakdown_type = self._filter.breakdown_type
+            table = "events"
 
-                if breakdown_type == "person":
-                    table = "person"
+            if breakdown_type == "person":
+                table = "person"
 
-                breakdown_values_expression = get_single_or_multi_property_string_expr(
-                    breakdown=[breakdown["property"] for breakdown in self._filter.breakdowns],
-                    table=table,
-                    query_alias=None,
-                )
+            breakdown_values_expression = get_single_or_multi_property_string_expr(
+                breakdown=[breakdown["property"] for breakdown in self._filter.breakdowns],
+                table=table,
+                query_alias=None,
+            )
 
+            if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
                 _fields += [f"argMin({breakdown_values_expression}, e.timestamp) AS breakdown_values"]
             else:
-                # If we didn't have a breakdown specified, we default to the
-                # initial event interval
-                # NOTE: we wrap as an array to maintain the same structure as
-                # for typical breakdowns
-                # NOTE: we could add support for specifying expressions to
-                # `get_single_or_multi_property_string_expr` or an abstraction
-                # over the top somehow
-                # NOTE: we format to ISO8601 purely because otherwise json
-                # serialization was failing elsewhere
+                _fields += [f"{breakdown_values_expression} AS breakdown_values"]
+        else:
+            # If we didn't have a breakdown specified, we default to the
+            # initial event interval
+            # NOTE: we wrap as an array to maintain the same structure as
+            # for typical breakdowns
+            # NOTE: we could add support for specifying expressions to
+            # `get_single_or_multi_property_string_expr` or an abstraction
+            # over the top somehow
+            # NOTE: we use the datediff rather than the date to make our
+            # lives easier when zero filling the response. We could however
+            # handle this WITH FILL within the query.
+            if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
                 _fields += [
                     f"""
-                    [argMin(
-                        formatDateTime({self._trunc_func}(e.timestamp), 
-                        '%%Y-%%m-%%dT%%H:%%M:%%SZ'),
-                         e.timestamp
-                    )] as breakdown_values
+                    [
+                        dateDiff(
+                            %(period)s,
+                            {self._trunc_func}(toDateTime(%(start_date)s)),
+                            {self._trunc_func}(min(e.timestamp))
+                        )
+                    ] as breakdown_values
                     """
                 ]
+            elif self._event_query_type == RetentionQueryType.TARGET:
+                _fields += [
+                    f"""
+                    [
+                        dateDiff(
+                            %(period)s,
+                            {self._trunc_func}(toDateTime(%(start_date)s)),
+                            {self._trunc_func}(e.timestamp)
+                        )
+                    ] as breakdown_values
+                    """
+                ]
+            self.params.update({"start_date": self._filter.date_from, "period": self._filter.period})
 
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)

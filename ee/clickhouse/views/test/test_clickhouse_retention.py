@@ -51,16 +51,57 @@ class RetentionTests(TestCase, ClickhouseTestMixin):
 
         retention_by_cohort_by_period = get_by_cohort_by_period_for_response(client=self.client, response=retention)
 
-        self.assertEqual(
-            retention_by_cohort_by_period,
-            {
-                "2020-01-01T00:00:00Z": {
+        assert retention_by_cohort_by_period == {
+                "Day 0": {
                     "1": ["person 1", "person 2"],
                     "2": ["person 1"],
                 },
-                "2020-01-02T00:00:00Z": {"1": ["person 3"], "2": ["person 3"]},
+                "Day 1": {"1": ["person 3"]},
+            }
+
+    def test_can_get_retention_cohort_breakdown_with_retention_type_target(self):
+        organization = create_organization(name="test")
+        team = create_team(organization=organization)
+        user = create_user(email="test@posthog.com", password="1234", organization=organization)
+
+        self.client.force_login(user)
+
+        update_or_create_person(distinct_ids=["person 1"], team_id=team.pk)
+        update_or_create_person(distinct_ids=["person 2"], team_id=team.pk)
+        update_or_create_person(distinct_ids=["person 3"], team_id=team.pk)
+
+        setup_user_activity_by_day(
+            daily_activity={
+                "2020-01-01": {"person 1": [{"event": "target event"}], "person 2": [{"event": "target event"}]},
+                "2020-01-02": {"person 1": [{"event": "target event"}], "person 3": [{"event": "target event"}]},
+                "2020-01-03": {"person 1": [{"event": "target event"}], "person 3": [{"event": "target event"}]},
             },
+            team=team,
         )
+
+        retention = get_retention_ok(
+            client=self.client,
+            team_id=team.pk,
+            request=RetentionRequest(
+                target_entity={"id": "target event", "type": "events"},
+                returning_entity={"id": "target event", "type": "events"},
+                date_from="2020-01-01",
+                total_intervals=2,
+                date_to="2020-01-02",
+                period="Day",
+                retention_type="retention",
+            ),
+        )
+
+        retention_by_cohort_by_period = get_by_cohort_by_period_for_response(client=self.client, response=retention)
+
+        assert retention_by_cohort_by_period == {
+                "Day 0": {
+                    "1": ["person 1", "person 2"],
+                    "2": ["person 1"],
+                },
+                "Day 1": {"1": ["person 1", "person 3"]},
+            }
 
     @test_with_materialized_columns(person_properties=["os"])
     def test_can_specify_breakdown_person_property(self):
@@ -114,16 +155,13 @@ class RetentionTests(TestCase, ClickhouseTestMixin):
 
         retention_by_cohort_by_period = get_by_cohort_by_period_for_response(client=self.client, response=retention)
 
-        self.assertEqual(
-            retention_by_cohort_by_period,
-            {
+        assert  retention_by_cohort_by_period, {
                 "Chrome": {"1": ["person 1"], "2": ["person 1"]},
                 "Safari": {
                     "1": ["person 2"],
                     "2": ["person 2"],
                 },  # IMPORTANT: the "2" value is from past the requested `date_to`
-            },
-        )
+            }
 
     @test_with_materialized_columns(event_properties=["os"])
     def test_can_specify_breakdown_event_property(self):
@@ -187,6 +225,8 @@ class RetentionTests(TestCase, ClickhouseTestMixin):
                 "2": ["person 2"],
             },  # IMPORTANT: the "2" value is from past the requested `date_to`
         }
+
+    
 
     @test_with_materialized_columns(event_properties=["os"])
     def test_can_specify_breakdown_event_property_and_retrieve_people(self):

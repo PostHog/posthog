@@ -1,9 +1,8 @@
-from dataclasses import dataclass
-from itertools import groupby
-from typing import Any, Dict, List, NamedTuple, Optional, Tuple, cast
+from typing import Any, Dict, List, Literal, NamedTuple, Optional, Tuple, cast
 
 from urllib.parse import urlencode
 
+from rest_framework.utils.serializer_helpers import ReturnDict
 from django.db.models.query import Prefetch
 
 from ee.clickhouse.client import substitute_params, sync_execute
@@ -20,7 +19,8 @@ from posthog.constants import (
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.retention_filter import RetentionPeopleRequest
 from posthog.models.team import Team
-from posthog.queries.retention import AppearanceRow, Retention
+from posthog.queries.retention import AppearanceRow, Retention, appearance_to_markers
+
 
 CohortKey = NamedTuple("CohortKey", (("breakdown_values", Tuple[str]), ("period", int)))
 
@@ -28,7 +28,10 @@ CohortKey = NamedTuple("CohortKey", (("breakdown_values", Tuple[str]), ("period"
 class ClickhouseRetention(Retention):
     def run(self, filter: RetentionFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         retention_by_breakdown = self._get_retention_by_breakdown_values(filter, team)
-        return self.process_breakdown_table_result(retention_by_breakdown, filter)
+        if filter.breakdowns:
+            return self.process_breakdown_table_result(retention_by_breakdown, filter)
+        else:
+            return self.process_table_result(retention_by_breakdown, filter)
 
     def _get_retention_by_breakdown_values(
         self,
@@ -82,11 +85,6 @@ class ClickhouseRetention(Retention):
                 ],
                 "label": "::".join(breakdown_values),
                 "breakdown_values": breakdown_values,
-                # NOTE: we add this date purely for backwards compatability for
-                # the non-breakdown case, where we'd previously return the date
-                # that defines the cohort. This is a little brittle and coding
-                # by coincidence
-                "date": breakdown_values[0] if breakdown_values and not filter.breakdowns else None,
                 "people_url": (
                     "/api/person/retention/?"
                     f"{urlencode(RetentionPeopleRequest({**filter._data, 'display': 'ActionsTable', 'breakdown_values': breakdown_values}).to_params())}"
@@ -99,32 +97,105 @@ class ClickhouseRetention(Retention):
 
         return result
 
+    def process_table_result(
+        self,
+        resultset: Dict[Tuple[int, int], Dict[str, Any]],
+        filter: RetentionFilter,
+    ):
+        """
+        Constructs a response for the rest api when there is no breakdown specified
+
+        We process the non-breakdown case separately from the breakdown case so
+        we can easily maintain compatability from when we didn't have
+        breakdowns. The key difference is that we "zero fill" the cohorts as we
+        want to have a result for each cohort between the specified date range.
+        """
+
+        result = [
+            {
+                "values": [
+                    resultset.get(((first_day,), day), {"count": 0, "people": []})
+                    for day in range(filter.total_intervals - first_day)
+                ],
+                "label": "{} {}".format(filter.period, first_day),
+                "date": (filter.date_from + RetentionFilter.determine_time_delta(first_day, filter.period)[0]),
+                "people_url": (
+                    "/api/person/retention/?"
+                    f"{urlencode(RetentionPeopleRequest({**filter._data, 'display': 'ActionsTable', 'breakdown_values': [first_day]}).to_params())}"
+                ),
+            }
+            for first_day in range(filter.total_intervals)
+        ]
+
+        return result
+
     def _retrieve_people(self, filter: RetentionPeopleRequest, team: Team):
-        people_appearances = get_people_appearances(filter=filter, team=team)
+        people_appearances = get_people_appearances(
+            filter=filter,
+            # NOTE: If we don't have breakdown_values specified, and do not specify
+            # breakdowns, then we need(?) to maintain backwards compatability with
+            # non-breakdown functionality, which is to get the first cohort
+            # values.
+            filter_by_breakdown=filter.breakdown_values or [0],
+            selected_interval=filter.selected_interval,
+            team=team,
+        )
+
         people = get_persons_by_uuids(
             team_id=team.pk, uuids=[people_appearance.person_id for people_appearance in people_appearances]
         )
-
+        
+        # TODO: remove circular import
         from posthog.api.person import PersonSerializer
 
         return PersonSerializer(people, many=True).data
 
     def _retrieve_people_in_period(self, filter: RetentionPeopleRequest, team: Team):
-        people_appearances = get_people_appearances(filter=filter, team=team)
+        """
+        Creates a response of the form
+
+        ```
+        [
+            {
+                "person": {"distinct_id": ..., ...},
+                "appearance_count": 3,
+                "appearances": [1, 0, 1, 1, 0, 0]
+            }
+            ...
+        ]
+        ```
+
+        where appearances values represent if the person was active in an
+        interval, where the index of the list is the interval it refers to.
+        """
+        people_appearances = get_people_appearances(
+            filter=filter,
+            # NOTE: for backwards compat. if we don't have a breakdown value, we
+            # use the `selected_interval` instead.
+            filter_by_breakdown=filter.breakdown_values or [filter.selected_interval],
+            team=team,
+        )
         people = get_persons_by_uuids(
             team_id=team.pk, uuids=[people_appearance.person_id for people_appearance in people_appearances]
         )
 
         people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
-
+        
+        # TODO: remove circular import
         from posthog.api.person import PersonSerializer
 
-        people_dict = {str(person.uuid): PersonSerializer(person).data for person in people}
+        people_lookup = {str(person.uuid): PersonSerializer(person).data for person in people}
 
-        result = self.process_people_in_period(
-            filter=filter, people_appearances=people_appearances, people_dict=people_dict
-        )
-        return result
+        return [
+            {
+                "person": people_lookup.get(person.person_id, {"person_id": person.person_id}),
+                "appearances": [
+                    1 if interval_number in person.appearances else 0
+                    for interval_number in range(filter.total_intervals - (filter.selected_interval or 0))
+                ],
+            }
+            for person in people_appearances
+        ]
 
 
 def build_actor_query(
@@ -141,14 +212,36 @@ def build_actor_query(
     We use actor here as an abstraction over the different types we can have aside from
     person_ids
     """
+    returning_event_query = build_returning_event_query(filter=filter, team=team)
+
+    target_event_query = build_target_event_query(filter=filter, team=team)
+
+    all_params = {
+        "period": filter.period.lower(),
+        "limit": None,
+        "breakdown_values": list(filter_by_breakdown) if filter_by_breakdown else None,
+        "selected_interval": selected_interval,
+    }
+
+    query_without_limit_offset = substitute_params(RETENTION_BREAKDOWN_ACTOR_SQL, all_params).format(
+        returning_event_query=returning_event_query,
+        target_event_query=target_event_query,
+    )
+
+    return query_without_limit_offset
+
+
+def build_returning_event_query(filter: RetentionFilter, team: Team):
     returning_event_query_templated, returning_event_params = RetentionEventsQuery(
-        filter=filter.with_data({"breakdowns": []}),  # Avoid pulling in breakdown values from reterning event query
+        filter=filter.with_data({"breakdowns": []}),  # Avoid pulling in breakdown values from returning event query
         team_id=team.pk,
         event_query_type=RetentionQueryType.RETURNING,
     ).get_query()
 
-    returning_event_query = substitute_params(returning_event_query_templated, returning_event_params)
+    return substitute_params(returning_event_query_templated, returning_event_params)
 
+
+def build_target_event_query(filter: RetentionFilter, team: Team):
     target_event_query_templated, target_event_params = RetentionEventsQuery(
         filter=filter,
         team_id=team.pk,
@@ -159,60 +252,44 @@ def build_actor_query(
         ),
     ).get_query()
 
-    target_event_query = substitute_params(target_event_query_templated, target_event_params)
-
-    all_params = {
-        "period": filter.period.lower(),
-        "breakdown_values": list(filter_by_breakdown) if filter_by_breakdown else None,
-        "selected_interval": selected_interval,
-    }
-
-    return substitute_params(RETENTION_BREAKDOWN_ACTOR_SQL, all_params).format(
-        returning_event_query=returning_event_query,
-        target_event_query=target_event_query,
-    )
+    return substitute_params(target_event_query_templated, target_event_params)
 
 
-@dataclass
-class ActorActivityRow:
-    breakdown_values: List[str]
-    intervals_from_base: int
-    person_id: str
-
-
-def get_people_appearances(filter: RetentionPeopleRequest, team: Team) -> List[AppearanceRow]:
+def get_people_appearances(
+    filter: RetentionPeopleRequest,
+    team: Team,
+    filter_by_breakdown: Optional[List[str]] = None,
+    selected_interval: Optional[int] = None,
+) -> List[AppearanceRow]:
     """
-    For a given filter request for Retention people, return a list 
+    For a given filter request for Retention people, return a list
     with one entry per person, and a list or `appearances` representing which periods
     they were active.
     """
-    person_activities = get_actor_activities(filter=filter, team=team)
-
-    def build_appearance_row(person_id, person_activities):
-        appearances = [person_activity.intervals_from_base for person_activity in person_activities]
-        return AppearanceRow(
-            person_id=person_id,
-            appearance_count=len(appearances),
-            appearances=appearances,
-        )
-
-    def sort_key(person_activity):
-        return person_activity.person_id
-
-    return [
-        build_appearance_row(person_id=person_id, person_activities=person_activities)
-        for (person_id, person_activities) in groupby(sorted(person_activities, key=sort_key), key=sort_key)
-    ]
-
-
-def get_actor_activities(filter: RetentionPeopleRequest, team: Team) -> List[ActorActivityRow]:
-    actor_query = build_actor_query(
+    actor_activity_query = build_actor_query(
         filter=filter,
         team=team,
-        filter_by_breakdown=filter.breakdown_values,
-        selected_interval=filter.selected_interval,
+        filter_by_breakdown=filter_by_breakdown,
+        selected_interval=selected_interval,
     )
+
+    actor_query = f"""
+        SELECT
+            actor_id,
+            groupArray(actor_activity.intervals_from_base) AS appearances
+
+        FROM ({actor_activity_query}) AS actor_activity
+
+        GROUP BY actor_id
+
+        -- make sure we have stable ordering/pagination
+        -- NOTE: relies on ids being monotonic
+        ORDER BY actor_id
+
+        LIMIT 100 OFFSET {filter.offset}
+    """
+
     return [
-        ActorActivityRow(person_id=str(row[2]), breakdown_values=row[0], intervals_from_base=row[1])
+        AppearanceRow(person_id=str(row[0]), appearance_count=len(row[1]), appearances=row[1])
         for row in sync_execute(actor_query)
     ]
