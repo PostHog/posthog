@@ -1,7 +1,7 @@
 from typing import Dict, Optional, Tuple
 
 from ee.clickhouse.client import substitute_params, sync_execute
-from ee.clickhouse.queries.actor_base_query import ActorBaseQuery, get_actors_by_aggregation_by
+from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from ee.clickhouse.queries.retention.clickhouse_retention import (
     BreakdownValues,
     build_returning_event_query,
@@ -36,15 +36,16 @@ class ClickhouseRetentionActors(ActorBaseQuery):
         return actor_query, {}
 
 
-# Note: This class does not inherit from ActorBaseQuery because the result shape differs from other actor queries
-# Class is used for uniformity
-class ClickhouseRetentionActorsByPeriod:
+# Note: This class does not respect the entire flor from ActorBaseQuery because the result shape differs from other actor queries
+class ClickhouseRetentionActorsByPeriod(ActorBaseQuery):
     _filter: RetentionFilter
-    _team: Team
 
     def __init__(self, team: Team, filter: RetentionFilter):
-        self._filter = filter
-        self._team = team
+        super().__init__(team, filter)
+
+    @cached_property
+    def is_aggregating_by_groups(self) -> bool:
+        return self._filter.aggregation_group_type_index is not None
 
     def actors(self):
         """
@@ -79,13 +80,11 @@ class ClickhouseRetentionActorsByPeriod:
             for row in sync_execute(actor_query)
         ]
 
-        actors = get_actors_by_aggregation_by(
-            team_id=self._team.pk,
-            actor_type=self._filter.aggregation_group_type_index,
-            actor_ids=[actor_appearance.actor_id for actor_appearance in actor_appearances],
+        _, serialized_actors = self.get_actors_from_result(
+            [(actor_appearance.actor_id) for actor_appearance in actor_appearances]
         )
 
-        actors_lookup = {actor["id"]: actor for actor in actors}
+        actors_lookup = {actor["id"]: actor for actor in serialized_actors}
 
         return [
             {

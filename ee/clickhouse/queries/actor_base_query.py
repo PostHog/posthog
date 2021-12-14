@@ -121,38 +121,3 @@ class ActorBaseQuery:
             )
             for group in data
         ]
-
-
-def get_actors_by_aggregation_by(
-    team_id: int, actor_type: Optional[int], actor_ids: List[str]
-) -> List[SerializedActor]:
-    from posthog.api.person import get_person_name
-
-    if actor_type is None:
-        people = Person.objects.filter(team_id=team_id, uuid__in=actor_ids)
-
-        return [
-            SerializedPerson(
-                type="person",
-                id=person.uuid,
-                created_at=person.created_at,
-                properties=person.properties,
-                is_identified=person.is_identified,
-                name=get_person_name(person),
-                distinct_ids=person.distinct_ids,
-            )
-            for person in people
-        ]
-    else:
-        groups = Group.objects.filter(team_id=team_id, group_key__in=actor_ids)
-        return [
-            SerializedGroup(
-                id=group.group_key,
-                type="group",
-                group_type_index=group.group_type_index,
-                group_key=group.group_key,
-                created_at=group.created_at,
-                properties=group.group_properties,
-            )
-            for group in groups
-        ]
