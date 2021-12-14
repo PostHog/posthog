@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Union, cast
+from typing import Any, Dict, List, Optional, Union, cast
 
 from django.conf import settings
 from django.db.models import Model, QuerySet
@@ -10,7 +10,6 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_onboarding_completed, report_organization_deleted
-from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Organization, User
 from posthog.models.organization import OrganizationMembership
 from posthog.permissions import (
@@ -62,7 +61,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
     setup = (
         serializers.SerializerMethodField()
     )  # Information related to the current state of the onboarding/setup process
-    teams = TeamBasicSerializer(many=True, read_only=True)
+    teams = serializers.SerializerMethodField()
 
     class Meta:
         model = Organization
@@ -131,6 +130,13 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "non_demo_team_id": non_demo_team_id,
             "has_invited_team_members": instance.invites.exists() or instance.members.count() > 1,
         }
+
+    def get_teams(self, instance: Organization) -> List[Dict[str, Any]]:
+        teams = cast(
+            List[Dict[str, Any]], TeamBasicSerializer(instance.teams.all(), context=self.context, many=True).data
+        )
+        visible_teams = [team for team in teams if team["effective_membership_level"] is not None]
+        return visible_teams
 
 
 class OrganizationViewSet(viewsets.ModelViewSet):
