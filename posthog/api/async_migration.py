@@ -2,15 +2,15 @@ from rest_framework import response, serializers, viewsets
 from rest_framework.decorators import action
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models.special_migration import MigrationStatus, SpecialMigration, get_all_running_special_migrations
+from posthog.async_migrations.runner import MAX_CONCURRENT_ASYNC_MIGRATIONS, is_posthog_version_compatible
+from posthog.async_migrations.utils import force_rollback_migration, force_stop_migration, trigger_migration
+from posthog.models.async_migration import AsyncMigration, MigrationStatus, get_all_running_async_migrations
 from posthog.permissions import StaffUser
-from posthog.special_migrations.runner import MAX_CONCURRENT_SPECIAL_MIGRATIONS, is_posthog_version_compatible
-from posthog.special_migrations.utils import force_rollback_migration, force_stop_migration, trigger_migration
 
 
-class SpecialMigrationSerializer(serializers.ModelSerializer):
+class AsyncMigrationSerializer(serializers.ModelSerializer):
     class Meta:
-        model = SpecialMigration
+        model = AsyncMigration
         fields = [
             "id",
             "name",
@@ -43,18 +43,18 @@ class SpecialMigrationSerializer(serializers.ModelSerializer):
         ]
 
 
-class SpecialMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
-    queryset = SpecialMigration.objects.all()
+class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
+    queryset = AsyncMigration.objects.all()
     permission_classes = [StaffUser]
-    serializer_class = SpecialMigrationSerializer
+    serializer_class = AsyncMigrationSerializer
 
     @action(methods=["POST"], detail=True)
     def trigger(self, request, **kwargs):
-        if len(get_all_running_special_migrations()) >= MAX_CONCURRENT_SPECIAL_MIGRATIONS:
+        if len(get_all_running_async_migrations()) >= MAX_CONCURRENT_ASYNC_MIGRATIONS:
             return response.Response(
                 {
                     "success": False,
-                    "error": f"No more than {MAX_CONCURRENT_SPECIAL_MIGRATIONS} special migration can run at once.",
+                    "error": f"No more than {MAX_CONCURRENT_ASYNC_MIGRATIONS} async migration can run at once.",
                 },
                 status=400,
             )

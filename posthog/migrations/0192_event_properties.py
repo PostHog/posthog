@@ -9,7 +9,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0190_experiment"),
+        ("posthog", "0191_rename_specialmigration_asyncmigration"),
     ]
 
     operations = [

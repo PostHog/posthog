@@ -1,8 +1,8 @@
-def special_migrations_ok() -> bool:
-    from posthog.models.special_migration import MigrationStatus, SpecialMigration
-    from posthog.special_migrations.runner import is_posthog_version_compatible
+def async_migrations_ok() -> bool:
+    from posthog.async_migrations.runner import is_posthog_version_compatible
+    from posthog.models.async_migration import AsyncMigration, MigrationStatus
 
-    for migration in SpecialMigration.objects.all():
+    for migration in AsyncMigration.objects.all():
         migration_completed_or_running = migration.status in [
             MigrationStatus.CompletedSuccessfully,
             MigrationStatus.Running,
