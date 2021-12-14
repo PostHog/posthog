@@ -253,7 +253,7 @@ def get_active_segments_from_event_list(
 def generate_inactive_segments_for_range(
     range_start_time: datetime,
     range_end_time: datetime,
-    start_window_id: WindowId,
+    last_active_window_id: WindowId,
     start_and_end_times_by_window_id: Dict[WindowId, Dict],
     is_first_segment: bool = False,
     is_last_segment: bool = False,
@@ -270,7 +270,7 @@ def generate_inactive_segments_for_range(
 
     # Order of window_ids to use for generating inactive segments. Start with the window_id of the
     # last active segment, then try the other window_ids in order of start_time
-    window_id_priority_list: List[WindowId] = [start_window_id] + window_ids_by_start_time
+    window_id_priority_list: List[WindowId] = [last_active_window_id] + window_ids_by_start_time
 
     inactive_segments: List[RecordingSegment] = []
     current_time = range_start_time
