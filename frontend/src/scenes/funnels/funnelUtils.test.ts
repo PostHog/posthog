@@ -1,4 +1,11 @@
-import { EMPTY_BREAKDOWN_VALUES, getBreakdownStepValues, getMeanAndStandardDeviation } from './funnelUtils'
+import {
+    EMPTY_BREAKDOWN_VALUES,
+    getBreakdownStepValues,
+    getIncompleteConversionWindowStartDate,
+    getMeanAndStandardDeviation,
+} from './funnelUtils'
+import { FunnelConversionWindowTimeUnit } from '~/types'
+import { dayjs } from 'lib/dayjs'
 
 describe('getMeanAndStandardDeviation', () => {
     const arrayToExpectedValues: [number[], number[]][] = [
@@ -97,5 +104,42 @@ describe('getBreakdownStepValues()', () => {
         expect(getBreakdownStepValues({ breakdown: null, breakdown_value: null }, 21)).toStrictEqual(
             EMPTY_BREAKDOWN_VALUES
         )
+    })
+})
+
+describe('getIncompleteConversionWindowStartDate()', () => {
+    const windows = [
+        {
+            funnel_window_interval: 60,
+            funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Minute,
+            expected: '2018-04-04T15:00:00.000Z',
+        },
+        {
+            funnel_window_interval: 24,
+            funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Hour,
+            expected: '2018-04-03T16:00:00.000Z',
+        },
+        {
+            funnel_window_interval: 7,
+            funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Day,
+            expected: '2018-03-28T16:00:00.000Z',
+        },
+        {
+            funnel_window_interval: 53,
+            funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Week,
+            expected: '2017-03-29T16:00:00.000Z',
+        },
+        {
+            funnel_window_interval: 12,
+            funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Month,
+            expected: '2017-04-04T16:00:00.000Z',
+        },
+    ]
+    const frozenStartDate = dayjs('2018-04-04T16:00:00.000Z')
+
+    windows.forEach(({ expected, ...w }) => {
+        it(`get start date of conversion window ${w.funnel_window_interval} ${w.funnel_window_interval_unit}s`, () => {
+            expect(getIncompleteConversionWindowStartDate(w, frozenStartDate).toISOString()).toEqual(expected)
+        })
     })
 })
