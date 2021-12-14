@@ -28,6 +28,9 @@ import { InsightTooltip } from '../InsightTooltip/InsightTooltip'
 import { dayjs } from 'lib/dayjs'
 import { AnnotationType, GraphDataset, GraphPointPayload, GraphTypes, InsightShortId, IntervalType } from '~/types'
 import { InsightLabel } from 'lib/components/InsightLabel'
+import { LEGACY_LineGraph } from './LEGACY_LineGraph.jsx'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 //--Chart Style Options--//
 console.log('CHART DEFAULTS', Chart.defaults)
@@ -45,7 +48,7 @@ interface LineGraphProps {
     isInProgress?: boolean
     onClick?: (payload: GraphPointPayload) => void
     ['data-attr']: string
-    dashboardItemId?: InsightShortId | null
+    dashboardItemId?: InsightShortId | null // Used only for annotations, not to init any other logic
     inSharedMode?: boolean
     percentage?: boolean
     interval?: IntervalType
@@ -53,28 +56,40 @@ interface LineGraphProps {
     showPersonsModal?: boolean
     tooltipPreferAltTitle?: boolean
     isCompare?: boolean
+    incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
 }
 
-export function LineGraph({
-    datasets,
-    visibilityMap,
-    labels,
-    color,
-    type,
-    isInProgress = false,
-    onClick,
-    ['data-attr']: dataAttr,
-    dashboardItemId /* used only for annotations, not to init any other logic */,
-    inSharedMode = false,
-    percentage = false,
-    interval = undefined,
-    totalValue,
-    showPersonsModal = true,
-    tooltipPreferAltTitle = false,
-    isCompare = false,
-}: LineGraphProps): JSX.Element {
+export function LineGraph(props: LineGraphProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    console.log('PREGOLDEN', !featureFlags[FEATURE_FLAGS.LINE_GRAPH_V2])
+    if (!featureFlags[FEATURE_FLAGS.LINE_GRAPH_V2]) {
+        // @ts-ignore
+        return <LEGACY_LineGraph {...props} />
+    }
+
+    const {
+        datasets: _datasets,
+        visibilityMap,
+        labels,
+        color,
+        type,
+        isInProgress = false,
+        onClick,
+        ['data-attr']: dataAttr,
+        dashboardItemId,
+        inSharedMode = false,
+        percentage = false,
+        interval = undefined,
+        totalValue,
+        showPersonsModal = true,
+        tooltipPreferAltTitle = false,
+        isCompare = false,
+        incompletenessOffsetFromEnd = -1,
+    } = props
+    let datasets = _datasets
     const chartRef = useRef<HTMLCanvasElement | null>(null)
-    const myLineChart = useRef<Chart<ChartType, number[] | undefined, string>>()
+    const myLineChart = useRef<Chart<ChartType, any, string>>()
     const annotationsRoot = useRef<HTMLDivElement | null>(null)
     const [left, setLeft] = useState(-1)
     const [holdLeft, setHoldLeft] = useState(0)
@@ -210,21 +225,16 @@ export function LineGraph({
         if (isLineGraph) {
             datasets = [
                 ...datasets.map((dataset, index) => {
-                    const datasetCopy = Object.assign({}, dataset)
-                    const data = [...(dataset.data || [])]
-                    const _labels = [...(dataset.labels || [])]
-                    const days = [...(dataset.days || [])]
-                    data.pop()
-                    _labels.pop()
-                    days.pop()
-                    datasetCopy.data = data
-                    datasetCopy.labels = _labels
-                    datasetCopy.days = days
+                    const sliceTo = incompletenessOffsetFromEnd || (dataset.data?.length ?? 0)
+                    const datasetCopy = Object.assign({}, dataset, {
+                        data: [...(dataset.data || [])].slice(0, sliceTo),
+                        labels: [...(dataset.labels || [])].slice(0, sliceTo),
+                        days: [...(dataset.days || [])].slice(0, sliceTo),
+                    })
                     return processDataset(datasetCopy, index)
                 }),
                 ...datasets.map((dataset, index) => {
                     const datasetCopy = Object.assign({}, dataset)
-                    const datasetLength = datasetCopy.data?.length ?? 0
                     datasetCopy.dotted = true
 
                     // if last date is still active show dotted line
@@ -232,13 +242,13 @@ export function LineGraph({
                         datasetCopy.borderDash = [10, 10]
                     }
 
-                    datasetCopy.data = (
-                        datasetCopy.data?.length > 2
-                            ? datasetCopy.data.map((datum: number, idx: number) =>
-                                  idx === datasetLength - 1 || idx === datasetLength - 2 ? datum : null
-                              )
-                            : datasetCopy.data
-                    ) as number[]
+                    // Nullify dates that don't have dotted line
+                    const sliceFrom = incompletenessOffsetFromEnd - 1 || (datasetCopy.data?.length ?? 0)
+                    datasetCopy.data = [
+                        ...(datasetCopy.data?.slice(0, sliceFrom).map(() => null) ?? []),
+                        ...(datasetCopy.data?.slice(sliceFrom) ?? []),
+                    ] as (number | null)[]
+
                     return processDataset(datasetCopy, index)
                 }),
             ]
@@ -251,8 +261,6 @@ export function LineGraph({
 
         const tickOptions: Partial<TickOptions> = {
             color: colors.axisLabel as Color,
-            showLabelBackdrop: true,
-            backdropColor: 'red',
         }
 
         const tooltipOptions: Partial<TooltipOptions> = {
@@ -479,7 +487,7 @@ export function LineGraph({
                         index: point.index,
                         label: indexExists && dataset.labels ? dataset.labels[point.index] : undefined,
                         day: indexExists && dataset.days ? dataset.days[point.index] : undefined,
-                        value: indexExists && dataset.data ? dataset.data[point.index] : undefined,
+                        value: indexExists && dataset.data ? dataset.data[point.index] ?? undefined : undefined,
                     })
                 }
             },
@@ -595,8 +603,6 @@ export function LineGraph({
             options,
         })
     }
-
-    console.log('LINEGRAPH', dashboardItemId)
 
     return (
         <div

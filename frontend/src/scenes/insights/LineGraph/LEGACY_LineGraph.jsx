@@ -9,7 +9,7 @@ import { compactNumber, lightenDarkenColor } from '~/lib/utils'
 import { getBarColorFromStatus, getChartColors, getGraphColors } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { toast } from 'react-toastify'
-import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
+import { renderAnnotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import './LineGraph.scss'
 import { InsightLabel } from 'lib/components/InsightLabel'
@@ -24,7 +24,7 @@ Chart.defaults.global.elements.line.tension = 0
 
 const noop = () => {}
 
-export function LineGraph({
+export function LEGACY_LineGraph({
     datasets,
     visibilityMap = null,
     labels,
@@ -551,27 +551,29 @@ export function LineGraph({
         >
             <canvas ref={chartRef} />
             <div className="annotations-root" ref={annotationsRoot} />
-            {annotationsCondition && (
-                <Annotations
-                    labeledDays={datasets[0].labels}
-                    dates={datasets[0].days}
-                    leftExtent={leftExtent}
-                    interval={boundaryInterval}
-                    topExtent={topExtent}
-                    dashboardItemId={dashboardItemId}
-                    currentDateMarker={
-                        focused || annotationsFocused ? selectedDayLabel : enabled ? datasets[0].days[labelIndex] : null
-                    }
-                    onClick={() => {
+            {annotationsCondition &&
+                renderAnnotations({
+                    labeledDays: datasets[0].labels,
+                    dates: datasets[0].days,
+                    leftExtent,
+                    interval: boundaryInterval,
+                    topExtent,
+                    dashboardItemId,
+                    currentDateMarker:
+                        focused || annotationsFocused
+                            ? selectedDayLabel
+                            : enabled
+                            ? datasets[0].days[labelIndex]
+                            : null,
+                    onClick: () => {
                         setFocused(false)
                         setAnnotationsFocused(true)
-                    }}
-                    onClose={() => setAnnotationsFocused(false)}
-                    graphColor={color}
-                    color={colors.annotationColor}
-                    accessoryColor={colors.annotationAccessoryColor}
-                />
-            )}
+                    },
+                    onClose: () => setAnnotationsFocused(false),
+                    graphColor: color,
+                    color: colors.annotationColor,
+                    accessoryColor: colors.annotationAccessoryColor,
+                })}
             {annotationsCondition && !annotationsFocused && (enabled || focused) && left >= 0 && (
                 <AnnotationMarker
                     dashboardItemId={dashboardItemId}
@@ -609,7 +611,7 @@ export function LineGraph({
 
 const mapRange = (value, x1, y1, x2, y2) => Math.floor(((value - x1) * (y2 - x2)) / (y1 - x1) + x2)
 
-LineGraph.propTypes = {
+LEGACY_LineGraph.propTypes = {
     datasets: PropTypes.arrayOf(PropTypes.shape({ label: PropTypes.string, count: PropTypes.number })).isRequired,
     labels: PropTypes.array.isRequired,
     options: PropTypes.object,
