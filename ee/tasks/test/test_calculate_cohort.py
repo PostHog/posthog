@@ -164,6 +164,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
                 "entity_type": "events",
                 "insight": "TRENDS",
                 "interval": "day",
+                "smoothing_intervals": 1,
             },
             entity_data={
                 "id": "$pageview",
