@@ -10,7 +10,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { PropertyFilter } from '~/types'
+import { FunnelVizType, PropertyFilter } from '~/types'
 import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
@@ -254,10 +254,16 @@ export function Experiment(): JSX.Element {
                         <BindLogic
                             logic={insightLogic}
                             props={{
-                                dashboardItemId: undefined,
-                                filters: { ...experimentResults.filters, insight: 'FUNNELS', display: 'FunnelViz' },
+                                dashboardItemId: experimentResults.itemID,
+                                filters: {
+                                    ...experimentResults.filters,
+                                    insight: 'FUNNELS',
+                                    funnel_viz_type: FunnelVizType.Steps,
+                                    display: 'FunnelViz',
+                                },
                                 cachedResults: experimentResults.funnel,
                                 syncWithUrl: false,
+                                doNotLoad: true,
                             }}
                         >
                             <div>

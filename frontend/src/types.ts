@@ -1348,6 +1348,7 @@ export interface ExperimentResults {
     funnel: FunnelStep[][]
     probability: number
     filters: FilterType
+    itemID: string
 }
 
 interface RelatedPerson {
