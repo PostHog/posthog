@@ -137,7 +137,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
             if (!values.slider) {
                 return
             }
-            if (shouldSeek) {
+            if (shouldSeek && values.sessionPlayerData?.metadata) {
                 const playerPosition = convertXToPlayerPosition(
                     thumbLeftPos + THUMB_OFFSET,
                     values.slider.offsetWidth,

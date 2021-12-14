@@ -47,6 +47,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
         stopAnimation: true,
         setCurrentSegment: (segment: RecordingSegment) => ({ segment }),
         setRootFrame: (frame: HTMLDivElement) => ({ frame }),
+        checkBufferingCompleted: true,
+        initializePlayerFromStart: true,
     },
     reducers: () => ({
         rootFrame: [
@@ -159,9 +161,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
             }
             actions.seek(values.currentPlayerPosition)
         },
-        loadRecordingMetaSuccess: async (_, breakpoint) => {
-            // Once the recording metadata is loaded, we set the player to the
-            // beginning and then try to play the recording
+        checkBufferingCompleted: () => {
+            // If buffering has completed, resume last playing state
+            if (
+                values.currentPlayerPosition &&
+                values.sessionPlayerData.bufferedTo &&
+                values.currentPlayerState === SessionPlayerState.BUFFER &&
+                comparePlayerPositions(
+                    values.currentPlayerPosition,
+                    values.sessionPlayerData.bufferedTo,
+                    values.sessionPlayerData.metadata.segments
+                ) < 0
+            ) {
+                actions.endBuffer()
+                actions.seek(values.currentPlayerPosition)
+            }
+        },
+        initializePlayerFromStart: () => {
             const initialSegment = values.sessionPlayerData?.metadata?.segments[0]
             if (initialSegment) {
                 actions.setCurrentSegment(initialSegment)
@@ -170,8 +186,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
                     actions.tryInitReplayer()
                 }
             }
+        },
+        loadRecordingMetaSuccess: async (_, breakpoint) => {
+            // Once the recording metadata is loaded, we set the player to the
+            // beginning and then try to play the recording
+            actions.initializePlayerFromStart()
+            actions.checkBufferingCompleted()
             breakpoint()
         },
+
         loadRecordingSnapshotsSuccess: async (_, breakpoint) => {
             // On loading more of the recording, trigger some state changes
             const currentEvents = values.player?.replayer?.service.state.context.events ?? []
@@ -190,24 +213,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
                     await values.player?.replayer?.addEvent(event)
                 }
             } else {
-                actions.tryInitReplayer()
+                actions.initializePlayerFromStart()
             }
-
-            // If buffering has completed, resume last playing state
-            if (
-                values.currentPlayerPosition &&
-                values.sessionPlayerData.bufferedTo &&
-                values.currentPlayerState === SessionPlayerState.BUFFER &&
-                comparePlayerPositions(
-                    values.currentPlayerPosition,
-                    values.sessionPlayerData.bufferedTo,
-                    values.sessionPlayerData.metadata.segments
-                ) < 0
-            ) {
-                actions.endBuffer()
-                actions.seek(values.currentPlayerPosition)
-            }
-
+            actions.checkBufferingCompleted()
             breakpoint()
         },
         setPlay: () => {
