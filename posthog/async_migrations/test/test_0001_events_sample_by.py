@@ -2,7 +2,6 @@ from typing import Any
 
 import pytest
 
-from ee.clickhouse.sql.events import EVENTS_TABLE_MV_SQL, KAFKA_EVENTS_TABLE_SQL
 from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
@@ -21,6 +20,8 @@ class Test0001EventsSampleBy(BaseTest):
 
     # This set up is necessary to mimic the state of the DB before the new default schema came into place
     def setUp(self):
+        from ee.clickhouse.sql.events import EVENTS_TABLE_MV_SQL, KAFKA_EVENTS_TABLE_SQL
+
         super().setUp()
         self.create_events_table_query = execute_query("SHOW CREATE TABLE events")[0][0]
 
