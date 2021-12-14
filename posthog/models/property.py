@@ -1,3 +1,4 @@
+import dataclasses
 import json
 from typing import (
     Any,
@@ -40,6 +41,18 @@ PropertyIdentifier = Tuple[PropertyName, PropertyType, Optional[GroupTypeIndex]]
 NEGATED_OPERATORS = ["is_not", "not_icontains", "not_regex", "is_not_set"]
 CLICKHOUSE_ONLY_PROPERTY_TYPES = ["static-cohort", "precalculated-cohort"]
 
+UNIX_TIMESTAMP_IN_SECONDS = "^\\d{10}\\.\\d{3}$"
+KNOWN_PROPERTY_FORMATS = Literal["^\\d{10}\\.\\d{3}$"]
+
+
+@dataclasses.dataclass(frozen=True)
+class PropertyDefinition:
+    dataType: Literal["DateTime"]
+    format: Optional[KNOWN_PROPERTY_FORMATS]
+
+    def to_dict(self):
+        return {"format": self.format, "dataType": self.dataType}
+
 
 class Property:
     key: str
@@ -47,6 +60,7 @@ class Property:
     value: ValueT
     type: PropertyType
     group_type_index: Optional[GroupTypeIndex]
+    property_definition: Optional[PropertyDefinition]
 
     def __init__(
         self,
@@ -56,6 +70,7 @@ class Property:
         type: Optional[PropertyType] = None,
         # Only set for `type` == `group`
         group_type_index: Optional[int] = None,
+        property_definition: Optional[dict] = None,
         **kwargs,
     ) -> None:
         self.key = key
@@ -64,19 +79,23 @@ class Property:
         self.type = type if type else "event"
         self.group_type_index = validate_group_type_index("group_type_index", group_type_index)
 
+        self.property_definition = None
+        if property_definition is not None:
+            self.property_definition = PropertyDefinition(**property_definition)
+
     def __repr__(self):
         params_repr = ", ".join(f"{key}={repr(value)}" for key, value in self.to_dict().items())
         return f"Property({params_repr})"
 
     def to_dict(self) -> Dict[str, Any]:
-        result = {
-            "key": self.key,
-            "value": self.value,
-            "operator": self.operator,
-            "type": self.type,
-        }
+        result = {"key": self.key, "value": self.value, "operator": self.operator, "type": self.type}
+
         if self.group_type_index is not None:
             result["group_type_index"] = self.group_type_index
+
+        if self.property_definition is not None:
+            result["property_definition"] = self.property_definition.to_dict()
+
         return result
 
     def _parse_value(self, value: ValueT) -> Any:

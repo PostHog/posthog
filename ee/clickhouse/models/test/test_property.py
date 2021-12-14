@@ -19,7 +19,7 @@ from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.element import Element
 from posthog.models.filters import Filter
 from posthog.models.person import Person
-from posthog.models.property import Property, TableWithProperties
+from posthog.models.property import Property, PropertyDefinition, TableWithProperties
 from posthog.test.base import BaseTest
 
 
@@ -536,7 +536,15 @@ TEST_PROPERTIES = [
     (Property(key="short_date", operator="is_date_after", value="2021-04-05"), [10]),
     (Property(key="short_date", operator="is_date_before", value="2021-04-07"), [9, 10]),
     (Property(key="short_date", operator="is_date_after", value="2021-04-03"), [9, 10]),
-    (Property(key="sdk_$time", operator="is_date_before", value="2021-12-25"), [11]),
+    (
+        Property(
+            key="sdk_$time",
+            operator="is_date_before",
+            value="2021-12-25",
+            property_definition=PropertyDefinition(dataType="DateTime", format="^\\d{10}\\.\\d{3}$").to_dict(),
+        ),
+        [11],
+    ),
 ]
 
 
@@ -560,12 +568,7 @@ def test_prop_filter_json_extract(test_events, property, expected_event_indexes,
 
 @pytest.mark.parametrize("property,expected_event_indexes", TEST_PROPERTIES)
 def test_prop_filter_json_extract_materialized(test_events, property, expected_event_indexes, team):
-    materialize("events", "attr")
-    materialize("events", "email")
-    materialize("events", "unix_timestamp")
-    materialize("events", "long_date")
-    materialize("events", "short_date")
-    materialize("events", "sdk_$time")
+    materialize("events", property.key)
 
     query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=True)
 

@@ -126,3 +126,48 @@ class ClickhouseTestEventApi(
 
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual([r["event"] for r in response["results"]], ["should_be_included"])
+
+    def test_filter_events_with_date_format(self):
+        journeys_for(
+            {
+                "2": [
+                    {
+                        "event": "should_be_included",
+                        "properties": {"prop_that_is_an_sdk_style_unix_timestamp": 1639427152.339},
+                    },
+                    {
+                        "event": "should_be_excluded",
+                        "properties": {
+                            "prop_that_is_an_sdk_style_unix_timestamp": 1639427152.339 * 2
+                        },  # the far future
+                    },
+                    {
+                        "event": "should_be_excluded",
+                        "properties": {
+                            "prop_that_is_an_sdk_style_unix_timestamp": 1639427152.339 * 2
+                        },  # the far future
+                    },
+                ]
+            },
+            self.team,
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/events/?properties=%s"
+            % (
+                json.dumps(
+                    [
+                        {
+                            "key": "prop_that_is_an_sdk_style_unix_timestamp",
+                            "value": "2021-12-25 12:00:00",
+                            "operator": "is_date_before",
+                            "type": "event",
+                            "property_definition": {"dataType": "DateTime", "format": "^\\d{10}\\.\\d{3}$"},
+                        }
+                    ]
+                )
+            )
+        ).json()
+
+        self.assertEqual(len(response["results"]), 1)
+        self.assertEqual([r["event"] for r in response["results"]], ["should_be_included"])
