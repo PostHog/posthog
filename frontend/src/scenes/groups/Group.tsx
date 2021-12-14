@@ -1,7 +1,7 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { Row, Tabs, Col, Card, Skeleton } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { groupLogic } from 'scenes/groups/groupLogic'
@@ -20,9 +20,9 @@ export const scene: SceneExport = {
 }
 
 export function Group(): JSX.Element {
-    const { groupData, groupDataLoading, groupTypeName, groupKey, groupTypeIndex } = useValues(groupLogic)
-
-    const [activeCardTab, setActiveCardTab] = useState('properties')
+    const { groupData, groupDataLoading, groupTypeName, groupKey, groupTypeIndex, activeCardTab } =
+        useValues(groupLogic)
+    const { setActiveCardTab } = useActions(groupLogic)
 
     return (
         <>
@@ -63,9 +63,9 @@ export function Group(): JSX.Element {
                         </Card>
                         <Card className="card-elevated person-properties" style={{ marginTop: 16 }}>
                             <Tabs
-                                defaultActiveKey={activeCardTab}
+                                activeKey={activeCardTab}
                                 onChange={(tab) => {
-                                    setActiveCardTab(tab)
+                                    setActiveCardTab(tab as 'properties' | 'related')
                                 }}
                             >
                                 <TabPane

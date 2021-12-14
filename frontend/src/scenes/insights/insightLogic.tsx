@@ -449,9 +449,9 @@ export const insightLogic = kea<insightLogicType>({
             (s) => [s.insight],
             (insight) => {
                 return dateFilterToText(
-                    insight?.result?.[0].filter?.date_from ?? insight?.result?.[0]?.days?.[0],
+                    insight?.result?.[0]?.filter?.date_from ?? insight?.result?.[0]?.days?.[0],
                     insight?.last_refresh ??
-                        insight?.result?.[0].filter?.date_to ??
+                        insight?.result?.[0]?.filter?.date_to ??
                         insight?.result?.[0]?.days?.[insight?.result?.[0]?.days.length - 1],
                     getFormattedLastWeekDate(),
                     undefined,

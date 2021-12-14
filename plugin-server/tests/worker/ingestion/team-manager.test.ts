@@ -22,8 +22,7 @@ describe('TeamManager()', () => {
     let teamManager: TeamManager
 
     beforeEach(async () => {
-        // TODO: #7422 remove experimental config
-        ;[hub, closeHub] = await createHub({ ...defaultConfig, EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: true })
+        ;[hub, closeHub] = await createHub()
         await resetTestDatabase()
         teamManager = hub.teamManager
     })
@@ -93,16 +92,11 @@ describe('TeamManager()', () => {
         })
 
         it('updates event properties', async () => {
-            await teamManager.updateEventNamesAndProperties(
-                2,
-                'new-event',
-                {
-                    property_name: 'efg',
-                    number: 4,
-                    numeric_prop: 5,
-                },
-                DateTime.now()
-            )
+            await teamManager.updateEventNamesAndProperties(2, 'new-event', {
+                property_name: 'efg',
+                number: 4,
+                numeric_prop: 5,
+            })
             teamManager.teamCache.clear()
 
             const eventDefinitions = await hub.db.fetchEventDefinitions()
@@ -176,56 +170,35 @@ describe('TeamManager()', () => {
         })
 
         it('sets or updates lastSeenCache on event', async () => {
+            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2015-04-04T04:04:04.000Z').getTime())
             // Existing event
-            await teamManager.updateEventNamesAndProperties(
-                2,
-                'another_test_event',
-                {},
-                DateTime.fromISO('2015-04-04T04:04:04.000Z')
-            )
+            await teamManager.updateEventNamesAndProperties(2, 'another_test_event', {})
 
             expect(teamManager.eventLastSeenCache.size).toEqual(1)
             expect(teamManager.eventLastSeenCache.get('[2,"another_test_event"]')).toEqual(1428120244000)
 
             // New event
-            await teamManager.updateEventNamesAndProperties(
-                2,
-                'another_test_event',
-                {},
-                DateTime.fromISO('2015-04-04T05:05:05.000Z')
-            )
+            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2015-04-04T05:05:05.000Z').getTime())
+            await teamManager.updateEventNamesAndProperties(2, 'another_test_event', {})
             expect(teamManager.eventLastSeenCache.size).toEqual(1)
             expect(teamManager.eventLastSeenCache.get('[2,"another_test_event"]')).toEqual(1428123905000)
         })
 
         it('does not set lastSeenCache on new event', async () => {
             // last_seen_at is set in the same INSERT statement, so we don't need to update it
-
-            await teamManager.updateEventNamesAndProperties(
-                2,
-                'this_is_new_3881',
-                {},
-                DateTime.fromISO('2018-01-01T12:12:12.000Z')
-            )
+            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2018-01-01T12:12:12.000Z').getTime())
+            await teamManager.updateEventNamesAndProperties(2, 'this_is_new_3881', {})
             expect(teamManager.eventLastSeenCache.size).toEqual(0)
         })
 
         it('does not update lastSeenCache if event timestamp is older', async () => {
             jest.spyOn(hub.db, 'postgresQuery')
-            await teamManager.updateEventNamesAndProperties(
-                2,
-                'another_test_event',
-                {},
-                DateTime.fromISO('2014-03-23T23:23:23.000Z')
-            )
+            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2014-03-23T23:23:23.000Z').getTime())
+            await teamManager.updateEventNamesAndProperties(2, 'another_test_event', {})
 
-            // Try to set an older time
-            await teamManager.updateEventNamesAndProperties(
-                2,
-                'another_test_event',
-                {},
-                DateTime.fromISO('2014-03-23T23:23:00.000Z')
-            )
+            // Received event at an older time
+            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2014-03-23T23:23:00.000Z').getTime())
+            await teamManager.updateEventNamesAndProperties(2, 'another_test_event', {})
 
             expect(teamManager.eventLastSeenCache.size).toEqual(1)
             expect(teamManager.eventLastSeenCache.get(JSON.stringify([2, 'another_test_event']))).toEqual(1395617003000)
@@ -233,13 +206,16 @@ describe('TeamManager()', () => {
 
         // TODO: #7422 temporary test
         it('last_seen_at feature is experimental and completely disabled', async () => {
-            const [newHub, closeNewHub] = await createHub({ ...defaultConfig })
+            const [newHub, closeNewHub] = await createHub({
+                ...defaultConfig,
+                EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: false,
+            })
             const newTeamManager = newHub.teamManager
             newTeamManager.lastFlushAt = DateTime.fromISO('2010-01-01T22:22:22.000Z') // a long time ago
-            await newTeamManager.updateEventNamesAndProperties(2, '$pageview', {}, DateTime.now())
+            await newTeamManager.updateEventNamesAndProperties(2, '$pageview', {})
             jest.spyOn(newHub.db, 'postgresQuery')
             jest.spyOn(newTeamManager, 'flushLastSeenAtCache')
-            await newTeamManager.updateEventNamesAndProperties(2, '$pageview', {}, DateTime.now()) // Called twice to test both insert and update
+            await newTeamManager.updateEventNamesAndProperties(2, '$pageview', {}) // Called twice to test both insert and update
             expect(newHub.db.postgresQuery).toHaveBeenCalledTimes(0)
             expect(newTeamManager.eventLastSeenCache.size).toBe(0)
             expect(newTeamManager.flushLastSeenAtCache).toHaveBeenCalledTimes(0)
@@ -254,12 +230,8 @@ describe('TeamManager()', () => {
         })
 
         it('flushes lastSeenCache properly', async () => {
-            await teamManager.updateEventNamesAndProperties(
-                2,
-                'new-event',
-                {},
-                DateTime.fromISO('2020-01-01T00:00:00.000Z')
-            )
+            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-01-01T00:00:00.000Z').getTime())
+            await teamManager.updateEventNamesAndProperties(2, 'new-event', {})
             await hub.db.postgresQuery(
                 "UPDATE posthog_eventdefinition SET last_seen_at = to_timestamp(1497307499) WHERE team_id = 2 AND name = '$pageview'",
                 undefined,
@@ -341,12 +313,7 @@ describe('TeamManager()', () => {
         })
 
         it('does not capture event', async () => {
-            await teamManager.updateEventNamesAndProperties(
-                2,
-                'new-event',
-                { property_name: 'efg', number: 4 },
-                DateTime.now()
-            )
+            await teamManager.updateEventNamesAndProperties(2, 'new-event', { property_name: 'efg', number: 4 })
 
             expect(posthog.identify).not.toHaveBeenCalled()
             expect(posthog.capture).not.toHaveBeenCalled()
@@ -365,7 +332,7 @@ describe('TeamManager()', () => {
             jest.spyOn(hub.db, 'postgresQuery')
 
             // Scenario: Different request comes in, team gets reloaded in the background with no updates
-            await teamManager.updateEventNamesAndProperties(2, '$foobar', {}, DateTime.now())
+            await teamManager.updateEventNamesAndProperties(2, '$foobar', {})
             expect(teamManager.fetchTeam).toHaveBeenCalledTimes(1)
             expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1)
 
@@ -373,7 +340,7 @@ describe('TeamManager()', () => {
             mocked(teamManager.fetchTeam).mockClear()
             mocked(hub.db.postgresQuery).mockClear()
 
-            await teamManager.updateEventNamesAndProperties(2, '$newevent', {}, DateTime.now())
+            await teamManager.updateEventNamesAndProperties(2, '$newevent', {})
             expect(teamManager.fetchTeam).toHaveBeenCalledTimes(1)
             expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1)
         })
@@ -384,15 +351,10 @@ describe('TeamManager()', () => {
             })
 
             it('calls posthog.identify and posthog.capture', async () => {
-                await teamManager.updateEventNamesAndProperties(
-                    2,
-                    'new-event',
-                    {
-                        $lib: 'python',
-                        $host: 'localhost:8000',
-                    },
-                    DateTime.now()
-                )
+                await teamManager.updateEventNamesAndProperties(2, 'new-event', {
+                    $lib: 'python',
+                    $host: 'localhost:8000',
+                })
 
                 const team = await teamManager.fetchTeam(2)
                 expect(posthog.identify).toHaveBeenCalledWith('plugin_test_user_distinct_id_1001')
