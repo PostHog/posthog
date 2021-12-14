@@ -34,7 +34,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("property_type_format", models.CharField(max_length=100, null=True)),
-                ("total_volume", models.IntegerField(default=None, null=True)),
+                ("total_volume", models.BigIntegerField(default=None, null=True)),
                 ("created_at", models.DateTimeField(default=django.utils.timezone.now, null=True)),
                 ("last_seen_at", models.DateTimeField(default=None, null=True)),
                 (

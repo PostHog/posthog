@@ -29,7 +29,7 @@ class EventProperty(models.Model):
     property_type_format: models.CharField = models.CharField(max_length=100, null=True)
 
     # things we keep track of
-    total_volume: models.IntegerField = models.IntegerField(default=None, null=True)
+    total_volume: models.BigIntegerField = models.BigIntegerField(default=None, null=True)
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now, null=True)
     last_seen_at: models.DateTimeField = models.DateTimeField(default=None, null=True)
 
