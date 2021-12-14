@@ -26,12 +26,6 @@ class Migration(SpecialMigrationDefinition):
     operations = [
         SpecialMigrationOperation(
             database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"DETACH TABLE {EVENTS_TABLE_MV_SQL} ON CLUSTER {CLICKHOUSE_CLUSTER}",
-            rollback=f"ATTACH TABLE {EVENTS_TABLE_MV_SQL} ON CLUSTER {CLICKHOUSE_CLUSTER}",
-            side_effect=lambda: setattr(config, "MATERIALIZED_COLUMNS_ENABLED", False),
-        ),
-        SpecialMigrationOperation(
-            database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"CREATE TABLE IF NOT EXISTS {TEMPORARY_TABLE_NAME} AS {EVENTS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}",
             rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
         ),
@@ -40,7 +34,26 @@ class Migration(SpecialMigrationDefinition):
             sql=f"""
             INSERT INTO {TEMPORARY_TABLE_NAME}
             SELECT * 
-            FROM {EVENTS_TABLE}""",
+            FROM {EVENTS_TABLE}
+            WHERE timestamp < toYYYYMM(now()) - 1
+            AND timestamp >= (SELECT max(timestamp) FROM {TEMPORARY_TABLE_NAME}""",
+            rollback=f"TRUNCATE TABLE {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
+        ),
+        SpecialMigrationOperation(
+            database=AnalyticsDBMS.CLICKHOUSE,
+            sql=f"DETACH TABLE {EVENTS_TABLE_MV_SQL} ON CLUSTER {CLICKHOUSE_CLUSTER}",
+            rollback=f"ATTACH TABLE {EVENTS_TABLE_MV_SQL} ON CLUSTER {CLICKHOUSE_CLUSTER}",
+            side_effect=lambda: setattr(config, "MATERIALIZED_COLUMNS_ENABLED", False),
+            side_effect_rollback=lambda: setattr(config, "MATERIALIZED_COLUMNS_ENABLED", True),
+        ),
+        SpecialMigrationOperation(
+            database=AnalyticsDBMS.CLICKHOUSE,
+            sql=f"""
+            INSERT INTO {TEMPORARY_TABLE_NAME}
+            SELECT * 
+            FROM {EVENTS_TABLE}
+            WHERE timestamp >= toYYYYMM(now()) - 1
+            AND timestamp >= (SELECT max(timestamp) FROM {TEMPORARY_TABLE_NAME}""",
             rollback=f"TRUNCATE TABLE {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
         ),
         SpecialMigrationOperation(
@@ -54,7 +67,7 @@ class Migration(SpecialMigrationDefinition):
             rollback=f"""
                 RENAME TABLE
                     {CLICKHOUSE_DATABASE}.{EVENTS_TABLE} to {CLICKHOUSE_DATABASE}.{EVENTS_TABLE}_failed,
-                    {CLICKHOUSE_DATABASE}.{TEMPORARY_TABLE_NAME} to {CLICKHOUSE_DATABASE}.{EVENTS_TABLE},
+                    {CLICKHOUSE_DATABASE}.{EVENTS_TABLE}_old to {CLICKHOUSE_DATABASE}.{EVENTS_TABLE},
                 ON CLUSTER {CLICKHOUSE_CLUSTER}
             """,
         ),
@@ -63,8 +76,13 @@ class Migration(SpecialMigrationDefinition):
             sql=f"ATTACH TABLE {EVENTS_TABLE_MV_SQL} ON CLUSTER {CLICKHOUSE_CLUSTER}",
             rollback=f"DETACH TABLE {EVENTS_TABLE_MV_SQL} ON CLUSTER {CLICKHOUSE_CLUSTER}",
             side_effect=lambda: setattr(config, "MATERIALIZED_COLUMNS_ENABLED", True),
+            side_effect_rollback=lambda: setattr(config, "MATERIALIZED_COLUMNS_ENABLED", False),
         ),
     ]
+
+    def is_required(self):
+        res = sync_execute(f"SHOW CREATE TABLE {EVENTS_TABLE}")
+        return "SAMPLE BY uuid" in res[0][0]
 
     def healthcheck(self):
         result = sync_execute(
