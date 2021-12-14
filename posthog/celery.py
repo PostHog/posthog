@@ -5,6 +5,7 @@ from random import randrange
 from celery import Celery
 from celery.schedules import crontab
 from celery.signals import task_postrun, task_prerun
+from constance import config
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
@@ -99,9 +100,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             crontab(hour=0, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
         )  # every day at a random minute past midnight. Randomize to avoid overloading license.posthog.com
         try:
-            from ee.settings import MATERIALIZE_COLUMNS_SCHEDULE_CRON, MATERIALIZED_COLUMNS_ENABLED
+            from ee.settings import MATERIALIZE_COLUMNS_SCHEDULE_CRON
 
-            if not MATERIALIZED_COLUMNS_ENABLED:
+            if not getattr(config, "MATERIALIZED_COLUMNS_ENABLED"):
                 return
 
             minute, hour, day_of_month, month_of_year, day_of_week = MATERIALIZE_COLUMNS_SCHEDULE_CRON.strip().split(

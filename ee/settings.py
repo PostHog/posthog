@@ -68,11 +68,6 @@ if not SAML_DISABLED and os.getenv("SAML_ENTITY_ID") and os.getenv("SAML_ACS_URL
 # ClickHouse and Kafka
 KAFKA_ENABLED = PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE and not TEST
 
-# Settings specific for materialized columns
-
-# Whether materialized columns should be created or used at query time
-MATERIALIZED_COLUMNS_ENABLED = get_from_env("MATERIALIZED_COLUMNS_ENABLED", True, type_cast=str_to_bool)
-
 # Schedule to run column materialization on. Follows crontab syntax.
 # Use empty string to prevent from materializing
 MATERIALIZE_COLUMNS_SCHEDULE_CRON = get_from_env("MATERIALIZE_COLUMNS_SCHEDULE_CRON", "0 5 * * SAT")

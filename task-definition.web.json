@@ -119,10 +119,6 @@
                     "value": "0"
                 },
                 {
-                    "name": "MATERIALIZED_COLUMNS_ENABLED",
-                    "value": "1"
-                },
-                {
                     "name": "CALCULATE_X_COHORTS_PARALLEL",
                     "value": "50"
                 },
