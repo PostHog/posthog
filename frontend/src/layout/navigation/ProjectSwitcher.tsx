@@ -33,6 +33,11 @@ export function ProjectSwitcherOverlay(): JSX.Element {
                 icon={<IconPlus />}
                 fullWidth
                 disabled={isProjectCreationForbidden}
+                title={
+                    isProjectCreationForbidden
+                        ? "You aren't allowed to create a project. Your organization access level is probably insufficient."
+                        : undefined
+                }
                 onClick={() => {
                     hideProjectSwitcher()
                     guardAvailableFeature(
@@ -95,6 +100,7 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
             title={`Switch to project ${team.name}`}
             type="stealth"
             fullWidth
+            disabled={!team.effective_membership_level}
         >
             <span style={{ paddingRight: 8 }}>{team.name}</span>
         </LemonButtonWithSideAction>

@@ -12,12 +12,15 @@ from posthog.settings import ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK
 
 
 def execute_op(op: AsyncMigrationOperation, query_id: str, rollback: bool = False):
+    """
+    sync execute the migration against the analytics db (ClickHouse) and then
+    run the side effect if it is defined
+    """
     sql = op.rollback if rollback else op.sql
     if op.database == AnalyticsDBMS.CLICKHOUSE:
         execute_op_clickhouse(sql, query_id, op.timeout_seconds)
-        return
-
-    execute_op_postgres(sql, query_id)
+    else:
+        execute_op_postgres(sql, query_id)
 
 
 def execute_op_clickhouse(sql: str, query_id: str, timeout_seconds: int):
