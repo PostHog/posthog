@@ -15,7 +15,12 @@ from posthog.models.filters.mixins.common import (
 from posthog.models.filters.mixins.funnel import FunnelCorrelationMixin
 from posthog.models.filters.mixins.groups import GroupsAggregationMixin
 from posthog.models.filters.mixins.property import PropertyMixin
-from posthog.models.filters.mixins.retention import EntitiesDerivedMixin, RetentionDateDerivedMixin, RetentionTypeMixin, SelectedIntervalMixin
+from posthog.models.filters.mixins.retention import (
+    EntitiesDerivedMixin,
+    RetentionDateDerivedMixin,
+    RetentionTypeMixin,
+    SelectedIntervalMixin,
+)
 from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
 
@@ -62,5 +67,3 @@ class RetentionPeopleRequest(RetentionFilter):
     @include_dict
     def selected_interval_to_dict(self):
         return {"selected_interval": self.selected_interval} if self.selected_interval else {}
-
-

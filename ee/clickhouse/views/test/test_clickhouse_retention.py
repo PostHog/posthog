@@ -52,12 +52,9 @@ class RetentionBreakdownTests(TestCase, ClickhouseTestMixin):
         retention_by_cohort_by_period = get_by_cohort_by_period_for_response(client=self.client, response=retention)
 
         assert retention_by_cohort_by_period == {
-                "Day 0": {
-                    "1": ["person 1", "person 2"],
-                    "2": ["person 1"],
-                },
-                "Day 1": {"1": ["person 3"]},
-            }
+            "Day 0": {"1": ["person 1", "person 2"], "2": ["person 1"],},
+            "Day 1": {"1": ["person 3"]},
+        }
 
     def test_can_get_retention_cohort_breakdown_with_retention_type_target(self):
         organization = create_organization(name="test")
@@ -96,12 +93,9 @@ class RetentionBreakdownTests(TestCase, ClickhouseTestMixin):
         retention_by_cohort_by_period = get_by_cohort_by_period_for_response(client=self.client, response=retention)
 
         assert retention_by_cohort_by_period == {
-                "Day 0": {
-                    "1": ["person 1", "person 2"],
-                    "2": ["person 1"],
-                },
-                "Day 1": {"1": ["person 1", "person 3"]},
-            }
+            "Day 0": {"1": ["person 1", "person 2"], "2": ["person 1"],},
+            "Day 1": {"1": ["person 1", "person 3"]},
+        }
 
     @test_with_materialized_columns(person_properties=["os"])
     def test_can_specify_breakdown_person_property(self):
@@ -155,13 +149,13 @@ class RetentionBreakdownTests(TestCase, ClickhouseTestMixin):
 
         retention_by_cohort_by_period = get_by_cohort_by_period_for_response(client=self.client, response=retention)
 
-        assert  retention_by_cohort_by_period, {
-                "Chrome": {"1": ["person 1"], "2": ["person 1"]},
-                "Safari": {
-                    "1": ["person 2"],
-                    "2": ["person 2"],
-                },  # IMPORTANT: the "2" value is from past the requested `date_to`
-            }
+        assert retention_by_cohort_by_period, {
+            "Chrome": {"1": ["person 1"], "2": ["person 1"]},
+            "Safari": {
+                "1": ["person 2"],
+                "2": ["person 2"],
+            },  # IMPORTANT: the "2" value is from past the requested `date_to`
+        }
 
     @test_with_materialized_columns(event_properties=["os"])
     def test_can_specify_breakdown_event_property(self):
@@ -226,8 +220,6 @@ class RetentionBreakdownTests(TestCase, ClickhouseTestMixin):
             },  # IMPORTANT: the "2" value is from past the requested `date_to`
         }
 
-    
-
     @test_with_materialized_columns(event_properties=["os"])
     def test_can_specify_breakdown_event_property_and_retrieve_people(self):
         """
@@ -253,10 +245,7 @@ class RetentionBreakdownTests(TestCase, ClickhouseTestMixin):
                     "person 1": [{"event": "target event", "properties": {"os": "Chrome"}}],
                     "person 2": [{"event": "target event", "properties": {"os": "Safari"}}],
                 },
-                "2020-01-02": {
-                    "person 1": [{"event": "target event"}],
-                    "person 2": [{"event": "target event"}],
-                },
+                "2020-01-02": {"person 1": [{"event": "target event"}], "person 2": [{"event": "target event"}],},
             },
             team=team,
         )
@@ -326,12 +315,10 @@ class RetentionIntervalTests(TestCase, ClickhouseTestMixin):
         retention_by_cohort_by_period = get_by_cohort_by_period_for_response(client=self.client, response=retention)
 
         assert retention_by_cohort_by_period == {
-                "Week 0": {
-                    "1": ["person 1"],
-                    "2": [],
-                },
-                "Week 1": {"1": ["person 2"]},
-            }
+            "Week 0": {"1": ["person 1"], "2": [],},
+            "Week 1": {"1": ["person 2"]},
+        }
+
 
 def setup_user_activity_by_day(daily_activity, team):
     _create_all_events(

@@ -29,14 +29,14 @@ class SerializedActor(TypedDict):
 
 
 class SerializedPerson(SerializedActor):
-    type: Literal['person']
+    type: Literal["person"]
     is_identified: Optional[bool]
     name: str
     distinct_ids: List[str]
 
 
 class SerializedGroup(SerializedActor):
-    type: Literal['group']
+    type: Literal["group"]
     group_key: str
     group_type_index: int
 
@@ -121,7 +121,9 @@ class ActorBaseQuery:
         ]
 
 
-def get_actors_by_aggregation_by(team_id: int, actor_type: Optional[int], actor_ids: List[str]) -> List[SerializedActor]:
+def get_actors_by_aggregation_by(
+    team_id: int, actor_type: Optional[int], actor_ids: List[str]
+) -> List[SerializedActor]:
     from posthog.api.person import get_person_name
 
     if actor_type is None:
@@ -140,7 +142,7 @@ def get_actors_by_aggregation_by(team_id: int, actor_type: Optional[int], actor_
             for person in people
         ]
     else:
-        groups =  Group.objects.filter(team_id=team_id, group_key__in=actor_ids)
+        groups = Group.objects.filter(team_id=team_id, group_key__in=actor_ids)
         return [
             SerializedGroup(
                 id=group.group_key,

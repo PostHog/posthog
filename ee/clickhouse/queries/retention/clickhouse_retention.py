@@ -33,26 +33,18 @@ class ClickhouseRetention(Retention):
             return self.process_table_result(retention_by_breakdown, filter)
 
     def _get_retention_by_breakdown_values(
-        self,
-        filter: RetentionFilter,
-        team: Team,
+        self, filter: RetentionFilter, team: Team,
     ) -> Dict[CohortKey, Dict[str, Any]]:
         actor_query = build_actor_query(filter=filter, team=team)
 
-        result = sync_execute(
-            RETENTION_BREAKDOWN_SQL.format(
-                actor_query=actor_query,
-            )
-        )
+        result = sync_execute(RETENTION_BREAKDOWN_SQL.format(actor_query=actor_query,))
 
         result_dict = {
             CohortKey(tuple(breakdown_values), intervals_from_base): {
                 "count": count,
                 "people": [],
                 "people_url": self._construct_people_url_for_trend_breakdown_interval(
-                    filter=filter,
-                    breakdown_values=breakdown_values,
-                    selected_interval=intervals_from_base,
+                    filter=filter, breakdown_values=breakdown_values, selected_interval=intervals_from_base,
                 ),
             }
             for (breakdown_values, intervals_from_base, count) in result
@@ -61,10 +53,7 @@ class ClickhouseRetention(Retention):
         return result_dict
 
     def _construct_people_url_for_trend_breakdown_interval(
-        self,
-        filter: RetentionFilter,
-        selected_interval: int,
-        breakdown_values: List[str],
+        self, filter: RetentionFilter, selected_interval: int, breakdown_values: List[str],
     ):
         params = RetentionPeopleRequest(
             {**filter._data, "breakdown_values": breakdown_values, "selected_interval": selected_interval}
@@ -72,9 +61,7 @@ class ClickhouseRetention(Retention):
         return f"{self._base_uri}api/person/retention/?{urlencode(params)}"
 
     def process_breakdown_table_result(
-        self,
-        resultset: Dict[CohortKey, Dict[str, Any]],
-        filter: RetentionFilter,
+        self, resultset: Dict[CohortKey, Dict[str, Any]], filter: RetentionFilter,
     ):
         result = [
             {
@@ -97,9 +84,7 @@ class ClickhouseRetention(Retention):
         return result
 
     def process_table_result(
-        self,
-        resultset: Dict[Tuple[int, int], Dict[str, Any]],
-        filter: RetentionFilter,
+        self, resultset: Dict[Tuple[int, int], Dict[str, Any]], filter: RetentionFilter,
     ):
         """
         Constructs a response for the rest api when there is no breakdown specified
@@ -141,9 +126,11 @@ class ClickhouseRetention(Retention):
         )
 
         actors = get_actors_by_aggregation_by(
-            team_id=team.pk, actor_type=filter.aggregation_group_type_index, actor_ids=[actor_appearance.actor_id for actor_appearance in actor_appearances]
+            team_id=team.pk,
+            actor_type=filter.aggregation_group_type_index,
+            actor_ids=[actor_appearance.actor_id for actor_appearance in actor_appearances],
         )
-        
+
         return actors
 
     def _retrieve_actors_in_period(self, filter: RetentionPeopleRequest, team: Team):
@@ -173,12 +160,12 @@ class ClickhouseRetention(Retention):
         )
 
         actors = get_actors_by_aggregation_by(
-            team_id=team.pk, actor_type=filter.aggregation_group_type_index, actor_ids=[actor_appearance.actor_id for actor_appearance in actor_appearances]
+            team_id=team.pk,
+            actor_type=filter.aggregation_group_type_index,
+            actor_ids=[actor_appearance.actor_id for actor_appearance in actor_appearances],
         )
 
-        actors_lookup = {
-            actor['id']: actor for actor in actors
-        }
+        actors_lookup = {actor["id"]: actor for actor in actors}
 
         print(actors_lookup)
         print(actor_appearances)
@@ -220,8 +207,7 @@ def build_actor_query(
     }
 
     query = substitute_params(RETENTION_BREAKDOWN_ACTOR_SQL, all_params).format(
-        returning_event_query=returning_event_query,
-        target_event_query=target_event_query,
+        returning_event_query=returning_event_query, target_event_query=target_event_query,
     )
 
     return query
@@ -267,10 +253,7 @@ def get_actor_appearances(
     they were active.
     """
     actor_activity_query = build_actor_query(
-        filter=filter,
-        team=team,
-        filter_by_breakdown=filter_by_breakdown,
-        selected_interval=selected_interval,
+        filter=filter, team=team, filter_by_breakdown=filter_by_breakdown, selected_interval=selected_interval,
     )
 
     actor_query = f"""
