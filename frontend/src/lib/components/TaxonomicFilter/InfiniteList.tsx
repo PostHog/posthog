@@ -60,12 +60,20 @@ const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
     )
 }
 
+const unusedIndicator = (): JSX.Element => {
+    return (
+        <Tooltip title={<>This property is not used by this event, but has been seen before.</>}>
+            <Tag className="lemonade-tag">Unused</Tag>
+        </Tooltip>
+    )
+}
+
 const renderItemContents = ({
     item,
     listGroupType,
     featureFlagEnabled,
 }: {
-    item: EventDefinition | CohortType
+    item: EventDefinition | PropertyDefinition | CohortType
     listGroupType: TaxonomicFilterGroupType
     featureFlagEnabled: boolean
 }): JSX.Element | string => {
@@ -73,6 +81,9 @@ const renderItemContents = ({
     const isStale =
         (featureFlagEnabled && listGroupType === TaxonomicFilterGroupType.Events && !parsedLastSeen) ||
         dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS
+
+    const isUnused =
+        listGroupType === TaxonomicFilterGroupType.EventProperties && !(item as PropertyDefinition).is_event_property
 
     return listGroupType === TaxonomicFilterGroupType.EventProperties ||
         listGroupType === TaxonomicFilterGroupType.PersonProperties ||
@@ -84,6 +95,7 @@ const renderItemContents = ({
                 <PropertyKeyInfo value={item.name ?? ''} disablePopover />
             </div>
             {isStale && staleIndicator(parsedLastSeen)}
+            {isUnused && unusedIndicator()}
         </>
     ) : listGroupType === TaxonomicFilterGroupType.Elements ? (
         <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover />

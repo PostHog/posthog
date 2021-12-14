@@ -30,3 +30,6 @@ class PropertyDefinition(UUIDModel):
 
     def __str__(self) -> str:
         return f"{self.name} / {self.team.name}"
+
+    def is_event_property(self) -> bool:
+        return True

@@ -1314,6 +1314,7 @@ export interface PropertyDefinition {
     updated_at?: string
     updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
+    is_event_property?: boolean // Calculated query time, not stored in the db
 }
 
 export interface PersonProperty {
