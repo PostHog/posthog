@@ -20,6 +20,7 @@ interface InsightDisplayConfigProps {
     filters: FilterType
     activeView: InsightType
     insightMode: ItemMode
+    disableTable: boolean
     annotationsToCreate: Record<string, any>[] // TODO: Annotate properly
 }
 
@@ -84,6 +85,7 @@ export function InsightDisplayConfig({
     filters,
     activeView,
     clearAnnotationsToCreate,
+    disableTable,
 }: InsightDisplayConfigProps): JSX.Element {
     const showFunnelBarOptions = activeView === InsightType.FUNNELS
     const showPathOptions = activeView === InsightType.PATHS
@@ -94,7 +96,7 @@ export function InsightDisplayConfig({
     return (
         <div className="display-config-inner">
             <div className="display-config-inner-row">
-                {showDateFilter[activeView] && (
+                {showDateFilter[activeView] && !disableTable && (
                     <span className="filter">
                         <span className="head-title-item">Date range</span>
                         <InsightDateFilter

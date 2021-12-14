@@ -11,7 +11,7 @@ export interface TaxonomicFilterProps {
     value?: TaxonomicFilterValue
     onChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
     onClose?: () => void
-    taxonomicGroupTypes?: (TaxonomicFilterGroupType | string)[]
+    taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicFilterLogicKey?: string
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
 }

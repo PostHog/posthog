@@ -15,10 +15,21 @@ import { CreateProjectModal } from '../../../scenes/project/CreateProjectModal'
 import './TopBar.scss'
 
 export function TopBar(): JSX.Element {
-    const { isSideBarShown, bareNav, isInviteModalShown, isCreateOrganizationModalShown, isCreateProjectModalShown } =
-        useValues(navigationLogic)
-    const { toggleSideBar, hideInviteModal, hideCreateOrganizationModal, hideCreateProjectModal } =
-        useActions(navigationLogic)
+    const {
+        isSideBarShown,
+        bareNav,
+        mobileLayout,
+        isInviteModalShown,
+        isCreateOrganizationModalShown,
+        isCreateProjectModalShown,
+    } = useValues(navigationLogic)
+    const {
+        toggleSideBarBase,
+        toggleSideBarMobile,
+        hideInviteModal,
+        hideCreateOrganizationModal,
+        hideCreateProjectModal,
+    } = useActions(navigationLogic)
 
     return (
         <>
@@ -26,7 +37,10 @@ export function TopBar(): JSX.Element {
             <header className="TopBar">
                 <div className="TopBar__segment TopBar__segment--left">
                     {!bareNav && (
-                        <div className="TopBar__hamburger" onClick={toggleSideBar}>
+                        <div
+                            className="TopBar__hamburger"
+                            onClick={mobileLayout ? toggleSideBarMobile : toggleSideBarBase}
+                        >
                             {isSideBarShown ? <IconMenuOpen /> : <IconMenu />}
                         </div>
                     )}
