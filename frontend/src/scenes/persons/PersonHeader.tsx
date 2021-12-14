@@ -1,4 +1,4 @@
-import { PersonType } from '~/types'
+import { PersonActorType, PersonType } from '~/types'
 import React from 'react'
 import './PersonHeader.scss'
 import { Link } from 'lib/components/Link'
@@ -11,7 +11,7 @@ export interface PersonHeaderProps {
     noLink?: boolean
 }
 
-export const asDisplay = (person: Partial<PersonType> | null | undefined): string => {
+export const asDisplay = (person: Partial<PersonType> | PersonActorType | null | undefined): string => {
     let displayId
     const propertyIdentifier = person?.properties
         ? person.properties.email || person.properties.name || person.properties.username
@@ -36,17 +36,15 @@ export function PersonHeader(props: PersonHeaderProps): JSX.Element {
     const content = (
         <div className="flex-center">
             {props.withIcon && (
-                <span className="mr-025">
-                    <ProfilePicture
-                        name={
-                            props.person?.properties?.email ||
-                            props.person?.properties?.name ||
-                            props.person?.properties?.username ||
-                            'U'
-                        }
-                        size="md"
-                    />
-                </span>
+                <ProfilePicture
+                    name={
+                        props.person?.properties?.email ||
+                        props.person?.properties?.name ||
+                        props.person?.properties?.username ||
+                        'U'
+                    }
+                    size="md"
+                />
             )}
             <span className="ph-no-capture text-ellipsis">{asDisplay(props.person)}</span>
         </div>

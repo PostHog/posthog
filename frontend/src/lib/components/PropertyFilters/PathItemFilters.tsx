@@ -17,7 +17,7 @@ interface PropertyFiltersProps {
     onChange?: null | ((filters: AnyPropertyFilter[]) => void)
     pageKey: string
     style?: CSSProperties
-    taxonomicGroupTypes?: TaxonomicFilterGroupType[]
+    taxonomicGroupTypes: TaxonomicFilterGroupType[]
     wildcardOptions?: SimpleOption[]
 }
 

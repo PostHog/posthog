@@ -8,6 +8,7 @@ class MigrationStatus:
     CompletedSuccessfully = 2
     Errored = 3
     RolledBack = 4
+    Starting = 5  # only relevant for the UI
 
 
 class SpecialMigration(models.Model):
@@ -44,3 +45,11 @@ def get_all_completed_special_migrations():
 
 def get_all_running_special_migrations():
     return SpecialMigration.objects.filter(status=MigrationStatus.Running)
+
+
+# allow for splitting code paths
+def is_special_migration_complete(migration_name: str) -> bool:
+    migration_instance = SpecialMigration.objects.filter(
+        name=migration_name, status=MigrationStatus.CompletedSuccessfully
+    ).first()
+    return migration_instance is not None

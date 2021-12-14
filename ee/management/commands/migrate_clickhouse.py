@@ -2,9 +2,9 @@ import datetime
 from textwrap import indent
 
 from django.core.management.base import BaseCommand
-from infi.clickhouse_orm import Database  # type: ignore
-from infi.clickhouse_orm.migrations import MigrationHistory  # type: ignore
-from infi.clickhouse_orm.utils import import_submodules  # type: ignore
+from infi.clickhouse_orm import Database
+from infi.clickhouse_orm.migrations import MigrationHistory
+from infi.clickhouse_orm.utils import import_submodules
 
 from posthog.settings import (
     CLICKHOUSE_DATABASE,
@@ -45,7 +45,6 @@ class Command(BaseCommand):
             password=CLICKHOUSE_PASSWORD,
             verify_ssl_cert=False,
         )
-
         if options["plan"]:
             print("List of clickhouse migrations to be applied:")
             migrations = list(self.get_migrations(database, options["upto"]))
@@ -72,13 +71,11 @@ class Command(BaseCommand):
             print("Migrations done")
         else:
             database.migrate(MIGRATIONS_PACKAGE_NAME, options["upto"], replicated=CLICKHOUSE_REPLICATION)
-            print("Migration successful")
+            print("✅ Migration successful")
 
     def get_migrations(self, database, upto):
-        applied_migrations = database._get_applied_migrations(
-            MIGRATIONS_PACKAGE_NAME, replicated=CLICKHOUSE_REPLICATION
-        )
         modules = import_submodules(MIGRATIONS_PACKAGE_NAME)
+        applied_migrations = self.get_applied_migrations(database)
         unapplied_migrations = set(modules.keys()) - applied_migrations
 
         for migration_name in sorted(unapplied_migrations):
@@ -86,3 +83,6 @@ class Command(BaseCommand):
 
             if int(migration_name[:4]) >= upto:
                 break
+
+    def get_applied_migrations(self, database):
+        return database._get_applied_migrations(MIGRATIONS_PACKAGE_NAME, replicated=CLICKHOUSE_REPLICATION)

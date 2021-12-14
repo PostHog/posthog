@@ -150,7 +150,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
         if self.action == "list":
-            queryset = queryset.filter(deleted=False)
+            queryset = queryset.filter(deleted=False, experiment__isnull=True)
         return queryset.order_by("-created_at")
 
     @action(methods=["GET"], detail=False)

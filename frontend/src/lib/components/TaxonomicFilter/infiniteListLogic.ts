@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { combineUrl } from 'kea-router'
 import api from 'lib/api'
-import { RenderedRows } from 'react-virtualized/dist/commonjs/List'
+import { RenderedRows } from 'react-virtualized/dist/es/List'
 import { EventDefinitionStorage } from '~/models/eventDefinitionsModel'
 import { infiniteListLogicType } from './infiniteListLogicType'
 import { CohortType, EventDefinition } from '~/types'
@@ -46,7 +46,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
 
     connect: (props: InfiniteListLogicProps) => ({
         values: [taxonomicFilterLogic(props), ['searchQuery', 'value', 'groupType', 'taxonomicGroups']],
-        actions: [taxonomicFilterLogic(props), ['setSearchQuery', 'selectItem']],
+        actions: [taxonomicFilterLogic(props), ['setSearchQuery', 'selectItem', 'infiniteListResultsReceived']],
     }),
 
     actions: {
@@ -85,6 +85,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                     // avoid the 150ms delay on first load
                     if (!values.remoteItems.first) {
                         await breakpoint(150)
+                    } else {
+                        // These connected values below might be read before they are available due to circular logic mounting.
+                        // Adding a slight delay (breakpoint) fixes this.
+                        await breakpoint(1)
                     }
 
                     const { remoteEndpoint, searchQuery } = values
@@ -124,14 +128,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         ),
                         searchQuery: values.searchQuery,
                         queryChanged,
-                        count: response.count || response.length,
+                        count: response.count || response.length || 0,
                     }
                 },
             },
         ],
     }),
 
-    listeners: ({ values, actions }) => ({
+    listeners: ({ values, actions, props }) => ({
         onRowsRendered: ({ rowInfo: { startIndex, stopIndex, overscanStopIndex } }) => {
             if (values.isRemoteDataSource) {
                 let loadFrom: number | null = null
@@ -163,6 +167,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         },
         selectSelected: () => {
             actions.selectItem(values.group, values.selectedItemValue, values.selectedItem)
+        },
+        loadRemoteItemsSuccess: ({ remoteItems }) => {
+            actions.infiniteListResultsReceived(props.listGroupType, remoteItems)
         },
     }),
 

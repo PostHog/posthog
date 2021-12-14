@@ -73,7 +73,7 @@ describe('Trends', () => {
 
     it('Apply interval filter', () => {
         cy.get('[data-attr=interval-filter]').click()
-        cy.contains('Weekly').click()
+        cy.contains('Week').click()
 
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
@@ -103,7 +103,7 @@ describe('Trends', () => {
         cy.get('[data-attr=date-filter]').click()
         cy.contains('Last 30 days').click()
 
-        cy.get('[data-attr="date-filter"] .ant-select-selection-item').contains('Last 30 days')
+        cy.get('.ant-select-item').contains('Last 30 days')
         cy.get('[data-attr=trend-line-graph]', { timeout: 10000 }).should('exist')
     })
 

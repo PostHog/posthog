@@ -71,7 +71,7 @@ buildInParallel(
                 if (Object.keys(chunks).length === 0) {
                     throw new Error('Could not get chunk metadata for bundle "PostHog App."')
                 }
-                if (Object.keys(entrypoints).length === 0) {
+                if (!isDev && Object.keys(entrypoints).length === 0) {
                     throw new Error('Could not get entrypoint for bundle "PostHog App."')
                 }
                 writeIndexHtml(chunks, entrypoints)

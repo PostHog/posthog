@@ -34,6 +34,7 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(response_data["timezone"], "UTC")
         self.assertEqual(response_data["is_demo"], False)
         self.assertEqual(response_data["slack_incoming_webhook"], self.team.slack_incoming_webhook)
+        self.assertEqual(response_data["has_group_types"], False)
 
         # TODO: These assertions will no longer make sense when we fully remove these attributes from the model
         self.assertNotIn("event_names", response_data)

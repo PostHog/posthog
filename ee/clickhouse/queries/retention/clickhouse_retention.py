@@ -2,8 +2,7 @@ from typing import Any, Dict, List, Literal, NamedTuple, Optional, Tuple, cast
 
 from urllib.parse import urlencode
 
-from rest_framework.utils.serializer_helpers import ReturnDict
-from django.db.models.query import Prefetch
+from ee.clickhouse.queries.actor_base_query import get_actors_by_aggregation_by
 
 from ee.clickhouse.client import substitute_params, sync_execute
 from ee.clickhouse.models.person import get_persons_by_uuids
@@ -129,8 +128,8 @@ class ClickhouseRetention(Retention):
 
         return result
 
-    def _retrieve_people(self, filter: RetentionPeopleRequest, team: Team):
-        people_appearances = get_people_appearances(
+    def _retrieve_actors(self, filter: RetentionPeopleRequest, team: Team):
+        actor_appearances = get_actor_appearances(
             filter=filter,
             # NOTE: If we don't have breakdown_values specified, and do not specify
             # breakdowns, then we need(?) to maintain backwards compatability with
@@ -141,16 +140,13 @@ class ClickhouseRetention(Retention):
             team=team,
         )
 
-        people = get_persons_by_uuids(
-            team_id=team.pk, uuids=[people_appearance.person_id for people_appearance in people_appearances]
+        actors = get_actors_by_aggregation_by(
+            team_id=team.pk, actor_type=filter.aggregation_group_type_index, actor_ids=[actor_appearance.actor_id for actor_appearance in actor_appearances]
         )
         
-        # TODO: remove circular import
-        from posthog.api.person import PersonSerializer
+        return actors
 
-        return PersonSerializer(people, many=True).data
-
-    def _retrieve_people_in_period(self, filter: RetentionPeopleRequest, team: Team):
+    def _retrieve_actors_in_period(self, filter: RetentionPeopleRequest, team: Team):
         """
         Creates a response of the form
 
@@ -168,33 +164,31 @@ class ClickhouseRetention(Retention):
         where appearances values represent if the person was active in an
         interval, where the index of the list is the interval it refers to.
         """
-        people_appearances = get_people_appearances(
+        actor_appearances = get_actor_appearances(
             filter=filter,
             # NOTE: for backwards compat. if we don't have a breakdown value, we
             # use the `selected_interval` instead.
             filter_by_breakdown=filter.breakdown_values or [filter.selected_interval],
             team=team,
         )
-        people = get_persons_by_uuids(
-            team_id=team.pk, uuids=[people_appearance.person_id for people_appearance in people_appearances]
+
+        actors = get_actors_by_aggregation_by(
+            team_id=team.pk, actor_type=filter.aggregation_group_type_index, actor_ids=[actor_appearance.actor_id for actor_appearance in actor_appearances]
         )
 
-        people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
-        
-        # TODO: remove circular import
-        from posthog.api.person import PersonSerializer
-
-        people_lookup = {str(person.uuid): PersonSerializer(person).data for person in people}
+        actors_lookup = {
+            actor['id']: actor for actor in actors
+        }
 
         return [
             {
-                "person": people_lookup.get(person.person_id, {"person_id": person.person_id}),
+                "person": actors_lookup.get(actor.actor_id, {"id": actor.actor_id}),
                 "appearances": [
-                    1 if interval_number in person.appearances else 0
+                    1 if interval_number in actor.appearances else 0
                     for interval_number in range(filter.total_intervals - (filter.selected_interval or 0))
                 ],
             }
-            for person in sorted(people_appearances, key=lambda x: x.person_id)
+            for actor in sorted(actor_appearances, key=lambda x: x.actor_id)
         ]
 
 
@@ -207,7 +201,7 @@ def build_actor_query(
     """
     The retention actor query is used to retrieve something of the form:
 
-        breakdown_values, intervals_from_base, person_id | cohort_id | organisation_id
+        breakdown_values, intervals_from_base, actor_id
 
     We use actor here as an abstraction over the different types we can have aside from
     person_ids
@@ -258,14 +252,14 @@ def build_target_event_query(filter: RetentionFilter, team: Team):
     return query
 
 
-def get_people_appearances(
+def get_actor_appearances(
     filter: RetentionPeopleRequest,
     team: Team,
     filter_by_breakdown: Optional[List[str]] = None,
     selected_interval: Optional[int] = None,
 ) -> List[AppearanceRow]:
     """
-    For a given filter request for Retention people, return a list
+    For a given filter request for Retention actor, return a list
     with one entry per person, and a list or `appearances` representing which periods
     they were active.
     """
@@ -293,6 +287,6 @@ def get_people_appearances(
     """
 
     return [
-        AppearanceRow(person_id=str(row[0]), appearance_count=len(row[1]), appearances=row[1])
+        AppearanceRow(actor_id=str(row[0]), appearance_count=len(row[1]), appearances=row[1])
         for row in sync_execute(actor_query)
     ]

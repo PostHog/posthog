@@ -15,6 +15,7 @@ from django.db.models.query import QuerySet
 from ee.clickhouse.client import sync_execute
 from posthog.models import Entity, Filter, Team
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.group import Group
 from posthog.models.person import Person
@@ -42,7 +43,9 @@ class ActorBaseQuery:
     aggregating_by_groups = False
     entity: Optional[Entity] = None
 
-    def __init__(self, team: Team, filter: Union[Filter, StickinessFilter], entity: Optional[Entity] = None):
+    def __init__(
+        self, team: Team, filter: Union[Filter, StickinessFilter, RetentionFilter], entity: Optional[Entity] = None
+    ):
         self._team = team
         self.entity = entity
         self._filter = filter
@@ -62,8 +65,14 @@ class ActorBaseQuery:
         """ Get actors in data model and dict formats. Builds query and executes """
         query, params = self.actor_query()
         raw_result = sync_execute(query, params)
+        return self.get_actors_from_result(raw_result)
+
+    def get_actors_from_result(
+        self, raw_result
+    ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]]]:
         actors: Union[QuerySet[Person], QuerySet[Group]]
         serialized_actors: Union[List[SerializedGroup], List[SerializedPerson]]
+
         if self.is_aggregating_by_groups:
             actors, serialized_actors = self._get_groups(raw_result)
         else:
@@ -107,4 +116,36 @@ class ActorBaseQuery:
                 properties=group.group_properties,
             )
             for group in data
+        ]
+
+
+def get_actors_by_aggregation_by(team_id: int, actor_type: Optional[int], actor_ids: List[str]) -> List[SerializedActor]:
+    from posthog.api.person import get_person_name
+
+    if actor_type is None:
+        people = Person.objects.filter(team_id=team_id, uuid__in=actor_ids)
+        return [
+            SerializedPerson(
+                type="person",
+                id=person.uuid,
+                created_at=person.created_at,
+                properties=person.properties,
+                is_identified=person.is_identified,
+                name=get_person_name(person),
+                distinct_ids=person.distinct_ids,
+            )
+            for person in people
+        ]
+    else:
+        groups =  Group.objects.filter(team_id=team_id, group_key__in=actor_ids)
+        return [
+            SerializedGroup(
+                id=group.group_key,
+                type="group",
+                group_type_index=group.group_type_index,
+                group_key=group.group_key,
+                created_at=group.created_at,
+                properties=group.group_properties,
+            )
+            for group in groups
         ]

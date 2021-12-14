@@ -11,8 +11,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
-from ee.clickhouse.queries import ClickhousePaths
-from ee.clickhouse.queries.paths import ClickhousePathsActors
+from ee.clickhouse.queries.paths import ClickhousePaths, ClickhousePathsActors
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import (

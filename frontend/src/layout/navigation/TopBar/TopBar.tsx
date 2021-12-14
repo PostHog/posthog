@@ -18,24 +18,29 @@ export function TopBar(): JSX.Element {
     const {
         isSideBarShown,
         bareNav,
-        announcementMessage,
-        isAnnouncementShown,
+        mobileLayout,
         isInviteModalShown,
         isCreateOrganizationModalShown,
         isCreateProjectModalShown,
     } = useValues(navigationLogic)
-    const { toggleSideBar, hideAnnouncement, hideInviteModal, hideCreateOrganizationModal, hideCreateProjectModal } =
-        useActions(navigationLogic)
+    const {
+        toggleSideBarBase,
+        toggleSideBarMobile,
+        hideInviteModal,
+        hideCreateOrganizationModal,
+        hideCreateProjectModal,
+    } = useActions(navigationLogic)
 
     return (
         <>
-            {announcementMessage && (
-                <Announcement message={announcementMessage} visible={isAnnouncementShown} onClose={hideAnnouncement} />
-            )}
+            <Announcement />
             <header className="TopBar">
                 <div className="TopBar__segment TopBar__segment--left">
                     {!bareNav && (
-                        <div className="TopBar__hamburger" onClick={toggleSideBar}>
+                        <div
+                            className="TopBar__hamburger"
+                            onClick={mobileLayout ? toggleSideBarMobile : toggleSideBarBase}
+                        >
                             {isSideBarShown ? <IconMenuOpen /> : <IconMenu />}
                         </div>
                     )}

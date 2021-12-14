@@ -24,6 +24,7 @@ interface InsightsLabelProps {
     value?: string
     className?: string
     breakdownValue?: BreakdownKeyType
+    compareValue?: string
     hideBreakdown?: boolean // Whether to hide the breakdown detail in the label
     hideIcon?: boolean // Whether to hide the icon that showcases the color of the series
     iconSize?: IconSize // Size of the series color icon
@@ -36,6 +37,8 @@ interface InsightsLabelProps {
     useCustomName?: boolean // Whether to show new custom name. `{custom_name} ({id})`.
     hideSeriesSubtitle?: boolean // Whether to show the base event/action name (if a custom name is set) in the insight label
     onLabelClick?: () => void // Click handler for inner label
+    swapTitleAndSubtitle?: boolean // If true, emphases on subtitle and title are switched.
+    showEventName?: boolean // Override internally calculated to always show event name
 }
 
 interface MathTagProps {
@@ -80,6 +83,7 @@ export function InsightLabel({
     value,
     className,
     breakdownValue,
+    compareValue,
     hideBreakdown,
     hideIcon,
     iconSize = IconSize.Large,
@@ -90,10 +94,12 @@ export function InsightLabel({
     showCountedByTag,
     allowWrap = false,
     useCustomName = false,
+    showEventName: _showEventName = false,
     hideSeriesSubtitle,
     onLabelClick,
+    swapTitleAndSubtitle = false,
 }: InsightsLabelProps): JSX.Element {
-    const showEventName = !breakdownValue || (hasMultipleSeries && !Array.isArray(breakdownValue))
+    const showEventName = _showEventName || !breakdownValue || (hasMultipleSeries && !Array.isArray(breakdownValue))
     const eventName = seriesStatus ? capitalizeFirstLetter(seriesStatus) : action?.name || fallbackName || ''
     const iconSizePx = iconSize === IconSize.Large ? 14 : iconSize === IconSize.Medium ? 12 : 10
 
@@ -125,7 +131,12 @@ export function InsightLabel({
                     {showEventName && (
                         <>
                             {useCustomName && action ? (
-                                <EntityFilterInfo filter={action} showSubTitle={!hideSeriesSubtitle} />
+                                <EntityFilterInfo
+                                    filter={action}
+                                    showSubTitle={!hideSeriesSubtitle}
+                                    subTitles={[compareValue, ...[breakdownValue].flat()]}
+                                    swapTitleAndSubtitle={swapTitleAndSubtitle}
+                                />
                             ) : (
                                 <PropertyKeyInfo disableIcon disablePopover value={eventName} ellipsis={!allowWrap} />
                             )}
@@ -140,17 +151,27 @@ export function InsightLabel({
                         />
                     )}
 
-                    {breakdownValue && !hideBreakdown && Array.isArray(breakdownValue) && (
-                        <Space direction={'horizontal'} wrap={true}>
-                            {breakdownValue.map((bv) => (
-                                <Tag className="tag-pill" key={bv} closable={false}>
-                                    <Typography.Text ellipsis={{ tooltip: bv }} style={{ maxWidth: 400 }}>
-                                        {bv}
+                    {breakdownValue &&
+                        !hideBreakdown &&
+                        (Array.isArray(breakdownValue) ? (
+                            <Space direction={'horizontal'} wrap={true}>
+                                {breakdownValue.map((bv) => (
+                                    <Tag className="tag-pill" key={bv} closable={false}>
+                                        <Typography.Text ellipsis={{ tooltip: bv }} style={{ maxWidth: 165 }}>
+                                            {bv}
+                                        </Typography.Text>
+                                    </Tag>
+                                ))}
+                            </Space>
+                        ) : (
+                            <Space direction={'horizontal'} wrap={true}>
+                                <Tag className="tag-pill" key={breakdownValue} closable={false}>
+                                    <Typography.Text ellipsis={{ tooltip: breakdownValue }} style={{ maxWidth: 165 }}>
+                                        {breakdownValue}
                                     </Typography.Text>
                                 </Tag>
-                            ))}
-                        </Space>
-                    )}
+                            </Space>
+                        ))}
                 </div>
             </Col>
             <Col flex="none">
