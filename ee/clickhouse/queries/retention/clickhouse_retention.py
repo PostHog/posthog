@@ -1,25 +1,15 @@
-from typing import Any, Dict, List, Literal, NamedTuple, Optional, Tuple, cast
-
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple, cast
 from urllib.parse import urlencode
 
-from ee.clickhouse.queries.actor_base_query import get_actors_by_aggregation_by
-
 from ee.clickhouse.client import substitute_params, sync_execute
-from ee.clickhouse.models.person import get_persons_by_uuids
+from ee.clickhouse.queries.actor_base_query import get_actors_by_aggregation_by
 from ee.clickhouse.queries.retention.retention_event_query import RetentionEventsQuery
-from ee.clickhouse.sql.retention.retention import (
-    RETENTION_BREAKDOWN_ACTOR_SQL,
-    RETENTION_BREAKDOWN_SQL,
-)
-from posthog.constants import (
-    RETENTION_FIRST_TIME,
-    RetentionQueryType,
-)
+from ee.clickhouse.sql.retention.retention import RETENTION_BREAKDOWN_ACTOR_SQL, RETENTION_BREAKDOWN_SQL
+from posthog.constants import RETENTION_FIRST_TIME, RetentionQueryType
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.retention_filter import RetentionPeopleRequest
 from posthog.models.team import Team
-from posthog.queries.retention import AppearanceRow, Retention, appearance_to_markers
-
+from posthog.queries.retention import AppearanceRow, Retention
 
 CohortKey = NamedTuple("CohortKey", (("breakdown_values", Tuple[str]), ("period", int)))
 
