@@ -1,11 +1,11 @@
 import { Properties } from '@posthog/plugin-scaffold'
+import { StatsD } from 'hot-shots'
 import { DateTime } from 'luxon'
 
 import { TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
-import { StatsD } from 'hot-shots'
 
 enum EventPropertyType {
     Number = 'NUMBER',
@@ -120,8 +120,7 @@ export class EventPropertyCounter {
             this.eventPropertiesBuffer = { totalVolume: 0, uniqueVolume: 0, buffer: new Map() }
             this.lastFlushAt = DateTime.now()
 
-            let i = 0
-            let columns: any[][] = [[], [], [], [], [], [], [], []]
+            const columns: any[][] = [[], [], [], [], [], [], [], []]
 
             for (const [teamId, teamBuffer] of oldBuffer.buffer.entries()) {
                 for (const [key, propertyBuffer] of teamBuffer.entries()) {
