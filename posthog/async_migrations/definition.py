@@ -6,7 +6,7 @@ from posthog.version_requirement import ServiceVersionRequirement
 
 
 # used to prevent circular imports
-class SpecialMigrationType:
+class AsyncMigrationType:
     id: int
     name: str
     description: str
@@ -22,7 +22,7 @@ class SpecialMigrationType:
     posthog_max_version: str
 
 
-class SpecialMigrationOperation:
+class AsyncMigrationOperation:
     def __init__(
         self,
         sql="",
@@ -48,7 +48,7 @@ class SpecialMigrationOperation:
         self.rollback = rollback
 
 
-class SpecialMigrationDefinition:
+class AsyncMigrationDefinition:
 
     # the migration cannot be run before this version
     posthog_min_version = "0.0.0"
@@ -63,9 +63,9 @@ class SpecialMigrationDefinition:
     service_version_requirements: List[ServiceVersionRequirement] = []
 
     # list of operations the migration will perform _in order_
-    operations: List[SpecialMigrationOperation] = []
+    operations: List[AsyncMigrationOperation] = []
 
-    # name of special migration this migration depends on
+    # name of async migration this migration depends on
     depends_on: Optional[str] = None
 
     # will be run before starting the migration, return a boolean specifying if the instance needs this migration
@@ -78,5 +78,5 @@ class SpecialMigrationDefinition:
         return (True, None)
 
     # return an int between 0-100 to specify how far along this migration is
-    def progress(self, migration_instance: SpecialMigrationType) -> int:
+    def progress(self, migration_instance: AsyncMigrationType) -> int:
         return int(100 * migration_instance.current_operation_index / len(self.operations))
