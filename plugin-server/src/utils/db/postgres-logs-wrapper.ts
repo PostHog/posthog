@@ -36,8 +36,9 @@ export class PostgresLogsWrapper {
             this.flushTimeout = null
         }
         if (this.logs.length > 0) {
-            await this.db.batchInsertPostgresLogs(this.logs)
+            const logs = this.logs
             this.logs = []
+            await this.db.batchInsertPostgresLogs(logs)
         }
     }
 }
