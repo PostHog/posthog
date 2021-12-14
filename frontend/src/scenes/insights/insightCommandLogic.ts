@@ -29,16 +29,18 @@ export const insightCommandLogic = kea<insightCommandLogicType>({
                                 compareFilterLogic.actions.toggleCompare()
                             },
                         },
-                        ...Object.entries(dateMapping).map(([key, { values }]) => ({
-                            icon: RiseOutlined,
-                            display: `Set Time Range to ${key}`,
-                            executor: () => {
-                                actions.setFilters({
-                                    date_from: values[0],
-                                    date_to: values[1],
-                                })
-                            },
-                        })),
+                        ...Object.entries(dateMapping)
+                            .filter(([, { inactive }]) => !inactive)
+                            .map(([key, { values }]) => ({
+                                icon: RiseOutlined,
+                                display: `Set Time Range to ${key}`,
+                                executor: () => {
+                                    actions.setFilters({
+                                        date_from: values[0],
+                                        date_to: values[1],
+                                    })
+                                },
+                            })),
                     ],
                     scope: INSIGHT_COMMAND_SCOPE,
                 },
