@@ -302,7 +302,7 @@ jobs:
                   python -m pip install -r deploy/requirements.txt
 
             - name: Wait for Clickhouse & Kafka
-              run: bin/check_kafka_clickhouse_up
+              run: deploy/bin/check_kafka_clickhouse_up
 
             # The 2-step migration process (first master, then current branch) verifies that it'll always
             # be possible to migrate to the new version without problems in production
