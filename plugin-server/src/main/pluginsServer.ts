@@ -47,6 +47,7 @@ export async function startPluginsServer(
     let piscinaStatsJob: schedule.Job | undefined
     let internalMetricsStatsJob: schedule.Job | undefined
     let flushLastSeenAtCacheJob: schedule.Job | undefined
+    let flushEventPropertyCounterJob: schedule.Job | undefined
     let pluginMetricsJob: schedule.Job | undefined
     let piscina: Piscina | undefined
     let queue: Queue | undefined // ingestion queue
@@ -82,6 +83,7 @@ export async function startPluginsServer(
         piscinaStatsJob && schedule.cancelJob(piscinaStatsJob)
         internalMetricsStatsJob && schedule.cancelJob(internalMetricsStatsJob)
         flushLastSeenAtCacheJob && schedule.cancelJob(flushLastSeenAtCacheJob)
+        flushEventPropertyCounterJob && schedule.cancelJob(flushEventPropertyCounterJob)
         await jobQueueConsumer?.stop()
         await scheduleControl?.stopSchedule()
         await new Promise<void>((resolve, reject) =>
@@ -209,6 +211,16 @@ export async function startPluginsServer(
             })
         }
 
+        // every minute flush event property counter cache
+        if (serverConfig.EXPERIMENTAL_EVENT_PROPERTY_COUNTER) {
+            flushEventPropertyCounterJob = schedule.scheduleJob('0 * * * * *', async () => {
+                await Promise.all([
+                    piscina!.broadcastTask({ task: 'flushEventPropertyCounter' }),
+                    hub!.eventPropertyCounter.flush(),
+                ])
+            })
+        }
+
         pluginMetricsJob = schedule.scheduleJob('*/30 * * * *', async () => {
             await piscina!.broadcastTask({ task: 'sendPluginMetrics' })
         })
@@ -272,6 +284,7 @@ export async function stopPiscina(piscina: Piscina): Promise<void> {
     await Promise.all([
         piscina.broadcastTask({ task: 'flushKafkaMessages' }),
         piscina.broadcastTask({ task: 'flushLastSeenAtCache' }),
+        piscina.broadcastTask({ task: 'flushEventPropertyCounter' }),
         delay(2000),
     ])
     await piscina.destroy()
