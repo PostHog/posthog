@@ -3,15 +3,15 @@ from typing import Optional
 
 from django.db import transaction
 
+from posthog.async_migrations.definition import AsyncMigrationOperation
+from posthog.async_migrations.setup import DEPENDENCY_TO_ASYNC_MIGRATION
 from posthog.celery import app
 from posthog.constants import AnalyticsDBMS
-from posthog.models.special_migration import MigrationStatus, SpecialMigration
-from posthog.settings import SPECIAL_MIGRATIONS_DISABLE_AUTO_ROLLBACK
-from posthog.special_migrations.definition import SpecialMigrationOperation
-from posthog.special_migrations.setup import DEPENDENCY_TO_SPECIAL_MIGRATION
+from posthog.models.async_migration import AsyncMigration, MigrationStatus
+from posthog.settings import ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK
 
 
-def execute_op(op: SpecialMigrationOperation, query_id: str, rollback: bool = False):
+def execute_op(op: AsyncMigrationOperation, query_id: str, rollback: bool = False):
     sql = op.rollback if rollback else op.sql
     if op.database == AnalyticsDBMS.CLICKHOUSE:
         execute_op_clickhouse(sql, query_id, op.timeout_seconds)
@@ -33,33 +33,33 @@ def execute_op_postgres(sql: str, query_id: str):
         cursor.execute(f"/* {query_id} */ " + sql)
 
 
-def process_error(migration_instance: SpecialMigration, error: Optional[str]):
-    update_special_migration(
+def process_error(migration_instance: AsyncMigration, error: Optional[str]):
+    update_async_migration(
         migration_instance=migration_instance,
         status=MigrationStatus.Errored,
         last_error=error or "",
         finished_at=datetime.now(),
     )
 
-    if SPECIAL_MIGRATIONS_DISABLE_AUTO_ROLLBACK:
+    if ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK:
         return
 
-    from posthog.special_migrations.runner import attempt_migration_rollback
+    from posthog.async_migrations.runner import attempt_migration_rollback
 
     attempt_migration_rollback(migration_instance)
 
 
-def trigger_migration(migration_instance: SpecialMigration, fresh_start: bool = True, countdown: int = 0):
-    from posthog.tasks.special_migrations import run_special_migration
+def trigger_migration(migration_instance: AsyncMigration, fresh_start: bool = True, countdown: int = 0):
+    from posthog.tasks.async_migrations import run_async_migration
 
-    task = run_special_migration.delay(migration_instance.name, fresh_start, countdown=countdown)
+    task = run_async_migration.delay(migration_instance.name, fresh_start, countdown=countdown)
 
-    update_special_migration(
+    update_async_migration(
         migration_instance=migration_instance, celery_task_id=str(task.id),
     )
 
 
-def force_stop_migration(migration_instance: SpecialMigration, error: str = "Force stopped by user"):
+def force_stop_migration(migration_instance: AsyncMigration, error: str = "Force stopped by user"):
     """
     In theory this is dangerous, as it can cause another task to be lost 
     `revoke` with `terminate=True` kills the process that's working on the task
@@ -75,30 +75,30 @@ def force_stop_migration(migration_instance: SpecialMigration, error: str = "For
     process_error(migration_instance, error)
 
 
-def force_rollback_migration(migration_instance: SpecialMigration):
-    from posthog.special_migrations.runner import attempt_migration_rollback
+def force_rollback_migration(migration_instance: AsyncMigration):
+    from posthog.async_migrations.runner import attempt_migration_rollback
 
     attempt_migration_rollback(migration_instance, force=True)
 
 
-def complete_migration(migration_instance: SpecialMigration):
-    update_special_migration(
+def complete_migration(migration_instance: AsyncMigration):
+    update_async_migration(
         migration_instance=migration_instance,
         status=MigrationStatus.CompletedSuccessfully,
         finished_at=datetime.now(),
         progress=100,
     )
 
-    from posthog.special_migrations.runner import run_next_migration
+    from posthog.async_migrations.runner import run_next_migration
 
-    next_migration = DEPENDENCY_TO_SPECIAL_MIGRATION.get(migration_instance.name)
+    next_migration = DEPENDENCY_TO_ASYNC_MIGRATION.get(migration_instance.name)
 
     if next_migration:
         run_next_migration(next_migration)
 
 
-def mark_special_migration_as_running(migration_instance: SpecialMigration):
-    update_special_migration(
+def mark_async_migration_as_running(migration_instance: AsyncMigration):
+    update_async_migration(
         migration_instance=migration_instance,
         last_error="",
         current_query_id="",
@@ -111,8 +111,8 @@ def mark_special_migration_as_running(migration_instance: SpecialMigration):
     )
 
 
-def update_special_migration(
-    migration_instance: SpecialMigration,
+def update_async_migration(
+    migration_instance: AsyncMigration,
     last_error: Optional[str] = None,
     current_query_id: Optional[str] = None,
     celery_task_id: Optional[str] = None,
@@ -126,7 +126,7 @@ def update_special_migration(
     def execute_update():
         instance = migration_instance
         if lock_row:
-            instance = SpecialMigration.objects.select_for_update().get(pk=migration_instance.pk)
+            instance = AsyncMigration.objects.select_for_update().get(pk=migration_instance.pk)
         else:
             instance.refresh_from_db()
         if last_error is not None:
