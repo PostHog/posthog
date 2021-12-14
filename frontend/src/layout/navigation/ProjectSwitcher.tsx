@@ -36,7 +36,7 @@ export function ProjectSwitcherOverlay(): JSX.Element {
                 title={
                     isProjectCreationForbidden
                         ? "You aren't allowed to create a project. Your organization access level is probably insufficient."
-                        : null
+                        : undefined
                 }
                 onClick={() => {
                     hideProjectSwitcher()

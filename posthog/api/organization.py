@@ -137,7 +137,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
             for team in instance.teams.all()
             if team.get_effective_membership_level(self.context["request"].user) is not None
         )
-        return TeamBasicSerializer(visible_teams, context=self.context, many=True).data
+        return cast(List[Dict[str, Any]], TeamBasicSerializer(visible_teams, context=self.context, many=True).data)
 
 
 class OrganizationViewSet(viewsets.ModelViewSet):
