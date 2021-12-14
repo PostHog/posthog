@@ -64,7 +64,7 @@ export const TrendsSmoothing = (): JSX.Element => {
 
     const history = createMemoryHistory({
         initialEntries: [
-            `/insights?${new URLSearchParams({
+            `/insights/7OOpo19R/edit?${new URLSearchParams({
                 insight: 'TRENDS',
                 properties: JSON.stringify([]),
                 filter_test_accounts: 'false',
@@ -98,7 +98,7 @@ export const TrendsSmoothing = (): JSX.Element => {
 
     return (
         <Provider>
-            <Insights />
+            <Insight />
         </Provider>
     )
 }
