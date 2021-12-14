@@ -501,7 +501,7 @@ export class EventsProcessor {
         }
 
         if (!EVENTS_WITHOUT_EVENT_DEFINITION.includes(event)) {
-            await this.teamManager.updateEventNamesAndProperties(teamId, event, properties, timestamp)
+            await this.teamManager.updateEventNamesAndProperties(teamId, event, properties)
         }
 
         properties = personInitialAndUTMProperties(properties)

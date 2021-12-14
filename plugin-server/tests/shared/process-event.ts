@@ -158,8 +158,7 @@ export const createProcessEventTests = (
             }
         `
         await resetTestDatabase(testCode, extraServerConfig)
-        // TODO: #7422 remove experimental config
-        ;[hub, closeHub] = await createTestHub({ EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: true })
+        ;[hub, closeHub] = await createTestHub()
         returned.hub = hub
         returned.closeHub = closeHub
         eventsProcessor = new EventsProcessor(hub)
