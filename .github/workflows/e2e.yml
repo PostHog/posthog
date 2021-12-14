@@ -69,7 +69,11 @@ jobs:
             - name: Start stack with Docker Compose
               run: |
                   docker-compose -f ee/docker-compose.ch.yml down
-                  docker-compose -f ee/docker-compose.ch.yml up -d db clickhouse zookeeper kafka
+                  docker-compose -f ee/docker-compose.ch.yml up -d db clickhouse zookeeper kafka &
+
+            - name: Add kafka host to /etc/hosts for kafka connectivity
+              run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+
             - name: Set up Python 3.8
               uses: actions/setup-python@v2
               with:
@@ -134,6 +138,7 @@ jobs:
                   python manage.py collectstatic --noinput &
                   ./bin/docker-migrate &
                   wait
+                  bin/check_kafka_clickhouse_up
                   python manage.py setup_dev
                   mkdir -p /tmp/logs
                   ./bin/docker-worker &> /tmp/logs/worker.txt &
