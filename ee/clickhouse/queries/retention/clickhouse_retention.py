@@ -1,24 +1,13 @@
-from typing import (
-    Any,
-    Dict,
-    List,
-    NamedTuple,
-    Optional,
-    Tuple,
-    Union,
-    cast,
-)
+from typing import Any, Dict, List, NamedTuple, Tuple, Union
 from urllib.parse import urlencode
 
 from ee.clickhouse.client import substitute_params, sync_execute
-from ee.clickhouse.queries.actor_base_query import get_actors_by_aggregation_by
 from ee.clickhouse.queries.retention.retention_event_query import RetentionEventsQuery
-from ee.clickhouse.sql.retention.retention import RETENTION_BREAKDOWN_ACTOR_SQL, RETENTION_BREAKDOWN_SQL
+from ee.clickhouse.sql.retention.retention import RETENTION_BREAKDOWN_SQL
 from posthog.constants import RETENTION_FIRST_TIME, RetentionQueryType
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
-from posthog.queries.retention import AppearanceRow
 
 BreakdownValues = Tuple[Union[str, int], ...]
 CohortKey = NamedTuple("CohortKey", (("breakdown_values", BreakdownValues), ("period", int)))
@@ -38,7 +27,9 @@ class ClickhouseRetention:
     def _get_retention_by_breakdown_values(
         self, filter: RetentionFilter, team: Team,
     ) -> Dict[CohortKey, Dict[str, Any]]:
-        actor_query = build_actor_query(filter=filter, team=team)
+        from ee.clickhouse.queries.retention.retention_actors import build_actor_activity_query
+
+        actor_query = build_actor_activity_query(filter=filter, team=team)
 
         result = sync_execute(RETENTION_BREAKDOWN_SQL.format(actor_query=actor_query,))
 
@@ -118,24 +109,11 @@ class ClickhouseRetention:
         return result
 
     def actors(self, filter: RetentionFilter, team: Team):
-        actor_appearances = get_actor_appearances(
-            filter=filter,
-            # NOTE: If we don't have breakdown_values specified, and do not specify
-            # breakdowns, then we need(?) to maintain backwards compatability with
-            # non-breakdown functionality, which is to get the first cohort
-            # values.
-            filter_by_breakdown=filter.breakdown_values or (0,),
-            selected_interval=filter.selected_interval,
-            team=team,
-        )
+        from ee.clickhouse.queries.retention.retention_actors import ClickhouseRetentionActors
 
-        actors = get_actors_by_aggregation_by(
-            team_id=team.pk,
-            actor_type=filter.aggregation_group_type_index,
-            actor_ids=[actor_appearance.actor_id for actor_appearance in actor_appearances],
-        )
+        _, serialized_actors = ClickhouseRetentionActors(team=team, filter=filter).get_actors()
 
-        return actors
+        return serialized_actors
 
     def actors_in_period(self, filter: RetentionFilter, team: Team):
         """
@@ -155,65 +133,10 @@ class ClickhouseRetention:
         where appearances values represent if the person was active in an
         interval, where the index of the list is the interval it refers to.
         """
-        actor_appearances = get_actor_appearances(
-            filter=filter,
-            # NOTE: for backwards compat. if we don't have a breakdown value, we
-            # use the `selected_interval` instead.
-            filter_by_breakdown=(
-                filter.breakdown_values or (filter.selected_interval,) if filter.selected_interval is not None else None
-            ),
-            team=team,
-        )
 
-        actors = get_actors_by_aggregation_by(
-            team_id=team.pk,
-            actor_type=filter.aggregation_group_type_index,
-            actor_ids=[actor_appearance.actor_id for actor_appearance in actor_appearances],
-        )
+        from ee.clickhouse.queries.retention.retention_actors import ClickhouseRetentionActorsByPeriod
 
-        actors_lookup = {actor["id"]: actor for actor in actors}
-
-        return [
-            {
-                "person": actors_lookup.get(actor.actor_id, {"id": actor.actor_id, "distinct_ids": []}),
-                "appearances": [
-                    1 if interval_number in actor.appearances else 0
-                    for interval_number in range(filter.total_intervals - (filter.selected_interval or 0))
-                ],
-            }
-            for actor in sorted(actor_appearances, key=lambda x: x.actor_id)
-        ]
-
-
-def build_actor_query(
-    filter: RetentionFilter,
-    team: Team,
-    filter_by_breakdown: Optional[BreakdownValues] = None,
-    selected_interval: Optional[int] = None,
-) -> str:
-    """
-    The retention actor query is used to retrieve something of the form:
-
-        breakdown_values, intervals_from_base, actor_id
-
-    We use actor here as an abstraction over the different types we can have aside from
-    person_ids
-    """
-    returning_event_query = build_returning_event_query(filter=filter, team=team)
-
-    target_event_query = build_target_event_query(filter=filter, team=team)
-
-    all_params = {
-        "period": filter.period.lower(),
-        "breakdown_values": list(filter_by_breakdown) if filter_by_breakdown else None,
-        "selected_interval": selected_interval,
-    }
-
-    query = substitute_params(RETENTION_BREAKDOWN_ACTOR_SQL, all_params).format(
-        returning_event_query=returning_event_query, target_event_query=target_event_query,
-    )
-
-    return query
+        return ClickhouseRetentionActorsByPeriod(team=team, filter=filter).actors()
 
 
 def build_returning_event_query(filter: RetentionFilter, team: Team):
@@ -242,40 +165,3 @@ def build_target_event_query(filter: RetentionFilter, team: Team):
     query = substitute_params(target_event_query_templated, target_event_params)
 
     return query
-
-
-def get_actor_appearances(
-    filter: RetentionFilter,
-    team: Team,
-    filter_by_breakdown: Optional[BreakdownValues] = None,
-    selected_interval: Optional[int] = None,
-) -> List[AppearanceRow]:
-    """
-    For a given filter request for Retention actor, return a list
-    with one entry per person, and a list or `appearances` representing which periods
-    they were active.
-    """
-    actor_activity_query = build_actor_query(
-        filter=filter, team=team, filter_by_breakdown=filter_by_breakdown, selected_interval=selected_interval,
-    )
-
-    actor_query = f"""
-        SELECT
-            actor_id,
-            groupArray(actor_activity.intervals_from_base) AS appearances
-
-        FROM ({actor_activity_query}) AS actor_activity
-
-        GROUP BY actor_id
-
-        -- make sure we have stable ordering/pagination
-        -- NOTE: relies on ids being monotonic
-        ORDER BY actor_id
-
-        LIMIT 100 OFFSET {filter.offset}
-    """
-
-    return [
-        AppearanceRow(actor_id=str(row[0]), appearance_count=len(row[1]), appearances=row[1])
-        for row in sync_execute(actor_query)
-    ]
