@@ -211,7 +211,6 @@ export function LineGraph({
         } else {
             datasets = datasets.map((dataset, index) => processDataset(dataset, index))
         }
-        console.log('STEPS datasets', datasets)
 
         const tickOptions = {
             autoSkip: true,
