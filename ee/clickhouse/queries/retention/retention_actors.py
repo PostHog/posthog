@@ -81,10 +81,10 @@ class ClickhouseRetentionActorsByPeriod(ActorBaseQuery):
         ]
 
         _, serialized_actors = self.get_actors_from_result(
-            [(actor_appearance.actor_id) for actor_appearance in actor_appearances]
+            [(actor_appearance.actor_id,) for actor_appearance in actor_appearances]
         )
 
-        actors_lookup = {actor["id"]: actor for actor in serialized_actors}
+        actors_lookup = {str(actor["id"]): actor for actor in serialized_actors}
 
         return [
             {
