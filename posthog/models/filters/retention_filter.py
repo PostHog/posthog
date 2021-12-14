@@ -54,7 +54,7 @@ class RetentionFilter(
 
         if isinstance(raw_value, str):
             return tuple(json.loads(raw_value))
-            
+
         return tuple(raw_value)
 
     @include_dict

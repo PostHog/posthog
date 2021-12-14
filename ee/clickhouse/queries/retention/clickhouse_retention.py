@@ -17,7 +17,7 @@ CohortKey = NamedTuple("CohortKey", (("breakdown_values", BreakdownValues), ("pe
 
 
 class ClickhouseRetention:
-    def __init__(self, base_uri = "/"):
+    def __init__(self, base_uri="/"):
         self._base_uri = base_uri
 
     def run(self, filter: RetentionFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
@@ -28,26 +28,18 @@ class ClickhouseRetention:
             return self.process_table_result(retention_by_breakdown, filter)
 
     def _get_retention_by_breakdown_values(
-        self,
-        filter: RetentionFilter,
-        team: Team,
+        self, filter: RetentionFilter, team: Team,
     ) -> Dict[CohortKey, Dict[str, Any]]:
         actor_query = build_actor_query(filter=filter, team=team)
 
-        result = sync_execute(
-            RETENTION_BREAKDOWN_SQL.format(
-                actor_query=actor_query,
-            )
-        )
+        result = sync_execute(RETENTION_BREAKDOWN_SQL.format(actor_query=actor_query,))
 
         result_dict = {
             CohortKey(tuple(breakdown_values), intervals_from_base): {
                 "count": count,
                 "people": [],
                 "people_url": self._construct_people_url_for_trend_breakdown_interval(
-                    filter=filter,
-                    breakdown_values=breakdown_values,
-                    selected_interval=intervals_from_base,
+                    filter=filter, breakdown_values=breakdown_values, selected_interval=intervals_from_base,
                 ),
             }
             for (breakdown_values, intervals_from_base, count) in result
@@ -56,10 +48,7 @@ class ClickhouseRetention:
         return result_dict
 
     def _construct_people_url_for_trend_breakdown_interval(
-        self,
-        filter: RetentionFilter,
-        selected_interval: int,
-        breakdown_values: BreakdownValues,
+        self, filter: RetentionFilter, selected_interval: int, breakdown_values: BreakdownValues,
     ):
         params = RetentionFilter(
             {**filter._data, "breakdown_values": breakdown_values, "selected_interval": selected_interval}
@@ -67,9 +56,7 @@ class ClickhouseRetention:
         return f"{self._base_uri}api/person/retention/?{urlencode(params)}"
 
     def process_breakdown_table_result(
-        self,
-        resultset: Dict[CohortKey, Dict[str, Any]],
-        filter: RetentionFilter,
+        self, resultset: Dict[CohortKey, Dict[str, Any]], filter: RetentionFilter,
     ):
         result = [
             {
@@ -90,9 +77,7 @@ class ClickhouseRetention:
         return result
 
     def process_table_result(
-        self,
-        resultset: Dict[CohortKey, Dict[str, Any]],
-        filter: RetentionFilter,
+        self, resultset: Dict[CohortKey, Dict[str, Any]], filter: RetentionFilter,
     ):
         """
         Constructs a response for the rest api when there is no breakdown specified
@@ -217,8 +202,7 @@ def build_actor_query(
     }
 
     query = substitute_params(RETENTION_BREAKDOWN_ACTOR_SQL, all_params).format(
-        returning_event_query=returning_event_query,
-        target_event_query=target_event_query,
+        returning_event_query=returning_event_query, target_event_query=target_event_query,
     )
 
     return query
@@ -264,10 +248,7 @@ def get_actor_appearances(
     they were active.
     """
     actor_activity_query = build_actor_query(
-        filter=filter,
-        team=team,
-        filter_by_breakdown=filter_by_breakdown,
-        selected_interval=selected_interval,
+        filter=filter, team=team, filter_by_breakdown=filter_by_breakdown, selected_interval=selected_interval,
     )
 
     actor_query = f"""
