@@ -87,11 +87,7 @@ def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> QueryS
 
 
 def get_persons_by_uuids(team_id: int, uuids: List[str]) -> QuerySet:
-    return (
-        Person.objects.filter(team_id=team_id, uuid__in=uuids)
-        # Order by uuid such that the results are deterministic, for the same input uuids
-        .order_by("uuid")
-    )
+    return Person.objects.filter(team_id=team_id, uuid__in=uuids)
 
 
 def delete_person(
