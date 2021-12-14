@@ -1,7 +1,7 @@
 <html lang="en">
 
 <head>
-    <title>HogFlix</title>
+    <title>Hogflix</title>
     <script src="/static/array.js"></script>
     <script>
         posthog.init('{{api_token}}', {
@@ -63,7 +63,7 @@
             </article>
             <nav>
                 <a href="/demo" style='color: rgb(197, 197, 197)'>
-                    <h3>HogFlix</h3>
+                    <h3>Hogflix</h3>
                 </a>
                 <ul>
                     <li><a href="/demo/1">Sign Up</a></li>
@@ -75,7 +75,7 @@
 
         {% if request.path == '/demo' %}
         <header>
-            <h1>Welcome to HogFlix</h1>
+            <h1>Welcome to Hogflix</h1>
             <p>The one-stop shop for all your hedgehog movies.</p>
             <br>
 
@@ -99,7 +99,7 @@
         {% if request.path == '/demo/2' %}
         <section>
             <form action='/demo/3'>
-                <h1>Pay for HogFlix</h1>
+                <h1>Pay for Hogflix</h1>
                 <label>Credit card number</label>
                 <input class='form-control' type='text' name='creditcard' placeholder='4000 0000 0000 0000' />
                 <button type='submit'>Pay $10!</button>

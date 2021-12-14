@@ -32,7 +32,7 @@
                                                 "type": 2,
                                                 "tagName": "title",
                                                 "attributes": {},
-                                                "childNodes": [{ "id": 6, "type": 3, "textContent": "HogFlix" }]
+                                                "childNodes": [{ "id": 6, "type": 3, "textContent": "Hogflix" }]
                                             },
                                             { "id": 7, "type": 3, "textContent": "\n    " },
                                             {
@@ -274,7 +274,7 @@
                                                                                     {
                                                                                         "id": 53,
                                                                                         "type": 3,
-                                                                                        "textContent": "HogFlix"
+                                                                                        "textContent": "Hogflix"
                                                                                     }
                                                                                 ]
                                                                             },
@@ -711,7 +711,7 @@
                                                 "type": 2,
                                                 "tagName": "title",
                                                 "attributes": {},
-                                                "childNodes": [{ "id": 6, "type": 3, "textContent": "HogFlix" }]
+                                                "childNodes": [{ "id": 6, "type": 3, "textContent": "Hogflix" }]
                                             },
                                             { "id": 7, "type": 3, "textContent": "\n    " },
                                             {
@@ -953,7 +953,7 @@
                                                                                     {
                                                                                         "id": 53,
                                                                                         "type": 3,
-                                                                                        "textContent": "HogFlix"
+                                                                                        "textContent": "Hogflix"
                                                                                     }
                                                                                 ]
                                                                             },
@@ -1108,7 +1108,7 @@
                                                                             {
                                                                                 "id": 78,
                                                                                 "type": 3,
-                                                                                "textContent": "Pay for HogFlix"
+                                                                                "textContent": "Pay for Hogflix"
                                                                             }
                                                                         ]
                                                                     },
@@ -1287,7 +1287,7 @@
                                                 "type": 2,
                                                 "tagName": "title",
                                                 "attributes": {},
-                                                "childNodes": [{ "id": 6, "type": 3, "textContent": "HogFlix" }]
+                                                "childNodes": [{ "id": 6, "type": 3, "textContent": "Hogflix" }]
                                             },
                                             { "id": 7, "type": 3, "textContent": "\n    " },
                                             {
@@ -1529,7 +1529,7 @@
                                                                                     {
                                                                                         "id": 53,
                                                                                         "type": 3,
-                                                                                        "textContent": "HogFlix"
+                                                                                        "textContent": "Hogflix"
                                                                                     }
                                                                                 ]
                                                                             },
@@ -2147,7 +2147,7 @@
                                                 "type": 2,
                                                 "tagName": "title",
                                                 "attributes": {},
-                                                "childNodes": [{ "id": 6, "type": 3, "textContent": "HogFlix" }]
+                                                "childNodes": [{ "id": 6, "type": 3, "textContent": "Hogflix" }]
                                             },
                                             { "id": 7, "type": 3, "textContent": "\n    " },
                                             {
@@ -2389,7 +2389,7 @@
                                                                                     {
                                                                                         "id": 53,
                                                                                         "type": 3,
-                                                                                        "textContent": "HogFlix"
+                                                                                        "textContent": "Hogflix"
                                                                                     }
                                                                                 ]
                                                                             },

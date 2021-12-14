@@ -42,9 +42,7 @@ const VIEW_MAP = {
     [`${InsightType.PATHS}`]: <Paths />,
 }
 
-export function InsightContainer(
-    { disableCorrelation }: { disableCorrelation?: boolean } = { disableCorrelation: false }
-): JSX.Element {
+export function InsightContainer({ disableTable }: { disableTable?: boolean } = { disableTable: false }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const {
@@ -118,7 +116,8 @@ export function InsightContainer(
             !showTimeoutMessage &&
             areFiltersValid &&
             filters.funnel_viz_type === FunnelVizType.Steps &&
-            filters?.layout === FunnelLayout.horizontal
+            filters?.layout === FunnelLayout.horizontal &&
+            !disableTable
         ) {
             return (
                 <Card>
@@ -130,7 +129,8 @@ export function InsightContainer(
         if (
             (!filters.display ||
                 (filters?.display !== ACTIONS_TABLE && filters?.display !== ACTIONS_BAR_CHART_VALUE)) &&
-            (activeView === InsightType.TRENDS || activeView === InsightType.SESSIONS)
+            (activeView === InsightType.TRENDS || activeView === InsightType.SESSIONS) &&
+            !disableTable
         ) {
             /* InsightsTable is loaded for all trend views (except below), plus the sessions view.
     Exclusions:
@@ -163,6 +163,7 @@ export function InsightContainer(
                         activeView={activeView as InsightType}
                         insightMode={insightMode}
                         filters={filters}
+                        disableTable={!!disableTable}
                         annotationsToCreate={annotationsToCreate}
                         clearAnnotationsToCreate={clearAnnotationsToCreate}
                     />
@@ -203,7 +204,7 @@ export function InsightContainer(
                 </div>
             </Card>
             {renderTable()}
-            {!disableCorrelation && correlationAnalysisAvailable && activeView === InsightType.FUNNELS && (
+            {!disableTable && correlationAnalysisAvailable && activeView === InsightType.FUNNELS && (
                 <FunnelCorrelation />
             )}
         </>
