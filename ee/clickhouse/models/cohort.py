@@ -10,6 +10,7 @@ from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
+from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
 from ee.clickhouse.sql.cohort import (
     CALCULATE_COHORT_PEOPLE_SQL,
     GET_COHORT_SIZE_SQL,
@@ -22,7 +23,6 @@ from ee.clickhouse.sql.cohort import (
 from ee.clickhouse.sql.person import (
     GET_LATEST_PERSON_ID_SQL,
     GET_PERSON_IDS_BY_FILTER,
-    GET_TEAM_PERSON_DISTINCT_IDS,
     INSERT_PERSON_STATIC_COHORT,
     PERSON_STATIC_COHORT_TABLE,
 )
@@ -137,13 +137,13 @@ def get_entity_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: in
     date_query, date_params = get_date_query(days, start_time, end_time)
     entity_query, entity_params = _get_entity_query(event_id, action_id, cohort.team.pk, group_idx)
 
-    if count:
+    if count is not None:
         count_operator = _get_count_operator(count_operator)
         extract_person = GET_PERSON_ID_BY_ENTITY_COUNT_SQL.format(
             entity_query=entity_query,
             date_query=date_query,
             count_operator=count_operator,
-            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
+            GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(cohort.team_id),
         )
         params: Dict[str, Union[str, int]] = {"count": int(count), **entity_params, **date_params}
         return f"person_id IN ({extract_person})", params
@@ -233,7 +233,9 @@ def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distin
     )
 
     person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
-        query=person_query, id_column=id_column, GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
+        query=person_query,
+        id_column=id_column,
+        GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(cohort.team_id),
     )
     return person_id_query, params
 
@@ -245,7 +247,10 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int):
     filter_query, filter_params = parse_prop_clauses(filters.properties, table_name="pdi")
 
     results = sync_execute(
-        GET_PERSON_IDS_BY_FILTER.format(distinct_query=filter_query, query=""), {**filter_params, "team_id": team.pk}
+        GET_PERSON_IDS_BY_FILTER.format(
+            distinct_query=filter_query, query="", GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team.pk),
+        ),
+        {**filter_params, "team_id": team.pk},
     )
 
     return [str(row[0]) for row in results]
@@ -276,7 +281,11 @@ def recalculate_cohortpeople(cohort: Cohort):
         size_before=before_count[0][0],
     )
 
-    cohort_filter = GET_PERSON_IDS_BY_FILTER.format(distinct_query="AND " + cohort_filter, query="")
+    cohort_filter = GET_PERSON_IDS_BY_FILTER.format(
+        distinct_query="AND " + cohort_filter,
+        query="",
+        GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(cohort.team_id),
+    )
 
     insert_cohortpeople_sql = INSERT_PEOPLE_MATCHING_COHORT_ID_SQL.format(cohort_filter=cohort_filter)
     sync_execute(insert_cohortpeople_sql, {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id})

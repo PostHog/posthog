@@ -32,6 +32,12 @@ describe('Insights', () => {
         cy.get('[data-attr="insight-save-button"]').click()
         cy.get('[data-attr="insight-edit-button"]').click()
 
+        // Breadcrumbs work
+        cy.get('[data-attr=breadcrumb-0]').should('contain', 'Hogflix')
+        cy.get('[data-attr=breadcrumb-1]').should('contain', 'Hogflix Demo App')
+        cy.get('[data-attr=breadcrumb-2]').should('have.text', 'Insights')
+        cy.get('[data-attr=breadcrumb-3]').should('have.text', 'Unnamed')
+
         // Save and continue editing
         cy.get('[data-attr="insight-save-dropdown"]').click()
         cy.get('[data-attr="insight-save-and-continue"]').click()

@@ -42,7 +42,7 @@ from posthog.constants import (
 from posthog.models.entity import Entity, ExclusionEntity
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType, IntervalType
 from posthog.models.filters.mixins.utils import cached_property, include_dict, process_bool
-from posthog.models.filters.utils import validate_group_type_index
+from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 from posthog.utils import relative_date_parse
 
 ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-\*\^0-9\+\/\(\)]+)"
@@ -188,7 +188,7 @@ class BreakdownMixin(BaseParamMixin):
         return self._data.get(BREAKDOWN_TYPE, None)
 
     @cached_property
-    def breakdown_group_type_index(self) -> Optional[int]:
+    def breakdown_group_type_index(self) -> Optional[GroupTypeIndex]:
         value = self._data.get(BREAKDOWN_GROUP_TYPE_INDEX, None)
         return validate_group_type_index(BREAKDOWN_GROUP_TYPE_INDEX, value)
 

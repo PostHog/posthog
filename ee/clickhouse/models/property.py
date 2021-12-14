@@ -25,7 +25,11 @@ from ee.clickhouse.models.cohort import (
 from ee.clickhouse.models.util import PersonPropertiesMode, is_json
 from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
 from ee.clickhouse.sql.groups import GET_GROUP_IDS_BY_PROPERTY_SQL
-from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
+from ee.clickhouse.sql.person import (
+    GET_DISTINCT_IDS_BY_PERSON_ID_FILTER,
+    GET_DISTINCT_IDS_BY_PROPERTY_SQL,
+    GET_TEAM_PERSON_DISTINCT_IDS,
+)
 from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
 from posthog.models.property import NEGATED_OPERATORS, OperatorType, Property, PropertyIdentifier, PropertyName
@@ -78,7 +82,9 @@ def parse_prop_clauses(
             else:
                 final.append(
                     "AND {table_name}distinct_id IN ({filter_query})".format(
-                        filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(filters=filter_query),
+                        filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(
+                            filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
+                        ),
                         table_name=table_name,
                     )
                 )
@@ -133,7 +139,10 @@ def parse_prop_clauses(
                 final.append(f" AND {filter_query}")
             else:
                 # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
-                subquery = GET_DISTINCT_IDS_BY_PERSON_ID_FILTER.format(filters=filter_query)
+                # :TODO: Use get_team_distinct_ids_query instead when possible instead of GET_TEAM_PERSON_DISTINCT_IDS
+                subquery = GET_DISTINCT_IDS_BY_PERSON_ID_FILTER.format(
+                    filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
+                )
                 final.append(f"AND {table_name}distinct_id IN ({subquery})")
             params.update(filter_params)
 
@@ -265,7 +274,7 @@ def property_table(property: Property) -> TableWithProperties:
 
 
 def get_single_or_multi_property_string_expr(
-    breakdown, table: TableWithProperties, query_alias: Literal["prop", "value"]
+    breakdown, table: TableWithProperties, query_alias: Literal["prop", "value", None]
 ):
     """
     When querying for breakdown properties:
@@ -273,6 +282,12 @@ def get_single_or_multi_property_string_expr(
      * If it is an array of strings, we extract each of those properties and concatenate them into a single value
     clickhouse parameterizes into a query template from a flat list using % string formatting
     values are escaped and inserted in the query here instead of adding new items to the flat list of values
+
+    :param query_alias:
+
+        Specifies the SQL query alias to add to the expression e.g. `AS prop`. If this is specified as None, then
+        no alias will be appended.
+
     """
 
     column = "properties" if table == "events" else "person_props"
@@ -286,6 +301,9 @@ def get_single_or_multi_property_string_expr(
             expressions.append(expr)
 
         expression = f"array({','.join(expressions)})"
+
+    if query_alias is None:
+        return expression
 
     return f"{expression} AS {query_alias}"
 

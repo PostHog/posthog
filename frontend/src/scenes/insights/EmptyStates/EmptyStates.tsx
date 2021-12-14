@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { LoadingOutlined, PlusCircleOutlined, WarningOutlined } from '@ant-design/icons'
-import { IllustrationDanger, IconTrendUp, IconExternalLinkBold } from 'lib/components/icons'
+import { IllustrationDanger, IconTrendUp, IconOpenInNew } from 'lib/components/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { entityFilterLogic } from 'scenes/insights/ActionFilter/entityFilterLogic'
@@ -199,7 +199,7 @@ export function FunnelSingleStepState(): JSX.Element {
                         style={{ justifyContent: 'center' }}
                     >
                         Learn more about funnels in our support documentation
-                        <IconExternalLinkBold style={{ marginLeft: 4, fontSize: '0.85em' }} />
+                        <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
                     </a>
                 </div>
             </div>
@@ -227,7 +227,7 @@ export function FunnelInvalidExclusionState(): JSX.Element {
                         rel="noopener"
                     >
                         Learn more about funnels in our support documentation
-                        <IconExternalLinkBold style={{ marginLeft: 4, fontSize: '0.85em' }} />
+                        <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
                     </a>
                 </div>
             </div>

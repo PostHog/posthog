@@ -4,7 +4,8 @@ import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { autoCaptureEventToDescription } from 'lib/utils'
 import { Link } from 'lib/components/Link'
-import { ActionStepType, ActionStepUrlMatching, ActionType, ElementType, EventType, TeamType } from '../../types'
+import { ActionStepType, ActionStepUrlMatching, ActionType, ElementType, EventType, TeamType } from '~/types'
+import { CLICK_TARGETS, elementToSelector, matchesDataAttribute } from 'lib/actionUtils'
 
 export function recurseSelector(elements: ElementType[], parts: string, index: number): string {
     const element = elements[index]
@@ -37,6 +38,7 @@ export async function createActionFromEvent(
     teamId: TeamType['id'],
     event: EventType,
     increment: number,
+    dataAttributes: string[],
     recurse: typeof createActionFromEvent = createActionFromEvent
 ): Promise<void> {
     const actionData: Pick<ActionType, 'name' | 'steps'> = {
@@ -56,6 +58,23 @@ export async function createActionFromEvent(
     }
     if (event.event === '$autocapture') {
         actionData.name = autoCaptureEventToDescription(event)
+        if (dataAttributes?.length > 0 && event.elements.length > 0) {
+            for (let i = 0; i < event.elements.length; i++) {
+                const element = event.elements[i]
+                if (matchesDataAttribute(element, dataAttributes) || element.attr_id) {
+                    let selector = elementToSelector(element, dataAttributes)
+                    // we found a data-attr or id, but not on the clicked element.
+                    if (i > 0 && !CLICK_TARGETS.includes(element.tag_name)) {
+                        const clickedTagName = event.elements[0].tag_name
+                        selector = `${selector} > ${clickedTagName || '*'}`
+                    }
+                    if (actionData.steps?.[0]) {
+                        actionData.steps[0].selector = selector
+                    }
+                    break
+                }
+            }
+        }
     } else if (event.event === '$pageview') {
         actionData.name = `Pageview on ${new URL(event.properties.$current_url).pathname}`
     } else {
@@ -74,7 +93,7 @@ export async function createActionFromEvent(
         action = await api.actions.create(actionData)
     } catch (response) {
         if (response.type === 'validation_error' && response.code === 'unique' && increment < 30) {
-            return recurse(teamId, event, increment + 1, recurse)
+            return recurse(teamId, event, increment + 1, dataAttributes, recurse)
         } else {
             toast.error(
                 <>

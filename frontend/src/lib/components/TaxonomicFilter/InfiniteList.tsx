@@ -1,9 +1,9 @@
 import './InfiniteList.scss'
 import '../Popup/Popup.scss'
 import React, { useState } from 'react'
-import { Empty, Skeleton } from 'antd'
-import { AutoSizer } from 'react-virtualized/dist/commonjs/AutoSizer'
-import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/commonjs/List'
+import { Empty, Skeleton, Tag } from 'antd'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import {
     getKeyMapping,
     PropertyKeyDescription,
@@ -16,11 +16,16 @@ import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFi
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import ReactDOM from 'react-dom'
 import { usePopper } from 'react-popper'
-import { ActionType, CohortType, KeyMapping, PropertyDefinition } from '~/types'
+import { ActionType, CohortType, EventDefinition, KeyMapping, PropertyDefinition } from '~/types'
 import { AimOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { ActionSelectInfo } from 'scenes/insights/ActionSelectInfo'
 import { urls } from 'scenes/urls'
+import { dayjs } from 'lib/dayjs'
+import { FEATURE_FLAGS, STALE_EVENT_SECONDS } from 'lib/constants'
+import { Tooltip } from '../Tooltip'
+import clsx from 'clsx'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 enum ListTooltip {
     None = 0,
@@ -41,19 +46,45 @@ export function tooltipDesiredState(element?: Element | null): ListTooltip {
     return desiredState
 }
 
+const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
+    return (
+        <Tooltip
+            title={
+                <>
+                    This event was last seen <b>{parsedLastSeen ? parsedLastSeen.fromNow() : 'a while ago'}</b>.
+                </>
+            }
+        >
+            <Tag className="lemonade-tag">Stale</Tag>
+        </Tooltip>
+    )
+}
+
 const renderItemContents = ({
     item,
     listGroupType,
+    featureFlagEnabled,
 }: {
-    item: PropertyDefinition | CohortType
+    item: EventDefinition | CohortType
     listGroupType: TaxonomicFilterGroupType
+    featureFlagEnabled: boolean
 }): JSX.Element | string => {
+    const parsedLastSeen = (item as EventDefinition).last_seen_at ? dayjs((item as EventDefinition).last_seen_at) : null
+    const isStale =
+        (featureFlagEnabled && listGroupType === TaxonomicFilterGroupType.Events && !parsedLastSeen) ||
+        dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS
+
     return listGroupType === TaxonomicFilterGroupType.EventProperties ||
         listGroupType === TaxonomicFilterGroupType.PersonProperties ||
         listGroupType === TaxonomicFilterGroupType.Events ||
         listGroupType === TaxonomicFilterGroupType.CustomEvents ||
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
-        <PropertyKeyInfo value={item.name ?? ''} disablePopover />
+        <>
+            <div className={clsx(isStale && 'text-muted')}>
+                <PropertyKeyInfo value={item.name ?? ''} disablePopover />
+            </div>
+            {isStale && staleIndicator(parsedLastSeen)}
+        </>
     ) : listGroupType === TaxonomicFilterGroupType.Elements ? (
         <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover />
     ) : (
@@ -147,6 +178,7 @@ const selectedItemHasPopup = (
 export function InfiniteList(): JSX.Element {
     const { mouseInteractionsEnabled, activeTab, searchQuery, value, groupType } = useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { isLoading, results, totalCount, index, listGroupType, group, selectedItem, selectedItemInView } =
         useValues(infiniteListLogic)
@@ -186,7 +218,11 @@ export function InfiniteList(): JSX.Element {
                 data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
                 ref={isHighlighted ? setReferenceElement : null}
             >
-                {renderItemContents({ item, listGroupType })}
+                {renderItemContents({
+                    item,
+                    listGroupType,
+                    featureFlagEnabled: !!featureFlags[FEATURE_FLAGS.STALE_EVENTS],
+                })}
             </div>
         ) : (
             <div

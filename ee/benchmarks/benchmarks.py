@@ -6,11 +6,11 @@ from datetime import timedelta
 from typing import List, Tuple
 
 from ee.clickhouse.materialized_columns import backfill_materialized_columns, get_materialized_columns, materialize
-from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
+from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.session_recordings.clickhouse_session_recording_list import ClickhouseSessionRecordingList
-from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
+from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
 from posthog.models import Action, ActionStep, Cohort, Team, Organization
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
@@ -110,6 +110,36 @@ class QuerySuite:
         filter = Filter(
             data={
                 "events": [{"id": "$pageview"}],
+                "properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                **DATE_RANGE,
+            }
+        )
+
+        ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_trends_dau(self):
+        filter = Filter(data={"events": [{"id": "$pageview", "math": "dau"}], **DATE_RANGE,})
+        ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_trends_dau_person_property_filter(self):
+        filter = Filter(
+            data={
+                "events": [{"id": "$pageview", "math": "dau"}],
+                "properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                **DATE_RANGE,
+            }
+        )
+
+        with no_materialized_columns():
+            ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_trends_dau_person_property_filter_materialized(self):
+        filter = Filter(
+            data={
+                "events": [{"id": "$pageview", "math": "dau"}],
                 "properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
                 **DATE_RANGE,
             }
@@ -367,6 +397,29 @@ class QuerySuite:
         )
 
         ClickhouseRetention().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_retention_with_person_breakdown(self):
+        filter = RetentionFilter(
+            data={
+                "insight": "RETENTION",
+                "target_event": {"id": "$pageview"},
+                "returning_event": {"id": "$pageview"},
+                "total_intervals": 14,
+                "retention_type": "retention_first_time",
+                "breakdown_type": "person",
+                "breakdowns": [
+                    {"type": "person", "property": "$browser"},
+                    {"type": "person", "property": "$browser_version"},
+                ],
+                "period": "Week",
+                **DATE_RANGE,
+            },
+            team=self.team,
+        )
+
+        with no_materialized_columns():
+            ClickhouseRetention().run(filter, self.team)
 
     @benchmark_clickhouse
     def track_retention_filter_by_person_property(self):

@@ -8,7 +8,7 @@ interface PathItemSelectorProps {
     onChange: (item: string) => void
     children: JSX.Element
     index: number
-    taxonomicGroupTypes?: TaxonomicFilterGroupType[]
+    taxonomicGroupTypes: TaxonomicFilterGroupType[]
     disabled?: boolean
     wildcardOptions?: SimpleOption[]
 }

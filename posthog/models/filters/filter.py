@@ -27,8 +27,8 @@ from posthog.models.filters.mixins.common import (
     SmoothingIntervalsMixin,
 )
 from posthog.models.filters.mixins.funnel import (
+    FunnelCorrelationActorsMixin,
     FunnelCorrelationMixin,
-    FunnelCorrelationPersonsMixin,
     FunnelFromToStepsMixin,
     FunnelLayoutMixin,
     FunnelPersonsStepBreakdownMixin,
@@ -75,7 +75,7 @@ class Filter(
     HistogramMixin,
     GroupsAggregationMixin,
     FunnelCorrelationMixin,
-    FunnelCorrelationPersonsMixin,
+    FunnelCorrelationActorsMixin,
     SimplifyFilterMixin,
     BaseFilter,
 ):

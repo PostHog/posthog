@@ -6,9 +6,9 @@ import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardL
 import _dashboardJson from './__mocks__/dashboard.json'
 import { dashboardLogicType } from 'scenes/dashboard/dashboardLogicType'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { insightsModel } from '~/models/insightsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { DashboardItemType, DashboardType } from '~/types'
+import { InsightModel, DashboardType } from '~/types'
 
 const dashboardJson = _dashboardJson as any as DashboardType
 
@@ -108,7 +108,7 @@ describe('dashboardLogic', () => {
 
         describe('on load', () => {
             it('mounts other logics', async () => {
-                await expectLogic(logic).toMount([dashboardsModel, dashboardItemsModel, eventUsageLogic])
+                await expectLogic(logic).toMount([dashboardsModel, insightsModel, eventUsageLogic])
             })
 
             it('fetches dashboard items on mount', async () => {
@@ -225,9 +225,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['loadDashboardItemsSuccess'])
                 .toMatchValues({
-                    allItems: truth(
-                        ({ items }) => items.filter((i: DashboardItemType) => i.result === null).length === 2
-                    ),
+                    allItems: truth(({ items }) => items.filter((i: InsightModel) => i.result === null).length === 2),
                     items: truth((items) => items.length === 4),
                 })
                 .toDispatchActions(['refreshAllDashboardItems', 'setRefreshStatuses'])
@@ -245,9 +243,7 @@ describe('dashboardLogic', () => {
                     },
                 })
                 .toMatchValues({
-                    allItems: truth(
-                        ({ items }) => items.filter((i: DashboardItemType) => i.result === null).length === 0
-                    ),
+                    allItems: truth(({ items }) => items.filter((i: InsightModel) => i.result === null).length === 0),
                     items: truth((items) => items.length === 4),
                 })
         })

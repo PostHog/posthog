@@ -3,16 +3,15 @@ import { Link } from 'lib/components/Link'
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
-import { errorToast, isGroupType, toParams } from 'lib/utils'
+import { errorToast, toParams } from 'lib/utils'
 import {
     ActionFilter,
     FilterType,
     InsightType,
     FunnelVizType,
     PropertyFilter,
-    PersonType,
     FunnelCorrelationResultsType,
-    GroupActorType,
+    ActorType,
 } from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -210,25 +209,12 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             () => [preflightLogic.selectors.preflight],
             (preflight) => !!preflight?.is_clickhouse_enabled,
         ],
-        isGroupType: [(s) => [s.people], (people) => people?.people?.[0] && isGroupType(people.people[0])],
-        actorLabel: [
-            (s) => [s.people, s.isGroupType, s.groupTypes],
-            (result, _isGroupType, groupTypes) => {
-                if (_isGroupType) {
-                    return result?.action !== 'session' && result?.action.math_group_type_index != undefined
-                        ? groupTypes[result.action.math_group_type_index].group_type
-                        : 'group'
-                } else {
-                    return 'user'
-                }
-            },
-        ],
     },
     loaders: ({ actions, values }) => ({
         people: {
             loadPeople: async ({ peopleParams }, breakpoint) => {
                 let actors: PaginatedResponse<{
-                    people: PersonType[] | GroupActorType[]
+                    people: ActorType[]
                     count: number
                 }> | null = null
                 const {

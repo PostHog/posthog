@@ -2,7 +2,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
-from uuid import uuid4
+from unittest.mock import ANY
 
 import pytest
 from django.core.cache import cache
@@ -12,24 +12,10 @@ from freezegun.api import freeze_time
 
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.models.group import create_group
-from ee.clickhouse.test.test_journeys import journeys_for
+from ee.clickhouse.test.test_journeys import journeys_for, update_or_create_person
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.api.test.test_cohort import create_cohort_ok
-from posthog.api.test.test_event_definition import (
-    EventData,
-    capture_event,
-    create_organization,
-    create_team,
-    create_user,
-)
-from posthog.api.test.test_retention import identify
-from posthog.api.test.test_trends import (
-    TrendsRequest,
-    TrendsRequestBreakdown,
-    get_trends_aggregate_ok,
-    get_trends_people_ok,
-    get_trends_time_series_ok,
-)
+from posthog.api.test.test_event_definition import create_organization, create_team, create_user
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team import Team
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
@@ -64,21 +50,22 @@ def test_includes_only_intervals_within_range(client: Client):
     with freeze_time("2021-09-20T16:00:00"):
         #  First identify as a member of the cohort
         distinct_id = "abc"
-        identify(distinct_id=distinct_id, team_id=team.id, properties={"cohort_identifier": 1})
+        update_or_create_person(distinct_ids=[distinct_id], team_id=team.id, properties={"cohort_identifier": 1})
         cohort = create_cohort_ok(
             client=client, team_id=team.id, name="test cohort", groups=[{"properties": {"cohort_identifier": 1}}]
         )
 
-        for date in ["2021-09-04", "2021-09-05", "2021-09-12", "2021-09-19"]:
-            capture_event(
-                event=EventData(
-                    event="$pageview",
-                    team_id=team.id,
-                    distinct_id=distinct_id,
-                    timestamp=datetime.fromisoformat(date),
-                    properties={"distinct_id": "abc"},
-                )
-            )
+        journeys_for(
+            events_by_person={
+                distinct_id: [
+                    {"event": "$pageview", "timestamp": "2021-09-04"},
+                    {"event": "$pageview", "timestamp": "2021-09-05"},
+                    {"event": "$pageview", "timestamp": "2021-09-12"},
+                    {"event": "$pageview", "timestamp": "2021-09-19"},
+                ]
+            },
+            team=team,
+        )
 
         trends = get_trends_ok(
             client,
@@ -111,16 +98,7 @@ def test_includes_only_intervals_within_range(client: Client):
             "next": None,
             "result": [
                 {
-                    "action": {
-                        "id": "$pageview",
-                        "type": "events",
-                        "order": 0,
-                        "name": "$pageview",
-                        "custom_name": None,
-                        "math": "dau",
-                        "math_property": None,
-                        "properties": [],
-                    },
+                    "action": ANY,
                     "breakdown_value": cohort["id"],
                     "label": "$pageview - test cohort",
                     "count": 3.0,
@@ -128,6 +106,8 @@ def test_includes_only_intervals_within_range(client: Client):
                     # Prior to the fix this would also include '29-Aug-2021'
                     "labels": ["5-Sep-2021", "12-Sep-2021", "19-Sep-2021"],
                     "days": ["2021-09-05", "2021-09-12", "2021-09-19"],
+                    "persons_urls": ANY,
+                    "filter": ANY,
                 }
             ],
         }
@@ -145,74 +125,20 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
     user = create_user("user", "pass", organization)
 
     client.force_login(user)
-    cache.clear()
 
     with freeze_time("2021-09-20T16:00:00"):
-        #  First identify as a member of the cohort
-        distinct_id = "abc"
-        identify(distinct_id=distinct_id, team_id=team.id, properties={"cohort_identifier": 1})
-
-        # Two events on 1 Sep
-        capture_event(
-            event=EventData(
-                event="$pageview",
-                team_id=team.id,
-                distinct_id=distinct_id,
-                timestamp=datetime.fromisoformat("2021-09-01"),
-                properties={"distinct_id": "abc"},
-            )
-        )
-
-        capture_event(
-            event=EventData(
-                event="$pageview",
-                team_id=team.id,
-                distinct_id=distinct_id,
-                timestamp=datetime.fromisoformat("2021-09-01"),
-                properties={"distinct_id": "abc"},
-            )
-        )
-
-        # One event on 2 Sep
-        capture_event(
-            event=EventData(
-                event="$pageview",
-                team_id=team.id,
-                distinct_id=distinct_id,
-                timestamp=datetime.fromisoformat("2021-09-02"),
-                properties={"distinct_id": "abc"},
-            )
-        )
-
-        # Three events on 3 Sep
-        capture_event(
-            event=EventData(
-                event="$pageview",
-                team_id=team.id,
-                distinct_id=distinct_id,
-                timestamp=datetime.fromisoformat("2021-09-03"),
-                properties={"distinct_id": "abc"},
-            )
-        )
-
-        capture_event(
-            event=EventData(
-                event="$pageview",
-                team_id=team.id,
-                distinct_id=distinct_id,
-                timestamp=datetime.fromisoformat("2021-09-03"),
-                properties={"distinct_id": "abc"},
-            )
-        )
-
-        capture_event(
-            event=EventData(
-                event="$pageview",
-                team_id=team.id,
-                distinct_id=distinct_id,
-                timestamp=datetime.fromisoformat("2021-09-03"),
-                properties={"distinct_id": "abc"},
-            )
+        journeys_for(
+            events_by_person={
+                "abc": [
+                    {"event": "$pageview", "timestamp": "2021-09-01"},
+                    {"event": "$pageview", "timestamp": "2021-09-01"},
+                    {"event": "$pageview", "timestamp": "2021-09-02"},
+                    {"event": "$pageview", "timestamp": "2021-09-03"},
+                    {"event": "$pageview", "timestamp": "2021-09-03"},
+                    {"event": "$pageview", "timestamp": "2021-09-03"},
+                ]
+            },
+            team=team,
         )
 
         interval_3_trend = get_trends_ok(
@@ -244,21 +170,14 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
             "next": None,
             "result": [
                 {
-                    "action": {
-                        "id": "$pageview",
-                        "type": "events",
-                        "order": 0,
-                        "name": "$pageview",
-                        "custom_name": None,
-                        "math": None,
-                        "math_property": None,
-                        "properties": [],
-                    },
+                    "action": ANY,
                     "label": "$pageview",
                     "count": 5.5,
                     "data": [2.0, 1.5, 2.0],
                     "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
                     "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
+                    "persons_urls": ANY,
+                    "filter": ANY,
                 }
             ],
         }
@@ -292,21 +211,14 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
             "next": None,
             "result": [
                 {
-                    "action": {
-                        "id": "$pageview",
-                        "type": "events",
-                        "order": 0,
-                        "name": "$pageview",
-                        "custom_name": None,
-                        "math": None,
-                        "math_property": None,
-                        "properties": [],
-                    },
+                    "action": ANY,
                     "label": "$pageview",
                     "count": 5.5,
                     "data": [2.0, 1.5, 2.0],
                     "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
                     "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
+                    "persons_urls": ANY,
+                    "filter": ANY,
                 }
             ],
         }
@@ -348,6 +260,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
                         "custom_name": None,
                         "math": None,
                         "math_property": None,
+                        "math_group_type_index": ANY,
                         "properties": [],
                     },
                     "label": "$pageview",
@@ -355,6 +268,8 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
                     "data": [2.0, 1.0, 3.0],
                     "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
                     "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
+                    "persons_urls": ANY,
+                    "filter": ANY,
                 }
             ],
         }
@@ -375,72 +290,19 @@ def test_smoothing_intervals_copes_with_null_values(client: Client):
     cache.clear()
 
     with freeze_time("2021-09-20T16:00:00"):
-        #  First identify as a member of the cohort
-        distinct_id = "abc"
-        identify(distinct_id=distinct_id, team_id=team.id, properties={"cohort_identifier": 1})
-
-        # Three events on 1 Sep
-        capture_event(
-            event=EventData(
-                event="$pageview",
-                team_id=team.id,
-                distinct_id=distinct_id,
-                timestamp=datetime.fromisoformat("2021-09-01"),
-                properties={"distinct_id": "abc"},
-            )
-        )
-
-        capture_event(
-            event=EventData(
-                event="$pageview",
-                team_id=team.id,
-                distinct_id=distinct_id,
-                timestamp=datetime.fromisoformat("2021-09-01"),
-                properties={"distinct_id": "abc"},
-            )
-        )
-
-        capture_event(
-            event=EventData(
-                event="$pageview",
-                team_id=team.id,
-                distinct_id=distinct_id,
-                timestamp=datetime.fromisoformat("2021-09-01"),
-                properties={"distinct_id": "abc"},
-            )
-        )
-
-        # No events on 2 Sept
-
-        # Three events on 3 Sep
-        capture_event(
-            event=EventData(
-                event="$pageview",
-                team_id=team.id,
-                distinct_id=distinct_id,
-                timestamp=datetime.fromisoformat("2021-09-03"),
-                properties={"distinct_id": "abc"},
-            )
-        )
-
-        capture_event(
-            event=EventData(
-                event="$pageview",
-                team_id=team.id,
-                distinct_id=distinct_id,
-                timestamp=datetime.fromisoformat("2021-09-03"),
-                properties={"distinct_id": "abc"},
-            )
-        )
-
-        capture_event(
-            event=EventData(
-                event="$pageview",
-                team_id=team.id,
-                distinct_id=distinct_id,
-                timestamp=datetime.fromisoformat("2021-09-03"),
-                properties={"distinct_id": "abc"},
-            )
+        journeys_for(
+            events_by_person={
+                "abc": [
+                    {"event": "$pageview", "timestamp": "2021-09-01"},
+                    {"event": "$pageview", "timestamp": "2021-09-01"},
+                    {"event": "$pageview", "timestamp": "2021-09-01"},
+                    # No events on 2 Sept
+                    {"event": "$pageview", "timestamp": "2021-09-03"},
+                    {"event": "$pageview", "timestamp": "2021-09-03"},
+                    {"event": "$pageview", "timestamp": "2021-09-03"},
+                ]
+            },
+            team=team,
         )
 
         interval_3_trend = get_trends_ok(
@@ -472,21 +334,14 @@ def test_smoothing_intervals_copes_with_null_values(client: Client):
             "next": None,
             "result": [
                 {
-                    "action": {
-                        "id": "$pageview",
-                        "type": "events",
-                        "order": 0,
-                        "name": "$pageview",
-                        "custom_name": None,
-                        "math": None,
-                        "math_property": None,
-                        "properties": [],
-                    },
+                    "action": ANY,
                     "label": "$pageview",
                     "count": 6.5,
                     "data": [3.0, 1.5, 2.0],
                     "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
                     "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
+                    "persons_urls": ANY,
+                    "filter": ANY,
                 }
             ],
         }
@@ -520,21 +375,14 @@ def test_smoothing_intervals_copes_with_null_values(client: Client):
             "next": None,
             "result": [
                 {
-                    "action": {
-                        "id": "$pageview",
-                        "type": "events",
-                        "order": 0,
-                        "name": "$pageview",
-                        "custom_name": None,
-                        "math": None,
-                        "math_property": None,
-                        "properties": [],
-                    },
+                    "action": ANY,
                     "label": "$pageview",
                     "count": 6.0,
                     "data": [3.0, 0.0, 3.0],
                     "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
                     "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
+                    "persons_urls": ANY,
+                    "filter": ANY,
                 }
             ],
         }
@@ -569,6 +417,7 @@ def get_trends(client, request: Union[TrendsRequestBreakdown, TrendsRequest], te
         "compare": request.compare,
         "events": json.dumps(request.events),
         "properties": json.dumps(request.properties),
+        "smoothing_intervals": request.smoothing_intervals,
     }
 
     if isinstance(request, TrendsRequestBreakdown):
@@ -577,10 +426,7 @@ def get_trends(client, request: Union[TrendsRequestBreakdown, TrendsRequest], te
 
     filtered_data = {k: v for k, v in data.items() if v is not None}
 
-    return client.get(
-        f"/api/projects/{team.id}/insights/trend/",
-        data=filtered_data,
-    )
+    return client.get(f"/api/projects/{team.id}/insights/trend/", data=filtered_data,)
 
 
 def get_trends_ok(client: Client, request: TrendsRequest, team: Team):
@@ -636,6 +482,12 @@ def get_trends_people_ok(client: Client, url: str):
     return response.json()["results"][0]["people"]
 
 
+def get_people_from_url_ok(client: Client, url: str):
+    response = client.get("/" + url)
+    assert response.status_code == 200, response.content
+    return response.json()["results"][0]["people"]
+
+
 class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
     maxDiff = None
     CLASS_DATA_LEVEL_SETUP = False
@@ -644,12 +496,8 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
     def test_insight_trends_basic(self):
 
         events_by_person = {
-            "1": [
-                {"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3)},
-            ],
-            "2": [
-                {"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3)},
-            ],
+            "1": [{"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3)},],
+            "2": [{"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3)},],
         }
         created_people = journeys_for(events_by_person, self.team)
 
@@ -679,7 +527,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
         assert data["$pageview"]["2012-01-15"].value == 0
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-            people = get_trends_people_ok(self.client, data["$pageview"]["2012-01-14"].person_url)
+            people = get_people_from_url_ok(self.client, data["$pageview"]["2012-01-14"].person_url)
 
         assert sorted([p["id"] for p in people]) == sorted(
             [str(created_people["1"].uuid), str(created_people["2"].uuid)]
@@ -689,12 +537,8 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
     def test_insight_trends_aggregate(self):
 
         events_by_person = {
-            "1": [
-                {"event": "$pageview", "timestamp": datetime(2012, 1, 13, 3)},
-            ],
-            "2": [
-                {"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3)},
-            ],
+            "1": [{"event": "$pageview", "timestamp": datetime(2012, 1, 13, 3)},],
+            "2": [{"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3)},],
         }
         created_people = journeys_for(events_by_person, self.team)
 
@@ -721,7 +565,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
         assert data["$pageview"].label == "$pageview"
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-            people = get_trends_people_ok(self.client, data["$pageview"].person_url)
+            people = get_people_from_url_ok(self.client, data["$pageview"].person_url)
 
         assert sorted([p["id"] for p in people]) == sorted(
             [str(created_people["1"].uuid), str(created_people["2"].uuid)]
@@ -735,12 +579,8 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
                 {"event": "$pageview", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "val"}},
                 {"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3), "properties": {"key": "val"}},
             ],
-            "p2": [
-                {"event": "$pageview", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "notval"}},
-            ],
-            "p3": [
-                {"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3), "properties": {"key": "val"}},
-            ],
+            "p2": [{"event": "$pageview", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "notval"}},],
+            "p3": [{"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3), "properties": {"key": "val"}},],
         }
         created_people = journeys_for(events_by_person, self.team)
 
@@ -763,7 +603,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
                 ],
             )
             data_response = get_trends_time_series_ok(self.client, request, self.team)
-            person_response = get_trends_people_ok(self.client, data_response["$pageview"]["2012-01-14"].person_url)
+            person_response = get_people_from_url_ok(self.client, data_response["$pageview"]["2012-01-14"].person_url)
 
         assert data_response["$pageview"]["2012-01-13"].value == 2
         assert data_response["$pageview"]["2012-01-14"].value == 4
@@ -794,7 +634,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
                 ],
             )
             data_response = get_trends_time_series_ok(self.client, request, self.team)
-            person_response = get_trends_people_ok(self.client, data_response["$pageview"]["2012-01-14"].person_url)
+            person_response = get_people_from_url_ok(self.client, data_response["$pageview"]["2012-01-14"].person_url)
 
         assert data_response["$pageview"]["2012-01-13"].value == 2
         assert data_response["$pageview"]["2012-01-14"].value == 3
@@ -826,7 +666,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
                 ],
             )
             data_response = get_trends_time_series_ok(self.client, request, self.team)
-            person_response = get_trends_people_ok(
+            person_response = get_people_from_url_ok(
                 self.client, data_response["$pageview - val"]["2012-01-14"].person_url
             )
 
@@ -860,7 +700,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
                 ],
             )
             data_response = get_trends_time_series_ok(self.client, request, self.team)
-            people = get_trends_people_ok(self.client, data_response["$pageview - val"]["2012-01-14"].person_url)
+            people = get_people_from_url_ok(self.client, data_response["$pageview - val"]["2012-01-14"].person_url)
 
         assert data_response["$pageview - val"]["2012-01-13"].value == 1
         assert data_response["$pageview - val"]["2012-01-13"].breakdown_value == "val"
@@ -874,12 +714,8 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
     @test_with_materialized_columns(["key"])
     def test_breakdown_with_filter(self):
         events_by_person = {
-            "person1": [
-                {"event": "sign up", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "val"}},
-            ],
-            "person2": [
-                {"event": "sign up", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "oh"}},
-            ],
+            "person1": [{"event": "sign up", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "val"}},],
+            "person2": [{"event": "sign up", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "oh"}},],
         }
         created_people = journeys_for(events_by_person, self.team)
 
@@ -887,18 +723,13 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
             params = TrendsRequestBreakdown(
                 date_from="-14d",
                 breakdown="key",
-                events=[
-                    {
-                        "id": "sign up",
-                        "name": "sign up",
-                        "type": "events",
-                        "order": 0,
-                    }
-                ],
+                events=[{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
                 properties=[{"key": "key", "value": "oh", "operator": "not_icontains"}],
             )
             data_response = get_trends_time_series_ok(self.client, params, self.team)
-            person_response = get_trends_people_ok(self.client, data_response["sign up - val"]["2012-01-13"].person_url)
+            person_response = get_people_from_url_ok(
+                self.client, data_response["sign up - val"]["2012-01-13"].person_url
+            )
 
         assert data_response["sign up - val"]["2012-01-13"].value == 1
         assert data_response["sign up - val"]["2012-01-13"].breakdown_value == "val"
@@ -910,17 +741,10 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
                 date_from="-14d",
                 breakdown="key",
                 display="ActionsPie",
-                events=[
-                    {
-                        "id": "sign up",
-                        "name": "sign up",
-                        "type": "events",
-                        "order": 0,
-                    }
-                ],
+                events=[{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
             )
             aggregate_response = get_trends_aggregate_ok(self.client, params, self.team)
-            aggregate_person_response = get_trends_people_ok(
+            aggregate_person_response = get_people_from_url_ok(
                 self.client, aggregate_response["sign up - val"].person_url
             )
 
@@ -944,14 +768,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
             request = TrendsRequest(
                 date_from="-7d",
                 compare=True,
-                events=[
-                    {
-                        "id": "$pageview",
-                        "name": "$pageview",
-                        "type": "events",
-                        "order": 0,
-                    }
-                ],
+                events=[{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0,}],
             )
             data_response = get_trends_time_series_ok(self.client, request, self.team)
 
@@ -962,10 +779,10 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
         assert data_response["$pageview - previous"]["2012-01-05"].value == 2
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-            curr_people = get_trends_people_ok(
+            curr_people = get_people_from_url_ok(
                 self.client, data_response["$pageview - current"]["2012-01-14"].person_url
             )
-            prev_people = get_trends_people_ok(
+            prev_people = get_people_from_url_ok(
                 self.client, data_response["$pageview - previous"]["2012-01-05"].person_url
             )
 
@@ -1013,13 +830,7 @@ class ClickhouseTestTrendsGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
             date_from="2020-01-01 00:00:00",
             date_to="2020-01-12 00:00:00",
             events=[
-                {
-                    "id": "$pageview",
-                    "type": "events",
-                    "order": 0,
-                    "math": "unique_group",
-                    "math_group_type_index": 0,
-                }
+                {"id": "$pageview", "type": "events", "order": 0, "math": "unique_group", "math_group_type_index": 0,}
             ],
         )
         data_response = get_trends_time_series_ok(self.client, request, self.team)
@@ -1027,6 +838,6 @@ class ClickhouseTestTrendsGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
         assert data_response["$pageview"]["2020-01-01"].value == 0
         assert data_response["$pageview"]["2020-01-02"].value == 2
 
-        curr_people = get_trends_people_ok(self.client, data_response["$pageview"]["2020-01-02"].person_url)
+        curr_people = get_people_from_url_ok(self.client, data_response["$pageview"]["2020-01-02"].person_url)
 
         assert sorted([p["group_key"] for p in curr_people]) == sorted(["org:5", "org:6"])

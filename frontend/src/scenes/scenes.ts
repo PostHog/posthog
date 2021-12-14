@@ -89,6 +89,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Experiments',
     },
+    [Scene.Experiment]: {
+        projectBased: true,
+        name: 'Experiment',
+    },
     [Scene.FeatureFlags]: {
         projectBased: true,
         name: 'Feature flags',
@@ -163,6 +167,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Licenses]: {
         instanceLevel: true,
     },
+    [Scene.AsyncMigrations]: {
+        instanceLevel: true,
+    },
     // Personal routes
     [Scene.MySettings]: {
         personal: true,
@@ -209,6 +216,7 @@ export const routes: Record<string, Scene> = {
     [urls.cohort(':id')]: Scene.Cohorts,
     [urls.cohorts()]: Scene.Cohorts,
     [urls.experiments()]: Scene.Experiments,
+    [urls.experiment(':id')]: Scene.Experiment,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
     [urls.annotations()]: Scene.Annotations,
@@ -222,6 +230,7 @@ export const routes: Record<string, Scene> = {
     [urls.instanceLicenses()]: Scene.Licenses,
     [urls.systemStatus()]: Scene.SystemStatus,
     [urls.systemStatusPage(':id')]: Scene.SystemStatus,
+    [urls.asyncMigrations()]: Scene.AsyncMigrations,
     [urls.mySettings()]: Scene.MySettings,
     // Onboarding / setup routes
     [urls.login()]: Scene.Login,

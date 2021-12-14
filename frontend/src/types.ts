@@ -19,6 +19,9 @@ import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { UploadFile } from 'antd/lib/upload/interface'
 import { eventWithTime } from 'rrweb/typings/types'
 import { PostHog } from 'posthog-js'
+import React from 'react'
+import { PopupProps } from 'lib/components/Popup/Popup'
+import { dayjs } from 'lib/dayjs'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -33,6 +36,7 @@ export enum AvailableFeature {
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
     PATHS_ADVANCED = 'paths_advanced',
     CORRELATION_ANALYSIS = 'correlation_analysis',
+    GROUP_ANALYTICS = 'group_analytics',
 }
 
 export type ColumnChoice = string[] | 'DEFAULT'
@@ -186,6 +190,8 @@ export interface TeamType extends TeamBasicType {
     test_account_filters: AnyPropertyFilter[]
     path_cleaning_filters: Record<string, any>[]
     data_attributes: string[]
+
+    has_group_types: boolean
 
     // Uses to exclude person properties from correlation analysis results, for
     // example can be used to exclude properties that have trivial causation
@@ -449,9 +455,19 @@ export interface FunnelStepRangeEntityFilter extends EntityFilter {
 }
 
 export type EntityFilterTypes = EntityFilter | ActionFilter | FunnelStepRangeEntityFilter | null
+
 export interface PersonType {
+    id?: number
+    uuid?: string
+    name?: string
+    distinct_ids: string[]
+    properties: Record<string, any>
+    created_at?: string
+}
+
+export interface PersonActorType {
     type: 'person'
-    id?: string | number
+    id?: string
     properties: Record<string, any>
     created_at?: string
     uuid?: string
@@ -460,7 +476,6 @@ export interface PersonType {
     is_identified: boolean
 }
 
-// TODO: reconcile with "Group". This pattern is meant to mirror returned persons but overlaps with the already existing group type
 export interface GroupActorType {
     type: 'group'
     id?: string | number
@@ -470,7 +485,8 @@ export interface GroupActorType {
     group_type_index: number
 }
 
-export type ActorType = PersonType | GroupActorType
+export type ActorType = PersonActorType | GroupActorType
+
 export interface CohortGroupType {
     id: string
     days?: string
@@ -610,7 +626,7 @@ export interface PlanInterface {
 // Creating a nominal type: https://github.com/microsoft/TypeScript/issues/202#issuecomment-961853101
 export type InsightShortId = string & { readonly '': unique symbol }
 
-export interface DashboardItemType {
+export interface InsightModel {
     /** The unique key we use when communicating with the user, e.g. in URLs */
     short_id: InsightShortId
     /** The primary key in the database, used as well in API endpoints */
@@ -644,7 +660,7 @@ export interface DashboardType {
     name: string
     description: string
     pinned: boolean
-    items: DashboardItemType[]
+    items: InsightModel[]
     created_at: string
     created_by: UserBasicType | null
     is_shared: boolean
@@ -657,7 +673,7 @@ export interface DashboardType {
     _highlight?: boolean
 }
 
-export type DashboardLayoutSize = 'lg' | 'sm' | 'xs' | 'xxs'
+export type DashboardLayoutSize = 'sm' | 'xs'
 
 export interface OrganizationInviteType {
     id: string
@@ -736,7 +752,7 @@ export interface PluginLogEntry {
 }
 
 export enum AnnotationScope {
-    DashboardItem = 'dashboard_item',
+    Insight = 'dashboard_item',
     Project = 'project',
     Organization = 'organization',
 }
@@ -880,6 +896,7 @@ export interface FilterType {
     funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
     aggregation_group_type_index?: number | undefined // Groups aggregation
     funnel_advanced?: boolean // used to toggle advanced options on or off
+    legend_hidden?: boolean // used to show/hide legend next to insights graph
 }
 
 export interface RecordingEventsFilters {
@@ -969,6 +986,7 @@ export interface TrendResult {
     breakdown_value?: string | number
     aggregated_value: number
     status?: string
+    compare_label?: string
 }
 
 export interface TrendResultWithAggregate extends TrendResult {
@@ -992,7 +1010,9 @@ export interface FunnelStep {
     labels?: string[]
     breakdown?: BreakdownKeyType
     breakdowns?: Breakdown[]
-    breakdown_value?: string | number
+    breakdown_value?: BreakdownKeyType
+    data?: number[]
+    days?: string[]
 
     // Url that you can GET to retrieve the people that converted in this step
     converted_people_url: string
@@ -1024,8 +1044,8 @@ export interface FunnelTimeConversionMetrics {
 }
 
 export interface FunnelConversionWindow {
-    funnel_window_interval_unit?: FunnelConversionWindowTimeUnit
-    funnel_window_interval?: number | undefined
+    funnel_window_interval_unit: FunnelConversionWindowTimeUnit
+    funnel_window_interval: number
 }
 
 // https://github.com/PostHog/posthog/blob/master/posthog/models/filters/mixins/funnel.py#L100
@@ -1081,8 +1101,8 @@ export interface FlattenedFunnelStep extends FunnelStepWithConversionMetrics {
 export interface FlattenedFunnelStepByBreakdown {
     rowKey: number | string
     isBaseline?: boolean
-    breakdown?: string | number
-    breakdown_value?: string | number
+    breakdown?: BreakdownKeyType
+    breakdown_value?: BreakdownKeyType
     breakdownIndex?: number
     conversionRates?: {
         total: number
@@ -1235,10 +1255,6 @@ export enum DashboardMode { // Default mode is null
     Internal = 'internal', // When embedded into another page (e.g. /instance/status)
 }
 
-export enum DashboardItemMode {
-    Edit = 'edit',
-}
-
 // Reserved hotkeys globally available
 export type GlobalHotKeys = 'g'
 
@@ -1288,6 +1304,8 @@ export interface EventDefinition {
     volume_30_day: number | null
     query_usage_30_day: number | null
     owner?: UserBasicType | null
+    created_at?: string
+    last_seen_at?: string
     updated_at?: string
     updated_by?: UserBasicType | null
 }
@@ -1324,12 +1342,36 @@ export interface Group {
 }
 
 export interface Experiment {
-    id: string
+    id: number | null
     name: string
-    description: string
-    feature_flags: string[]
-    filters: Partial<FilterType>
+    description?: string
+    feature_flag_key: string
+    filters: FilterType
+    start_date?: string
+    end_date?: string
+    created_at: string
+    created_by: UserBasicType | null
 }
+export interface ExperimentResults {
+    funnel: FunnelStep[][]
+    probability: number
+    filters: FilterType
+    itemID: string
+}
+
+interface RelatedPerson {
+    type: 'person'
+    id: string
+    person: Pick<PersonType, 'distinct_ids' | 'properties'>
+}
+
+interface RelatedGroup {
+    type: 'group'
+    group_type_index: number
+    id: string
+}
+
+export type RelatedActor = RelatedPerson | RelatedGroup
 
 export interface SelectOption {
     value: string
@@ -1344,7 +1386,7 @@ export interface SelectOptionWithChildren extends SelectOption {
 
 export interface KeyMapping {
     label: string
-    description: string | JSX.Element
+    description?: string | JSX.Element
     examples?: string[]
     hide?: boolean
 }
@@ -1423,4 +1465,16 @@ export interface VersionType {
 export interface dateMappingOption {
     inactive?: boolean // Options removed due to low usage (see relevant PR); will not show up for new insights but will be kept for existing
     values: string[]
+    getFormattedDate?: (date: dayjs.Dayjs, format: string) => string
+}
+
+export interface Breadcrumb {
+    /** Name to display. */
+    name: string | null | undefined
+    /** Symbol, e.g. a lettermark or a profile picture. */
+    symbol?: React.ReactNode
+    /** Path to link to. */
+    path?: string
+    /** Whether to show a custom popup */
+    popup?: Pick<PopupProps, 'overlay' | 'sameWidth' | 'actionable'>
 }

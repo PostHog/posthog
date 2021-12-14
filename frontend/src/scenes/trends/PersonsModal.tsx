@@ -2,7 +2,7 @@ import React, { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
 import { Modal, Button, Input, Skeleton } from 'antd'
-import { FilterType, PersonType, InsightType, GroupActorType } from '~/types'
+import { FilterType, InsightType, ActorType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { isGroupType, midEllipsis, pluralize } from 'lib/utils'
@@ -13,8 +13,8 @@ import { DateDisplay } from 'lib/components/DateDisplay'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { PersonHeader } from '../persons/PersonHeader'
 import api from '../../lib/api'
+import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { GroupActorHeader } from 'scenes/persons/GroupActorHeader'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable/LemonTable'
 import { IconPersonFilled } from 'lib/components/icons'
 
 export interface PersonsModalProps {
@@ -23,6 +23,7 @@ export interface PersonsModalProps {
     filters: Partial<FilterType>
     onSaveCohort: () => void
     showModalActions?: boolean
+    aggregationTargetLabel: { singular: string; plural: string }
 }
 
 export function PersonsModal({
@@ -31,6 +32,7 @@ export function PersonsModal({
     filters,
     onSaveCohort,
     showModalActions = true,
+    aggregationTargetLabel,
 }: PersonsModalProps): JSX.Element {
     const {
         people,
@@ -40,7 +42,6 @@ export function PersonsModal({
         isInitialLoad,
         clickhouseFeaturesEnabled,
         peopleParams,
-        actorLabel,
     } = useValues(personsModalLogic)
     const { hidePeople, loadMorePeople, setFirstLoadedActors, setPersonsModalFilters, setSearchTerm } =
         useActions(personsModalLogic)
@@ -49,7 +50,7 @@ export function PersonsModal({
     const title = useMemo(
         () =>
             isInitialLoad ? (
-                'Loading persons…'
+                `Loading ${aggregationTargetLabel.plural}…`
             ) : filters.shown_as === 'Stickiness' ? (
                 <>
                     <PropertyKeyInfo value={people?.label || ''} disablePopover /> stickiness on day {people?.day}
@@ -59,9 +60,8 @@ export function PersonsModal({
             ) : filters.insight === InsightType.FUNNELS ? (
                 <>
                     {(people?.funnelStep ?? 0) >= 0 ? 'Completed' : 'Dropped off at'} step{' '}
-                    {Math.abs(people?.funnelStep ?? 0)} - <PropertyKeyInfo value={people?.label || ''} disablePopover />{' '}
-                    {people?.breakdown_value !== undefined &&
-                        `- ${people.breakdown_value ? people.breakdown_value : 'None'}`}
+                    {Math.abs(people?.funnelStep ?? 0)} • <PropertyKeyInfo value={people?.label || ''} disablePopover />{' '}
+                    {!!people?.breakdown_value ? `• ${people.breakdown_value}` : ''}
                 </>
             ) : filters.insight === InsightType.PATHS ? (
                 <>
@@ -159,7 +159,7 @@ export function PersonsModal({
                             <span>
                                 This list contains{' '}
                                 <b>
-                                    {people.count} unique {pluralize(people.count, actorLabel, undefined, false)}
+                                    {people.count} unique {aggregationTargetLabel.plural}
                                 </b>
                                 {peopleParams?.pointValue !== undefined &&
                                     peopleParams.action !== 'session' &&
@@ -183,11 +183,11 @@ export function PersonsModal({
                                         {
                                             title: 'Person',
                                             key: 'person',
-                                            render: function Render(_, actor: PersonType | GroupActorType) {
+                                            render: function Render(_, actor: ActorType) {
                                                 return <ActorRow actor={actor} />
                                             },
                                         },
-                                    ] as LemonTableColumns<PersonType | GroupActorType>
+                                    ] as LemonTableColumns<ActorType>
                                 }
                                 className="persons-table"
                                 rowKey="id"
@@ -207,7 +207,7 @@ export function PersonsModal({
                             />
                         ) : (
                             <div className="person-row-container person-row">
-                                We couldn't find any matching persons for this data point.
+                                We couldn't find any matching {aggregationTargetLabel.plural} for this data point.
                             </div>
                         )}
                         {people?.next && (
@@ -223,7 +223,7 @@ export function PersonsModal({
                                     onClick={loadMorePeople}
                                     loading={loadingMorePeople}
                                 >
-                                    Load more people
+                                    Load more {aggregationTargetLabel.plural}
                                 </Button>
                             </div>
                         )}
@@ -235,7 +235,7 @@ export function PersonsModal({
 }
 
 interface ActorRowProps {
-    actor: PersonType | GroupActorType
+    actor: ActorType
 }
 
 export function ActorRow({ actor }: ActorRowProps): JSX.Element {

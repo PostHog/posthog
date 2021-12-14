@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 ) ENGINE = {engine}
 """
 
-GROUPS_TABLE_SQL = (
+GROUPS_TABLE_SQL = lambda: (
     GROUPS_TABLE_BASE_SQL
     + """Order By (team_id, group_type_index, group_key)
 {storage_policy}
@@ -29,7 +29,7 @@ GROUPS_TABLE_SQL = (
     cluster=CLICKHOUSE_CLUSTER,
     engine=table_engine(GROUPS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
     extra_fields=KAFKA_COLUMNS,
-    storage_policy=STORAGE_POLICY,
+    storage_policy=STORAGE_POLICY(),
 )
 
 KAFKA_GROUPS_TABLE_SQL = GROUPS_TABLE_BASE_SQL.format(

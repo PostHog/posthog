@@ -1,21 +1,27 @@
 import { kea } from 'kea'
 import { api } from 'lib/api.mock'
+import { experimentsLogicType } from './experimentsLogicType'
 import { teamLogic } from 'scenes/teamLogic'
 import { Experiment } from '~/types'
-import { experimentsLogicType } from './experimentsLogicType'
 
 export const experimentsLogic = kea<experimentsLogicType>({
     path: ['scenes', 'experiments', 'experimentsLogic'],
     connect: { values: [teamLogic, ['currentTeamId']] },
+    actions: {},
     loaders: ({ values }) => ({
         experiments: [
-            null as Experiment | null,
+            [] as Experiment[],
             {
                 loadExperiments: async () => {
-                    const url = `api/projects/${values.currentTeamId}/experiments`
-                    return await api.get(url)
+                    const response = await api.get(`api/projects/${values.currentTeamId}/experiments`)
+                    return response.results as Experiment[]
                 },
             },
         ],
+    }),
+    events: ({ actions }) => ({
+        afterMount: () => {
+            actions.loadExperiments()
+        },
     }),
 })

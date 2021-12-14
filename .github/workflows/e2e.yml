@@ -1,38 +1,54 @@
 name: E2E
 
 on:
-    - pull_request
+    pull_request:
+    push:
+        branches: [master]
 
 jobs:
+    # Job that lists and chunks spec file names and caches node modules
     cypress_prep:
         name: Cypress E2E preparation
         runs-on: ubuntu-latest
         outputs:
-            matrix: ${{ steps.set-matrix.outputs.matrix }}
+            specs: ${{ steps.set-specs.outputs.specs }}
+
         steps:
-            - name: Check out
-              uses: actions/checkout@v2
-            - id: set-matrix
+            - uses: actions/checkout@v2
+            - id: set-specs
+              # List cypress/integration and produce a JSON array of the files, in chunks
+              run: echo "::set-output name=specs::$(ls cypress/integration/* | jq --slurp --raw-input -c 'split("\n")[:-1] | _nwise(3) | join("\n")' | jq --slurp -c .)"
+
+            - uses: actions/cache@v2
+              id: cypress-node-modules-cache-3
+              with:
+                  path: |
+                      **/node_modules
+                      ~/.cache/Cypress
+                  key: ${{ runner.os }}-cypress-node-modules-3-${{ hashFiles('**/yarn.lock') }}
+                  restore-keys: |
+                      ${{ runner.os }}-cypress-node-modules-3-
+            - name: Yarn install deps
+              if: steps.cypress-node-modules-cache-3.outputs.cache-hit != 'true'
               run: |
-                  if ${{github.event.pull_request.head.repo.full_name == github.repository}}; then
-                  matrix=$(jq 'map(.)' .github/workflows/e2e_matrix.json)  
-                  else              
-                  matrix='[{"containers": [1]}]'
-                  fi
-                  echo ::set-output name=matrix::{\"include\":$(echo $matrix)}\"
+                  yarn install --frozen-lockfile
+                  yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
+                  cd plugin-server
+                  yarn install --frozen-lockfile
 
     cypress:
-        name: Cypress E2E tests
+        name: Cypress E2E tests (${{ strategy.job-index }})
+        if: ${{ github.ref != 'refs/heads/master' }} # Don't run on master, we only cace about node_modules cache
         runs-on: ubuntu-18.04
-        needs: cypress_prep
+        needs: [cypress_prep]
 
         strategy:
             # when one test fails, DO NOT cancel the other
-            # containers, because this will kill Cypress processes
-            # leaving the Dashboard hanging ...
-            # https://github.com/cypress-io/github-action/issues/48
+            # containers, as there may be other spec failures
+            # we want to know about.
             fail-fast: false
-            matrix: ${{fromJson(needs.cypress_prep.outputs.matrix)}}
+            matrix:
+                specs: ${{ fromJson(needs.cypress_prep.outputs.specs) }}
 
         services:
             postgres:
@@ -60,6 +76,7 @@ jobs:
         steps:
             - name: Checkout
               uses: actions/checkout@v2
+
             - name: Set up Python 3.8
               uses: actions/setup-python@v2
               with:
@@ -88,9 +105,11 @@ jobs:
                       ~/.cache/Cypress
                   key: ${{ runner.os }}-cypress-node-modules-3-${{ hashFiles('**/yarn.lock') }}
                   restore-keys: |
-                      ${{ runner.os }}-cypress-node-modules-3
+                      ${{ runner.os }}-cypress-node-modules-3-
             - name: Yarn install deps
-              if: steps.cypress-node-modules-cache-3.outputs.cache-hit != 'true'
+              # NOTE: we always try to run yarn install, as we're using a cache
+              # from the prep phase that hasn't been proven to be correct. We
+              # should still get some cache benefits.
               run: |
                   yarn install --frozen-lockfile
                   yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
@@ -100,6 +119,8 @@ jobs:
               env:
                   GENERATE_SOURCEMAP: 'false'
               run: |
+                  yarn build
+                  cd plugin-server
                   yarn build
             - name: Boot PostHog
               env:
@@ -116,32 +137,39 @@ jobs:
                   NO_RESTART_LOOP: 1
               run: |
                   python manage.py collectstatic --noinput &
-                  ./bin/docker-migrate & wait
+                  ./bin/docker-migrate &
+                  wait
                   python manage.py setup_dev
-                  mkdir -p cypress/screenshots
-                  ./bin/docker-worker &
-                  ./bin/docker-server &
+                  mkdir -p /tmp/logs
+                  ./bin/docker-worker &> /tmp/logs/worker.txt &
+                  ./bin/docker-server &> /tmp/logs/server.txt &
             - name: Cypress run
               uses: cypress-io/github-action@v2
               with:
                   config-file: cypress.e2e.json
-                  record: true
-                  parallel: ${{github.event.pull_request.head.repo.full_name == github.repository}}
-                  group: 'PostHog Frontend'
+                  config: retries=2
                   # We're already installing cypress above
                   # We have to install it separately otherwise the tests fail.
                   install: false
                   # We already install cypress separately, we don't need to install it again here
                   install-command: echo "no"
-              env:
-                  # pass the Dashboard record key as an environment variable
-                  CYPRESS_RECORD_KEY: ${{ secrets.CYPRESS_RECORD_KEY }}
-                  # Recommended: pass the GitHub token lets this action correctly
-                  # determine the unique run id necessary to re-run the checks
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  spec: ${{ matrix.specs }}
             - name: Archive test screenshots
               uses: actions/upload-artifact@v1
               with:
                   name: screenshots
                   path: cypress/screenshots
+              if: ${{ failure() }}
+            - name: Archive test videos
+              uses: actions/upload-artifact@v1
+              with:
+                  name: videos
+                  path: cypress/videos
+              if: ${{ failure() }}
+            - name: Show logs on failure
+              # use artefact here, as I think the output will be too large for display in an action
+              uses: actions/upload-artifact@v1
+              with:
+                  name: logs
+                  path: /tmp/logs
               if: ${{ failure() }}

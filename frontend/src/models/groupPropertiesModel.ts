@@ -3,12 +3,12 @@ import { groupPropertiesModelType } from './groupPropertiesModelType'
 import api from 'lib/api'
 import { GroupTypeProperties, PersonProperty } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
-import { groupsModel } from './groupsModel'
+import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 
 export const groupPropertiesModel = kea<groupPropertiesModelType>({
     path: ['models', 'groupPropertiesModel'],
     connect: {
-        values: [teamLogic, ['currentTeamId'], groupsModel, ['groupsEnabled']],
+        values: [teamLogic, ['currentTeamId'], groupsAccessLogic, ['groupsEnabled']],
     },
     loaders: ({ values }) => ({
         allGroupProperties: [

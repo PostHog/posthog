@@ -9,8 +9,8 @@ from posthog.models import Organization, Team, User
 from posthog.models.event_definition import EventDefinition
 from posthog.utils import is_clickhouse_enabled, render_template
 
-ORGANIZATION_NAME = "HogFlix"
-TEAM_NAME = "HogFlix Demo App"
+ORGANIZATION_NAME = "Hogflix"
+TEAM_NAME = "Hogflix Demo App"
 
 
 def demo(request: Request):

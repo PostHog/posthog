@@ -17,6 +17,7 @@ import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySens
 import { LemonButton } from 'lib/components/LemonButton'
 import { Popup } from 'lib/components/Popup/Popup'
 import { CorrelationMatrix } from './CorrelationMatrix'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -32,8 +33,9 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         eventWithPropertyCorrelationsLoading,
         nestedTableExpandedKeys,
         correlationPropKey,
+        filters,
+        aggregationTargetLabel,
     } = useValues(logic)
-
     const {
         setCorrelationTypes,
         loadEventWithPropertyCorrelations,
@@ -85,7 +87,8 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                     )}
                 </h4>
                 <div>
-                    People who converted were{' '}
+                    {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
+                    {filters.aggregation_group_type_index != undefined ? 'that' : 'who'} converted were{' '}
                     <mark>
                         <b>
                             {get_friendly_numeric_value(record.odds_ratio)}x {is_success ? 'more' : 'less'} likely
@@ -253,10 +256,13 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                     expandable={{
                         expandedRowRender: (record) => renderNestedTable(record.event.event),
                         expandedRowKeys: nestedTableExpandedKeys,
-                        rowExpandable: () => true,
+                        rowExpandable: () => filters.aggregation_group_type_index === undefined,
                         /* eslint-disable react/display-name */
-                        expandIcon: ({ expanded, onExpand, record }) =>
-                            expanded ? (
+                        expandIcon: ({ expanded, onExpand, record, expandable }) => {
+                            if (!expandable) {
+                                return null
+                            }
+                            return expanded ? (
                                 <Tooltip title="Collapse">
                                     <div
                                         style={{ cursor: 'pointer', opacity: 0.5, fontSize: 24 }}
@@ -282,7 +288,8 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                                         <IconUnfoldMore />
                                     </div>
                                 </Tooltip>
-                            ),
+                            )
+                        },
                         /* eslint-enable react/display-name */
                     }}
                 >
@@ -297,7 +304,11 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         title={
                             <div className="flex-center">
                                 Completed
-                                <Tooltip title="Users who performed the event and completed the entire funnel.">
+                                <Tooltip
+                                    title={`${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${
+                                        filters.aggregation_group_type_index != undefined ? 'that' : 'who'
+                                    } performed the event and completed the entire funnel.`}
+                                >
                                     <InfoCircleOutlined className="column-info" />
                                 </Tooltip>
                             </div>
@@ -314,7 +325,9 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                                 <Tooltip
                                     title={
                                         <>
-                                            Users who performed the event and did <b>not complete</b> the entire funnel.
+                                            {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
+                                            {filters.aggregation_group_type_index != undefined ? 'that' : 'who'}{' '}
+                                            performed the event and did <b>not complete</b> the entire funnel.
                                         </>
                                     }
                                 >

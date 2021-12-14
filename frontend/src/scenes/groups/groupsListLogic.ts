@@ -1,10 +1,11 @@
 import { kea } from 'kea'
 import api from 'lib/api'
+import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { groupsModel } from '~/models/groupsModel'
-import { Group } from '~/types'
+import { Breadcrumb, Group } from '~/types'
 import { groupsListLogicType } from './groupsListLogicType'
 
 interface GroupsPaginatedResponse {
@@ -15,7 +16,9 @@ interface GroupsPaginatedResponse {
 
 export const groupsListLogic = kea<groupsListLogicType<GroupsPaginatedResponse>>({
     path: ['groups', 'groupsListLogic'],
-    connect: { values: [teamLogic, ['currentTeamId'], groupsModel, ['groupsEnabled', 'groupTypes']] },
+    connect: {
+        values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes'], groupsAccessLogic, ['groupsEnabled']],
+    },
     actions: () => ({
         loadGroups: (url?: string | null) => ({ url }),
         setTab: (tab: string) => ({ tab }),
@@ -52,6 +55,15 @@ export const groupsListLogic = kea<groupsListLogicType<GroupsPaginatedResponse>>
                     ? capitalizeFirstLetter(groupTypes[parseInt(currentTab)].group_type)
                     : '',
         ],
+        breadcrumbs: [
+            (s) => [s.currentTabName, s.currentTab],
+            (currentTabName, currentTab): Breadcrumb[] => [
+                {
+                    name: currentTabName,
+                    path: urls.groups(currentTab),
+                },
+            ],
+        ],
     },
     actionToUrl: () => ({
         setTab: ({ tab }) => {
@@ -67,6 +79,9 @@ export const groupsListLogic = kea<groupsListLogicType<GroupsPaginatedResponse>>
                 actions.setTab(id)
                 actions.loadGroups()
             }
+        },
+        '/persons': () => {
+            actions.setTab('-1')
         },
     }),
 })

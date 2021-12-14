@@ -46,6 +46,7 @@ SELECT groupArray(day_start) as date, groupArray(count) as data FROM (
     order by day_start
     SETTINGS allow_experimental_window_functions = 1
 )
+SETTINGS timeout_before_checking_execution_speed = 60
 """
 
 CUMULATIVE_SQL = """

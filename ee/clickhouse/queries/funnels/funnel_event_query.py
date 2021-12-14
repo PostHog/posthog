@@ -3,10 +3,12 @@ from typing import Any, Dict, Set, Tuple
 from ee.clickhouse.models.group import get_aggregation_target_field
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
-from posthog.models.property import GroupTypeIndex
+from posthog.models.filters.filter import Filter
 
 
 class FunnelEventQuery(ClickhouseEventQuery):
+    _filter: Filter
+
     def get_query(self, entities=None, entity_name="events", skip_entity_filter=False) -> Tuple[str, Dict[str, Any]]:
         _fields = [
             f"{self.EVENT_TABLE_ALIAS}.event as event",
