@@ -15,11 +15,7 @@ from posthog.models.filters.mixins.common import (
 from posthog.models.filters.mixins.funnel import FunnelCorrelationMixin
 from posthog.models.filters.mixins.groups import GroupsAggregationMixin
 from posthog.models.filters.mixins.property import PropertyMixin
-from posthog.models.filters.mixins.retention import (
-    EntitiesDerivedMixin,
-    RetentionDateDerivedMixin,
-    RetentionTypeMixin,
-)
+from posthog.models.filters.mixins.retention import EntitiesDerivedMixin, RetentionDateDerivedMixin, RetentionTypeMixin
 from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
 

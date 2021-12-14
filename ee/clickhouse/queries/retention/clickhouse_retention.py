@@ -1,4 +1,13 @@
-from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union, cast
+from typing import (
+    Any,
+    Dict,
+    List,
+    NamedTuple,
+    Optional,
+    Tuple,
+    Union,
+    cast,
+)
 from urllib.parse import urlencode
 
 from ee.clickhouse.client import substitute_params, sync_execute
@@ -10,7 +19,6 @@ from posthog.models.filters import RetentionFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
 from posthog.queries.retention import AppearanceRow
-
 
 BreakdownValues = Tuple[Union[str, int], ...]
 CohortKey = NamedTuple("CohortKey", (("breakdown_values", BreakdownValues), ("period", int)))
