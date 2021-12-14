@@ -16,7 +16,6 @@ from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, T
 from posthog.models import Event, Filter, Team
 from posthog.models.entity import Entity
 from posthog.models.filters import RetentionFilter
-from posthog.models.filters.retention_filter import RetentionPeopleRequest
 from posthog.models.person import Person
 from posthog.models.utils import namedtuplefetchall
 from posthog.queries.base import BaseQuery, properties_to_Q
@@ -28,7 +27,7 @@ class AppearanceRow:
     Container for the rows of the "Appearance count" query.
     """
 
-    person_id: str
+    actor_id: str
     appearance_count: int
     # This is actually the number of days from first event to the current event.
     appearances: List[float]
@@ -39,9 +38,7 @@ class Retention(BaseQuery):
         self._base_uri = base_uri
 
     def process_table_result(
-        self,
-        resultset: Dict[Tuple[int, int], Dict[str, Any]],
-        filter: RetentionFilter,
+        self, resultset: Dict[Tuple[int, int], Dict[str, Any]], filter: RetentionFilter,
     ):
 
         result = [
@@ -52,10 +49,6 @@ class Retention(BaseQuery):
                 ],
                 "label": "{} {}".format(filter.period, first_day),
                 "date": (filter.date_from + RetentionFilter.determine_time_delta(first_day, filter.period)[0]),
-                "people_url": (
-                    "/api/person/retention/?"
-                    f"{urlencode(filter.with_data({'display': 'ActionsTable', 'selected_interval': first_day}).to_params())}"
-                ),
             }
             for first_day in range(filter.total_intervals)
         ]
@@ -63,9 +56,7 @@ class Retention(BaseQuery):
         return result
 
     def process_graph_result(
-        self,
-        resultset: Dict[Tuple[int, int], Dict[str, Any]],
-        filter: RetentionFilter,
+        self, resultset: Dict[Tuple[int, int], Dict[str, Any]], filter: RetentionFilter,
     ):
         labels = []
         data = []
@@ -171,11 +162,7 @@ class Retention(BaseQuery):
             start_params + events_query_params + first_date_params + event_params,
         )
 
-    def _execute_sql(
-        self,
-        filter: RetentionFilter,
-        team: Team,
-    ) -> Dict[Tuple[int, int], Dict[str, Any]]:
+    def _execute_sql(self, filter: RetentionFilter, team: Team,) -> Dict[Tuple[int, int], Dict[str, Any]]:
         format_fields, params = self._determine_query_params(filter, team)
 
         final_query = """
@@ -213,11 +200,11 @@ class Retention(BaseQuery):
             result = self.process_table_result(resultset, filter)
         return result
 
-    def people(self, filter: RetentionPeopleRequest, team: Team, *args, **kwargs):
-        results = self._retrieve_people(filter, team)
+    def people(self, filter: RetentionFilter, team: Team, *args, **kwargs):
+        results = self._retrieve_actors(filter, team)
         return results
 
-    def _retrieve_people(self, filter: RetentionPeopleRequest, team: Team):
+    def _retrieve_actors(self, filter: RetentionFilter, team: Team):
         period = filter.period
         trunc, fields = self._get_trunc_func("timestamp", period)
         is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
@@ -253,23 +240,14 @@ class Retention(BaseQuery):
         filtered_events = (
             filtered_events.filter(_entity_condition)
             .filter(
-                Exists(
-                    Person.objects.filter(
-                        **{
-                            "id": OuterRef("person_id"),
-                        }
-                    )
-                    .filter(Exists(inner_events))
-                    .only("id")
-                )
+                Exists(Person.objects.filter(**{"id": OuterRef("person_id"),}).filter(Exists(inner_events)).only("id"))
             )
             .values("person_id")
             .distinct()
         ).all()
 
         people = Person.objects.filter(
-            team=team,
-            id__in=[p["person_id"] for p in filtered_events[filter.offset : filter.offset + 100]],
+            team=team, id__in=[p["person_id"] for p in filtered_events[filter.offset : filter.offset + 100]],
         )
 
         people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
@@ -278,11 +256,11 @@ class Retention(BaseQuery):
 
         return PersonSerializer(people, many=True).data
 
-    def people_in_period(self, filter: RetentionPeopleRequest, team: Team, *args, **kwargs):
-        results = self._retrieve_people_in_period(filter, team)
+    def people_in_period(self, filter: RetentionFilter, team: Team, *args, **kwargs):
+        results = self._retrieve_actors_in_period(filter, team)
         return results
 
-    def _retrieve_people_in_period(self, filter: RetentionPeopleRequest, team: Team):
+    def _retrieve_actors_in_period(self, filter: RetentionFilter, team: Team):
         filter = filter.with_data({"total_intervals": filter.total_intervals - filter.selected_interval})
 
         format_fields, params = self._determine_query_params(filter, team)
@@ -311,37 +289,36 @@ class Retention(BaseQuery):
 
         with connection.cursor() as cursor:
             cursor.execute(
-                final_query,
-                params + (100, filter.offset),
+                final_query, params + (100, filter.offset),
             )
             raw_results = cursor.fetchall()
 
             people_appearances = [
-                AppearanceRow(person_id=result[0], appearance_count=result[1], appearances=result[2])
+                AppearanceRow(actor_id=result[0], appearance_count=result[1], appearances=result[2])
                 for result in raw_results
             ]
 
             people_dict = {
                 person.pk: PersonSerializer(person).data
                 for person in Person.objects.filter(
-                    team_id=team.pk, id__in=[person.person_id for person in people_appearances]
+                    team_id=team.pk, id__in=[actor.actor_id for actor in people_appearances]
                 )
             }
 
-            return self.process_people_in_period(filter, people_appearances, people_dict)
+            return self.process_actors_in_period(filter, people_appearances, people_dict)
 
-    def process_people_in_period(
-        self, filter: RetentionFilter, people_appearances: List[AppearanceRow], people_dict: Dict[str, ReturnDict]
+    def process_actors_in_period(
+        self, filter: RetentionFilter, actor_appearances: List[AppearanceRow], actor_dict: Dict[str, Any]
     ) -> List[Dict[Literal["person", "appearances"], Any]]:
         marker_length = filter.total_intervals
         result: List[Dict[Literal["person", "appearances"], Any]] = []
-        for person in people_appearances:
+        for actor in actor_appearances:
             # NOTE: This try/except shouldn't be necessary but there do seem to be a handful of missing persons that can't be looked up
             try:
                 result.append(
                     {
-                        "person": people_dict[person.person_id],
-                        "appearances": appearance_to_markers(sorted(person.appearances), marker_length),
+                        "person": actor_dict[actor.actor_id],
+                        "appearances": appearance_to_markers(sorted(actor.appearances), marker_length),
                     }
                 )
             except Exception as e:
@@ -390,4 +367,4 @@ class Retention(BaseQuery):
 
 
 def appearance_to_markers(appearance_dates: List[float], num_intervals: int) -> List[int]:
-    return [1 if interval_number in appearance_dates else 0 for interval_number in range(num_intervals)]
+    return [interval_number in appearance_dates for interval_number in range(num_intervals)]
