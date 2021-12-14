@@ -234,7 +234,7 @@ export const experimentLogic = kea<experimentLogicType>({
         recommendedSampleSize: [
             (s) => [s.minimimumDetectableChange],
             (mde) => (conversionRate: number) => {
-                return (1600 * conversionRate * (1 - conversionRate / 100)) / (mde * mde)
+                return Math.ceil((1600 * conversionRate * (1 - conversionRate / 100)) / (mde * mde))
             },
         ],
         expectedRunningTime: [
@@ -243,7 +243,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 (entrants: number, sampleSize: number): number => {
                     // TODO: connect to broken insight date filter
                     const time = 7 // days
-                    return (sampleSize / entrants) * time
+                    return parseFloat(((sampleSize / entrants) * time).toFixed(1))
                 },
         ],
     }),
