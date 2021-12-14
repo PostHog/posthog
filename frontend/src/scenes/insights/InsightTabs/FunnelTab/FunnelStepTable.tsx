@@ -2,7 +2,7 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
 import { TableProps } from 'antd'
-import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
+import { FunnelLayout } from 'lib/constants'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import Table, { ColumnsType } from 'antd/lib/table'
 import { FlagOutlined, UserOutlined, UserDeleteOutlined } from '@ant-design/icons'
@@ -26,7 +26,6 @@ import {
     renderSubColumnTitle,
 } from 'scenes/insights/InsightTabs/FunnelTab/funnelStepTableUtils'
 import './FunnelStepTable.scss'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 
@@ -48,7 +47,6 @@ export function FunnelStepTable(): JSX.Element | null {
     } = useValues(logic)
     const { openPersonsModalForStep, toggleVisibilityByBreakdown, setHiddenById } = useActions(logic)
     const { cohorts } = useValues(cohortsModel)
-    const { featureFlags } = useValues(featureFlagLogic)
     const showLabels = false // #7653 - replaces (visibleStepsWithConversionMetrics?.[0]?.nested_breakdown?.length ?? 0) < 6
     const isOnlySeries = flattenedBreakdowns.length === 1
 
@@ -213,8 +211,7 @@ export function FunnelStepTable(): JSX.Element | null {
                             step.order === 0 ? 4 : (stepIndex - 1) * 5 + 6,
                             breakdown.steps?.[step.order]?.conversionRates.fromBasisStep != undefined ? (
                                 <>
-                                    {featureFlags[FEATURE_FLAGS.SIGMA_ANALYSIS] &&
-                                    getSignificanceFromBreakdownStep(breakdown, step.order)?.fromBasisStep ? (
+                                    {getSignificanceFromBreakdownStep(breakdown, step.order)?.fromBasisStep ? (
                                         <Tooltip title="Significantly different from other breakdown values">
                                             <span className="table-text-highlight">
                                                 <FlagOutlined style={{ marginRight: 2 }} />{' '}
@@ -293,8 +290,7 @@ export function FunnelStepTable(): JSX.Element | null {
                                 (stepIndex - 1) * 5 + 8,
                                 breakdown.steps?.[step.order]?.conversionRates.fromPrevious != undefined ? (
                                     <>
-                                        {featureFlags[FEATURE_FLAGS.SIGMA_ANALYSIS] &&
-                                        !getSignificanceFromBreakdownStep(breakdown, step.order)?.fromBasisStep &&
+                                        {!getSignificanceFromBreakdownStep(breakdown, step.order)?.fromBasisStep &&
                                         getSignificanceFromBreakdownStep(breakdown, step.order)?.fromPrevious ? (
                                             <Tooltip title="Significantly different from other breakdown values">
                                                 <span className="table-text-highlight">
@@ -552,7 +548,7 @@ export function FunnelStepTable(): JSX.Element | null {
                       return clsx(
                           `funnel-steps-table-row-${index}`,
                           index === 2 && 'funnel-table-cell',
-                          featureFlags[FEATURE_FLAGS.SIGMA_ANALYSIS] && record.significant && 'table-cell-highlight'
+                          record.significant && 'table-cell-highlight'
                       )
                   },
               }
