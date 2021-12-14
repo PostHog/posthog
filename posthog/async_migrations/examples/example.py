@@ -5,19 +5,19 @@ from ee.clickhouse.sql.person import (
     PERSONS_DISTINCT_ID_TABLE_MV_SQL,
     PERSONS_DISTINCT_ID_TABLE_SQL,
 )
+from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
 from posthog.constants import AnalyticsDBMS
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
-from posthog.special_migrations.definition import SpecialMigrationDefinition, SpecialMigrationOperation
 from posthog.version_requirement import ServiceVersionRequirement
 
 ONE_DAY = 60 * 60 * 24
 
-TEMPORARY_TABLE_NAME = "person_distinct_id_special_migration"
+TEMPORARY_TABLE_NAME = "person_distinct_id_async_migration"
 
 
-class Migration(SpecialMigrationDefinition):
+class Migration(AsyncMigrationDefinition):
 
-    description = "An example special migration."
+    description = "An example async migration."
 
     posthog_min_version = "1.29.0"
     posthog_max_version = "1.30.0"
@@ -27,22 +27,22 @@ class Migration(SpecialMigrationDefinition):
     ]
 
     operations = [
-        SpecialMigrationOperation(
+        AsyncMigrationOperation(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=PERSONS_DISTINCT_ID_TABLE_SQL().replace(PERSONS_DISTINCT_ID_TABLE, TEMPORARY_TABLE_NAME, 1),
             rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
         ),
-        SpecialMigrationOperation(
+        AsyncMigrationOperation(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"DROP TABLE person_distinct_id_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
             rollback=PERSONS_DISTINCT_ID_TABLE_MV_SQL,
         ),
-        SpecialMigrationOperation(
+        AsyncMigrationOperation(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"DROP TABLE kafka_person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER}",
             rollback=KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL,
         ),
-        SpecialMigrationOperation(
+        AsyncMigrationOperation(
             database=AnalyticsDBMS.CLICKHOUSE,
             timeout_seconds=ONE_DAY,
             sql=f"""
@@ -58,27 +58,27 @@ class Migration(SpecialMigrationDefinition):
             """,
             rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME}",
         ),
-        SpecialMigrationOperation(
+        AsyncMigrationOperation(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"""
                 RENAME TABLE
-                    {CLICKHOUSE_DATABASE}.{PERSONS_DISTINCT_ID_TABLE} to {CLICKHOUSE_DATABASE}.person_distinct_id_special_migration_backup,
+                    {CLICKHOUSE_DATABASE}.{PERSONS_DISTINCT_ID_TABLE} to {CLICKHOUSE_DATABASE}.person_distinct_id_async_migration_backup,
                     {CLICKHOUSE_DATABASE}.{TEMPORARY_TABLE_NAME} to {CLICKHOUSE_DATABASE}.{PERSONS_DISTINCT_ID_TABLE}
                 ON CLUSTER {CLICKHOUSE_CLUSTER}
             """,
             rollback=f"""
                 RENAME TABLE
                     {CLICKHOUSE_DATABASE}.{PERSONS_DISTINCT_ID_TABLE} to {CLICKHOUSE_DATABASE}.{TEMPORARY_TABLE_NAME}
-                    {CLICKHOUSE_DATABASE}.person_distinct_id_special_migration_backup to {CLICKHOUSE_DATABASE}.person_distinct_id,
+                    {CLICKHOUSE_DATABASE}.person_distinct_id_async_migration_backup to {CLICKHOUSE_DATABASE}.person_distinct_id,
                 ON CLUSTER {CLICKHOUSE_CLUSTER}
             """,
         ),
-        SpecialMigrationOperation(
+        AsyncMigrationOperation(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL,
             rollback=f"DROP TABLE IF EXISTS kafka_person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER}",
         ),
-        SpecialMigrationOperation(
+        AsyncMigrationOperation(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=PERSONS_DISTINCT_ID_TABLE_MV_SQL,
             rollback=f"DROP TABLE IF EXISTS person_distinct_id_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",

@@ -7,11 +7,11 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.async_migrations.status import async_migrations_ok
 from posthog.gitsha import GIT_SHA
 from posthog.internal_metrics.team import get_internal_metrics_dashboards
 from posthog.models import Element, Event, SessionRecordingEvent
 from posthog.permissions import OrganizationAdminAnyPermissions, SingleTenancyOrAdmin
-from posthog.special_migrations.status import special_migrations_ok
 from posthog.utils import (
     dict_from_cursor_fetchall,
     get_helm_info_env,
@@ -97,12 +97,9 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                     "value": f"{postgres_version // 10000}.{(postgres_version // 100) % 100}.{postgres_version % 100}",
                 }
             )
+
             metrics.append(
-                {
-                    "key": "special_migrations_ok",
-                    "metric": "Special migrations up-to-date",
-                    "value": special_migrations_ok(),
-                }
+                {"key": "async_migrations_ok", "metric": "Async migrations up-to-date", "value": async_migrations_ok()}
             )
 
             if not is_clickhouse_enabled():

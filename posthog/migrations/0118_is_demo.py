@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 def forward(apps, schema_editor):
     Team = apps.get_model("posthog", "Team")
-    Team.objects.filter(name="HogFlix Demo App").update(is_demo=True)
+    Team.objects.filter(name__iexact="Hogflix Demo App").update(is_demo=True)
 
 
 def reverse(apps, schema_editor):

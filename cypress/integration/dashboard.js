@@ -7,8 +7,8 @@ describe('Dashboard', () => {
     it('Dashboards loaded', () => {
         cy.get('h1').should('contain', 'Dashboards')
         // Breadcrumbs work
-        cy.get('[data-attr=breadcrumb-0]').should('contain', 'HogFlix')
-        cy.get('[data-attr=breadcrumb-1]').should('contain', 'HogFlix Demo App')
+        cy.get('[data-attr=breadcrumb-0]').should('contain', 'Hogflix')
+        cy.get('[data-attr=breadcrumb-1]').should('contain', 'Hogflix Demo App')
         cy.get('[data-attr=breadcrumb-2]').should('have.text', 'Dashboards')
     })
 
@@ -83,8 +83,8 @@ describe('Dashboard', () => {
         cy.contains(TEST_DASHBOARD_NAME).should('exist')
         cy.get('.dashboard-item').its('length').should('be.gte', 2)
         // Breadcrumbs work
-        cy.get('[data-attr=breadcrumb-0]').should('contain', 'HogFlix')
-        cy.get('[data-attr=breadcrumb-1]').should('contain', 'HogFlix Demo App')
+        cy.get('[data-attr=breadcrumb-0]').should('contain', 'Hogflix')
+        cy.get('[data-attr=breadcrumb-1]').should('contain', 'Hogflix Demo App')
         cy.get('[data-attr=breadcrumb-2]').should('have.text', 'Dashboards')
         cy.get('[data-attr=breadcrumb-3]').should('have.text', TEST_DASHBOARD_NAME)
     })

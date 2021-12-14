@@ -25,10 +25,10 @@ class WebDataGenerator(DataGenerator):
         PropertyDefinition.objects.get_or_create(team=self.team, name="$browser")
 
     def create_actions_dashboards(self):
-        homepage = Action.objects.create(team=self.team, name="HogFlix homepage view")
+        homepage = Action.objects.create(team=self.team, name="Hogflix homepage view")
         ActionStep.objects.create(action=homepage, event="$pageview", url="http://hogflix.com", url_matching="exact")
 
-        user_signed_up = Action.objects.create(team=self.team, name="HogFlix signed up")
+        user_signed_up = Action.objects.create(team=self.team, name="Hogflix signed up")
         ActionStep.objects.create(
             action=user_signed_up,
             event="$autocapture",
@@ -37,7 +37,7 @@ class WebDataGenerator(DataGenerator):
             selector="button",
         )
 
-        user_paid = Action.objects.create(team=self.team, name="HogFlix paid")
+        user_paid = Action.objects.create(team=self.team, name="Hogflix paid")
         ActionStep.objects.create(
             action=user_paid,
             event="$autocapture",
@@ -52,18 +52,18 @@ class WebDataGenerator(DataGenerator):
         Insight.objects.create(
             team=self.team,
             dashboard=dashboard,
-            name="HogFlix signup -> watching movie",
+            name="Hogflix signup -> watching movie",
             description="Shows a conversion funnel from sign up to watching a movie.",
             filters={
                 "actions": [
-                    {"id": homepage.id, "name": "HogFlix homepage view", "order": 0, "type": TREND_FILTER_TYPE_ACTIONS},
+                    {"id": homepage.id, "name": "Hogflix homepage view", "order": 0, "type": TREND_FILTER_TYPE_ACTIONS},
                     {
                         "id": user_signed_up.id,
-                        "name": "HogFlix signed up",
+                        "name": "Hogflix signed up",
                         "order": 1,
                         "type": TREND_FILTER_TYPE_ACTIONS,
                     },
-                    {"id": user_paid.id, "name": "HogFlix paid", "order": 2, "type": TREND_FILTER_TYPE_ACTIONS},
+                    {"id": user_paid.id, "name": "Hogflix paid", "order": 2, "type": TREND_FILTER_TYPE_ACTIONS},
                 ],
                 "insight": "FUNNELS",
             },

@@ -22,7 +22,7 @@ describe.skip('Funnels', () => {
         cy.get('[data-attr=taxonomic-tab-actions]').click()
 
         cy.wait(200)
-        cy.contains('HogFlix homepage view').click()
+        cy.contains('Hogflix homepage view').click()
 
         cy.get('[data-attr=save-funnel-button]').click()
 
@@ -45,7 +45,7 @@ describe.skip('Funnels', () => {
         cy.get('[data-attr=add-action-event-button]').first().click()
         cy.get('[data-attr=trend-element-subject-0]').click()
         cy.get('[data-attr=taxonomic-tab-actions]').click()
-        cy.contains('HogFlix homepage view').click()
+        cy.contains('Hogflix homepage view').click()
         cy.get('[data-attr=save-funnel-button]').click()
 
         cy.get('[data-attr=date-filter]').click()
@@ -61,12 +61,12 @@ describe.skip('Funnels', () => {
         cy.get('[data-attr=add-action-event-button]').first().click()
         cy.get('[data-attr=trend-element-subject-0]').click()
         cy.get('[data-attr=taxonomic-tab-actions]').click()
-        cy.contains('HogFlix homepage view').click()
+        cy.contains('Hogflix homepage view').click()
 
         cy.get('[data-attr=add-action-event-button]').first().click()
         cy.get('[data-attr=trend-element-subject-1]').click()
         cy.get('[data-attr=taxonomic-tab-actions]').click()
-        cy.contains('HogFlix paid').click()
+        cy.contains('Hogflix paid').click()
 
         cy.get('[data-attr=save-funnel-button]').click()
 
