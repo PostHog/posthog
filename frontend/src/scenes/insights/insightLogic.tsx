@@ -448,6 +448,12 @@ export const insightLogic = kea<insightLogicType>({
         currentFormattedDateRange: [
             (s) => [s.insight],
             (insight) => {
+                console.log(
+                    'from: ',
+                    insight?.result?.[0]?.filter?.date_from,
+                    'to: ',
+                    insight?.last_refresh ?? insight?.result?.[0]?.filter?.date_to
+                )
                 return dateFilterToText(
                     insight?.result?.[0]?.filter?.date_from ?? insight?.result?.[0]?.days?.[0],
                     insight?.last_refresh ??

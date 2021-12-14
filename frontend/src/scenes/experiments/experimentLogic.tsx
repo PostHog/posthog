@@ -175,11 +175,11 @@ export const experimentLogic = kea<experimentLogicType>({
                 // eslint-disable-line
                 const newResults = funnelLogic.findMounted({ dashboardItemId: values.experimentFunnelId })?.values
                     .results // valid results
-                const newResultsWithoutFound = funnelLogic({
-                    dashboardItemId: values.experimentFunnelId,
-                    syncWithUrl: false,
-                })?.values.results // valid results
-                console.log('id: ', values.experimentFunnelId, results, newResults, newResultsWithoutFound)
+                // const newResultsWithoutFound = funnelLogic({
+                //     dashboardItemId: values.experimentFunnelId,
+                //     syncWithUrl: false,
+                // })?.values.results // valid results
+                console.log('id: ', values.experimentFunnelId, results, newResults) // ,newResultsWithoutFound)
                 // results is empty??
                 return results
             },
