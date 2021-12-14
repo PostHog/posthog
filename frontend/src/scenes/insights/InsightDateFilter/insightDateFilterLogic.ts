@@ -1,41 +1,33 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
-import { Dayjs } from 'dayjs'
 import { objectsEqual } from 'lib/utils'
 import { insightDateFilterLogicType } from './insightDateFilterLogicType'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { InsightLogicProps } from '~/types'
 
-interface UrlParams {
-    date_from?: string
-    date_to?: string
-}
-
-interface InsightDateFilterProps {
-    dateFrom?: string | Dayjs
-    dateTo?: string | Dayjs
-}
-
-export const insightDateFilterLogic = kea<insightDateFilterLogicType<InsightDateFilterProps>>({
-    props: {} as InsightDateFilterProps,
+export const insightDateFilterLogic = kea<insightDateFilterLogicType>({
+    props: {} as InsightLogicProps,
     path: ['scenes', 'insights', 'InsightDateFilter', 'insightDateFilterLogic'],
+    connect: (props: InsightLogicProps) => ({
+        values: [insightLogic(props), ['filters', 'fallbackDateRange']],
+    }),
     actions: () => ({
-        setDates: (dateFrom: string | Dayjs | undefined, dateTo: string | Dayjs | undefined) => ({
-            dateFrom,
-            dateTo,
-        }),
         dateAutomaticallyChanged: true,
         endHighlightChange: true,
         setInitialLoad: true,
     }),
-    reducers: ({ props }) => ({
+    selectors: {
         dates: [
-            {
-                dateFrom: props.dateFrom as string | Dayjs | undefined,
-                dateTo: props.dateTo as string | Dayjs | undefined,
-            },
-            {
-                setDates: (_, dates) => dates,
+            (selectors) => [selectors.filters, selectors.fallbackDateRange],
+            (filters, fallbackDateRange) => {
+                return {
+                    dateFrom: filters.date_from ?? fallbackDateRange.dateFrom,
+                    dateTo: filters.date_from ? filters.date_to : filters.date_to ?? fallbackDateRange.dateTo,
+                }
             },
         ],
+    },
+    reducers: () => ({
         highlightDateChange: [
             false,
             {
@@ -68,15 +60,6 @@ export const insightDateFilterLogic = kea<insightDateFilterLogicType<InsightDate
         dateAutomaticallyChanged: async (_, breakpoint) => {
             await breakpoint(2000)
             actions.endHighlightChange()
-        },
-    }),
-    urlToAction: ({ actions, values }) => ({
-        '/insights/:shortId(/edit)': (_: any, { date_from, date_to }: UrlParams) => {
-            if (!values.initialLoad && !objectsEqual(date_from, values.dates.dateFrom)) {
-                actions.dateAutomaticallyChanged()
-            }
-            actions.setDates(date_from, date_to)
-            actions.setInitialLoad()
         },
     }),
 })

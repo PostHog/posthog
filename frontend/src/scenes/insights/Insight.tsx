@@ -33,8 +33,6 @@ export const scene: SceneExport = {
 }
 
 export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Element {
-    useMountedLogic(insightCommandLogic)
-
     const logic = insightLogic({ dashboardItemId: shortId, syncWithUrl: true })
     const { insightProps, activeView, filters, insight, insightMode, filtersChanged, savedFilters, tagLoading } =
         useValues(logic)
@@ -48,6 +46,7 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
         deleteTag,
         saveAs,
     } = useActions(logic)
+    useMountedLogic(insightCommandLogic(insightProps))
     const { hasAvailableFeature } = useValues(userLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)

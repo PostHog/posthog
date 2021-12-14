@@ -7,7 +7,6 @@ import { dayjs } from 'lib/dayjs'
 import { dateMappingOption } from '~/types'
 
 export interface DateFilterProps {
-    fallbackValue: string
     showCustom?: boolean
     bordered?: boolean
     makeLabel?: (key: React.ReactNode) => React.ReactNode
@@ -20,6 +19,10 @@ export interface DateFilterProps {
     selectProps?: SelectProps<any>
     dateFrom?: string | dayjs.Dayjs
     dateTo?: string | dayjs.Dayjs
+}
+
+interface RawDateFilterProps extends DateFilterProps {
+    fallbackValue: string
 }
 
 export function DateFilter({
@@ -36,7 +39,7 @@ export function DateFilter({
     dateOptions = dateMapping,
     isDateFormatted = false,
     selectProps = {},
-}: DateFilterProps): JSX.Element {
+}: RawDateFilterProps): JSX.Element {
     const [rangeDateFrom, setRangeDateFrom] = useState(
         dateFrom && isDate.test(dateFrom as string) ? dayjs(dateFrom) : undefined
     )

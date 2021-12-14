@@ -1,25 +1,29 @@
 import React from 'react'
-import { useValues, useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { insightDateFilterLogic } from './insightDateFilterLogic'
 import { DateFilterProps, DateFilter } from 'lib/components/DateFilter/DateFilter'
 import './index.scss'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function InsightDateFilter(props: DateFilterProps): JSX.Element {
-    const logic = insightDateFilterLogic({ dateFrom: props.dateFrom, dateTo: props.dateTo })
+    const { insightProps } = useValues(insightLogic)
+    const { setFilters } = useActions(insightLogic)
+    const logic = insightDateFilterLogic({ dashboardItemId: undefined, ...insightProps })
     const {
         dates: { dateFrom, dateTo },
         highlightDateChange,
+        fallbackDateRange,
     } = useValues(logic)
-    const { setDates } = useActions(logic)
 
     return (
         <span className={highlightDateChange ? 'insights-date-filter highlighted' : ''}>
             <DateFilter
                 {...props}
+                fallbackValue={fallbackDateRange.fallback}
                 dateFrom={dateFrom}
                 dateTo={dateTo}
                 onChange={(changedDateFrom, changedDateTo) => {
-                    setDates(changedDateFrom, changedDateTo)
+                    setFilters({ date_from: changedDateFrom, date_to: changedDateTo })
                     props.onChange?.(changedDateFrom, changedDateTo)
                 }}
             />

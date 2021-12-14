@@ -3,15 +3,20 @@ import { kea } from 'kea'
 import { insightCommandLogicType } from './insightCommandLogicType'
 import { compareFilterLogic } from 'lib/components/CompareFilter/compareFilterLogic'
 import { RiseOutlined } from '@ant-design/icons'
-import { insightDateFilterLogic } from 'scenes/insights/InsightDateFilter/insightDateFilterLogic'
 import { dateMapping } from 'lib/utils'
+import { InsightLogicProps } from '~/types'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 const INSIGHT_COMMAND_SCOPE = 'insights'
 
 export const insightCommandLogic = kea<insightCommandLogicType>({
+    props: {} as InsightLogicProps,
     path: ['scenes', 'insights', 'insightCommandLogic'],
-    connect: [commandPaletteLogic, compareFilterLogic, insightDateFilterLogic],
-    events: () => ({
+    connect: (props: InsightLogicProps) => ({
+        actions: [insightLogic(props), ['setFilters']],
+        logic: [commandPaletteLogic, compareFilterLogic],
+    }),
+    events: ({ actions }) => ({
         afterMount: () => {
             const funnelCommands: Command[] = [
                 {
@@ -28,7 +33,10 @@ export const insightCommandLogic = kea<insightCommandLogicType>({
                             icon: RiseOutlined,
                             display: `Set Time Range to ${key}`,
                             executor: () => {
-                                insightDateFilterLogic.actions.setDates(values[0], values[1])
+                                actions.setFilters({
+                                    date_from: values[0],
+                                    date_to: values[1],
+                                })
                             },
                         })),
                     ],
