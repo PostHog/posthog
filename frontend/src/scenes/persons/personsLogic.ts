@@ -237,11 +237,6 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
         ],
     }),
     actionToUrl: ({ values, props }) => ({
-        setListFilters: () => {
-            if (props.syncWithUrl && router.values.location.pathname.indexOf('/persons') > -1) {
-                return ['/persons', values.listFilters, undefined, { replace: true }]
-            }
-        },
         navigateToTab: () => {
             if (props.syncWithUrl && router.values.location.pathname.indexOf('/person') > -1) {
                 return [
@@ -256,9 +251,8 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
         },
     }),
     urlToAction: ({ actions, values, props }) => ({
-        '/persons': ({}, searchParams) => {
+        '/persons': () => {
             if (props.syncWithUrl) {
-                actions.setListFilters(searchParams)
                 if (!values.persons.results.length && !values.personsLoading) {
                     // Initial load
                     actions.loadPersons()
