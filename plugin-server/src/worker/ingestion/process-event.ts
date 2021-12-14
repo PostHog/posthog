@@ -505,6 +505,8 @@ export class EventsProcessor {
 
         if (!EVENTS_WITHOUT_EVENT_DEFINITION.includes(event)) {
             await this.teamManager.updateEventNamesAndProperties(teamId, event, properties)
+        }
+        if (this.pluginsServer.EXPERIMENTAL_EVENT_PROPERTY_COUNTER) {
             await this.eventPropertyCounter.updateEventPropertyCounter(teamId, event, properties, timestamp)
         }
 
