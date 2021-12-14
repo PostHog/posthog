@@ -21,24 +21,26 @@ from posthog.models.group import Group
 from posthog.models.person import Person
 
 
-class SerializedActor(TypedDict):
-    type: Literal["person", "group"]
+class CommonAttributes(TypedDict):
     id: str
     created_at: Optional[str]
     properties: Dict[str, Any]
 
 
-class SerializedPerson(SerializedActor):
+class SerializedPerson(CommonAttributes):
     type: Literal["person"]
     is_identified: Optional[bool]
     name: str
     distinct_ids: List[str]
 
 
-class SerializedGroup(SerializedActor):
+class SerializedGroup(CommonAttributes):
     type: Literal["group"]
     group_key: str
     group_type_index: int
+
+
+SerializedActor = Union[SerializedGroup, SerializedPerson]
 
 
 class ActorBaseQuery:
@@ -97,7 +99,7 @@ class ActorBaseQuery:
         return [
             SerializedPerson(
                 type="person",
-                id=person.uuid,
+                id=str(person.uuid),
                 created_at=person.created_at,
                 properties=person.properties,
                 is_identified=person.is_identified,

@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, NamedTuple, Optional, Tuple, cast
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union, cast
 from urllib.parse import urlencode
 
 from ee.clickhouse.client import substitute_params, sync_execute
@@ -7,14 +7,19 @@ from ee.clickhouse.queries.retention.retention_event_query import RetentionEvent
 from ee.clickhouse.sql.retention.retention import RETENTION_BREAKDOWN_ACTOR_SQL, RETENTION_BREAKDOWN_SQL
 from posthog.constants import RETENTION_FIRST_TIME, RetentionQueryType
 from posthog.models.filters import RetentionFilter
-from posthog.models.filters.retention_filter import RetentionPeopleRequest
+from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
-from posthog.queries.retention import AppearanceRow, Retention
-
-CohortKey = NamedTuple("CohortKey", (("breakdown_values", Tuple[str]), ("period", int)))
+from posthog.queries.retention import AppearanceRow
 
 
-class ClickhouseRetention(Retention):
+BreakdownValues = Tuple[Union[str, int], ...]
+CohortKey = NamedTuple("CohortKey", (("breakdown_values", BreakdownValues), ("period", int)))
+
+
+class ClickhouseRetention:
+    def __init__(self, base_uri = "/"):
+        self._base_uri = base_uri
+
     def run(self, filter: RetentionFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         retention_by_breakdown = self._get_retention_by_breakdown_values(filter, team)
         if filter.breakdowns:
@@ -23,18 +28,26 @@ class ClickhouseRetention(Retention):
             return self.process_table_result(retention_by_breakdown, filter)
 
     def _get_retention_by_breakdown_values(
-        self, filter: RetentionFilter, team: Team,
+        self,
+        filter: RetentionFilter,
+        team: Team,
     ) -> Dict[CohortKey, Dict[str, Any]]:
         actor_query = build_actor_query(filter=filter, team=team)
 
-        result = sync_execute(RETENTION_BREAKDOWN_SQL.format(actor_query=actor_query,))
+        result = sync_execute(
+            RETENTION_BREAKDOWN_SQL.format(
+                actor_query=actor_query,
+            )
+        )
 
         result_dict = {
             CohortKey(tuple(breakdown_values), intervals_from_base): {
                 "count": count,
                 "people": [],
                 "people_url": self._construct_people_url_for_trend_breakdown_interval(
-                    filter=filter, breakdown_values=breakdown_values, selected_interval=intervals_from_base,
+                    filter=filter,
+                    breakdown_values=breakdown_values,
+                    selected_interval=intervals_from_base,
                 ),
             }
             for (breakdown_values, intervals_from_base, count) in result
@@ -43,15 +56,20 @@ class ClickhouseRetention(Retention):
         return result_dict
 
     def _construct_people_url_for_trend_breakdown_interval(
-        self, filter: RetentionFilter, selected_interval: int, breakdown_values: List[str],
+        self,
+        filter: RetentionFilter,
+        selected_interval: int,
+        breakdown_values: BreakdownValues,
     ):
-        params = RetentionPeopleRequest(
+        params = RetentionFilter(
             {**filter._data, "breakdown_values": breakdown_values, "selected_interval": selected_interval}
         ).to_params()
         return f"{self._base_uri}api/person/retention/?{urlencode(params)}"
 
     def process_breakdown_table_result(
-        self, resultset: Dict[CohortKey, Dict[str, Any]], filter: RetentionFilter,
+        self,
+        resultset: Dict[CohortKey, Dict[str, Any]],
+        filter: RetentionFilter,
     ):
         result = [
             {
@@ -59,22 +77,22 @@ class ClickhouseRetention(Retention):
                     resultset.get(CohortKey(breakdown_values, interval), {"count": 0, "people": []})
                     for interval in range(filter.total_intervals)
                 ],
-                "label": "::".join(breakdown_values),
+                "label": "::".join(map(str, breakdown_values)),
                 "breakdown_values": breakdown_values,
                 "people_url": (
                     "/api/person/retention/?"
-                    f"{urlencode(RetentionPeopleRequest({**filter._data, 'display': 'ActionsTable', 'breakdown_values': breakdown_values}).to_params())}"
+                    f"{urlencode(RetentionFilter({**filter._data, 'display': 'ActionsTable', 'breakdown_values': breakdown_values}).to_params())}"
                 ),
             }
-            for breakdown_values in set(
-                cohort_key.breakdown_values for cohort_key in cast(Dict[CohortKey, Dict[str, Any]], resultset).keys()
-            )
+            for breakdown_values in set(cohort_key.breakdown_values for cohort_key in resultset.keys())
         ]
 
         return result
 
     def process_table_result(
-        self, resultset: Dict[Tuple[int, int], Dict[str, Any]], filter: RetentionFilter,
+        self,
+        resultset: Dict[CohortKey, Dict[str, Any]],
+        filter: RetentionFilter,
     ):
         """
         Constructs a response for the rest api when there is no breakdown specified
@@ -85,32 +103,35 @@ class ClickhouseRetention(Retention):
         want to have a result for each cohort between the specified date range.
         """
 
+        def construct_url(first_day):
+            params = RetentionFilter(
+                {**filter._data, "display": "ActionsTable", "breakdown_values": [first_day]}
+            ).to_params()
+            return "/api/person/retention/?" f"{urlencode(params)}"
+
         result = [
             {
                 "values": [
-                    resultset.get(((first_day,), day), {"count": 0, "people": []})
+                    resultset.get(CohortKey((first_day,), day), {"count": 0, "people": []})
                     for day in range(filter.total_intervals - first_day)
                 ],
                 "label": "{} {}".format(filter.period, first_day),
                 "date": (filter.date_from + RetentionFilter.determine_time_delta(first_day, filter.period)[0]),
-                "people_url": (
-                    "/api/person/retention/?"
-                    f"{urlencode(RetentionPeopleRequest({**filter._data, 'display': 'ActionsTable', 'breakdown_values': [first_day]}).to_params())}"
-                ),
+                "people_url": construct_url(first_day),
             }
             for first_day in range(filter.total_intervals)
         ]
 
         return result
 
-    def _retrieve_actors(self, filter: RetentionPeopleRequest, team: Team):
+    def people(self, filter: RetentionFilter, team: Team):
         actor_appearances = get_actor_appearances(
             filter=filter,
             # NOTE: If we don't have breakdown_values specified, and do not specify
             # breakdowns, then we need(?) to maintain backwards compatability with
             # non-breakdown functionality, which is to get the first cohort
             # values.
-            filter_by_breakdown=filter.breakdown_values or [0],
+            filter_by_breakdown=filter.breakdown_values or (0,),
             selected_interval=filter.selected_interval,
             team=team,
         )
@@ -123,7 +144,7 @@ class ClickhouseRetention(Retention):
 
         return actors
 
-    def _retrieve_actors_in_period(self, filter: RetentionPeopleRequest, team: Team):
+    def people_in_period(self, filter: RetentionFilter, team: Team):
         """
         Creates a response of the form
 
@@ -145,7 +166,9 @@ class ClickhouseRetention(Retention):
             filter=filter,
             # NOTE: for backwards compat. if we don't have a breakdown value, we
             # use the `selected_interval` instead.
-            filter_by_breakdown=filter.breakdown_values or [filter.selected_interval],
+            filter_by_breakdown=(
+                filter.breakdown_values or (filter.selected_interval,) if filter.selected_interval is not None else None
+            ),
             team=team,
         )
 
@@ -156,9 +179,6 @@ class ClickhouseRetention(Retention):
         )
 
         actors_lookup = {actor["id"]: actor for actor in actors}
-
-        print(actors_lookup)
-        print(actor_appearances)
 
         return [
             {
@@ -175,7 +195,7 @@ class ClickhouseRetention(Retention):
 def build_actor_query(
     filter: RetentionFilter,
     team: Team,
-    filter_by_breakdown: Optional[List[str]] = None,
+    filter_by_breakdown: Optional[BreakdownValues] = None,
     selected_interval: Optional[int] = None,
 ) -> str:
     """
@@ -197,7 +217,8 @@ def build_actor_query(
     }
 
     query = substitute_params(RETENTION_BREAKDOWN_ACTOR_SQL, all_params).format(
-        returning_event_query=returning_event_query, target_event_query=target_event_query,
+        returning_event_query=returning_event_query,
+        target_event_query=target_event_query,
     )
 
     return query
@@ -232,9 +253,9 @@ def build_target_event_query(filter: RetentionFilter, team: Team):
 
 
 def get_actor_appearances(
-    filter: RetentionPeopleRequest,
+    filter: RetentionFilter,
     team: Team,
-    filter_by_breakdown: Optional[List[str]] = None,
+    filter_by_breakdown: Optional[BreakdownValues] = None,
     selected_interval: Optional[int] = None,
 ) -> List[AppearanceRow]:
     """
@@ -243,7 +264,10 @@ def get_actor_appearances(
     they were active.
     """
     actor_activity_query = build_actor_query(
-        filter=filter, team=team, filter_by_breakdown=filter_by_breakdown, selected_interval=selected_interval,
+        filter=filter,
+        team=team,
+        filter_by_breakdown=filter_by_breakdown,
+        selected_interval=selected_interval,
     )
 
     actor_query = f"""

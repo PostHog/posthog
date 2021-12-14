@@ -345,7 +345,7 @@ class RetentionRequest:
     target_entity: EventPattern
     returning_entity: EventPattern
     period: Union[Literal["Hour"], Literal["Day"], Literal["Week"], Literal["Month"]]
-    retention_type: Literal["retention_first_time"]  # probably not an exhaustive list
+    retention_type: Literal["retention_first_time", "retention"]  # probably not an exhaustive list
 
     breakdowns: Optional[List[Breakdown]] = None
     breakdown_type: Optional[Literal["person", "event"]] = None
@@ -353,6 +353,7 @@ class RetentionRequest:
 
 class Value(TypedDict):
     count: int
+    people_url: str
 
 
 class Cohort(TypedDict):

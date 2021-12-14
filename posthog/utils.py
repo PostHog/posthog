@@ -884,7 +884,7 @@ class DataclassJSONEncoder(json.JSONEncoder):
 
 
 def encode_value_as_param(value: Union[str, list, dict]) -> str:
-    if isinstance(value, (list, dict)):
+    if isinstance(value, (list, dict, tuple)):
         return json.dumps(value, cls=DataclassJSONEncoder)
     elif isinstance(value, Enum):
         return value.value

@@ -22,10 +22,10 @@ class RetentionEventsQuery(ClickhouseEventQuery):
     _event_query_type: RetentionQueryType
     _trunc_func: str
 
-    def __init__(self, filter: RetentionFilter, event_query_type: RetentionQueryType, *args, **kwargs):
+    def __init__(self, filter: RetentionFilter, event_query_type: RetentionQueryType, team_id: int):
         self._event_query_type = event_query_type
         super().__init__(
-            filter=filter, *args, **kwargs,
+            filter=filter, team_id=team_id
         )
 
         self._trunc_func = get_trunc_func_ch(self._filter.period)

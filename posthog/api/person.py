@@ -15,7 +15,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_target_entity
 from posthog.constants import LIMIT, TRENDS_TABLE
 from posthog.models import Cohort, Event, Filter, Person, User
-from posthog.models.filters.retention_filter import RetentionPeopleRequest
+from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.base import filter_persons
@@ -211,7 +211,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
                 status=400,
             )
-        filter = RetentionPeopleRequest(request=request)
+        filter = RetentionFilter(request=request)
         base_uri = request.build_absolute_uri("/")
 
         if display == TRENDS_TABLE:

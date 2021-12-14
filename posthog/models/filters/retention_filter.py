@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from rest_framework.request import Request
 
@@ -19,7 +19,6 @@ from posthog.models.filters.mixins.retention import (
     EntitiesDerivedMixin,
     RetentionDateDerivedMixin,
     RetentionTypeMixin,
-    SelectedIntervalMixin,
 )
 from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
@@ -48,22 +47,16 @@ class RetentionFilter(
         super().__init__(data, request, **kwargs)
 
     @cached_property
-    def breakdown_values(self) -> List[str]:
+    def breakdown_values(self) -> Optional[Tuple[Union[str, int], ...]]:
         raw_value = self._data.get("breakdown_values", None)
+        if raw_value is None:
+            return None
+
         if isinstance(raw_value, str):
-            return json.loads(raw_value)
-        return list(raw_value) if raw_value else None
+            return tuple(json.loads(raw_value))
+            
+        return tuple(raw_value)
 
     @include_dict
     def breakdown_values_to_dict(self):
         return {"breakdown_values": self.breakdown_values} if self.breakdown_values else {}
-
-
-class RetentionPeopleRequest(RetentionFilter):
-    @cached_property
-    def selected_interval(self) -> Optional[int]:
-        return int(raw) if (raw := self._data.get(SELECTED_INTERVAL)) else None
-
-    @include_dict
-    def selected_interval_to_dict(self):
-        return {"selected_interval": self.selected_interval} if self.selected_interval else {}

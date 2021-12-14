@@ -422,7 +422,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             )
 
             self.assertEqual(len(result), 1)
-            self.assertTrue(result[0]["id"] == p3.pk or result[0]["id"] == p3.uuid)
+            self.assertIn(result[0]["id"], [p3.pk, str(p3.uuid)])
 
             result = retention().people(
                 RetentionFilter(
