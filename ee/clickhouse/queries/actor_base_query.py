@@ -22,7 +22,7 @@ from posthog.models.person import Person
 
 
 class CommonAttributes(TypedDict):
-    id: str
+    id: Union[uuid.UUID, str]
     created_at: Optional[str]
     properties: Dict[str, Any]
 
@@ -99,7 +99,7 @@ class ActorBaseQuery:
         return [
             SerializedPerson(
                 type="person",
-                id=str(person.uuid),
+                id=person.uuid,
                 created_at=person.created_at,
                 properties=person.properties,
                 is_identified=person.is_identified,
@@ -134,7 +134,7 @@ def get_actors_by_aggregation_by(
         return [
             SerializedPerson(
                 type="person",
-                id=str(person.uuid),
+                id=person.uuid,
                 created_at=person.created_at,
                 properties=person.properties,
                 is_identified=person.is_identified,
