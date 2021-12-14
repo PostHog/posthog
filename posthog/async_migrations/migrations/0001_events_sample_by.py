@@ -1,7 +1,7 @@
 from constance import config
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.sql.events import EVENTS_TABLE, EVENTS_TABLE_MV_SQL
+from ee.clickhouse.sql.events import EVENTS_TABLE, EVENTS_TABLE_SQL
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
 from posthog.constants import AnalyticsDBMS
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
@@ -24,7 +24,7 @@ class Migration(AsyncMigrationDefinition):
     operations = [
         AsyncMigrationOperation(
             database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"CREATE TABLE IF NOT EXISTS {TEMPORARY_TABLE_NAME} AS {EVENTS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}",
+            sql=EVENTS_TABLE_SQL().replace(EVENTS_TABLE, TEMPORARY_TABLE_NAME, 1),
             rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
             resumable=True,
         ),
@@ -35,14 +35,14 @@ class Migration(AsyncMigrationDefinition):
             SELECT * 
             FROM {EVENTS_TABLE}
             WHERE timestamp < toYYYYMM(now()) - 1
-            AND timestamp >= (SELECT max(timestamp) FROM {TEMPORARY_TABLE_NAME}""",
+            AND timestamp >= (SELECT max(timestamp) FROM {TEMPORARY_TABLE_NAME})""",
             rollback=f"TRUNCATE TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
             resumable=True,
         ),
         AsyncMigrationOperation(
             database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"DETACH TABLE {EVENTS_TABLE_MV_SQL} ON CLUSTER {CLICKHOUSE_CLUSTER}",
-            rollback=f"ATTACH TABLE {EVENTS_TABLE_MV_SQL} ON CLUSTER {CLICKHOUSE_CLUSTER}",
+            sql=f"DETACH TABLE {EVENTS_TABLE}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
+            rollback=f"ATTACH TABLE {EVENTS_TABLE}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
             side_effect=lambda: setattr(config, "MATERIALIZED_COLUMNS_ENABLED", False),
             side_effect_rollback=lambda: setattr(config, "MATERIALIZED_COLUMNS_ENABLED", True),
         ),
@@ -61,33 +61,36 @@ class Migration(AsyncMigrationDefinition):
             sql=f"""
                 RENAME TABLE
                     {CLICKHOUSE_DATABASE}.{EVENTS_TABLE} to {CLICKHOUSE_DATABASE}.{EVENTS_TABLE}_old,
-                    {CLICKHOUSE_DATABASE}.{TEMPORARY_TABLE_NAME} to {CLICKHOUSE_DATABASE}.{EVENTS_TABLE},
+                    {CLICKHOUSE_DATABASE}.{TEMPORARY_TABLE_NAME} to {CLICKHOUSE_DATABASE}.{EVENTS_TABLE}
                 ON CLUSTER {CLICKHOUSE_CLUSTER}
             """,
             rollback=f"""
                 RENAME TABLE
                     {CLICKHOUSE_DATABASE}.{EVENTS_TABLE} to {CLICKHOUSE_DATABASE}.{EVENTS_TABLE}_failed,
-                    {CLICKHOUSE_DATABASE}.{EVENTS_TABLE}_old to {CLICKHOUSE_DATABASE}.{EVENTS_TABLE},
+                    {CLICKHOUSE_DATABASE}.{EVENTS_TABLE}_old to {CLICKHOUSE_DATABASE}.{EVENTS_TABLE}
                 ON CLUSTER {CLICKHOUSE_CLUSTER}
             """,
         ),
         AsyncMigrationOperation(
             database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"ATTACH TABLE {EVENTS_TABLE_MV_SQL} ON CLUSTER {CLICKHOUSE_CLUSTER}",
-            rollback=f"DETACH TABLE {EVENTS_TABLE_MV_SQL} ON CLUSTER {CLICKHOUSE_CLUSTER}",
+            sql=f"ATTACH TABLE {EVENTS_TABLE}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
+            rollback=f"DETACH TABLE {EVENTS_TABLE}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
             side_effect=lambda: setattr(config, "MATERIALIZED_COLUMNS_ENABLED", True),
             side_effect_rollback=lambda: setattr(config, "MATERIALIZED_COLUMNS_ENABLED", False),
+        ),
+        AsyncMigrationOperation(
+            database=AnalyticsDBMS.CLICKHOUSE, sql=f"OPTIMIZE TABLE {EVENTS_TABLE} FINAL", rollback="", resumable=True
         ),
     ]
 
     def is_required(self):
         res = sync_execute(f"SHOW CREATE TABLE {EVENTS_TABLE}")
-        return "SAMPLE BY uuid" in res[0][0]
+        return "ORDER BY (team_id, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))" not in res[0][0]
 
     def precheck(self):
         result = sync_execute(
             """
-        SELECT (free_space.size / event_table_size.size) FROM 
+        SELECT (free_space.size / greatest(event_table_size.size, 1)) FROM 
             (SELECT 1 as jc, 'event_table_size', sum(bytes) as size FROM system.parts WHERE table = 'sharded_events') event_table_size
         JOIN 
             (SELECT 1 as jc, 'free_disk_space', free_space as size FROM system.disks WHERE name = 'default') free_space
@@ -95,8 +98,9 @@ class Migration(AsyncMigrationDefinition):
         """
         )
         event_size_to_free_space_ratio = result[0][0]
+
         # Require 1.5x the events table in free space to be available
-        if event_size_to_free_space_ratio < 1.5:
+        if event_size_to_free_space_ratio > 1.5:
             return (True, None)
         else:
             result = sync_execute(
