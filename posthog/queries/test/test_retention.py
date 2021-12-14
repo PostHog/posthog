@@ -522,22 +522,6 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             self.assertEqual(result1[0]["person"]["id"], p3.pk)
             self.assertEqual(result1[0]["appearances"], [1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0])
 
-            # Make sure later people aren't included
-            result2 = retention().people_in_period(
-                RetentionFilter(
-                    data={
-                        "date_to": self._date(10, hour=6),
-                        RETENTION_TYPE: RETENTION_FIRST_TIME,
-                        "target_entity": target_entity,
-                        "returning_entity": {"id": "$pageview", "type": "events"},
-                        "selected_interval": -1,
-                    }
-                ),
-                self.team,
-            )
-
-            self.assertEqual(len(result2), 2)
-
         def test_retention_multiple_events(self):
             person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
             person_factory(team_id=self.team.pk, distinct_ids=["person2"])
@@ -630,55 +614,6 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             self.assertEqual(
                 self.pluck(result, "values", "count"),
                 [[2, 0, 0, 1, 0, 1, 0], [2, 0, 1, 0, 1, 0], [2, 1, 0, 1, 0], [2, 0, 1, 0], [0, 0, 0], [0, 0], [0],],
-            )
-
-        def test_retention_graph(self):
-            person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
-            person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"])
-
-            self._create_events(
-                [
-                    ("person1", self._date(0)),
-                    ("person1", self._date(1)),
-                    ("person1", self._date(2)),
-                    ("person1", self._date(5)),
-                    ("alias1", self._date(5, 9)),
-                    ("person1", self._date(6)),
-                    ("person2", self._date(0)),
-                    ("person2", self._date(1)),
-                    ("person2", self._date(2)),
-                    ("person2", self._date(3)),
-                    ("person2", self._date(6)),
-                ]
-            )
-            result = retention().run(
-                RetentionFilter(data={"date_to": self._date(10, hour=6), "display": TRENDS_LINEAR}), self.team
-            )
-            self.assertEqual(
-                result[0]["count"], 2,
-            )
-            self.assertEqual(
-                result[0]["labels"],
-                ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"],
-            )
-            self.assertEqual(
-                result[0]["days"],
-                [
-                    "2020-06-10",
-                    "2020-06-11",
-                    "2020-06-12",
-                    "2020-06-13",
-                    "2020-06-14",
-                    "2020-06-15",
-                    "2020-06-16",
-                    "2020-06-17",
-                    "2020-06-18",
-                    "2020-06-19",
-                    "2020-06-20",
-                ],
-            )
-            self.assertEqual(
-                result[0]["data"], [100.0, 100.0, 100.0, 50.0, 0.0, 50.0, 100.0, 0.0, 0.0, 0.0, 0.0],
             )
 
         def test_first_time_retention(self):
