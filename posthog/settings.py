@@ -325,8 +325,9 @@ INSTALLED_APPS = [
     "social_django",
     "django_filters",
     "axes",
+    "constance",
+    "constance.backends.database",
 ]
-
 
 MIDDLEWARE = [
     "django_structlog.middlewares.RequestMiddleware",
@@ -772,9 +773,6 @@ SPECIAL_MIGRATIONS_DISABLE_AUTO_ROLLBACK = get_from_env(
 )
 
 ## Dynamic configs settings
-
-INSTALLED_APPS.append("constance")
-INSTALLED_APPS.append("constance.backends.database")
 
 CONSTANCE_BACKEND = "constance.backends.database.DatabaseBackend"
 
