@@ -157,7 +157,7 @@ jobs:
             - name: Start stack with Docker Compose
               run: |
                   docker-compose -f ee/docker-compose.ch.yml down
-                  docker-compose -f ee/docker-compose.ch.yml up -d ${{ matrix.foss && 'db' || 'db clickhouse zookeeper kafka' }}
+                  docker-compose -f ee/docker-compose.ch.yml up -d ${{ matrix.foss && 'db' || 'db clickhouse zookeeper kafka' }} &
 
             - name: Set up Python
               uses: actions/setup-python@v2
@@ -207,6 +207,10 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
+
+            - name: Wait for Clickhouse & Kafka
+              if: ${{ !matrix.foss }}
+              run: bin/check_kafka_clickhouse_up
 
             - name: Run FOSS tests
               if: ${{ matrix.foss }}
