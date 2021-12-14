@@ -180,9 +180,12 @@ class ClickhouseRetention(Retention):
             actor['id']: actor for actor in actors
         }
 
+        print(actors_lookup)
+        print(actor_appearances)
+
         return [
             {
-                "person": actors_lookup.get(actor.actor_id, {"id": actor.actor_id}),
+                "person": actors_lookup.get(actor.actor_id, {"id": actor.actor_id, "distinct_ids": []}),
                 "appearances": [
                     1 if interval_number in actor.appearances else 0
                     for interval_number in range(filter.total_intervals - (filter.selected_interval or 0))

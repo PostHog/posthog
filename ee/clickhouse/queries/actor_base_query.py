@@ -23,7 +23,7 @@ from posthog.models.person import Person
 
 class SerializedActor(TypedDict):
     type: Literal["person", "group"]
-    id: Union[uuid.UUID, str]
+    id: str
     created_at: Optional[str]
     properties: Dict[str, Any]
 
@@ -124,10 +124,11 @@ def get_actors_by_aggregation_by(team_id: int, actor_type: Optional[int], actor_
 
     if actor_type is None:
         people = Person.objects.filter(team_id=team_id, uuid__in=actor_ids)
+
         return [
             SerializedPerson(
                 type="person",
-                id=person.uuid,
+                id=str(person.uuid),
                 created_at=person.created_at,
                 properties=person.properties,
                 is_identified=person.is_identified,
