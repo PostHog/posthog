@@ -122,13 +122,15 @@ export const seekbarLogic = kea<seekbarLogicType>({
                 return
             }
             // Don't update thumb position if seekbar logic is already seeking and setting the thumb position
-            if (!values.isSeeking && values.currentPlayerPosition) {
-                const xValue = convertPlayerPositionToX(
-                    values.currentPlayerPosition,
-                    values.slider.offsetWidth,
-                    values.sessionPlayerData.metadata.segments,
-                    values.sessionPlayerData.metadata.recordingDurationMs
-                )
+            if (!values.isSeeking) {
+                const xValue = values.currentPlayerPosition
+                    ? convertPlayerPositionToX(
+                          values.currentPlayerPosition,
+                          values.slider.offsetWidth,
+                          values.sessionPlayerData.metadata.segments,
+                          values.sessionPlayerData.metadata.recordingDurationMs
+                      )
+                    : 0
 
                 actions.setThumbLeftPos(xValue - THUMB_OFFSET, false)
             }

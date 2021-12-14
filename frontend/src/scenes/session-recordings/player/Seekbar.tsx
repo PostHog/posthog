@@ -56,7 +56,7 @@ export function Seekbar(): JSX.Element {
             <div className="slider" ref={sliderRef} onMouseDown={handleDown} onTouchStart={handleDown}>
                 <div className="slider-bar" />
                 <div className="thumb" ref={thumbRef} style={{ transform: `translateX(${thumbLeftPos}px)` }} />
-                <div className="current-bar" style={{ width: `${thumbLeftPos}px` }} />
+                <div className="current-bar" style={{ width: `${Math.max(thumbLeftPos, 0)}px` }} />
                 <div className="buffer-bar" style={{ width: `calc(${bufferPercent}% - 2px)` }} />
             </div>
             <div className="ticks">
