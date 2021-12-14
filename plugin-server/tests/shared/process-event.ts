@@ -1970,7 +1970,7 @@ export const createProcessEventTests = (
                 property_type: 'NUMBER',
                 property_type_format: null,
                 team_id: 2,
-                total_volume: 1,
+                total_volume: '1', // bigint
             },
             {
                 created_at: expect.any(String),
@@ -1981,7 +1981,7 @@ export const createProcessEventTests = (
                 property_type: 'STRING',
                 property_type_format: null,
                 team_id: 2,
-                total_volume: 1,
+                total_volume: '1', // bigint
             },
             {
                 created_at: expect.any(String),
@@ -1992,7 +1992,7 @@ export const createProcessEventTests = (
                 property_type: 'STRING',
                 property_type_format: null,
                 team_id: 2,
-                total_volume: 1,
+                total_volume: '1', // bigint
             },
         ])
     })
