@@ -41,13 +41,8 @@ export class EventPropertyCounter {
         this.lastFlushAt = DateTime.now()
     }
 
-    public async updateEventPropertyCounter(
-        teamId: number,
-        event: string,
-        properties: Properties,
-        eventTimestamp: DateTime
-    ): Promise<void> {
-        this.updateEventPropertiesBuffer(teamId, event, properties, eventTimestamp)
+    public async updateEventPropertyCounter(teamId: number, event: string, properties: Properties): Promise<void> {
+        this.updateEventPropertiesBuffer(teamId, event, properties)
         // Flush every 2 minutes or 50k unique properties, whichever comes first.
         // Additionally, a flush is broadcast every 1 minute from pluginServer.
         if (
@@ -59,13 +54,8 @@ export class EventPropertyCounter {
     }
 
     /** Save information about event properties into a custom buffer */
-    public updateEventPropertiesBuffer(
-        teamId: number,
-        event: string,
-        properties: Record<string, any>,
-        eventTimestamp: DateTime
-    ): void {
-        const timestamp = eventTimestamp.toSeconds()
+    public updateEventPropertiesBuffer(teamId: number, event: string, properties: Record<string, any>): void {
+        const timestamp = new DateTime().toSeconds()
         let bufferForTeam = this.eventPropertiesBuffer.buffer.get(teamId)
         if (!bufferForTeam) {
             bufferForTeam = new Map()

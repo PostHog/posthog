@@ -507,7 +507,7 @@ export class EventsProcessor {
             await this.teamManager.updateEventNamesAndProperties(teamId, event, properties)
         }
         if (this.pluginsServer.EXPERIMENTAL_EVENT_PROPERTY_COUNTER) {
-            await this.eventPropertyCounter.updateEventPropertyCounter(teamId, event, properties, timestamp)
+            await this.eventPropertyCounter.updateEventPropertyCounter(teamId, event, properties)
         }
 
         properties = personInitialAndUTMProperties(properties)
