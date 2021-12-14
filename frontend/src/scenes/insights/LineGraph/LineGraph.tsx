@@ -14,8 +14,9 @@ import {
     TooltipItem,
     ChartEvent,
     ChartItem,
+    ChartPluginsOptions,
 } from 'chart.js'
-import { CrosshairOptions } from 'chartjs-plugin-crosshair'
+import { CrosshairPlugin } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs'
 import { compactNumber, lightenDarkenColor, noop, mapRange } from '~/lib/utils'
 import { getBarColorFromStatus, getChartColors, getGraphColors } from 'lib/colors'
@@ -34,6 +35,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 //--Chart Style Options--//
 console.log('CHART DEFAULTS', Chart.defaults)
+Chart.register(CrosshairPlugin)
 Chart.defaults.plugins.legend.display = false
 Chart.defaults.animation['duration'] = 0
 Chart.defaults.elements.line.tension = 0
@@ -61,8 +63,6 @@ interface LineGraphProps {
 
 export function LineGraph(props: LineGraphProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-
-    console.log('PREGOLDEN', !featureFlags[FEATURE_FLAGS.LINE_GRAPH_V2])
     if (!featureFlags[FEATURE_FLAGS.LINE_GRAPH_V2]) {
         // @ts-ignore
         return <LEGACY_LineGraph {...props} />
@@ -273,7 +273,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
             itemSort: (a, b) => a.label.localeCompare(b.label),
         }
 
-        let options: ChartOptions & { plugins: { crosshair: CrosshairOptions } } = {
+        let options: ChartOptions & { plugins: ChartPluginsOptions } = {
             responsive: true,
             maintainAspectRatio: false,
             scaleShowHorizontalLines: false,
@@ -591,7 +591,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                 },
                 onHover: options.onHover,
                 plugins: {
-                    crosshair: false,
+                    crosshair: undefined,
                 },
                 onClick: options.onClick,
             }

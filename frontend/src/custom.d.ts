@@ -15,3 +15,9 @@ declare module '*.mp3' {
     const content: any
     export default content
 }
+
+// This fixes TS errors when importing chartjs-plugin-crosshair
+declare module 'chartjs-plugin-crosshair' {
+    const CrosshairPlugin: any
+    export { CrosshairPlugin }
+}
