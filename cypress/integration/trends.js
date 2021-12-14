@@ -20,7 +20,7 @@ describe('Trends', () => {
         cy.contains('Add graph series').click()
         cy.get('[data-attr=trend-element-subject-1]').click()
         cy.get('[data-attr=taxonomic-tab-actions]').click()
-        cy.contains('HogFlix homepage view').click()
+        cy.contains('Hogflix homepage view').click()
 
         // then
         cy.get('[data-attr=trend-line-graph]').should('exist')
