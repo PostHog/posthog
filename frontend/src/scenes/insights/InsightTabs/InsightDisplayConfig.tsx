@@ -2,7 +2,13 @@ import React from 'react'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
-import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE, FEATURE_FLAGS } from 'lib/constants'
+import {
+    ACTIONS_BAR_CHART_VALUE,
+    ACTIONS_LINE_GRAPH_LINEAR,
+    ACTIONS_PIE_CHART,
+    ACTIONS_TABLE,
+    FEATURE_FLAGS,
+} from 'lib/constants'
 import { ChartDisplayType, FilterType, FunnelVizType, ItemMode, InsightType } from '~/types'
 import { CalendarOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from '../InsightDateFilter'
@@ -132,7 +138,12 @@ export function InsightDisplayConfig({
                     </span>
                 )}
 
-                {activeView === InsightType.TRENDS ? <SmoothingFilter /> : null}
+                {activeView === InsightType.TRENDS &&
+                !filters.breakdown_type &&
+                !filters.compare &&
+                (!filters.display || filters.display === ACTIONS_LINE_GRAPH_LINEAR) ? (
+                    <SmoothingFilter />
+                ) : null}
 
                 {activeView === InsightType.RETENTION && <RetentionDatePicker />}
 
