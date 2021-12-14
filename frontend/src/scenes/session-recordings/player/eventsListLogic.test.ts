@@ -54,6 +54,26 @@ describe('eventsListLogic', () => {
                 logic.actions.handleEventClick(playerPosition)
             }).toDispatchActions(['handleEventClick', sessionRecordingPlayerLogic.actionCreators.seek(playerPosition)])
         })
+
+        const nanInputs: Record<string, any> = {
+            null: null,
+            undefined: undefined,
+            '00:00:00': '00:00:00',
+            '2021-11-18T21:03:48.305000Z': '2021-11-18T21:03:48.305000Z',
+        }
+
+        Object.entries(nanInputs).forEach(([key, value]) => {
+            it(`NaN case: ${key}`, async () => {
+                await expectLogic(logic, async () => {
+                    logic.actions.handleEventClick({
+                        windowId: 'window-id',
+                        time: value,
+                    })
+                })
+                    .toDispatchActions(['handleEventClick'])
+                    .toNotHaveDispatchedActions([sessionRecordingPlayerLogic.actionCreators.seek(value)])
+            })
+        })
     })
 
     describe('current position finder', () => {

@@ -86,7 +86,7 @@ describe('sessionRecordingLogic', () => {
             const resultAfterSnapshotResponse = {
                 ...resultAfterMetadataResponse,
                 bufferedTo: {
-                    time: 23567777,
+                    time: 44579,
                     windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
                 },
                 next: undefined,
@@ -119,7 +119,7 @@ describe('sessionRecordingLogic', () => {
             const resultAfterMetadataResponse = {
                 ...resultAfterSnapshotResponse,
                 bufferedTo: {
-                    time: 23567777,
+                    time: 44579,
                     windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
                 },
                 person: recordingMetaJson.person,
@@ -218,7 +218,7 @@ describe('sessionRecordingLogic', () => {
                 time: 40000,
                 windowId: events[2].properties.$window_id as string,
             },
-            percentageOfRecordingDuration: 10,
+            percentageOfRecordingDuration: 1.46755585429964,
         })
 
         it('load events after metadata with 1min buffer', async () => {

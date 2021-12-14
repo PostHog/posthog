@@ -336,6 +336,7 @@ describe('humanFriendlyDuration()', () => {
 
 describe('colonDelimitedDuration()', () => {
     it('returns correct value for <= 60', () => {
+        expect(colonDelimitedDuration(59.9)).toEqual('00:00:59')
         expect(colonDelimitedDuration(60)).toEqual('00:01:00')
         expect(colonDelimitedDuration(45)).toEqual('00:00:45')
     })
@@ -345,7 +346,7 @@ describe('colonDelimitedDuration()', () => {
     it('returns correct value for t > 120', () => {
         expect(colonDelimitedDuration(360)).toEqual('00:06:00')
         expect(colonDelimitedDuration(360.3233)).toEqual('00:06:00')
-        expect(colonDelimitedDuration(360.782)).toEqual('00:06:01')
+        expect(colonDelimitedDuration(360.782)).toEqual('00:06:00')
     })
     it('returns correct value for t >= 3600', () => {
         expect(colonDelimitedDuration(3600)).toEqual('01:00:00')
@@ -367,7 +368,7 @@ describe('colonDelimitedDuration()', () => {
         expect(colonDelimitedDuration(604800, 5)).toEqual('01:00:00:00:00')
         expect(colonDelimitedDuration(604800, 6)).toEqual('01:00:00:00:00')
         expect(colonDelimitedDuration(604800.222, 5)).toEqual('01:00:00:00:00')
-        expect(colonDelimitedDuration(604800.999, 6)).toEqual('01:00:00:00:01')
+        expect(colonDelimitedDuration(604800.999, 6)).toEqual('01:00:00:00:00')
     })
     it('returns an empty string for nullish inputs', () => {
         expect(colonDelimitedDuration('')).toEqual('')

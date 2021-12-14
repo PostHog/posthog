@@ -249,7 +249,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
 
             // Check if we're seeking to a new segment
             let nextSegment = null
-            if (playerPosition) {
+            if (playerPosition && values.sessionPlayerData?.metadata) {
                 nextSegment = getSegmentFromPlayerPosition(playerPosition, values.sessionPlayerData.metadata.segments)
                 if (
                     nextSegment &&
@@ -262,7 +262,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
 
             // If next time is greater than last buffered time, set to buffering
             if (
-                !values.sessionPlayerData.bufferedTo ||
+                !values.sessionPlayerData?.bufferedTo ||
                 !playerPosition ||
                 !values.currentSegment ||
                 comparePlayerPositions(
