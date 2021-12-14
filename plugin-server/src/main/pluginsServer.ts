@@ -201,9 +201,9 @@ export async function startPluginsServer(
             })
         }
 
-        // every minute flush lastSeenAt cache
+        // every 10 seconds past the minute flush lastSeenAt cache
         if (serverConfig.EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED) {
-            flushLastSeenAtCacheJob = schedule.scheduleJob('0 * * * * *', async () => {
+            flushLastSeenAtCacheJob = schedule.scheduleJob('10 * * * * *', async () => {
                 await Promise.all([
                     piscina!.broadcastTask({ task: 'flushLastSeenAtCache' }),
                     hub!.teamManager.flushLastSeenAtCache(),
@@ -211,9 +211,9 @@ export async function startPluginsServer(
             })
         }
 
-        // every minute flush event property counter cache
+        // every 20 seconds past the minute flush the event property counter cache
         if (serverConfig.EXPERIMENTAL_EVENT_PROPERTY_COUNTER) {
-            flushEventPropertyCounterJob = schedule.scheduleJob('0 * * * * *', async () => {
+            flushEventPropertyCounterJob = schedule.scheduleJob('20 * * * * *', async () => {
                 await Promise.all([
                     piscina!.broadcastTask({ task: 'flushEventPropertyCounter' }),
                     hub!.eventPropertyCounter.flush(),

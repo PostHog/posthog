@@ -166,7 +166,7 @@ export async function createHub(
         serverConfig.SITE_URL,
         serverConfig.EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED
     )
-    const eventPropertyCounter = new EventPropertyCounter(db)
+    const eventPropertyCounter = new EventPropertyCounter(db, statsd)
     const organizationManager = new OrganizationManager(db)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const actionManager = new ActionManager(db)
