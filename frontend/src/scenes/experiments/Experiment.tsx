@@ -28,7 +28,6 @@ export function Experiment(): JSX.Element {
         experimentData,
         experimentFunnelId,
         minimimumDetectableChange,
-        experimentFunnelConversionRate,
         recommendedSampleSize,
         expectedRunningTime,
         newExperimentCurrentPage,
@@ -48,8 +47,6 @@ export function Experiment(): JSX.Element {
 
     const conversionRate = conversionMetrics.totalRate * 100
     const entrants = results?.[0]?.count
-    const rate = experimentFunnelConversionRate
-    console.log('conv rate: ', conversionRate, minimimumDetectableChange, entrants, rate)
 
     return (
         <>
@@ -213,21 +210,46 @@ export function Experiment(): JSX.Element {
                                                         parameters: { minimum_detectable_effect: value },
                                                     })
                                                 }}
+                                                tipFormatter={(value) => `${value}%`}
+                                                marks={
+                                                    Math.floor(conversionRate) > 0
+                                                        ? {
+                                                              [Math.floor(conversionRate)]: `${Math.floor(
+                                                                  conversionRate
+                                                              )}%`,
+                                                              5: `5%`,
+                                                              10: `10%`,
+                                                          }
+                                                        : { 5: `5%`, 10: `10%` }
+                                                }
                                             />
                                         </Col>
                                     </Row>
                                     <Row style={{ width: '100%' }} justify="center" className="estimates">
                                         <div style={{ paddingRight: 16, fontWeight: 600, fontSize: 18 }}>
+                                            <div className="text-center">{conversionRate.toFixed(1)}%</div>
+                                            <div className="estimate">Baseline conversion rate</div>
+                                        </div>
+                                        <div
+                                            style={{
+                                                paddingLeft: 16,
+                                                paddingRight: 16,
+                                                borderLeft: '1px solid var(--border)',
+                                                borderRight: '1px solid var(--border)',
+                                                fontWeight: 600,
+                                                fontSize: 18,
+                                            }}
+                                        >
                                             <div className="text-center">
-                                                {(conversionRate - minimimumDetectableChange).toFixed(2)}% and{' '}
-                                                {(conversionRate + minimimumDetectableChange).toFixed(2)}%
+                                                {Math.max(0, conversionRate - minimimumDetectableChange).toFixed()}% -{' '}
+                                                {Math.min(100, conversionRate + minimimumDetectableChange).toFixed()}%
                                             </div>
                                             <div className="estimate text-center">
                                                 Threshold of caring
                                                 <Tooltip
-                                                    title={`The minimum % change in conversion rate you want to
-                                                    see. This means you don't care about which variant you choose if the new
-                                                    conversion rate is between these two percentages`}
+                                                    title={`The minimum % change in conversion rate you care about. 
+                                                    This means you don't care about variants whose
+                                                    conversion rate is between these two percentages.`}
                                                 >
                                                     <InfoCircleOutlined style={{ marginLeft: 4 }} />
                                                 </Tooltip>
@@ -244,7 +266,7 @@ export function Experiment(): JSX.Element {
                                             }}
                                         >
                                             <div className="text-center">~{recommendedSampleSize(conversionRate)}</div>
-                                            <div className="estimate">Recommended persons size</div>
+                                            <div className="estimate">Recommended # of people</div>
                                         </div>
                                         <div style={{ paddingLeft: 16, fontWeight: 600, fontSize: 18 }}>
                                             <div className="text-center">

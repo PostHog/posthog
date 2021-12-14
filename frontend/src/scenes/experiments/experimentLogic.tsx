@@ -23,6 +23,8 @@ import { experimentLogicType } from './experimentLogicType'
 import { router } from 'kea-router'
 import { experimentsLogic } from './experimentsLogic'
 
+const DEFAULT_DURATION = 14 // days
+
 export const experimentLogic = kea<experimentLogicType>({
     path: ['scenes', 'experiment', 'experimentLogic'],
     connect: { values: [teamLogic, ['currentTeamId']], actions: [experimentsLogic, ['loadExperiments']] },
@@ -127,7 +129,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 filters: cleanFilters({
                     insight: InsightType.FUNNELS,
                     funnel_viz_type: FunnelVizType.Steps,
-                    date_from: dayjs().subtract(14, 'day').format('YYYY-MM-DDTHH:mm'),
+                    date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
                     ...filters,
                 }),
@@ -185,7 +187,7 @@ export const experimentLogic = kea<experimentLogicType>({
             },
         ],
     }),
-    selectors: ({ values }) => ({
+    selectors: {
         breadcrumbs: [
             (s) => [s.experimentData, s.experimentId],
             (experimentData, experimentId): Breadcrumb[] => [
@@ -199,54 +201,32 @@ export const experimentLogic = kea<experimentLogicType>({
                 },
             ],
         ],
-        funnel: [
-            (s) => [
-                funnelLogic({ dashboardItemId: values.experimentFunnelId, syncWithUrl: false }).selectors.results,
-                s.newExperimentData,
-            ],
-            (results) => {
-                // eslint-disable-line
-                const newResults = funnelLogic.findMounted({ dashboardItemId: values.experimentFunnelId })?.values
-                    .results // valid results
-                // const newResultsWithoutFound = funnelLogic({
-                //     dashboardItemId: values.experimentFunnelId,
-                //     syncWithUrl: false,
-                // })?.values.results // valid results
-                console.log('id: ', values.experimentFunnelId, results, newResults) // ,newResultsWithoutFound)
-                // results is empty??
-                return results
-            },
-        ],
         minimimumDetectableChange: [
             (s) => [s.newExperimentData],
             (newExperimentData): number => {
-                const med = newExperimentData?.parameters?.minimum_detectable_effect || 5
-                return med
-            },
-        ],
-        experimentFunnelConversionRate: [
-            (s) => [s.funnel],
-            (funnelResult): number => {
-                console.log('conversion rate change: ', funnelResult)
-                return funnelResult?.[0]?.average_conversion_time || 20
+                return newExperimentData?.parameters?.minimum_detectable_effect || 5
             },
         ],
         recommendedSampleSize: [
             (s) => [s.minimimumDetectableChange],
             (mde) => (conversionRate: number) => {
-                return Math.ceil((1600 * conversionRate * (1 - conversionRate / 100)) / (mde * mde))
+                // Using the rule of thumb: 16 * sigma^2 / (mde^2)
+                // refer https://en.wikipedia.org/wiki/Sample_size_determination with default beta and alpha
+                // The results are same as: https://www.evanmiller.org/ab-testing/sample-size.html
+                // and also: https://marketing.dynamicyield.com/ab-test-duration-calculator/
+                // this is per variant, so we need to multiply by 2
+                return 2 * Math.ceil((1600 * conversionRate * (1 - conversionRate / 100)) / (mde * mde))
             },
         ],
         expectedRunningTime: [
             () => [],
             () =>
                 (entrants: number, sampleSize: number): number => {
-                    // TODO: connect to broken insight date filter
-                    const time = 7 // days
-                    return parseFloat(((sampleSize / entrants) * time).toFixed(1))
+                    // recommended people / (actual people / day) = expected days
+                    return parseFloat((sampleSize / (entrants / DEFAULT_DURATION)).toFixed(1))
                 },
         ],
-    }),
+    },
     urlToAction: ({ actions, values }) => ({
         '/experiments/:id': ({ id }) => {
             if (id) {
