@@ -1,13 +1,13 @@
 import json
+from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Union
 
 from dateutil.relativedelta import relativedelta
 from django.test.client import Client
 from django.utils import timezone
 from freezegun import freeze_time
 
-from posthog.api.test.test_trends import NormalizedTrendResult, get_time_series_ok
 from posthog.constants import ENTITY_ID, ENTITY_TYPE
 from posthog.models import Action, ActionStep, Event, Person
 from posthog.models.team import Team
@@ -40,6 +40,29 @@ def get_stickiness_people_ok(client: Client, team_id: int, request: Dict[str, An
     response = get_stickiness_people(client=client, team_id=team_id, request=encode_get_request_params(data=request))
     assert response.status_code == 200
     return response.json()
+
+
+def get_time_series_ok(data):
+    res = {}
+    for item in data["result"]:
+        collect_dates = {}
+        for idx, date in enumerate(item["days"]):
+            collect_dates[date] = NormalizedTrendResult(
+                value=item["data"][idx],
+                label=item["labels"][idx],
+                person_url=item["persons_urls"][idx]["url"],
+                breakdown_value=item.get("breakdown_value", None),
+            )
+        res[item["label"]] = collect_dates
+    return res
+
+
+@dataclass
+class NormalizedTrendResult:
+    value: float
+    label: str
+    person_url: str
+    breakdown_value: Optional[Union[str, int]]
 
 
 # parameterize tests to reuse in EE
