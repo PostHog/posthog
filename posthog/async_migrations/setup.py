@@ -24,9 +24,6 @@ ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH = "posthog.async_migrations.examples"
 
 all_migrations = import_submodules(ASYNC_MIGRATIONS_MODULE_PATH)
 
-if DEBUG and not TEST:
-    all_migrations["example"] = import_submodules(ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH)["example"]
-
 for name, module in all_migrations.items():
     ALL_ASYNC_MIGRATIONS[name] = module.Migration()
 
@@ -92,7 +89,7 @@ def kickstart_migration_if_possible(migration_name: str, applied_migrations: set
     from posthog.async_migrations.runner import run_next_migration
 
     # start running 30 minutes from now
-    run_next_migration(migration_name, after_delay=60 * 30)
+    run_next_migration(migration_name)
 
 
 def get_async_migration_definition(migration_name: str) -> AsyncMigrationDefinition:
