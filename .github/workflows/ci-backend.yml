@@ -301,6 +301,9 @@ jobs:
                   python -m pip install -r deploy/requirements-dev.txt
                   python -m pip install -r deploy/requirements.txt
 
+            - name: Wait for Clickhouse & Kafka
+              run: bin/check_kafka_clickhouse_up
+
             # The 2-step migration process (first master, then current branch) verifies that it'll always
             # be possible to migrate to the new version without problems in production
             - name: Migrate initially at master, then remove master deploy code
@@ -328,9 +331,6 @@ jobs:
                   cp -r messaging deploy/
                   cat multi_tenancy_settings.py >> deploy/posthog/settings.py
                   cat requirements.txt >> deploy/requirements.txt
-
-            - name: Wait for Clickhouse & Kafka
-              run: bin/check_kafka_clickhouse_up
 
             - name: Check migrations
               run: |
