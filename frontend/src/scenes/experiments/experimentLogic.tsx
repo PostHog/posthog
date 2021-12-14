@@ -9,16 +9,25 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { Experiment, InsightType, InsightModel, FunnelVizType, Breadcrumb, InsightShortId, FilterType } from '~/types'
-
+import {
+    Breadcrumb,
+    Experiment,
+    ExperimentResults,
+    FilterType,
+    FunnelVizType,
+    InsightModel,
+    InsightType,
+    InsightShortId,
+} from '~/types'
 import { experimentLogicType } from './experimentLogicType'
 import { router } from 'kea-router'
 import { experimentsLogic } from './experimentsLogic'
 
 export const experimentLogic = kea<experimentLogicType>({
     path: ['scenes', 'experiment', 'experimentLogic'],
-    connect: { values: [teamLogic, ['currentTeamId']] },
+    connect: { values: [teamLogic, ['currentTeamId']], actions: [experimentsLogic, ['loadExperiments']] },
     actions: {
+        setExperimentResults: (experimentResults: ExperimentResults | null) => ({ experimentResults }),
         setExperiment: (experiment: Experiment) => ({ experiment }),
         createExperiment: (draft?: boolean) => ({ draft }),
         setExperimentFunnelId: (shortId: InsightShortId) => ({ shortId }),
@@ -49,6 +58,12 @@ export const experimentLogic = kea<experimentLogicType>({
                     return { ...vals, ...experimentData }
                 },
                 emptyData: () => null,
+            },
+        ],
+        experimentResults: [
+            null as ExperimentResults | null,
+            {
+                setExperimentResults: (_, { experimentResults }) => experimentResults,
             },
         ],
         experimentFunnelId: [
@@ -97,7 +112,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 </div>,
                 {
                     onClick: () => {
-                        experimentsLogic.actions.loadExperiments()
+                        actions.loadExperiments()
                         router.actions.push(urls.experiments())
                     },
                     closeOnClick: true,
@@ -123,6 +138,24 @@ export const experimentLogic = kea<experimentLogicType>({
                 newInsight
             )
             actions.setExperimentFunnelId(createdInsight.short_id)
+        },
+        loadExperiment: async () => {
+            try {
+                const response = await api.get(
+                    `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/results`
+                )
+                actions.setExperimentResults({ ...response, itemID: Math.random().toString(36).substring(2, 15) })
+            } catch (error) {
+                errorToast(
+                    'Error loading experiment results',
+                    'Attempting to load results returned an error:',
+                    error.status !== 0
+                        ? error.detail
+                        : "Check your internet connection and make sure you don't have an extension blocking our requests.",
+                    error.code
+                )
+                actions.setExperimentResults(null)
+            }
         },
         setFilters: ({ filters }) => {
             funnelLogic.findMounted({ dashboardItemId: values.experimentFunnelId })?.actions.setFilters(filters)
