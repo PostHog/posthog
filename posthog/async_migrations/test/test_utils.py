@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+from unittest.mock import create_autospec, patch
 
 import pytest
 
@@ -24,18 +24,18 @@ DEFAULT_POSTGRES_OP = AsyncMigrationOperation(database=AnalyticsDBMS.POSTGRES, s
 class TestUtils(BaseTest):
     @pytest.mark.ee
     @patch("ee.clickhouse.client.sync_execute")
-    @patch.object(AsyncMigrationOperation, "side_effect")
-    def test_execute_op_clickhouse(self, mock_sync_execute, mock_side_effect):
-        execute_op(DEFAULT_CH_OP, "some_id")
+    def test_execute_op_clickhouse(self, mock_sync_execute):
+        with patch.object(DEFAULT_CH_OP, "side_effect") as mock_side_effect:
+            execute_op(DEFAULT_CH_OP, "some_id")
 
         # correctly routes to ch
         mock_sync_execute.assert_called_once_with("/* some_id */ SELECT 1", settings={"max_execution_time": 10})
         mock_side_effect.assert_called_once()
 
     @patch("django.db.connection.cursor")
-    @patch.object(AsyncMigrationOperation, "side_effect")
-    def test_execute_op_postgres(self, mock_cursor, mock_side_effect):
-        execute_op(DEFAULT_POSTGRES_OP, "some_id")
+    def test_execute_op_postgres(self, mock_cursor):
+        with patch.object(DEFAULT_POSTGRES_OP, "side_effect") as mock_side_effect:
+            execute_op(DEFAULT_POSTGRES_OP, "some_id")
 
         # correctly routes to postgres
         mock_cursor.assert_called_once()
