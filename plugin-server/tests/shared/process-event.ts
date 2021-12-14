@@ -121,6 +121,7 @@ export const createProcessEventTests = (
             PLUGINS_CELERY_QUEUE: 'test-plugins-celery-queue',
             CELERY_DEFAULT_QUEUE: 'test-celery-default-queue',
             LOG_LEVEL: LogLevel.Log,
+            EXPERIMENTAL_EVENT_PROPERTY_COUNTER: true,
             ...(extraServerConfig ?? {}),
             ...(additionalProps ?? {}),
         })
@@ -1903,6 +1904,7 @@ export const createProcessEventTests = (
 
     test('team event_properties', async () => {
         expect(await hub.db.fetchEventDefinitions()).toEqual([])
+        expect(await hub.db.fetchEventProperties()).toEqual([])
         expect(await hub.db.fetchPropertyDefinitions()).toEqual([])
 
         await processEvent(
@@ -1953,6 +1955,44 @@ export const createProcessEventTests = (
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
+            },
+        ])
+
+        // flushed every minute normally, triggering flush now, it's tested elsewhere
+        await hub.eventPropertyCounter.flush()
+        expect(await hub.db.fetchEventProperties()).toEqual([
+            {
+                created_at: expect.any(String),
+                event: 'purchase',
+                id: expect.any(Number),
+                last_seen_at: expect.any(String),
+                property: 'price',
+                property_type: 'NUMBER',
+                property_type_format: null,
+                team_id: 2,
+                total_volume: 1,
+            },
+            {
+                created_at: expect.any(String),
+                event: 'purchase',
+                id: expect.any(Number),
+                last_seen_at: expect.any(String),
+                property: 'name',
+                property_type: 'STRING',
+                property_type_format: null,
+                team_id: 2,
+                total_volume: 1,
+            },
+            {
+                created_at: expect.any(String),
+                event: 'purchase',
+                id: expect.any(Number),
+                last_seen_at: expect.any(String),
+                property: '$ip',
+                property_type: 'STRING',
+                property_type_format: null,
+                team_id: 2,
+                total_volume: 1,
             },
         ])
     })
