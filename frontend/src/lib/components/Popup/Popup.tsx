@@ -1,5 +1,5 @@
 import './Popup.scss'
-import React, { MouseEventHandler, ReactElement, useContext, useEffect, useMemo, useState } from 'react'
+import React, { MouseEventHandler, ReactElement, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import ReactDOM from 'react-dom'
 import { usePopper } from 'react-popper'
 import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
@@ -25,7 +25,6 @@ export interface PopupProps {
     className?: string
 }
 
-// if we're inside a popup inside a popup, prevent the parent's onClickOutside from working
 const PopupContext = React.createContext<number>(0)
 const disabledPopups = new Map<number, number>()
 let uniqueMemoizedIndex = 0
@@ -43,19 +42,19 @@ export function Popup({
     actionable = false,
     sameWidth = false,
 }: PopupProps): JSX.Element {
-    const popupId = useMemo(() => ++uniqueMemoizedIndex, [])
+    const parentPopupId = useContext(PopupContext)
 
     const [referenceElement, setReferenceElement] = useState<HTMLDivElement | null>(null)
     const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
 
-    const parentPopupId = useContext(PopupContext)
+    const popupId = useMemo(() => ++uniqueMemoizedIndex, [])
     const localRefs = [popperElement, referenceElement]
 
     useEffect(() => {
         if (visible) {
-            disabledPopups.set(parentPopupId, (disabledPopups.get(parentPopupId) || 0) + 1)
+            disabledPopups.set(popupId, parentPopupId)
             return () => {
-                disabledPopups.set(parentPopupId, (disabledPopups.get(parentPopupId) || 0) - 1)
+                disabledPopups.delete(popupId)
             }
         }
     }, [visible, parentPopupId])
@@ -63,8 +62,19 @@ export function Popup({
     useOutsideClickHandler(
         localRefs,
         (event) => {
-            if (visible && !disabledPopups.get(popupId)) {
+            if (visible) {
                 onClickOutside?.(event)
+            }
+        },
+        [visible, disabledPopups]
+    )
+
+    const onClickInsideConditional = useCallback(
+        (event) => {
+            // Don't run onClickInside if this popup is a child of another popup
+            console.log('clicked', disabledPopups, parentPopupId, popupId)
+            if (!disabledPopups.has(popupId)) {
+                onClickInside?.(event)
             }
         },
         [visible, disabledPopups]
@@ -126,7 +136,7 @@ export function Popup({
                           className={clsx('Popup', actionable && 'Popup--actionable', className)}
                           ref={setPopperElement}
                           style={styles.popper}
-                          onClick={onClickInside}
+                          onClick={onClickInsideConditional}
                           {...attributes.popper}
                       >
                           <PopupContext.Provider value={popupId}>{overlay}</PopupContext.Provider>
