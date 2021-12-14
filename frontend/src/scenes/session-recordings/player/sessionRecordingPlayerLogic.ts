@@ -316,10 +316,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
                 )
                 if (currentPlayerTime !== null) {
                     const nextPlayerTime = currentPlayerTime + values.jumpTimeMs
-                    const nextPlayerPosition = getPlayerPositionFromPlayerTime(
+                    let nextPlayerPosition = getPlayerPositionFromPlayerTime(
                         nextPlayerTime,
                         values.sessionPlayerData.metadata.segments
                     )
+                    if (!nextPlayerPosition) {
+                        // At the end of the recording. Pause the player and reset the playerPosition
+                        actions.setPause()
+                        nextPlayerPosition = values.sessionPlayerData.metadata.segments[0].startPlayerPosition
+                    }
                     actions.seek(nextPlayerPosition)
                 }
             }
@@ -331,7 +336,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
                     values.sessionPlayerData.metadata.segments
                 )
                 if (currentPlayerTime !== null) {
-                    const nextPlayerTime = currentPlayerTime - values.jumpTimeMs
+                    const nextPlayerTime = Math.max(currentPlayerTime - values.jumpTimeMs, 0)
                     const nextPlayerPosition = getPlayerPositionFromPlayerTime(
                         nextPlayerTime,
                         values.sessionPlayerData.metadata.segments
