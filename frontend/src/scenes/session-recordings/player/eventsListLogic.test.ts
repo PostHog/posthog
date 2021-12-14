@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
-import { List } from 'react-virtualized/dist/commonjs/List'
+import { List } from 'react-virtualized/dist/es/List'
 import { initKeaTestLogic } from '~/test/init'
 import {
     DEFAULT_SCROLLING_RESET_TIME_INTERVAL,

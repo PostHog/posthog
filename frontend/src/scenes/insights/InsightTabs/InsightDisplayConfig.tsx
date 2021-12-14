@@ -13,13 +13,14 @@ import { FunnelBinsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBi
 import { PathStepPicker } from './PathTab/PathStepPicker'
 import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getFormattedLastWeekDate } from 'lib/utils'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface InsightDisplayConfigProps {
     clearAnnotationsToCreate: () => void
     filters: FilterType
     activeView: InsightType
     insightMode: ItemMode
+    disableTable: boolean
     annotationsToCreate: Record<string, any>[] // TODO: Annotate properly
 }
 
@@ -84,20 +85,22 @@ export function InsightDisplayConfig({
     filters,
     activeView,
     clearAnnotationsToCreate,
+    disableTable,
 }: InsightDisplayConfigProps): JSX.Element {
     const showFunnelBarOptions = activeView === InsightType.FUNNELS
     const showPathOptions = activeView === InsightType.PATHS
     const dateFilterDisabled = showFunnelBarOptions && isFunnelEmpty(filters)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { currentFormattedDateRange } = useValues(insightLogic)
 
     return (
         <div className="display-config-inner">
             <div className="display-config-inner-row">
-                {showDateFilter[activeView] && (
+                {showDateFilter[activeView] && !disableTable && (
                     <span className="filter">
                         <span className="head-title-item">Date range</span>
                         <InsightDateFilter
-                            defaultValue={getFormattedLastWeekDate()}
+                            defaultValue={currentFormattedDateRange}
                             disabled={dateFilterDisabled}
                             bordered
                             makeLabel={(key) => (

@@ -111,7 +111,7 @@ class Command(BaseCommand):
             team = Team.objects.create_with_data(
                 default_dashboards=False,
                 organization=organization,
-                name=team_name if team_name else "HogFlix Demo App",
+                name=team_name if team_name else "Hogflix Demo App",
                 ingested_event=True,
                 completed_snippet_onboarding=True,
                 is_demo=True,

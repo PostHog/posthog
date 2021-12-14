@@ -7,6 +7,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.async_migrations.status import async_migrations_ok
 from posthog.gitsha import GIT_SHA
 from posthog.internal_metrics.team import get_internal_metrics_dashboards
 from posthog.models import Element, Event, SessionRecordingEvent
@@ -97,6 +98,10 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                 }
             )
 
+            metrics.append(
+                {"key": "async_migrations_ok", "metric": "Async migrations up-to-date", "value": async_migrations_ok()}
+            )
+
             if not is_clickhouse_enabled():
                 event_table_count = get_table_approx_count(Event._meta.db_table)
                 event_table_size = get_table_size(Event._meta.db_table)
@@ -122,6 +127,7 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                         "value": f"{session_recording_event_table_count} rows (~{session_recording_event_table_size})",
                     }
                 )
+
         if is_clickhouse_enabled():
             from ee.clickhouse.system_status import system_status
 

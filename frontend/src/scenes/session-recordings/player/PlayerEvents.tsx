@@ -4,14 +4,14 @@ import { Col, Empty, Input, Row, Skeleton } from 'antd'
 import { ArrowDownOutlined, ArrowUpOutlined, CloseOutlined, SearchOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
-import List, { ListRowProps } from 'react-virtualized/dist/commonjs/List'
+import List, { ListRowProps } from 'react-virtualized/dist/es/List'
 import {
     defaultCellRangeRenderer,
     GridCellRangeProps,
     OverscanIndices,
     OverscanIndicesGetterParams,
-} from 'react-virtualized/dist/commonjs/Grid'
-import { AutoSizer } from 'react-virtualized/dist/commonjs/AutoSizer'
+} from 'react-virtualized/dist/es/Grid'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import {
     eventsListLogic,
     OVERSCANNED_ROW_COUNT,

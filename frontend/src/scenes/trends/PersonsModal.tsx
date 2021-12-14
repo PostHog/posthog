@@ -23,6 +23,7 @@ export interface PersonsModalProps {
     filters: Partial<FilterType>
     onSaveCohort: () => void
     showModalActions?: boolean
+    aggregationTargetLabel: { singular: string; plural: string }
 }
 
 export function PersonsModal({
@@ -31,6 +32,7 @@ export function PersonsModal({
     filters,
     onSaveCohort,
     showModalActions = true,
+    aggregationTargetLabel,
 }: PersonsModalProps): JSX.Element {
     const {
         people,
@@ -40,7 +42,6 @@ export function PersonsModal({
         isInitialLoad,
         clickhouseFeaturesEnabled,
         peopleParams,
-        actorLabel,
     } = useValues(personsModalLogic)
     const { hidePeople, loadMorePeople, setFirstLoadedActors, setPersonsModalFilters, setSearchTerm } =
         useActions(personsModalLogic)
@@ -49,7 +50,7 @@ export function PersonsModal({
     const title = useMemo(
         () =>
             isInitialLoad ? (
-                'Loading persons…'
+                `Loading ${aggregationTargetLabel.plural}…`
             ) : filters.shown_as === 'Stickiness' ? (
                 <>
                     <PropertyKeyInfo value={people?.label || ''} disablePopover /> stickiness on day {people?.day}
@@ -158,7 +159,7 @@ export function PersonsModal({
                             <span>
                                 This list contains{' '}
                                 <b>
-                                    {people.count} unique {actorLabel}
+                                    {people.count} unique {aggregationTargetLabel.plural}
                                 </b>
                                 {peopleParams?.pointValue !== undefined &&
                                     peopleParams.action !== 'session' &&
@@ -206,7 +207,7 @@ export function PersonsModal({
                             />
                         ) : (
                             <div className="person-row-container person-row">
-                                We couldn't find any matching persons for this data point.
+                                We couldn't find any matching {aggregationTargetLabel.plural} for this data point.
                             </div>
                         )}
                         {people?.next && (
@@ -222,7 +223,7 @@ export function PersonsModal({
                                     onClick={loadMorePeople}
                                     loading={loadingMorePeople}
                                 >
-                                    Load more people
+                                    Load more {aggregationTargetLabel.plural}
                                 </Button>
                             </div>
                         )}
