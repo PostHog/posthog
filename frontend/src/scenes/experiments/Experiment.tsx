@@ -1,5 +1,5 @@
 import SaveOutlined from '@ant-design/icons/lib/icons/SaveOutlined'
-import { Button, Card, Col, Form, Input, Row, Slider } from 'antd'
+import { Button, Card, Col, Form, Input, Row, Slider, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
@@ -14,6 +14,7 @@ import { PropertyFilter } from '~/types'
 import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
+import { InfoCircleOutlined } from '@ant-design/icons'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -114,33 +115,35 @@ export function Experiment(): JSX.Element {
                         {newExperimentCurrentPage === 1 && (
                             <div>
                                 <Row className="person-selection">
-                                    <div className="l3 mb">Person selection</div>
-                                    <div className="text-muted">
-                                        Select the persons who will participate in this experiment. We'll split all
-                                        persons evenly in a control and experiment group.
-                                    </div>
-                                    <div style={{ flex: 3, marginRight: 5 }}>
-                                        <PropertyFilters
-                                            endpoint="person"
-                                            pageKey={'EditFunnel-property'}
-                                            propertyFilters={filters.properties || []}
-                                            onChange={(anyProperties) => {
-                                                setNewExperimentData({
-                                                    filters: { properties: anyProperties as PropertyFilter[] },
-                                                })
-                                                setFilters({
-                                                    properties: anyProperties.filter(isValidPropertyFilter),
-                                                })
-                                            }}
-                                            style={{ margin: '1rem 0 0' }}
-                                            taxonomicGroupTypes={[
-                                                TaxonomicFilterGroupType.PersonProperties,
-                                                TaxonomicFilterGroupType.CohortsWithAllUsers,
-                                            ]}
-                                            popoverPlacement="top"
-                                            taxonomicPopoverPlacement="auto"
-                                        />
-                                    </div>
+                                    <Col>
+                                        <div className="l3 mb">Person selection</div>
+                                        <div className="text-muted">
+                                            Select the persons who will participate in this experiment. We'll split all
+                                            persons evenly in a control and experiment group.
+                                        </div>
+                                        <div style={{ flex: 3, marginRight: 5 }}>
+                                            <PropertyFilters
+                                                endpoint="person"
+                                                pageKey={'EditFunnel-property'}
+                                                propertyFilters={filters.properties || []}
+                                                onChange={(anyProperties) => {
+                                                    setNewExperimentData({
+                                                        filters: { properties: anyProperties as PropertyFilter[] },
+                                                    })
+                                                    setFilters({
+                                                        properties: anyProperties.filter(isValidPropertyFilter),
+                                                    })
+                                                }}
+                                                style={{ margin: '1rem 0 0' }}
+                                                taxonomicGroupTypes={[
+                                                    TaxonomicFilterGroupType.PersonProperties,
+                                                    TaxonomicFilterGroupType.CohortsWithAllUsers,
+                                                ]}
+                                                popoverPlacement="top"
+                                                taxonomicPopoverPlacement="auto"
+                                            />
+                                        </div>
+                                    </Col>
                                 </Row>
                                 <Row className="metrics-selection">
                                     <BindLogic logic={insightLogic} props={insightProps}>
@@ -190,39 +193,65 @@ export function Experiment(): JSX.Element {
                                     </BindLogic>
                                 </Row>
                                 <Row className="mde-selection">
-                                    <div className="l3 mb">Recommended running time</div>
-                                    <div className="text-muted">
-                                        While you can end experiments at any time, we recommend you run your experiment
-                                        based on the below parameters.
-                                    </div>
-                                    <br />
-                                    <Col span={12}>
-                                        <div>
-                                            Threshold of caring: The minimum % change in conversion rate you want to
-                                            see.{' '}
+                                    <Row style={{ width: '100%', marginBottom: 8 }} align="middle" justify="center">
+                                        <Row
+                                            style={{ width: '100%', fontWeight: 500, fontSize: 16 }}
+                                            className="text-muted"
+                                            justify="center"
+                                        >
+                                            Estimates for how long your experiment should run.
+                                        </Row>
+                                        <Col span={8}>
+                                            <Slider
+                                                defaultValue={5}
+                                                min={1}
+                                                max={50}
+                                                trackStyle={{ background: 'black' }}
+                                                onChange={(value) => {
+                                                    setNewExperimentData({
+                                                        parameters: { minimum_detectable_effect: value },
+                                                    })
+                                                }}
+                                            />
+                                        </Col>
+                                    </Row>
+                                    <Row style={{ width: '100%' }} justify="center" className="estimates">
+                                        <div style={{ paddingRight: 16, fontWeight: 600, fontSize: 18 }}>
+                                            <div className="text-center">
+                                                {(conversionRate - minimimumDetectableChange).toFixed(2)}% and{' '}
+                                                {(conversionRate + minimimumDetectableChange).toFixed(2)}%
+                                            </div>
+                                            <div className="estimate text-center">
+                                                Threshold of caring
+                                                <Tooltip
+                                                    title={`The minimum % change in conversion rate you want to
+                                                    see. This means you don't care about which variant you choose if the new
+                                                    conversion rate is between these two percentages`}
+                                                >
+                                                    <InfoCircleOutlined style={{ marginLeft: 4 }} />
+                                                </Tooltip>
+                                            </div>
                                         </div>
-                                        <Slider
-                                            defaultValue={5}
-                                            min={1}
-                                            max={50}
-                                            onChange={(value) => {
-                                                setNewExperimentData({
-                                                    parameters: { minimum_detectable_effect: value },
-                                                })
+                                        <div
+                                            style={{
+                                                paddingLeft: 16,
+                                                paddingRight: 16,
+                                                borderLeft: '1px solid var(--border)',
+                                                borderRight: '1px solid var(--border)',
+                                                fontWeight: 600,
+                                                fontSize: 18,
                                             }}
-                                        />
-                                        <div>
-                                            This means you don't care about which variant you choose if the new
-                                            conversion rate is between {conversionRate - minimimumDetectableChange}% and{' '}
-                                            {conversionRate + minimimumDetectableChange}%
+                                        >
+                                            <div className="text-center">~{recommendedSampleSize(conversionRate)}</div>
+                                            <div className="estimate">Recommended persons size</div>
                                         </div>
-                                    </Col>
-                                    <Col span={12}>
-                                        Based on the threshold of caring and the persons selection above, we recommend
-                                        running this experiment on {recommendedSampleSize(conversionRate)} people. That
-                                        means {expectedRunningTime(entrants, recommendedSampleSize(conversionRate))}{' '}
-                                        days.
-                                    </Col>
+                                        <div style={{ paddingLeft: 16, fontWeight: 600, fontSize: 18 }}>
+                                            <div className="text-center">
+                                                ~{expectedRunningTime(entrants, recommendedSampleSize(conversionRate))}
+                                            </div>
+                                            <div className="estimate">Recommended days</div>
+                                        </div>
+                                    </Row>
                                 </Row>
                                 <Row justify="space-between">
                                     <Button onClick={prevPage}>Go back</Button>
