@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+
+nc -z localhost 9092 || echo -e "\033[0;31mKafka isn't running. Please run\n\tdocker compose -f ee/docker-compose.ch.arm64.yml up zookeeper kafka clickhouse db redis\nI'll wait while you do that.\033[0m" && bin/check_kafka_clickhouse_up
+wget -nv -t1 --spider 'http://localhost:8123/' || echo -e "\033[0;31mClickhouse isn't running. Please run\n\tdocker compose -f ee/docker-compose.ch.arm64.yml up zookeeper kafka clickhouse db redis.\nI'll wait while you do that.\033[0m" && bin/check_kafka_clickhouse_up
+
+
 dropdb --if-exists posthog_e2e_test
 createdb posthog_e2e_test
 DEBUG=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test python manage.py migrate &&
@@ -12,5 +17,5 @@ NO_RESTART_LOOP=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test ./bin/
 nc -vz 127.0.0.1 8234 2> /dev/null || ./bin/start-frontend &
 
 CYPRESS_BASE_URL=http://localhost:8080 npx cypress open --config-file cypress.e2e.json &
-OPT_OUT_CAPTURE=1 SECURE_COOKIES=0 DEBUG=0 TEST=1 E2E_TESTING=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test EMAIL_HOST=email.test.posthog.net SITE_URL=test.posthog.net python manage.py runserver 8080
+OPT_OUT_CAPTURE=1 SECURE_COOKIES=0 DEBUG=0 PRIMARY_DB=clickhouse SKIP_SERVICE_VERSION_REQUIREMENTS=1 KAFKA_HOSTS=kafka:9092 TEST=1 E2E_TESTING=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test EMAIL_HOST=email.test.posthog.net SITE_URL=test.posthog.net python manage.py runserver 8080
 yarn remove cypress cypress-terminal-report @cypress/react @cypress/webpack-preprocessor
