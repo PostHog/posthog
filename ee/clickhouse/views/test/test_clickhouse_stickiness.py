@@ -1,6 +1,7 @@
 from datetime import timedelta
 from uuid import uuid4
 
+from django.test.client import Client
 from freezegun.api import freeze_time
 
 from ee.clickhouse.models.event import create_event
@@ -8,8 +9,7 @@ from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.util import get_earliest_timestamp
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
-from posthog.api.test.test_stickiness import get_stickiness_ok, get_stickiness_time_series_ok, stickiness_test_factory
-from posthog.api.test.test_trends import get_people_from_url_ok
+from posthog.api.test.test_stickiness import get_stickiness_time_series_ok, stickiness_test_factory
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -33,6 +33,12 @@ def _create_event(**kwargs):
 def _create_person(**kwargs):
     person = Person.objects.create(**kwargs)
     return Person(id=person.uuid)
+
+
+def get_people_from_url_ok(client: Client, url: str):
+    response = client.get("/" + url)
+    assert response.status_code == 200, response.content
+    return response.json()["results"][0]["people"]
 
 
 class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(ClickhouseStickiness, _create_event, _create_person, _create_action, get_earliest_timestamp)):  # type: ignore
