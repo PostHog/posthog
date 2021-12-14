@@ -194,7 +194,7 @@ class ClickhouseRetention(Retention):
                     for interval_number in range(filter.total_intervals - (filter.selected_interval or 0))
                 ],
             }
-            for person in people_appearances
+            for person in sorted(people_appearances, key=lambda x: x.person_id)
         ]
 
 
@@ -218,17 +218,16 @@ def build_actor_query(
 
     all_params = {
         "period": filter.period.lower(),
-        "limit": None,
         "breakdown_values": list(filter_by_breakdown) if filter_by_breakdown else None,
         "selected_interval": selected_interval,
     }
 
-    query_without_limit_offset = substitute_params(RETENTION_BREAKDOWN_ACTOR_SQL, all_params).format(
+    query = substitute_params(RETENTION_BREAKDOWN_ACTOR_SQL, all_params).format(
         returning_event_query=returning_event_query,
         target_event_query=target_event_query,
     )
 
-    return query_without_limit_offset
+    return query
 
 
 def build_returning_event_query(filter: RetentionFilter, team: Team):
@@ -238,7 +237,9 @@ def build_returning_event_query(filter: RetentionFilter, team: Team):
         event_query_type=RetentionQueryType.RETURNING,
     ).get_query()
 
-    return substitute_params(returning_event_query_templated, returning_event_params)
+    query = substitute_params(returning_event_query_templated, returning_event_params)
+
+    return query
 
 
 def build_target_event_query(filter: RetentionFilter, team: Team):
@@ -252,7 +253,9 @@ def build_target_event_query(filter: RetentionFilter, team: Team):
         ),
     ).get_query()
 
-    return substitute_params(target_event_query_templated, target_event_params)
+    query = substitute_params(target_event_query_templated, target_event_params)
+
+    return query
 
 
 def get_people_appearances(

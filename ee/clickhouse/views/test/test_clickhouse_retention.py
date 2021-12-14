@@ -14,7 +14,7 @@ from posthog.test.base import test_with_materialized_columns
 from posthog.utils import encode_get_request_params
 
 
-class RetentionTests(TestCase, ClickhouseTestMixin):
+class RetentionBreakdownTests(TestCase, ClickhouseTestMixin):
     def test_can_get_retention_cohort_breakdown(self):
         organization = create_organization(name="test")
         team = create_team(organization=organization)
@@ -289,6 +289,49 @@ class RetentionTests(TestCase, ClickhouseTestMixin):
 
         assert [distinct_id for person in people for distinct_id in person["distinct_ids"]] == ["person 1"]
 
+
+class RetentionIntervalTests(TestCase, ClickhouseTestMixin):
+    def test_can_get_retention_week_interval(self):
+        organization = create_organization(name="test")
+        team = create_team(organization=organization)
+        user = create_user(email="test@posthog.com", password="1234", organization=organization)
+
+        self.client.force_login(user)
+
+        update_or_create_person(distinct_ids=["person 1"], team_id=team.pk)
+        update_or_create_person(distinct_ids=["person 2"], team_id=team.pk)
+
+        setup_user_activity_by_day(
+            daily_activity={
+                "2020-01-01": {"person 1": [{"event": "target event"}]},
+                "2020-01-08": {"person 2": [{"event": "target event"}]},
+            },
+            team=team,
+        )
+
+        retention = get_retention_ok(
+            client=self.client,
+            team_id=team.pk,
+            request=RetentionRequest(
+                target_entity={"id": "target event", "type": "events"},
+                returning_entity={"id": "target event", "type": "events"},
+                date_from="2020-01-01",
+                total_intervals=2,
+                date_to="2020-01-08",
+                period="Week",
+                retention_type="retention_first_time",
+            ),
+        )
+
+        retention_by_cohort_by_period = get_by_cohort_by_period_for_response(client=self.client, response=retention)
+
+        assert retention_by_cohort_by_period == {
+                "Week 0": {
+                    "1": ["person 1"],
+                    "2": [],
+                },
+                "Week 1": {"1": ["person 2"]},
+            }
 
 def setup_user_activity_by_day(daily_activity, team):
     _create_all_events(

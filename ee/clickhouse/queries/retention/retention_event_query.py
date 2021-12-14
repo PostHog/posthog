@@ -149,7 +149,7 @@ class RetentionEventsQuery(ClickhouseEventQuery):
         elif self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
             return f"min({self._trunc_func}(e.timestamp)) as event_date"
         else:
-            return f"{self.EVENT_TABLE_ALIAS}.timestamp AS event_date"
+            return f"{self._trunc_func}({self.EVENT_TABLE_ALIAS}.timestamp) AS event_date"
 
     def _determine_should_join_distinct_ids(self) -> None:
         self._should_join_distinct_ids = True

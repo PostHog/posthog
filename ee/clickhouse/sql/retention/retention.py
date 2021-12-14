@@ -26,6 +26,7 @@ RETENTION_BREAKDOWN_ACTOR_SQL = """
 
     -- Wrap such that CTE is shared across both sides of the union
     SELECT 
+        DISTINCT
         breakdown_values,
         intervals_from_base,
         actor_id
@@ -61,6 +62,4 @@ RETENTION_BREAKDOWN_ACTOR_SQL = """
     WHERE 
         (breakdown_values_filter is NULL OR breakdown_values = breakdown_values_filter)
         AND (selected_interval is NULL OR intervals_from_base = selected_interval)
-
-    LIMIT 1 BY actor_id, intervals_from_base
 """
