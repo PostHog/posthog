@@ -764,6 +764,18 @@ export interface PropertyDefinitionType {
     team_id: number
 }
 
+export interface EventPropertyType {
+    id: string
+    event: string
+    property: string
+    property_type: string | null
+    property_type_format: string | null
+    total_volume: number | null
+    created_at: string // DateTime
+    last_seen_at: string // DateTime
+    team_id: number
+}
+
 export type PluginFunction = 'onEvent' | 'onAction' | 'processEvent' | 'onSnapshot' | 'pluginTask'
 
 export enum CeleryTriggeredJobOperation {

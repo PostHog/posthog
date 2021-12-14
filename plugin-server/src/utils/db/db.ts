@@ -31,6 +31,7 @@ import {
     ElementGroup,
     Event,
     EventDefinitionType,
+    EventPropertyType,
     Group,
     GroupTypeIndex,
     GroupTypeToColumnIndex,
@@ -1117,6 +1118,13 @@ export class DB {
         return (
             await this.postgresQuery('SELECT * FROM posthog_propertydefinition', undefined, 'fetchPropertyDefinitions')
         ).rows as PropertyDefinitionType[]
+    }
+
+    // EventProperty
+
+    public async fetchEventProperties(): Promise<EventPropertyType[]> {
+        return (await this.postgresQuery('SELECT * FROM posthog_eventproperty', undefined, 'fetchEventProperties'))
+            .rows as EventPropertyType[]
     }
 
     // Action & ActionStep & Action<>Event

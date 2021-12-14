@@ -128,7 +128,7 @@ export class EventPropertyCounter {
                 for (const [key, propertyBuffer] of teamBuffer.entries()) {
                     const [event, property] = JSON.parse(key)
                     const { propertyType, propertyTypeFormat, totalVolume, lastSeenAt, createdAt } = propertyBuffer
-                    queryValues.push(`($${++i},$${++i},$${++i},$${++i},$${++i},$${++i},$${++i},$${++i})`)
+                    queryValues.push(`($${++i},$${++i},$${++i},$${++i},$${++i},$${++i},$${++i},$${i})`)
                     params.push(
                         teamId,
                         event,
@@ -143,18 +143,14 @@ export class EventPropertyCounter {
             }
 
             await this.db.postgresQuery(
-                `INSERT INTO posthog_eventproperty(team_id, event, property, property_type, property_type_format,
-                                                   total_volume, created_at, last_seen_at)
-                 VALUES ${queryValues.join(',')} ON CONFLICT
-                 ON CONSTRAINT posthog_eventproperty_team_id_event_property_10910b3b_uniq DO
-                UPDATE SET
+                `INSERT INTO posthog_eventproperty(team_id, event, property, property_type, property_type_format, total_volume, created_at, last_seen_at)
+                VALUES ${queryValues.join(',')}
+                ON CONFLICT ON CONSTRAINT posthog_eventproperty_team_id_event_property_10910b3b_uniq DO UPDATE SET
                     total_volume = posthog_eventproperty.total_volume + excluded.total_volume,
                     created_at = LEAST(posthog_eventproperty.created_at, excluded.created_at),
                     last_seen_at = GREATEST(posthog_eventproperty.last_seen_at, excluded.last_seen_at),
-                    property_type = CASE WHEN posthog_eventproperty.property_type IS NULL THEN excluded.property_type ELSE posthog_eventproperty.property_type
-                END,
-                property_type_format = CASE WHEN posthog_eventproperty.property_type_format IS NULL THEN excluded.property_type_format ELSE posthog_eventproperty.property_type_format
-                END
+                    property_type = CASE WHEN posthog_eventproperty.property_type IS NULL THEN excluded.property_type ELSE posthog_eventproperty.property_type END,
+                    property_type_format = CASE WHEN posthog_eventproperty.property_type_format IS NULL THEN excluded.property_type_format ELSE posthog_eventproperty.property_type_format END
                 `,
                 params,
                 'eventPropertyCounterFlush'
