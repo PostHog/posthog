@@ -78,7 +78,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SITE_URL: null,
         NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS: '',
         EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: true,
-        EXPERIMENTAL_EVENT_PROPERTY_COUNTER: false,
+        EXPERIMENTAL_EVENT_PROPERTY_COUNTER: true,
     }
 }
 
