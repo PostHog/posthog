@@ -218,9 +218,3 @@ export class TeamManager {
         }
     }
 }
-
-function detectDateFormat(value: string): string | void {
-    if (value.match(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/)) {
-        return 'YYYY-MM-DD'
-    }
-}
