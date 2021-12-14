@@ -3,7 +3,6 @@ import { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicTy
 import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { PlayerPosition, RecordingSegment, SessionPlayerState } from '~/types'
-import { eventWithTime } from 'rrweb/typings/types'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import {
@@ -125,6 +124,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
         tryInitReplayer: () => {
             // Tries to initialize a new player
             const windowId: string | null = values.currentPlayerPosition?.windowId ?? null
+            actions.setPlayer(null)
+            values.rootFrame.innerHTML = '' // Clear the previously drawn frames
             if (
                 !values.rootFrame ||
                 windowId === null ||
@@ -154,8 +155,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
             // If so, we need to re-initialize the player
             if (values.player && values.player.windowId !== segment.windowId) {
                 values.player?.replayer?.pause()
-                actions.setPlayer(null)
-                values.rootFrame.innerHTML = '' // Clear the previously drawn frames
                 actions.tryInitReplayer()
             }
             actions.seek(values.currentPlayerPosition)
@@ -187,9 +186,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
 
             // If replayer isn't initialized, it will be initialized with the already loaded snapshots
             if (!!values.player?.replayer) {
-                eventsToAdd.forEach((event: eventWithTime) => {
-                    values.player?.replayer?.addEvent(event)
-                })
+                for (const event of eventsToAdd) {
+                    await values.player?.replayer?.addEvent(event)
+                }
             } else {
                 actions.tryInitReplayer()
             }
