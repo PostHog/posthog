@@ -91,6 +91,10 @@
                 {
                     "name": "PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS",
                     "value": "2,2635"
+                },
+                {
+                    "name": "EXPERIMENTAL_EVENT_PROPERTY_COUNTER_ENABLED_TEAMS",
+                    "value": "2"
                 }
             ],
             "secrets": [

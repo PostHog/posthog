@@ -80,6 +80,7 @@ export class EventsProcessor {
     eventPropertyCounter: EventPropertyCounter
     personManager: PersonManager
     groupTypeManager: GroupTypeManager
+    propertyCounterTeams: number[]
 
     constructor(pluginsServer: Hub) {
         this.pluginsServer = pluginsServer
@@ -91,6 +92,8 @@ export class EventsProcessor {
         this.eventPropertyCounter = pluginsServer.eventPropertyCounter
         this.personManager = new PersonManager(pluginsServer)
         this.groupTypeManager = new GroupTypeManager(pluginsServer.db, this.teamManager, pluginsServer.SITE_URL)
+        this.propertyCounterTeams =
+            pluginsServer.EXPERIMENTAL_EVENT_PROPERTY_COUNTER_ENABLED_TEAMS.split(',').map(parseInt)
     }
 
     public async processEvent(
@@ -506,7 +509,7 @@ export class EventsProcessor {
         if (!EVENTS_WITHOUT_EVENT_DEFINITION.includes(event)) {
             await this.teamManager.updateEventNamesAndProperties(teamId, event, properties)
         }
-        if (this.pluginsServer.EXPERIMENTAL_EVENT_PROPERTY_COUNTER) {
+        if (this.propertyCounterTeams.length > 0 && this.propertyCounterTeams.includes(teamId)) {
             await this.eventPropertyCounter.updateEventPropertyCounter(teamId, event, properties)
         }
 

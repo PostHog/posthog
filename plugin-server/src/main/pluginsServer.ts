@@ -212,7 +212,7 @@ export async function startPluginsServer(
         }
 
         // every 20 seconds past the minute flush the event property counter cache
-        if (serverConfig.EXPERIMENTAL_EVENT_PROPERTY_COUNTER) {
+        if (serverConfig.EXPERIMENTAL_EVENT_PROPERTY_COUNTER_ENABLED_TEAMS) {
             flushEventPropertyCounterJob = schedule.scheduleJob('20 * * * * *', async () => {
                 await Promise.all([
                     piscina!.broadcastTask({ task: 'flushEventPropertyCounter' }),
