@@ -8,7 +8,6 @@ from typing import DefaultDict, Dict, Generator, List, Optional
 
 from sentry_sdk.api import capture_exception, capture_message
 
-from posthog.api.utils import paginate_list
 from posthog.models import utils
 
 FULL_SNAPSHOT = 2
@@ -301,3 +300,22 @@ def generate_inactive_segments_for_range(
             segment.end_time = segment.end_time - timedelta(milliseconds=1)
 
     return inactive_segments
+
+
+@dataclasses.dataclass
+class PaginatedList:
+    has_next: bool
+    paginated_list: List
+
+
+def paginate_list(list_to_paginate: List, limit: Optional[int], offset: int) -> PaginatedList:
+    if not limit:
+        has_next = False
+        paginated_list = list_to_paginate[offset:]
+    elif offset + limit < len(list_to_paginate):
+        has_next = True
+        paginated_list = list_to_paginate[offset : offset + limit]
+    else:
+        has_next = False
+        paginated_list = list_to_paginate[offset:]
+    return PaginatedList(has_next=has_next, paginated_list=paginated_list)

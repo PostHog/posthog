@@ -1,4 +1,3 @@
-import dataclasses
 import json
 from enum import Enum, auto
 from typing import (
@@ -247,22 +246,3 @@ def get_team(request, data, token) -> Tuple[Optional[Team], Optional[str], Optio
         )
 
     return team, db_error, error_response
-
-
-@dataclasses.dataclass
-class PaginatedList:
-    has_next: bool
-    paginated_list: List
-
-
-def paginate_list(list_to_paginate: List, limit: Optional[int], offset: int) -> PaginatedList:
-    if not limit:
-        has_next = False
-        paginated_list = list_to_paginate[offset:]
-    elif offset + limit < len(list_to_paginate):
-        has_next = True
-        paginated_list = list_to_paginate[offset : offset + limit]
-    else:
-        has_next = False
-        paginated_list = list_to_paginate[offset:]
-    return PaginatedList(has_next=has_next, paginated_list=paginated_list)

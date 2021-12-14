@@ -5,6 +5,7 @@ from pytest_mock import MockerFixture
 
 from posthog.helpers.session_recording import (
     EventActivityData,
+    PaginatedList,
     RecordingSegment,
     SnapshotDataTaggedWithWindowId,
     compress_and_chunk_snapshots,
@@ -12,6 +13,7 @@ from posthog.helpers.session_recording import (
     generate_inactive_segments_for_range,
     get_active_segments_from_event_list,
     is_active_event,
+    paginate_list,
     preprocess_session_recording_events,
 )
 
@@ -376,6 +378,16 @@ def test_generate_inactive_segments_for_last_segment():
             is_active=False,
         ),
     ]
+
+
+def test_paginate_list():
+    list = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    assert paginate_list(list, 5, 0) == PaginatedList(has_next=True, paginated_list=list[:5])
+    assert paginate_list(list, 20, 0) == PaginatedList(has_next=False, paginated_list=list)
+    assert paginate_list(list, None, 0) == PaginatedList(has_next=False, paginated_list=list)
+    assert paginate_list(list, None, 5) == PaginatedList(has_next=False, paginated_list=list[5:])
+    assert paginate_list(list, 5, 5) == PaginatedList(has_next=False, paginated_list=list[5:10])
+    assert paginate_list(list, 4, 5) == PaginatedList(has_next=True, paginated_list=list[5:9])
 
 
 @pytest.fixture
