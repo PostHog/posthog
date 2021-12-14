@@ -15,9 +15,9 @@ export function getDefaultConfig(): PluginsServerConfig {
     return {
         CELERY_DEFAULT_QUEUE: 'celery',
         DATABASE_URL: isTestEnv
-            ? 'postgres://localhost:5432/test_posthog'
+            ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
             : isDevEnv
-            ? 'postgres://localhost:5432/posthog'
+            ? 'postgres://posthog:posthog@localhost:5432/posthog'
             : null,
         POSTHOG_DB_NAME: null,
         POSTHOG_DB_USER: 'postgres',
