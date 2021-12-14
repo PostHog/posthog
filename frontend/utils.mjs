@@ -70,8 +70,9 @@ export function copyIndexHtml(
         window.ESBUILD_LOAD_SCRIPT = async function (file) {
             try {
                 await import('${useJsURL ? jsURL : ''}/static/' + file)
-            } catch (e) {
+            } catch (error) {
                 console.error('Error loading chunk: "' + file + '"')
+                console.error(error)
             }
         }
         window.ESBUILD_LOAD_SCRIPT(${jsFile})
@@ -123,7 +124,8 @@ export const commonConfig = {
     publicPath: '/static',
     assetNames: 'assets/[name]-[hash]',
     chunkNames: '[name]-[hash]',
-    entryNames: '[dir]/[name]-[hash]',
+    // no hashes in dev mode for faster reloads --> we save the old hash in index.html otherwise
+    entryNames: isDev ? '[dir]/[name]' : '[dir]/[name]-[hash]',
     plugins: [sassPlugin, lessPlugin],
     define: {
         global: 'globalThis',

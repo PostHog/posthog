@@ -65,6 +65,15 @@
     }
 }
 
+.LemonRow--center {
+    .LemonRow__main-area {
+        justify-content: center !important;
+    }
+    .LemonRow__content {
+        flex-grow: 0;
+    }
+}
+
 .LemonRow--compact {
     display: block;
     min-height: 1.5rem;

@@ -16,7 +16,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { LemonButton } from '../../lib/components/LemonButton'
 import { LemonSpacer } from '../../lib/components/LemonRow'
 import { LemonSwitch } from '../../lib/components/LemonSwitch/LemonSwitch'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from '../../lib/components/LemonTable/LemonTable'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from '../../lib/components/LemonTable'
 import { More } from '../../lib/components/LemonButton/More'
 import { createdAtColumn, createdByColumn } from '../../lib/components/LemonTable/columnUtils'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
@@ -42,8 +42,8 @@ export function FeatureFlags(): JSX.Element {
             render: function Render(_, featureFlag: FeatureFlagType) {
                 return (
                     <>
-                        <Link to={featureFlag.id ? urls.featureFlag(featureFlag.id) : undefined}>
-                            <h4 className="row-name">{stringWithWBR(featureFlag.key, 17)}</h4>
+                        <Link to={featureFlag.id ? urls.featureFlag(featureFlag.id) : undefined} className="row-name">
+                            {stringWithWBR(featureFlag.key, 17)}
                         </Link>
                         {featureFlag.name && <span className="row-description">{featureFlag.name}</span>}
                     </>

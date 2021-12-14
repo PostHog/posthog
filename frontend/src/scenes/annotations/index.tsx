@@ -13,7 +13,7 @@ import generatePicker from 'antd/lib/date-picker/generatePicker'
 import { SceneExport } from 'scenes/sceneTypes'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/components/Spinner/Spinner'
-import { LemonTable, LemonTableColumns, LemonTableColumn } from 'lib/components/LemonTable/LemonTable'
+import { LemonTable, LemonTableColumns, LemonTableColumn } from 'lib/components/LemonTable'
 import { createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { TZLabel } from 'lib/components/TimezoneAware'
 
@@ -79,7 +79,7 @@ export function Annotations(): JSX.Element {
         {
             title: 'Scope',
             render: function RenderType(_, annotation: AnnotationType): JSX.Element {
-                return annotation.scope === AnnotationScope.DashboardItem ? (
+                return annotation.scope === AnnotationScope.Insight ? (
                     <Tag color="blue">Insight</Tag>
                 ) : annotation.scope === AnnotationScope.Project ? (
                     <Tag color="purple">Project</Tag>

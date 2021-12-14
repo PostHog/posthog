@@ -469,9 +469,7 @@ export class EventsProcessor {
         })
 
         if (this.kafkaProducer) {
-            for (const kafkaMessage of kafkaMessages) {
-                await this.kafkaProducer.queueMessage(kafkaMessage)
-            }
+            await this.kafkaProducer.queueMessages(kafkaMessages)
         }
     }
 

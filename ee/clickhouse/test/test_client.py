@@ -7,7 +7,6 @@ from freezegun import freeze_time
 from ee.clickhouse import client
 from ee.clickhouse.client import CACHE_TTL, _deserialize, _key_hash, cache_sync_execute, sync_execute
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.management import query_logging
 
 
 class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
@@ -61,7 +60,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         # First add in the request information that should be added to the sql.
         # We check this to make sure it is not removed by the comment stripping
         with self.capture_select_queries() as sqls:
-            query_logging.request_information = {"kind": "request", "id": "1"}
+            client._request_information = {"kind": "request", "id": "1"}
             sync_execute(
                 query="""
                     -- this request returns 1

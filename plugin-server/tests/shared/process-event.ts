@@ -116,12 +116,13 @@ export const createProcessEventTests = (
     let now = DateTime.utc()
     const returned: ReturnWithHub = {}
 
-    async function createTestHub(): Promise<[Hub, () => Promise<void>]> {
+    async function createTestHub(additionalProps?: Record<string, any>): Promise<[Hub, () => Promise<void>]> {
         const [hub, closeHub] = await createHub({
             PLUGINS_CELERY_QUEUE: 'test-plugins-celery-queue',
             CELERY_DEFAULT_QUEUE: 'test-celery-default-queue',
             LOG_LEVEL: LogLevel.Log,
             ...(extraServerConfig ?? {}),
+            ...(additionalProps ?? {}),
         })
 
         redis = await hub.redisPool.acquire()
@@ -293,8 +294,8 @@ export const createProcessEventTests = (
             )
             expect((await hub.db.fetchPersons(Database.ClickHouse)).length).toEqual(1)
 
-            // moveDistinctIds 2x, deletePerson 1x
-            expect(hub!.db.kafkaProducer!.queueMessage).toHaveBeenCalledTimes(3)
+            // moveDistinctIds 3x, deletePerson 1x
+            expect(hub!.db.kafkaProducer!.queueMessage).toHaveBeenCalledTimes(4)
         }
 
         expect((await hub.db.fetchPersons()).length).toEqual(1)
@@ -544,6 +545,8 @@ export const createProcessEventTests = (
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
+                created_at: expect.any(String),
+                last_seen_at: expect.any(String),
             },
         ])
         expect(await hub.db.fetchPropertyDefinitions()).toEqual([
@@ -1922,6 +1925,8 @@ export const createProcessEventTests = (
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
+                created_at: expect.any(String),
+                last_seen_at: expect.any(String),
             },
         ])
         expect(await hub.db.fetchPropertyDefinitions()).toEqual([

@@ -21,7 +21,7 @@ import { urls } from '../urls'
 import { EventPageHeader } from 'scenes/events/EventPageHeader'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable/types'
-import { LemonTable } from 'lib/components/LemonTable/LemonTable'
+import { LemonTable } from 'lib/components/LemonTable'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonSpacer } from 'lib/components/LemonRow'
 import { More } from 'lib/components/LemonButton/More'
@@ -56,8 +56,8 @@ export function ActionsTable(): JSX.Element {
             sorter: (a: ActionType, b: ActionType) => ('' + a.name).localeCompare(b.name),
             render: function RenderName(name, action: ActionType, index: number): JSX.Element {
                 return (
-                    <Link data-attr={'action-link-' + index} to={urls.action(action.id)}>
-                        <h4 className="row-name">{name || <i>Unnnamed action</i>}</h4>
+                    <Link data-attr={'action-link-' + index} to={urls.action(action.id)} className="row-name">
+                        {name || <i>Unnnamed action</i>}
                     </Link>
                 )
             },

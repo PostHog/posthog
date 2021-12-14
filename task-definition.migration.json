@@ -232,7 +232,7 @@
                 }
             ],
             "entryPoint": ["sh", "-c"],
-            "command": ["./bin/docker-migrate && python manage.py migrate_clickhouse"],
+            "command": ["./bin/migrate"],
             "linuxParameters": {
                 "initProcessEnabled": true
             }

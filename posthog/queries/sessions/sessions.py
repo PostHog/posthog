@@ -46,7 +46,7 @@ class Sessions(BaseQuery):
             )
 
         if not len(events):
-            events = self.events_query(filter, team)
+            events = self.events_query(filter, team)  # type: ignore
 
         # get compared period
         if filter.compare and filter._date_from != "all" and filter.session == SESSION_AVG:

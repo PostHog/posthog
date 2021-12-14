@@ -14,7 +14,7 @@ from posthog.models.team import Team
 
 
 class PathEventQuery(ClickhouseEventQuery):
-    FUNNEL_PERSONS_ALIAS = "funnel_persons"
+    FUNNEL_PERSONS_ALIAS = "funnel_actors"
     _filter: PathFilter
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
@@ -31,11 +31,11 @@ class PathEventQuery(ClickhouseEventQuery):
             operator = ">=" if self._filter.funnel_paths == FUNNEL_PATH_AFTER_STEP else "<="
 
             funnel_paths_timestamp = f"{self.FUNNEL_PERSONS_ALIAS}.timestamp AS target_timestamp"
-            funnel_paths_join = f"JOIN {self.FUNNEL_PERSONS_ALIAS} ON {self.FUNNEL_PERSONS_ALIAS}.person_id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+            funnel_paths_join = f"JOIN {self.FUNNEL_PERSONS_ALIAS} ON {self.FUNNEL_PERSONS_ALIAS}.actor_id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id"
             funnel_paths_filter = f"AND {self.EVENT_TABLE_ALIAS}.timestamp {operator} target_timestamp {funnel_window if self._filter.funnel_paths == FUNNEL_PATH_BEFORE_STEP and self._filter.funnel_step and self._filter.funnel_step < 0 else ''}"
         elif self._filter.funnel_paths == FUNNEL_PATH_BETWEEN_STEPS:
             funnel_paths_timestamp = f"{self.FUNNEL_PERSONS_ALIAS}.min_timestamp as min_timestamp, {self.FUNNEL_PERSONS_ALIAS}.max_timestamp as max_timestamp"
-            funnel_paths_join = f"JOIN {self.FUNNEL_PERSONS_ALIAS} ON {self.FUNNEL_PERSONS_ALIAS}.person_id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+            funnel_paths_join = f"JOIN {self.FUNNEL_PERSONS_ALIAS} ON {self.FUNNEL_PERSONS_ALIAS}.actor_id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id"
             funnel_paths_filter = f"AND {self.EVENT_TABLE_ALIAS}.timestamp >= min_timestamp AND {self.EVENT_TABLE_ALIAS}.timestamp <= max_timestamp"
 
         # We don't use ColumnOptimizer to decide what to query because Paths query doesn't surface any filter properties

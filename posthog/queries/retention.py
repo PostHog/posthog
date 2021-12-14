@@ -27,7 +27,7 @@ class AppearanceRow:
     Container for the rows of the "Appearance count" query.
     """
 
-    person_id: str
+    actor_id: str
     appearance_count: int
     # This is actually the number of days from first event to the current event.
     appearances: List[float]
@@ -201,10 +201,10 @@ class Retention(BaseQuery):
         return result
 
     def people(self, filter: RetentionFilter, team: Team, *args, **kwargs):
-        results = self._retrieve_people(filter, team)
+        results = self._retrieve_actors(filter, team)
         return results
 
-    def _retrieve_people(self, filter: RetentionFilter, team: Team):
+    def _retrieve_actors(self, filter: RetentionFilter, team: Team):
         period = filter.period
         trunc, fields = self._get_trunc_func("timestamp", period)
         is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
@@ -257,10 +257,10 @@ class Retention(BaseQuery):
         return PersonSerializer(people, many=True).data
 
     def people_in_period(self, filter: RetentionFilter, team: Team, *args, **kwargs):
-        results = self._retrieve_people_in_period(filter, team)
+        results = self._retrieve_actors_in_period(filter, team)
         return results
 
-    def _retrieve_people_in_period(self, filter: RetentionFilter, team: Team):
+    def _retrieve_actors_in_period(self, filter: RetentionFilter, team: Team):
         filter = filter.with_data({"total_intervals": filter.total_intervals - filter.selected_interval})
 
         format_fields, params = self._determine_query_params(filter, team)
@@ -294,31 +294,31 @@ class Retention(BaseQuery):
             raw_results = cursor.fetchall()
 
             people_appearances = [
-                AppearanceRow(person_id=result[0], appearance_count=result[1], appearances=result[2])
+                AppearanceRow(actor_id=result[0], appearance_count=result[1], appearances=result[2])
                 for result in raw_results
             ]
 
             people_dict = {
                 person.pk: PersonSerializer(person).data
                 for person in Person.objects.filter(
-                    team_id=team.pk, id__in=[person.person_id for person in people_appearances]
+                    team_id=team.pk, id__in=[actor.actor_id for actor in people_appearances]
                 )
             }
 
-            return self.process_people_in_period(filter, people_appearances, people_dict)
+            return self.process_actors_in_period(filter, people_appearances, people_dict)
 
-    def process_people_in_period(
-        self, filter: RetentionFilter, people_appearances: List[AppearanceRow], people_dict: Dict[str, ReturnDict]
+    def process_actors_in_period(
+        self, filter: RetentionFilter, actor_appearances: List[AppearanceRow], actor_dict: Dict[str, Any]
     ) -> List[Dict[Literal["person", "appearances"], Any]]:
         marker_length = filter.total_intervals
         result: List[Dict[Literal["person", "appearances"], Any]] = []
-        for person in people_appearances:
+        for actor in actor_appearances:
             # NOTE: This try/except shouldn't be necessary but there do seem to be a handful of missing persons that can't be looked up
             try:
                 result.append(
                     {
-                        "person": people_dict[person.person_id],
-                        "appearances": appearance_to_markers(sorted(person.appearances), marker_length),
+                        "person": actor_dict[actor.actor_id],
+                        "appearances": appearance_to_markers(sorted(actor.appearances), marker_length),
                     }
                 )
             except Exception as e:

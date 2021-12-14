@@ -3,11 +3,9 @@ import os
 import posthoganalytics
 from django.apps import AppConfig
 from django.conf import settings
-from django.db.backends.signals import connection_created
-from django.dispatch.dispatcher import receiver
 
-from posthog.special_migrations.manager import init_special_migrations
-from posthog.utils import get_git_branch, get_git_commit, get_machine_id
+from posthog.settings import SKIP_SPECIAL_MIGRATIONS_SETUP
+from posthog.utils import get_git_branch, get_git_commit, get_machine_id, print_warning
 from posthog.version import VERSION
 
 
@@ -38,20 +36,16 @@ class PostHogConfig(AppConfig):
 
         if not settings.SKIP_SERVICE_VERSION_REQUIREMENTS:
             for service_version_requirement in settings.SERVICE_VERSION_REQUIREMENTS:
-                [in_range, version] = service_version_requirement.is_service_in_accepted_version()
+                in_range, version = service_version_requirement.is_service_in_accepted_version()
                 if not in_range:
-                    start_anyway = input(
-                        f"Service {service_version_requirement.service} is in version {version}. Expected range: {str(service_version_requirement.supported_version)}. PostHog may not work correctly with the current version. Continue? [y/n]"
+                    print(
+                        f"\033[91mService {service_version_requirement.service} is in version {version}. Expected range: {str(service_version_requirement.supported_version)}. PostHog may not work correctly with the current version. To continue anyway, add SKIP_SERVICE_VERSION_REQUIREMENTS=1 as an environment variable\033[0m",
                     )
-                    if start_anyway.lower() != "y":
-                        print(f"Unsupported version for service {service_version_requirement.service}, exiting...")
-                        exit(1)
+                    exit(1)
 
-        init_special_migrations()
+        from posthog.special_migrations.setup import setup_special_migrations
 
-
-@receiver(connection_created)
-def on_db_connection_ready(sender, connection, **kwargs):
-    from posthog.management.query_logging import execute_pg_query_with_logging
-
-    connection.execute_wrappers.append(execute_pg_query_with_logging)
+        if SKIP_SPECIAL_MIGRATIONS_SETUP:
+            print_warning(["Skipping special migrations setup. This is unsafe in production!"])
+        else:
+            setup_special_migrations()

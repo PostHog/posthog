@@ -21,7 +21,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { urls } from 'scenes/urls'
-import { LemonTable, LemonTableColumns, LemonTableColumn } from 'lib/components/LemonTable/LemonTable'
+import { LemonTable, LemonTableColumns, LemonTableColumn } from 'lib/components/LemonTable'
 import { userLogic } from 'scenes/userLogic'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -112,8 +112,8 @@ export function Cohorts(): JSX.Element {
             render: function Render(name, { id, description }) {
                 return (
                     <>
-                        <Link to={combineUrl(urls.cohort(id), searchParams).url}>
-                            <h4 className="row-name">{name || 'Untitled'}</h4>
+                        <Link to={combineUrl(urls.cohort(id), searchParams).url} className="row-name">
+                            {name || 'Untitled'}
                         </Link>
                         {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && description && (
                             <span className="row-description">{description}</span>
