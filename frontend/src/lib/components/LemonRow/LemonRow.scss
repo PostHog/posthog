@@ -92,6 +92,10 @@
     flex-grow: 1;
     display: flex;
     align-items: center;
+}
+
+.LemonRow__content,
+.LemonRow__icon {
     &:not(:first-child) {
         margin-left: 0.5rem;
     }
