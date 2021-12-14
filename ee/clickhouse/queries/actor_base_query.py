@@ -29,12 +29,14 @@ class SerializedActor(TypedDict):
 
 
 class SerializedPerson(SerializedActor):
+    type: Literal['person']
     is_identified: Optional[bool]
     name: str
     distinct_ids: List[str]
 
 
 class SerializedGroup(SerializedActor):
+    type: Literal['group']
     group_key: str
     group_type_index: int
 
