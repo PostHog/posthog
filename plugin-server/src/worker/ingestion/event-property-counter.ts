@@ -29,20 +29,25 @@ interface EventNamePropertiesBuffer {
 export class EventPropertyCounter {
     db: DB
     eventPropertiesBuffer: EventNamePropertiesBuffer
+    lastFlushAt: DateTime
 
     constructor(db: DB) {
         this.db = db
         this.eventPropertiesBuffer = { totalVolume: 0, uniqueVolume: 0, buffer: new Map() }
+        this.lastFlushAt = DateTime.now()
     }
 
-    public async updateEventNamesAndProperties(
+    public async updateEventPropertyCounter(
         teamId: number,
         event: string,
         properties: Properties,
         eventTimestamp: DateTime
     ): Promise<void> {
         this.updateEventPropertiesBuffer(teamId, event, properties, eventTimestamp)
-        await this.flush()
+        // flush every 2 minutes
+        if (DateTime.now().diff(this.lastFlushAt).as('seconds') > 120) {
+            await this.flush()
+        }
     }
 
     /** Save information about event properties into a custom buffer */
@@ -106,41 +111,47 @@ export class EventPropertyCounter {
             `Still flushing the event names and properties buffer. Timeout warning after 30 sec!`
         )
 
-        try {
-            await this.db.postgresTransaction(async (client) => {
-                const oldBuffer = this.eventPropertiesBuffer
-                this.eventPropertiesBuffer = { totalVolume: 0, uniqueVolume: 0, buffer: new Map() }
+        const oldBuffer = this.eventPropertiesBuffer
+        this.eventPropertiesBuffer = { totalVolume: 0, uniqueVolume: 0, buffer: new Map() }
+        this.lastFlushAt = DateTime.now()
 
-                for (const [teamId, teamBuffer] of oldBuffer.buffer.entries()) {
-                    for (const [key, propertyBuffer] of teamBuffer.entries()) {
-                        const [event, property] = JSON.parse(key)
-                        const { propertyType, propertyTypeFormat, totalVolume, lastSeenAt, createdAt } = propertyBuffer
+        let i = 0
+        let queryValues: string[] = []
+        let valueArgs: any[] = []
 
-                        await client.query(
-                            'INSERT INTO posthog_eventproperty (team_id, event, property, property_type, property_type_format, total_volume, created_at, last_seen_at) ' +
-                                'VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT ON CONSTRAINT posthog_eventproperty_team_id_event_property_10910b3b_uniq DO UPDATE SET ' +
-                                'total_volume = posthog_eventproperty.total_volume+$6, ' +
-                                'created_at = LEAST(posthog_eventproperty.created_at, $7), ' +
-                                'last_seen_at = GREATEST(posthog_eventproperty.last_seen_at, $8), ' +
-                                'property_type = CASE WHEN posthog_eventproperty.property_type IS NULL THEN $4 ELSE posthog_eventproperty.property_type END, ' +
-                                'property_type_format = CASE WHEN posthog_eventproperty.property_type_format IS NULL THEN $5 ELSE posthog_eventproperty.property_type_format END',
-                            [
-                                teamId,
-                                event,
-                                property,
-                                propertyType,
-                                propertyTypeFormat,
-                                totalVolume,
-                                DateTime.fromSeconds(createdAt),
-                                DateTime.fromSeconds(lastSeenAt),
-                            ]
-                        )
-                    }
-                }
-            })
-        } finally {
-            clearTimeout(timeout)
+        for (const [teamId, teamBuffer] of oldBuffer.buffer.entries()) {
+            for (const [key, propertyBuffer] of teamBuffer.entries()) {
+                const [event, property] = JSON.parse(key)
+                const { propertyType, propertyTypeFormat, totalVolume, lastSeenAt, createdAt } = propertyBuffer
+                queryValues.push(`($${++i},$${++i},$${++i},$${++i},$${++i},$${++i},$${++i},$${++i})`)
+                valueArgs.push(
+                    teamId,
+                    event,
+                    property,
+                    propertyType,
+                    propertyTypeFormat,
+                    totalVolume,
+                    DateTime.fromSeconds(createdAt),
+                    DateTime.fromSeconds(lastSeenAt)
+                )
+            }
         }
+
+        await this.db.postgresQuery(
+            `INSERT INTO posthog_eventproperty(team_id, event, property, property_type, property_type_format, total_volume, created_at, last_seen_at)
+            VALUES ${queryValues.join(',')}
+            ON CONFLICT ON CONSTRAINT posthog_eventproperty_team_id_event_property_10910b3b_uniq DO UPDATE SET
+                total_volume = posthog_eventproperty.total_volume + excluded.total_volume,
+                created_at = LEAST(posthog_eventproperty.created_at, excluded.created_at),
+                last_seen_at = GREATEST(posthog_eventproperty.last_seen_at, excluded.last_seen_at),
+                property_type = CASE WHEN posthog_eventproperty.property_type IS NULL THEN excluded.property_type ELSE posthog_eventproperty.property_type END,
+                property_type_format = CASE WHEN posthog_eventproperty.property_type_format IS NULL THEN excluded.property_type_format ELSE posthog_eventproperty.property_type_format END
+            `,
+            valueArgs,
+            'eventPropertyCounterFlush'
+        )
+
+        clearTimeout(timeout)
     }
 }
 
