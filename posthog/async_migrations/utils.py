@@ -21,9 +21,6 @@ def execute_op(op: AsyncMigrationOperation, query_id: str, rollback: bool = Fals
         execute_op_clickhouse(sql, query_id, op.timeout_seconds)
     else:
         execute_op_postgres(sql, query_id)
-
-    # Call side effect _after_ the query is run
-    op.side_effect()
     return
 
 
