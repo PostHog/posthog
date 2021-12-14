@@ -185,7 +185,21 @@ export function AsyncMigrations(): JSX.Element {
         <div className="async-migrations-scene">
             {user?.is_staff ? (
                 <>
-                    <PageHeader title="Async Migrations" caption="Manage async migrations in your instance" />
+                    <PageHeader
+                        title="Async Migrations"
+                        caption={
+                            <>
+                                <p>Manage async migrations in your instance.</p>
+                                <p>
+                                    Read about async migrations on our{' '}
+                                    <a href="https://posthog.com/docs/self-host/configure/async-migrations">
+                                        dedicated docs page
+                                    </a>
+                                    .
+                                </p>
+                            </>
+                        }
+                    />
                     <div className="mb float-right">
                         <Button
                             icon={asyncMigrationsLoading ? <Spinner size="sm" /> : <RedoOutlined />}
