@@ -111,6 +111,7 @@ def run_async_migration_next_op(migration_name: str, migration_instance: Optiona
 
     try:
         execute_op(op, current_query_id)
+        op.side_effect()
         update_async_migration(
             migration_instance=migration_instance,
             current_query_id=current_query_id,
@@ -168,6 +169,7 @@ def attempt_migration_rollback(migration_instance: AsyncMigration, force: bool =
                     continue
                 raise Exception(f"No rollback provided for operation at index {i}: {op.sql}")
             execute_op(op, str(UUIDT()), rollback=True)
+            op.side_effect_rollback()
             i -= 1
     except Exception as e:
         error = str(e)

@@ -1,4 +1,5 @@
 from datetime import datetime
+from unittest.mock import patch
 
 import pytest
 from django.db import connection
@@ -15,17 +16,18 @@ from posthog.models.async_migration import AsyncMigration, MigrationStatus
 from posthog.models.utils import UUIDT
 from posthog.test.base import BaseTest
 
-TEST_MIGRATION_DESCRIPTION = Migration().description
-
 
 class TestRunner(BaseTest):
     def setUp(self):
-        create_async_migration(name="test", description=TEST_MIGRATION_DESCRIPTION)
+        self.migration = Migration()
+        self.TEST_MIGRATION_DESCRIPTION = self.migration.description
+        create_async_migration(name="test", description=self.TEST_MIGRATION_DESCRIPTION)
         return super().setUp()
 
     # Run the full migration through
     @pytest.mark.ee
     def test_run_migration_in_full(self):
+        self.migration.sec.reset_count()
         migration_successful = start_async_migration("test")
         sm = AsyncMigration.objects.get(name="test")
 
@@ -37,7 +39,7 @@ class TestRunner(BaseTest):
 
         self.assertTrue(migration_successful)
         self.assertEqual(sm.name, "test")
-        self.assertEqual(sm.description, TEST_MIGRATION_DESCRIPTION)
+        self.assertEqual(sm.description, self.TEST_MIGRATION_DESCRIPTION)
         self.assertEqual(sm.status, MigrationStatus.CompletedSuccessfully)
         self.assertEqual(sm.progress, 100)
         self.assertEqual(sm.last_error, "")
@@ -46,9 +48,13 @@ class TestRunner(BaseTest):
         self.assertEqual(sm.posthog_min_version, "1.0.0")
         self.assertEqual(sm.posthog_max_version, "100000.0.0")
         self.assertEqual(sm.finished_at.day, datetime.today().day)
+        self.assertEqual(self.migration.sec.side_effect_count, 3)
+        self.assertEqual(self.migration.sec.side_effect_rollback_count, 0)
 
     @pytest.mark.ee
     def test_rollback_migration(self):
+
+        self.migration.sec.reset_count()
 
         migration_successful = start_async_migration("test")
 
@@ -70,6 +76,8 @@ class TestRunner(BaseTest):
 
         self.assertEqual(sm.status, MigrationStatus.RolledBack)
         self.assertEqual(sm.progress, 0)
+        self.assertEqual(self.migration.sec.side_effect_count, 3)
+        self.assertEqual(self.migration.sec.side_effect_rollback_count, 3)
 
     @pytest.mark.ee
     def test_run_async_migration_next_op(self):
