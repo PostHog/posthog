@@ -388,7 +388,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         # The other team should not be returned as it's restricted for the logged-in user
         with self.assertNumQueries(9):
             projects_response = self.client.get(f"/api/projects/")
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(9):
             current_org_response = self.client.get(f"/api/organizations/{self.organization.id}/")
 
         self.assertEqual(projects_response.status_code, HTTP_200_OK)

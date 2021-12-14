@@ -132,12 +132,11 @@ class OrganizationSerializer(serializers.ModelSerializer):
         }
 
     def get_teams(self, instance: Organization) -> List[Dict[str, Any]]:
-        visible_teams = (
-            team
-            for team in instance.teams.all()
-            if team.get_effective_membership_level(self.context["request"].user) is not None
+        teams = cast(
+            List[Dict[str, Any]], TeamBasicSerializer(instance.teams.all(), context=self.context, many=True).data
         )
-        return cast(List[Dict[str, Any]], TeamBasicSerializer(visible_teams, context=self.context, many=True).data)
+        visible_teams = [team for team in teams if team["effective_membership_level"] is not None]
+        return visible_teams
 
 
 class OrganizationViewSet(viewsets.ModelViewSet):
