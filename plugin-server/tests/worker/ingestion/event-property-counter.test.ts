@@ -91,7 +91,7 @@ describe('EventPropertyCounter()', () => {
             expect(eventProperties.length).toEqual(1)
         })
 
-        it.skip('flushes every 50k properties', async () => {
+        it('flushes after 50k unique properties', async () => {
             jest.spyOn(EventPropertyCounter.prototype, 'flush')
 
             const properties: Record<string, any> = {}
@@ -102,13 +102,13 @@ describe('EventPropertyCounter()', () => {
             expect(eventPropertyCounter.flush).toHaveBeenCalledTimes(0)
             expect(eventPropertyCounter.lastFlushAt).toEqual(DateTime.fromISO('2015-04-04T04:04:04.000Z'))
 
-            // 1 sec later
+            // 1 sec later, not flushed
             Settings.now = () => new Date('2015-04-04T04:04:05.000Z').getTime()
             await eventPropertyCounter.updateEventPropertyCounter(2, 'new-event', { newProp: true })
             expect(eventPropertyCounter.flush).toHaveBeenCalledTimes(0)
             expect(eventPropertyCounter.lastFlushAt).toEqual(DateTime.fromISO('2015-04-04T04:04:04.000Z'))
 
-            // last property to get over the line
+            // last property to get over the 50k line
             await eventPropertyCounter.updateEventPropertyCounter(2, 'new-event', { lastProp: true })
             expect(eventPropertyCounter.flush).toHaveBeenCalledTimes(1)
             expect(eventPropertyCounter.lastFlushAt).toEqual(DateTime.fromISO('2015-04-04T04:04:05.000Z'))

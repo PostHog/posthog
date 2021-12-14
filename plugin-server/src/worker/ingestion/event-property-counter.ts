@@ -121,30 +121,27 @@ export class EventPropertyCounter {
             this.lastFlushAt = DateTime.now()
 
             let i = 0
-            let queryValues: string[] = []
-            let params: any[] = []
+            let columns: any[][] = [[], [], [], [], [], [], [], []]
 
             for (const [teamId, teamBuffer] of oldBuffer.buffer.entries()) {
                 for (const [key, propertyBuffer] of teamBuffer.entries()) {
                     const [event, property] = JSON.parse(key)
                     const { propertyType, propertyTypeFormat, totalVolume, lastSeenAt, createdAt } = propertyBuffer
-                    queryValues.push(`($${++i},$${++i},$${++i},$${++i},$${++i},$${++i},$${++i},$${i})`)
-                    params.push(
-                        teamId,
-                        event,
-                        property,
-                        propertyType,
-                        propertyTypeFormat,
-                        totalVolume,
-                        DateTime.fromSeconds(createdAt),
-                        DateTime.fromSeconds(lastSeenAt)
-                    )
+                    columns[0].push(teamId)
+                    columns[1].push(event)
+                    columns[2].push(property)
+                    columns[3].push(propertyType)
+                    columns[4].push(propertyTypeFormat)
+                    columns[5].push(totalVolume)
+                    columns[6].push(DateTime.fromSeconds(createdAt).toUTC())
+                    columns[7].push(DateTime.fromSeconds(lastSeenAt).toUTC())
                 }
             }
 
+            // VALUES ${queryValues.join(',')}
             await this.db.postgresQuery(
                 `INSERT INTO posthog_eventproperty(team_id, event, property, property_type, property_type_format, total_volume, created_at, last_seen_at)
-                VALUES ${queryValues.join(',')}
+                SELECT * FROM UNNEST ($1::int[], $2::text[], $3::text[], $4::text[], $5::text[], $6::bigint[], $7::timestamp with time zone[], $8::timestamp with time zone[])
                 ON CONFLICT ON CONSTRAINT posthog_eventproperty_team_id_event_property_10910b3b_uniq DO UPDATE SET
                     total_volume = posthog_eventproperty.total_volume + excluded.total_volume,
                     created_at = LEAST(posthog_eventproperty.created_at, excluded.created_at),
@@ -152,13 +149,13 @@ export class EventPropertyCounter {
                     property_type = CASE WHEN posthog_eventproperty.property_type IS NULL THEN excluded.property_type ELSE posthog_eventproperty.property_type END,
                     property_type_format = CASE WHEN posthog_eventproperty.property_type_format IS NULL THEN excluded.property_type_format ELSE posthog_eventproperty.property_type_format END
                 `,
-                params,
+                columns,
                 'eventPropertyCounterFlush'
             )
 
             const elapsedTime = DateTime.now().diff(startTime).as('milliseconds')
             this.statsd?.set('flushEventPropertyCounter.Size', cacheSize)
-            this.statsd?.set('flushEventPropertyCounter.QuerySize', params.length)
+            this.statsd?.set('flushEventPropertyCounter.QuerySize', columns[0].length)
             this.statsd?.timing('flushEventPropertyCounter', elapsedTime)
             status.info(`✅ 🚽 flushEventPropertyCounter finished successfully in ${elapsedTime} ms.`)
         } finally {
