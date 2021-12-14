@@ -495,10 +495,10 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                 RetentionFilter(data={"date_to": self._date(10, hour=6), "selected_interval": 2}), self.team
             )
 
-            self.assertIn(result[0]["person"]["id"], [person1.pk, str(person1.uuid)])
+            self.assertIn(result[0]["person"]["id"], [person1.pk, person1.uuid])
             self.assertEqual(result[0]["appearances"], [1, 0, 0, 1, 1, 0, 0, 0, 0])
 
-            self.assertIn(result[1]["person"]["id"], [person2.pk, str(person2.uuid)])
+            self.assertIn(result[1]["person"]["id"], [person2.pk, person2.uuid])
             self.assertEqual(result[1]["appearances"], [1, 1, 0, 0, 1, 1, 0, 0, 0])
 
         def test_retention_people_in_period_first_time(self):
@@ -519,7 +519,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             )
 
             self.assertEqual(len(result1), 1)
-            self.assertTrue(result1[0]["person"]["id"] == p3.pk or result1[0]["person"]["id"] == str(p3.uuid))
+            self.assertTrue(result1[0]["person"]["id"] == p3.pk or result1[0]["person"]["id"] == p3.uuid)
             self.assertEqual(result1[0]["appearances"], [1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0])
 
         def test_retention_multiple_events(self):
