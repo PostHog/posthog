@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import List, Optional, Tuple
 
+from posthog.async_migrations.utils import execute_op_clickhouse, execute_op_postgres
 from posthog.constants import AnalyticsDBMS
 from posthog.version_requirement import ServiceVersionRequirement
 
@@ -25,20 +26,11 @@ class AsyncMigrationType:
 class AsyncMigrationOperation:
     def __init__(
         self,
-        sql="",
-        database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE,
-        timeout_seconds: int = 60,
-        rollback="",
+        fn=lambda query_id: None,  # potentially we should rename to something other than query_id
+        rollback_fn=lambda query_id: None,  # Raise an exeception here if we don't want it to be possible to roll back
         resumable=False,
-        side_effect=lambda: None,
-        side_effect_rollback=lambda: None,
     ):
-        self.sql = sql
-        self.database = database
-
-        # currently CH only
-        self.timeout_seconds = timeout_seconds
-
+        fn = fn
         # if the operation is dynamic and knows how to restart correctly after a crash
         # Example:
         #   - Not resumable: `INSERT INTO table1 (col1) SELECT col1 FROM table2`
@@ -47,15 +39,18 @@ class AsyncMigrationOperation:
 
         # This should not be a long operation as it will be executed synchronously!
         # Defaults to a no-op ("") - None causes a failure to rollback
-        self.rollback = rollback
+        self.rollback_fn = rollback_fn
 
-        # This is a function on the operation that will be called just after the migration is run against the database
-        # This is to trigger some side effect that is required for that step (disable mat columns, trigger a refresh, etc)
-        self.side_effect = side_effect
+    @classmethod
+    def get_db_op(sql="", database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE, timeout_seconds: int = 60):
+        # timeout is currently CH only
+        def run_db_op(query_id):
+            if database == AnalyticsDBMS.CLICKHOUSE:
+                execute_op_clickhouse(sql, query_id, timeout_seconds)
+            else:
+                execute_op_postgres(sql, query_id)
 
-        # This is a rollback to revert the side effect that was provided for this step
-        # This will only run in the event of a rollback
-        self.side_effect_rollback = side_effect_rollback
+        return run_db_op
 
 
 class AsyncMigrationDefinition:
