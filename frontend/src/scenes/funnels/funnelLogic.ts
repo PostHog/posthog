@@ -49,6 +49,7 @@ import {
     isStepsEmpty,
     isValidBreakdownParameter,
     getBreakdownStepValues,
+    getIncompleteConversionWindowStartDate,
 } from './funnelUtils'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -61,6 +62,7 @@ import { userLogic } from 'scenes/userLogic'
 import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilitySensorLogic'
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { groupsModel } from '~/models/groupsModel'
+import { dayjs } from 'lib/dayjs'
 
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 // Chosen via heuristics by eyeballing some values
@@ -1134,6 +1136,23 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         isModalActive: [
             (s) => [s.clickhouseFeaturesEnabled, s.isViewedOnDashboard],
             (clickhouseFeaturesEnabled, isViewedOnDashboard) => clickhouseFeaturesEnabled && !isViewedOnDashboard,
+        ],
+        incompletenessOffsetFromEnd: [
+            (s) => [s.steps, s.conversionWindow],
+            (steps, conversionWindow) => {
+                // Returns negative number of points to paint over starting from end of array
+                if (steps?.[0]?.days === undefined) {
+                    return 0
+                }
+                const startDate = getIncompleteConversionWindowStartDate(conversionWindow)
+                const startIndex = steps[0].days.findIndex((day) => dayjs(day) >= startDate)
+
+                if (startIndex !== undefined && startIndex !== -1) {
+                    return startIndex - steps[0].days.length
+                } else {
+                    return 0
+                }
+            },
         ],
     }),
 

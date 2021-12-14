@@ -10,7 +10,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { PropertyFilter } from '~/types'
+import { FunnelVizType, PropertyFilter } from '~/types'
 import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
@@ -21,8 +21,14 @@ export const scene: SceneExport = {
 }
 
 export function Experiment(): JSX.Element {
-    const { newExperimentData, experimentId, experimentData, experimentFunnel, newExperimentCurrentPage } =
-        useValues(experimentLogic)
+    const {
+        newExperimentData,
+        experimentId,
+        experimentData,
+        experimentFunnel,
+        newExperimentCurrentPage,
+        experimentResults,
+    } = useValues(experimentLogic)
     const { setNewExperimentData, createExperiment, setFilters, nextPage, prevPage } = useActions(experimentLogic)
     const [form] = Form.useForm()
 
@@ -170,7 +176,7 @@ export function Experiment(): JSX.Element {
                                                 </Row>
                                             </Col>
                                             <Col span={16}>
-                                                <InsightContainer disableCorrelation={true} />
+                                                <InsightContainer disableTable={true} />
                                             </Col>
                                         </Row>
                                     </BindLogic>
@@ -236,14 +242,38 @@ export function Experiment(): JSX.Element {
                     </Form>
                 </>
             ) : experimentData ? (
-                <>
+                <div className="experiment-result">
                     <div>
-                        <PageHeader title={`${experimentData.name}`} />
+                        <PageHeader title={experimentData.name} />
                         <div>{experimentData?.description}</div>
                         <div>Owner: {experimentData.created_by?.first_name}</div>
-                        <div>Feature flag key: {experimentData.feature_flag_key}</div>
+                        <div>Feature flag key: {experimentData?.feature_flag_key}</div>
                     </div>
-                </>
+
+                    {experimentResults && (
+                        <BindLogic
+                            logic={insightLogic}
+                            props={{
+                                dashboardItemId: experimentResults.itemID,
+                                filters: {
+                                    ...experimentResults.filters,
+                                    insight: 'FUNNELS',
+                                    funnel_viz_type: FunnelVizType.Steps,
+                                    display: 'FunnelViz',
+                                },
+                                cachedResults: experimentResults.funnel,
+                                syncWithUrl: false,
+                                doNotLoad: true,
+                            }}
+                        >
+                            <div>
+                                <PageHeader title="Results" />
+                                <div>Probability: {experimentResults.probability}</div>
+                                <InsightContainer disableTable={true} />
+                            </div>
+                        </BindLogic>
+                    )}
+                </div>
             ) : (
                 <div>Loading...</div>
             )}

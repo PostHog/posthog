@@ -151,17 +151,27 @@ export function InsightLabel({
                         />
                     )}
 
-                    {breakdownValue && !hideBreakdown && Array.isArray(breakdownValue) && (
-                        <Space direction={'horizontal'} wrap={true}>
-                            {breakdownValue.map((bv) => (
-                                <Tag className="tag-pill" key={bv} closable={false}>
-                                    <Typography.Text ellipsis={{ tooltip: bv }} style={{ maxWidth: 165 }}>
-                                        {bv}
+                    {breakdownValue &&
+                        !hideBreakdown &&
+                        (Array.isArray(breakdownValue) ? (
+                            <Space direction={'horizontal'} wrap={true}>
+                                {breakdownValue.map((bv) => (
+                                    <Tag className="tag-pill" key={bv} closable={false}>
+                                        <Typography.Text ellipsis={{ tooltip: bv }} style={{ maxWidth: 165 }}>
+                                            {bv}
+                                        </Typography.Text>
+                                    </Tag>
+                                ))}
+                            </Space>
+                        ) : (
+                            <Space direction={'horizontal'} wrap={true}>
+                                <Tag className="tag-pill" key={breakdownValue} closable={false}>
+                                    <Typography.Text ellipsis={{ tooltip: breakdownValue }} style={{ maxWidth: 165 }}>
+                                        {breakdownValue}
                                     </Typography.Text>
                                 </Tag>
-                            ))}
-                        </Space>
-                    )}
+                            </Space>
+                        ))}
                 </div>
             </Col>
             <Col flex="none">

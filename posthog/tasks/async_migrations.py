@@ -2,39 +2,39 @@ from celery import states
 from celery.result import AsyncResult
 from sentry_sdk.integrations import celery
 
-from posthog.celery import app
-from posthog.special_migrations.runner import (
+from posthog.async_migrations.runner import (
     is_current_operation_resumable,
+    run_async_migration_next_op,
     run_migration_healthcheck,
-    run_special_migration_next_op,
-    start_special_migration,
+    start_async_migration,
     update_migration_progress,
 )
-from posthog.special_migrations.utils import force_stop_migration, process_error, trigger_migration
+from posthog.async_migrations.utils import force_stop_migration, process_error, trigger_migration
+from posthog.celery import app
 
 
 # we're hijacking an entire worker to do this - consider:
 # 1. spawning a thread within the worker
-# 2. suggesting users scale celery when running special migrations
+# 2. suggesting users scale celery when running async migrations
 # 3. ...
 @app.task(ignore_result=False, max_retries=0)
-def run_special_migration(migration_name: str, fresh_start: bool = True) -> None:
+def run_async_migration(migration_name: str, fresh_start: bool = True) -> None:
     if fresh_start:
-        start_special_migration(migration_name)
+        start_async_migration(migration_name)
         return
 
     # Resumable operations
-    run_special_migration_next_op(migration_name)
+    run_async_migration_next_op(migration_name)
 
 
 # This task:
 # 1. Checks if the worker crashed and handle the affected migration appropriately
 # 2. Does a periodic healthcheck to make sure it's safe to continue running the migration
 # 3. Updates migration progress
-def check_special_migration_health() -> None:
-    from posthog.models.special_migration import MigrationStatus, SpecialMigration
+def check_async_migration_health() -> None:
+    from posthog.models.async_migration import AsyncMigration, MigrationStatus
 
-    migration_instance: SpecialMigration = SpecialMigration.objects.get(status=MigrationStatus.Running)
+    migration_instance: AsyncMigration = AsyncMigration.objects.get(status=MigrationStatus.Running)
     if not migration_instance:
         return
 
