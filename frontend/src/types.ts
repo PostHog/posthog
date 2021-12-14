@@ -381,7 +381,6 @@ export enum SessionPlayerState {
     BUFFER = 'buffer',
     PLAY = 'play',
     PAUSE = 'pause',
-    SKIP = 'skip',
     SCRUB = 'scrub',
 }
 

@@ -46,9 +46,6 @@ export const PlayerFrame = React.forwardRef<HTMLDivElement>(function PlayerFrame
     }
 
     const renderPlayerState = (): JSX.Element | null => {
-        if (currentPlayerState === SessionPlayerState.SKIP) {
-            return <div className="rrweb-overlay">Skipping inactivity...</div>
-        }
         if (currentPlayerState === SessionPlayerState.BUFFER) {
             return <div className="rrweb-overlay">Buffering...</div>
         }

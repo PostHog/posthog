@@ -25,10 +25,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
             sessionRecordingLogic,
             ['eventsToShow'],
         ],
-        actions: [
-            sessionRecordingPlayerLogic,
-            ['seek', 'clearLoadingState', 'setScrub', 'endScrub', 'setCurrentPlayerPosition'],
-        ],
+        actions: [sessionRecordingPlayerLogic, ['seek', 'setScrub', 'endScrub', 'setCurrentPlayerPosition']],
     },
     actions: {
         setThumbLeftPos: (thumbLeftPos: number, shouldSeek: boolean) => ({ thumbLeftPos, shouldSeek }),
@@ -170,7 +167,6 @@ export const seekbarLogic = kea<seekbarLogicType>({
             const newX = getXPos(event) - values.cursorDiff - values.slider.getBoundingClientRect().left
             actions.handleSeek(newX)
             actions.endScrub()
-            actions.clearLoadingState()
 
             document.removeEventListener('touchmove', actions.handleMove)
             document.removeEventListener('touchend', actions.handleUp)

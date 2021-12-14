@@ -33,7 +33,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
         setPlay: true,
         setPause: true,
         setBuffer: true,
-        setSkip: true,
+        endBuffer: true,
         setScrub: true,
         endScrub: true,
         setCurrentPlayerPosition: (playerPosition: PlayerPosition | null) => ({ playerPosition }),
@@ -43,7 +43,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
         seek: (playerPosition: PlayerPosition | null, forcePlay: boolean = false) => ({ playerPosition, forcePlay }),
         seekForward: true,
         seekBackward: true,
-        clearLoadingState: true,
         resolvePlayerState: true,
         updateAnimation: true,
         stopAnimation: true,
@@ -94,29 +93,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
                 setPause: () => SessionPlayerState.PAUSE,
             },
         ],
-        loadingState: [
-            SessionPlayerState.BUFFER as
-                | SessionPlayerState.BUFFER
-                | SessionPlayerState.SKIP
-                | SessionPlayerState.SCRUB
-                | null,
-            {
-                setBuffer: () => SessionPlayerState.BUFFER,
-                setSkip: () => SessionPlayerState.SKIP,
-                setScrub: () => SessionPlayerState.SCRUB,
-                clearLoadingState: () => null,
-            },
-        ],
+        isBuffering: [true, { setBuffer: () => true, endBuffer: () => false }],
+        isScrubbing: [false, { setScrub: () => true, endScrub: () => false }],
     }),
     selectors: {
         currentPlayerState: [
-            (selectors) => [selectors.playingState, selectors.loadingState],
-            (playingState, loadingState) => {
-                if (loadingState === SessionPlayerState.SCRUB) {
+            (selectors) => [selectors.playingState, selectors.isBuffering, selectors.isScrubbing],
+            (playingState, isBuffering, isScrubbing) => {
+                if (isScrubbing) {
                     // If scrubbing, playingState takes precedence
                     return playingState
                 }
-                return loadingState ?? playingState
+                return isBuffering ? SessionPlayerState.BUFFER : playingState
             },
         ],
         currentPlayerTime: [
@@ -148,23 +136,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
             }
             const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], {
                 root: values.rootFrame,
-                skipInactive: true,
                 triggerFocus: false,
                 speed: values.speed,
                 insertStyleRules: [
                     `.ph-no-capture {   background-image: url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNOCAwSDE2TDAgMTZWOEw4IDBaIiBmaWxsPSIjMkQyRDJEIi8+CjxwYXRoIGQ9Ik0xNiA4VjE2SDhMMTYgOFoiIGZpbGw9IiMyRDJEMkQiLz4KPC9zdmc+Cg=="); }`,
                 ],
-            })
-
-            replayer.on('skip-start', () => {
-                if (values.loadingState !== SessionPlayerState.BUFFER) {
-                    actions.setSkip()
-                }
-            })
-            replayer.on('skip-end', () => {
-                if (values.loadingState === SessionPlayerState.SKIP) {
-                    actions.clearLoadingState()
-                }
             })
             actions.setPlayer({ replayer, windowId })
         },
@@ -229,8 +205,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
                     values.sessionPlayerData.metadata.segments
                 ) < 0
             ) {
-                actions.clearLoadingState()
-                actions.setPlay()
+                actions.endBuffer()
+                actions.seek(values.currentPlayerPosition)
             }
 
             breakpoint()
@@ -261,11 +237,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
             values.player?.replayer?.setConfig({ speed })
         },
         seek: async ({ playerPosition, forcePlay }, breakpoint) => {
-            actions.setCurrentPlayerPosition(playerPosition)
-
-            // Real seeking is debounced so as not to overload rrweb.
-            await breakpoint(100)
             actions.stopAnimation()
+            actions.setCurrentPlayerPosition(playerPosition)
 
             // Check if we're seeking to a new segment
             let nextSegment = null
@@ -298,13 +271,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
             // If not forced to play and if last playing state was pause, pause
             else if (!forcePlay && values.currentPlayerState === SessionPlayerState.PAUSE) {
                 values.player?.replayer?.pause(playerPosition.time)
-                actions.clearLoadingState()
+                actions.endBuffer()
             }
             // Otherwise play
             else {
                 values.player?.replayer?.play(playerPosition.time)
                 actions.updateAnimation()
-                actions.clearLoadingState()
+                actions.endBuffer()
             }
             breakpoint()
         },
@@ -353,11 +326,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
             // If paused, start playing
             if (values.currentPlayerState === SessionPlayerState.PAUSE) {
                 actions.setPlay()
-            }
-            // If skipping, pause and turn skipping off
-            else if (values.currentPlayerState === SessionPlayerState.SKIP) {
-                actions.clearLoadingState()
-                actions.setPause()
             }
             // If playing, pause
             else {
@@ -425,9 +393,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
             if (cache.timer) {
                 cancelAnimationFrame(cache.timer)
             }
-        },
-        clearLoadingState: () => {
-            values.player?.replayer?.setConfig({ speed: values.speed }) // hotfix: speed changes on player state change
         },
     }),
     windowValues: {
