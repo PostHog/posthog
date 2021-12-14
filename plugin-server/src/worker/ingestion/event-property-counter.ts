@@ -55,7 +55,7 @@ export class EventPropertyCounter {
 
     /** Save information about event properties into a custom buffer */
     public updateEventPropertiesBuffer(teamId: number, event: string, properties: Record<string, any>): void {
-        const timestamp = new DateTime().toSeconds()
+        const timestamp = DateTime.now().toSeconds()
         let bufferForTeam = this.eventPropertiesBuffer.buffer.get(teamId)
         if (!bufferForTeam) {
             bufferForTeam = new Map()
