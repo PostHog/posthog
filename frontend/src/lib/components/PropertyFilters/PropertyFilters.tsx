@@ -43,8 +43,6 @@ export function PropertyFilters({
     const { filters } = useValues(propertyFilterLogic(logicProps))
     const { remove } = useActions(propertyFilterLogic(logicProps))
 
-    console.log({ eventNames })
-
     return (
         <div className="property-filters" style={style}>
             <BindLogic logic={propertyFilterLogic} props={logicProps}>

@@ -35,6 +35,7 @@ import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import clsx from 'clsx'
 import { apiValueToMathType, mathsLogic, mathTypeToApiValues } from 'scenes/trends/mathsLogic'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
+import { actionsModel } from '~/models/actionsModel'
 
 const determineFilterLabel = (visible: boolean, filter: Partial<ActionFilter>): string => {
     if (visible) {
@@ -139,6 +140,7 @@ export function ActionFilterRow({
         duplicateFilter,
     } = useActions(logic)
     const { numericalPropertyNames } = useValues(propertyDefinitionsModel)
+    const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
 
     const visible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
@@ -435,7 +437,20 @@ export function ActionFilterRow({
                         style={{ marginBottom: 0 }}
                         showNestedArrow={showNestedArrow}
                         taxonomicGroupTypes={propertiesTaxonomicGroupTypes}
-                        eventNames={filter.type === TaxonomicFilterGroupType.Events && filter.name ? [filter.name] : []}
+                        eventNames={
+                            filter.type === TaxonomicFilterGroupType.Events && filter.name
+                                ? [filter.name]
+                                : filter.type === TaxonomicFilterGroupType.Actions && filter.id
+                                ? actions
+                                      .filter((a) => a.id === parseInt(String(filter.id)))
+                                      .flatMap(
+                                          (a) =>
+                                              a.steps
+                                                  ?.filter((step) => step.event)
+                                                  .map((step) => String(step.event)) as string[]
+                                      )
+                                : []
+                        }
                     />
                 </div>
             )}
