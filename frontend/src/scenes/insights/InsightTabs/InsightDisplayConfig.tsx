@@ -125,8 +125,8 @@ export function InsightDisplayConfig({
 
                 {activeView === InsightType.RETENTION && (
                     <>
-                        <RetentionReferencePicker />
                         <RetentionDatePicker />
+                        <RetentionReferencePicker />
                     </>
                 )}
 
