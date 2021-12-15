@@ -325,8 +325,9 @@ INSTALLED_APPS = [
     "social_django",
     "django_filters",
     "axes",
+    "constance",
+    "constance.backends.database",
 ]
-
 
 MIDDLEWARE = [
     "django_structlog.middlewares.RequestMiddleware",
@@ -769,3 +770,17 @@ ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT = get_from_env("ASYNC_MIGRATION_ROLLBACK_TIMEO
 ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK = get_from_env(
     "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK", False, type_cast=str_to_bool
 )
+
+## Dynamic configs settings
+
+CONSTANCE_BACKEND = "constance.backends.database.DatabaseBackend"
+
+CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
+
+CONSTANCE_CONFIG = {
+    "MATERIALIZED_COLUMNS_ENABLED": (
+        get_from_env("MATERIALIZED_COLUMNS_ENABLED", True, type_cast=str_to_bool),
+        "Whether materialized columns should be, created or used at query time",
+        bool,
+    ),
+}
