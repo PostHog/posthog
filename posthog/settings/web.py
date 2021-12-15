@@ -1,4 +1,5 @@
 # Web app specific settings/middleware/apps setup
+# :NOTE: posthog-cloud modifies some of these values
 import os
 from datetime import timedelta
 from typing import List

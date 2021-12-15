@@ -112,3 +112,6 @@ PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS = get_list(os.getenv("PERSON_DISTINCT_I
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
     from ee.settings import *  # noqa: F401, F403
+
+# Lastly, cloud settings override and modify all
+from posthog.settings.cloud import *
