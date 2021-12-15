@@ -1353,12 +1353,14 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
 
 def exclude_actors_urls_from_funnel_response(steps):
-    return [{**step, "converted_actor_params": None, "dropped_actor_params": None} for step in steps]
+    return [
+        {**step, "actor_endpoint": None, "converted_actor_params": None, "dropped_actor_params": None} for step in steps
+    ]
 
 
 def assert_funnel_results_equal(left: List[Dict[str, Any]], right: List[Dict[str, Any]]):
     """
-    Helper to be able to compare two funnel results, but exclude people urls
+    Helper to be able to compare two funnel results, but exclude actor urls
     from the comparison, as these include:
 
         1. all the params from the request, and will thus almost always be
@@ -1369,6 +1371,7 @@ def assert_funnel_results_equal(left: List[Dict[str, Any]], right: List[Dict[str
     assert len(left) == len(right)
     for index, item in enumerate(exclude_actors_urls_from_funnel_response(left)):
         other = exclude_actors_urls_from_funnel_response(right)[index]
+
         assert item.keys() == other.keys()
         for key in item.keys():
             try:
