@@ -94,7 +94,7 @@ class ClickhouseRetentionActorsByPeriod(ActorBaseQuery):
                     for interval_number in range(self._filter.total_intervals - (self._filter.selected_interval or 0))
                 ],
             }
-            for actor in sorted(actor_appearances, key=lambda x: x.appearance_count, reverse=True)
+            for actor in sorted(actor_appearances, key=lambda x: (x.appearance_count, x.actor_id), reverse=True)
         ]
 
 
