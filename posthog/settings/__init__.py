@@ -21,6 +21,7 @@ from posthog.settings.ee import EE_AVAILABLE
 from posthog.settings.base_variables import *
 
 from posthog.settings.access import *
+from posthog.settings.async_migrations import *
 from posthog.settings.celery import *
 from posthog.settings.data_stores import *
 from posthog.settings.dynamic_settings import *

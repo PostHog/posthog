@@ -28,6 +28,7 @@ We can't rely only on pytest.ini as some tests evaluate this file before its env
 """
 runner = sys.argv[0] if len(sys.argv) >= 1 else None
 
+cmd = None
 if runner:
     cmd = sys.argv[1] if len(sys.argv) >= 2 else None
 
