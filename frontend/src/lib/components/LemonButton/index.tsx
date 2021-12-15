@@ -91,7 +91,7 @@ export type LemonButtonWithPopupProps =
       })
 
 /**
- * Styled button with a side action on the right.
+ * Styled button that opens a popup menu on click.
  * The difference vs. plain `LemonButton` is popup visibility being controlled internally, which is more convenient.
  */
 export function LemonButtonWithPopup({
