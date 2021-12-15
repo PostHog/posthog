@@ -99,7 +99,7 @@ export const heatmapLogic = kea<heatmapLogicType>({
                     let combinedSelector
                     let lastSelector
                     for (let i = 0; i < event.elements.length; i++) {
-                        const selector = elementToSelector(event.elements[i], dataAttributes)
+                        const selector = elementToSelector(event.elements[i], dataAttributes) || '*'
                         combinedSelector = lastSelector ? `${selector} > ${lastSelector}` : selector
 
                         try {
@@ -149,7 +149,7 @@ export const heatmapLogic = kea<heatmapLogicType>({
                             }
                         } catch (error) {
                             console.error('Invalid selector!', combinedSelector)
-                            throw error
+                            break
                         }
 
                         lastSelector = combinedSelector
