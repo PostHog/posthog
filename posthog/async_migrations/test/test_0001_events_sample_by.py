@@ -77,6 +77,7 @@ class Test0001EventsSampleBy(BaseTest):
 
         res = sync_execute("SHOW CREATE TABLE events")
 
+        print(res[0][0])
         self.assertTrue("ORDER BY (team_id, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))" in res[0][0])
 
         sm.refresh_from_db()
@@ -86,4 +87,4 @@ class Test0001EventsSampleBy(BaseTest):
         self.assertEqual(sm.status, MigrationStatus.CompletedSuccessfully)
         self.assertEqual(sm.progress, 100)
         self.assertEqual(sm.last_error, "")
-        self.assertEqual(sm.current_operation_index, 6)
+        self.assertEqual(sm.current_operation_index, 7)
