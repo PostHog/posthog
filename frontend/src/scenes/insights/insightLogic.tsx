@@ -13,6 +13,7 @@ import {
     InsightType,
     ItemMode,
     SetInsightOptions,
+    ActionType,
 } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
 import { router } from 'kea-router'
@@ -34,6 +35,7 @@ import { urls } from 'scenes/urls'
 import { generateRandomAnimal } from 'lib/utils/randomAnimal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { actionsModel } from '~/models/actionsModel'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -457,6 +459,21 @@ export const insightLogic = kea<insightLogicType>({
                     undefined,
                     true
                 )
+            },
+        ],
+        allEventNames: [
+            (s) => [s.filters, actionsModel.selectors.actions],
+            (filters, actions: ActionType[]) => {
+                return [
+                    ...(filters.events?.map((e) => e.name) || []),
+                    ...(filters.actions?.flatMap((action) =>
+                        actions
+                            ?.filter(({ id }) => id === parseInt(String(action.id)))
+                            ?.flatMap(
+                                (action) => action.steps?.map((step) => step.event).filter((e) => !!e) as string[]
+                            )
+                    ) || []),
+                ].filter((a): a is string => !!a)
             },
         ],
     },

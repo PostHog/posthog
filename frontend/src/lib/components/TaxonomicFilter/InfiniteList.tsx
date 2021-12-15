@@ -60,9 +60,24 @@ const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
     )
 }
 
-const unusedIndicator = (): JSX.Element => {
+const unusedIndicator = (eventNames: string[]): JSX.Element => {
     return (
-        <Tooltip title={<>This property is not used by this event, but has been seen before.</>}>
+        <Tooltip
+            title={
+                <>
+                    This property is not used by{' '}
+                    {eventNames ? (
+                        <>
+                            the event{eventNames.length > 1 ? 's' : ''}{' '}
+                            <strong>{eventNames.map((e) => `"${e}"`).join(', ')}</strong>
+                        </>
+                    ) : (
+                        'this event'
+                    )}
+                    , but has been seen on other events.
+                </>
+            }
+        >
             <Tag className="lemonade-tag">Unused</Tag>
         </Tooltip>
     )
@@ -72,10 +87,12 @@ const renderItemContents = ({
     item,
     listGroupType,
     featureFlagEnabled,
+    eventNames,
 }: {
     item: EventDefinition | PropertyDefinition | CohortType
     listGroupType: TaxonomicFilterGroupType
     featureFlagEnabled: boolean
+    eventNames: string[]
 }): JSX.Element | string => {
     const parsedLastSeen = (item as EventDefinition).last_seen_at ? dayjs((item as EventDefinition).last_seen_at) : null
     const isStale =
@@ -95,7 +112,7 @@ const renderItemContents = ({
                 <PropertyKeyInfo value={item.name ?? ''} disablePopover />
             </div>
             {isStale && staleIndicator(parsedLastSeen)}
-            {isUnused && unusedIndicator()}
+            {isUnused && unusedIndicator(eventNames)}
         </>
     ) : listGroupType === TaxonomicFilterGroupType.Elements ? (
         <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover />
@@ -188,7 +205,8 @@ const selectedItemHasPopup = (
 }
 
 export function InfiniteList(): JSX.Element {
-    const { mouseInteractionsEnabled, activeTab, searchQuery, value, groupType } = useValues(taxonomicFilterLogic)
+    const { mouseInteractionsEnabled, activeTab, searchQuery, value, groupType, eventNames } =
+        useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -234,6 +252,7 @@ export function InfiniteList(): JSX.Element {
                     item,
                     listGroupType,
                     featureFlagEnabled: !!featureFlags[FEATURE_FLAGS.STALE_EVENTS],
+                    eventNames,
                 })}
             </div>
         ) : (

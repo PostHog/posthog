@@ -34,7 +34,7 @@ export function FunnelTab(): JSX.Element {
 }
 
 function FunnelTabOld(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, allEventNames } = useValues(insightLogic)
     const { loadResults } = useActions(insightLogic)
     const { isStepsEmpty, filters, clickhouseFeaturesEnabled, aggregationTargetLabel, filterSteps } = useValues(
         funnelLogic(insightProps)
@@ -204,6 +204,7 @@ function FunnelTabOld(): JSX.Element {
                             TaxonomicFilterGroupType.Cohorts,
                             TaxonomicFilterGroupType.Elements,
                         ]}
+                        eventNames={allEventNames}
                     />
                     <TestAccountFilter filters={filters} onChange={setFilters} />
                     {clickhouseFeaturesEnabled && filters.funnel_viz_type === FunnelVizType.Steps && (

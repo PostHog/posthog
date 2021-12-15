@@ -30,7 +30,7 @@ import { FunnelExclusionsFilter } from './FunnelExclusionsFilter'
 import { FunnelStepReferencePicker } from './FunnelStepReferencePicker'
 
 export function FunnelTabWithSimpleMode(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, allEventNames } = useValues(insightLogic)
     const { loadResults } = useActions(insightLogic)
     const {
         isStepsEmpty,
@@ -167,6 +167,7 @@ export function FunnelTabWithSimpleMode(): JSX.Element {
                         TaxonomicFilterGroupType.Cohorts,
                         TaxonomicFilterGroupType.Elements,
                     ]}
+                    eventNames={allEventNames}
                 />
 
                 {clickhouseFeaturesEnabled && filters.funnel_viz_type === FunnelVizType.Steps && (
