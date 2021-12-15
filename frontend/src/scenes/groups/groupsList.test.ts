@@ -35,4 +35,18 @@ describe('groupsListLogic', () => {
             .toMatchValues({ currentTab: '0' })
             .toDispatchActions(['loadGroups'])
     })
+
+    it('when moving from groups to persons, the tab sets as expected, but only once', async () => {
+        router.actions.push(urls.groups('0'))
+        await expectLogic(logic)
+            .toDispatchActions(['setTab'])
+            .toMatchValues({ currentTab: '0' })
+            .toDispatchActions(['loadGroups'])
+
+        router.actions.push(urls.persons())
+        await expectLogic(logic).toDispatchActions(['setTab']).toMatchValues({ currentTab: '-1' })
+
+        router.actions.push(urls.persons() + '?q=test')
+        await expectLogic(logic).toNotHaveDispatchedActions(['setTab'])
+    })
 })
