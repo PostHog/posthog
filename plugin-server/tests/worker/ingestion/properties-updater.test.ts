@@ -181,6 +181,18 @@ describe('upsertGroup()', () => {
         expect(group.properties_last_updated_at).toEqual({ foo: PAST_TIMESTAMP.toISO() })
     })
 
+    it('clears null values', async () => {
+        await upsert({ foo: 'bar' }, PAST_TIMESTAMP)
+        await upsert({ foo: null }, FUTURE_TIMESTAMP)
+
+        const group = await fetchGroup()
+
+        expect(group.version).toEqual(2)
+        expect(group.group_properties).toEqual({})
+        expect(group.properties_last_operation).toEqual({ foo: 'set' })
+        expect(group.properties_last_updated_at).toEqual({ foo: FUTURE_TIMESTAMP.toISO() })
+    })
+
     it('handles updating properties as new ones come in', async () => {
         await upsert({ foo: 'bar', a: 1 }, PAST_TIMESTAMP)
         await upsert({ foo: 'zeta', b: 2 }, FUTURE_TIMESTAMP)

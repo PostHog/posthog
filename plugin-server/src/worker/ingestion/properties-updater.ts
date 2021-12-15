@@ -192,6 +192,10 @@ export function calculateUpdate(
             result.properties_last_updated_at[key] = timestamp.toISO()
         }
     })
+
+    // purge null values
+    result.properties = Object.fromEntries(Object.entries(result.properties).filter(([_, val]) => val != null))
+
     return result
 }
 
