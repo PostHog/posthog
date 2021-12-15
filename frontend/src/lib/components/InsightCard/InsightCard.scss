@@ -93,4 +93,6 @@
 
 .InsightMeta__description {
     color: var(--text-muted);
+    max-height: 7em; // Display at most 4.5 lines at once, then scroll
+    overflow: auto;
 }

@@ -1,4 +1,4 @@
-import { ComponentMeta, Story } from '@storybook/react'
+import { Meta, Story } from '@storybook/react'
 import React, { useState } from 'react'
 import { InsightColor, InsightModel, InsightShortId, InsightType } from '~/types'
 import { InsightCard as InsightCardComponent } from '.'
@@ -195,6 +195,14 @@ export default {
     title: 'PostHog/Components/InsightCard',
     parameters: { options: { showPanel: true } },
     argTypes: {
+        insightName: {
+            control: { type: 'text' },
+            defaultValue: EXAMPLE_TRENDS.name,
+        },
+        insightDescription: {
+            control: { type: 'text' },
+            defaultValue: EXAMPLE_TRENDS.description,
+        },
         loading: {
             control: { type: 'boolean' },
         },
@@ -205,7 +213,7 @@ export default {
             control: { type: 'boolean' },
         },
     },
-} as ComponentMeta<typeof InsightCardComponent>
+} as Meta
 
 export const InsightCard: Story = (args) => {
     const [insightColor, setInsightColor] = useState<InsightColor | null>(null)
@@ -213,12 +221,18 @@ export const InsightCard: Story = (args) => {
     return (
         <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(2, 1fr)', width: 'fit-content' }}>
             <InsightCardComponent
-                insight={{ ...EXAMPLE_TRENDS, color: insightColor }}
+                insight={{
+                    ...EXAMPLE_TRENDS,
+                    name: args.insightName,
+                    description: args.insightDescription,
+                    color: insightColor,
+                }}
                 index={0}
                 loading={args.loading}
                 apiError={args.apiError}
                 highlighted={args.highlighted}
                 updateColor={setInsightColor}
+                refresh={() => {}}
             />
             <InsightCardComponent
                 insight={{
@@ -233,6 +247,7 @@ export const InsightCard: Story = (args) => {
                 apiError={false}
                 highlighted={false}
                 updateColor={() => {}}
+                refresh={() => {}}
             />
             <InsightCardComponent
                 insight={{ ...EXAMPLE_TRENDS, name: '', description: '', tags: [] }}
@@ -241,6 +256,7 @@ export const InsightCard: Story = (args) => {
                 apiError={false}
                 highlighted={false}
                 updateColor={() => {}}
+                refresh={() => {}}
             />
         </div>
     )

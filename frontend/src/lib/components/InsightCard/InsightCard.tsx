@@ -12,7 +12,7 @@ import { Link } from '../Link'
 import { ObjectTags } from '../ObjectTags'
 import './InsightCard.scss'
 
-export interface InsightCardProps {
+export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     /** Insight to display. */
     insight: InsightModel
     /** Card index, for data-attr instrumentation. */
@@ -25,14 +25,17 @@ export interface InsightCardProps {
     highlighted: boolean
     /** Layout of the card on a grid. */
     layout?: Layout
-    /** Callback for updating insight color.  */
+    /** Callback for updating insight color. */
     updateColor: (newColor: InsightColor | null) => void
+    /** Callback for refreshing insight. */
+    refresh: () => void
 }
 
 function InsightMeta({
     insight,
     updateColor,
-}: Pick<InsightCardProps, 'insight' | 'index' | 'updateColor'>): JSX.Element {
+    refresh,
+}: Pick<InsightCardProps, 'insight' | 'index' | 'updateColor' | 'refresh'>): JSX.Element {
     const { short_id, name, description, tags, color, filters } = insight
 
     return (
@@ -51,20 +54,39 @@ function InsightMeta({
                             <More
                                 overlay={
                                     <>
+                                        <LemonButton type="stealth" to={urls.insightView(short_id)} fullWidth>
+                                            View
+                                        </LemonButton>
+                                        <LemonButton type="stealth" to={urls.insightEdit(short_id)} fullWidth>
+                                            Edit
+                                        </LemonButton>
+                                        <LemonButton type="stealth" onClick={() => refresh()} fullWidth>
+                                            Refresh
+                                        </LemonButton>
                                         <LemonButtonWithPopup
                                             type="stealth"
                                             popup={{
                                                 overlay: Object.values(InsightColor).map((availableColor) => (
                                                     <LemonButton
                                                         key={availableColor}
-                                                        type="stealth"
+                                                        type={
+                                                            availableColor === (color || InsightColor.White)
+                                                                ? 'highlighted'
+                                                                : 'stealth'
+                                                        }
                                                         onClick={() => updateColor(availableColor)}
                                                         icon={
-                                                            <Splotch color={availableColor as string as SplotchColor} />
+                                                            availableColor !== InsightColor.White ? (
+                                                                <Splotch
+                                                                    color={availableColor as string as SplotchColor}
+                                                                />
+                                                            ) : null
                                                         }
                                                         fullWidth
                                                     >
-                                                        {capitalizeFirstLetter(availableColor)}
+                                                        {availableColor !== InsightColor.White
+                                                            ? capitalizeFirstLetter(availableColor)
+                                                            : 'No color'}
                                                     </LemonButton>
                                                 )),
                                                 placement: 'right-start',
@@ -74,6 +96,14 @@ function InsightMeta({
                                         >
                                             Change color
                                         </LemonButtonWithPopup>
+                                        <LemonButton
+                                            type="stealth"
+                                            style={{ color: 'var(--danger)' }}
+                                            onClick={() => console.warn('TODO')}
+                                            fullWidth
+                                        >
+                                            Remove from dashboard
+                                        </LemonButton>
                                     </>
                                 }
                             />
@@ -94,18 +124,19 @@ function InsightViz({}: Pick<InsightCardProps, 'insight' | 'index' | 'loading' |
     return <div className="InsightViz">Imagine a graph here</div>
 }
 
-export function InsightCard({
-    insight,
-    index,
-    loading,
-    apiError,
-    highlighted,
-    updateColor,
-}: InsightCardProps): JSX.Element {
+function InsightCardInternal(
+    { insight, index, loading, apiError, highlighted, updateColor, refresh, className, ...divProps }: InsightCardProps,
+    ref: React.Ref<HTMLDivElement>
+): JSX.Element {
     return (
-        <div className={clsx('InsightCard', highlighted && 'InsightCard--highlighted')}>
+        <div
+            className={clsx('InsightCard', highlighted && 'InsightCard--highlighted', className)}
+            {...divProps}
+            ref={ref}
+        >
             <InsightViz insight={insight} index={index} loading={loading} apiError={apiError} />
-            <InsightMeta insight={insight} index={index} updateColor={updateColor} />
+            <InsightMeta insight={insight} index={index} updateColor={updateColor} refresh={refresh} />
         </div>
     )
 }
+export const InsightCard = React.forwardRef(InsightCardInternal) as typeof InsightCardInternal
