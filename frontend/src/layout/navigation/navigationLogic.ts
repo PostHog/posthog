@@ -37,8 +37,6 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
         hideCreateOrganizationModal: true,
         showCreateProjectModal: true,
         hideCreateProjectModal: true,
-        showToolbarModal: true,
-        hideToolbarModal: true,
         toggleProjectSwitcher: true,
         hideProjectSwitcher: true,
         setHotkeyNavigationEngaged: (hotkeyNavigationEngaged: boolean) => ({ hotkeyNavigationEngaged }),
@@ -87,13 +85,6 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
             {
                 showCreateProjectModal: () => true,
                 hideCreateProjectModal: () => false,
-            },
-        ],
-        isToolbarModalShown: [
-            false,
-            {
-                showToolbarModal: () => true,
-                hideToolbarModal: () => false,
             },
         ],
         isProjectSwitcherShown: [
