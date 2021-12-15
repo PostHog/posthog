@@ -1,9 +1,9 @@
 import clsx from 'clsx'
-import React, { useState } from 'react'
+import React, { useContext, useState } from 'react'
 import { IconArrowDropDown, IconChevronRight } from '../icons'
 import { LemonRow, LemonRowProps, LemonRowPropsBase } from '../LemonRow'
 import { Link } from '../Link'
-import { Popup, PopupProps } from '../Popup/Popup'
+import { Popup, PopupProps, PopupContext } from '../Popup/Popup'
 import './LemonButton.scss'
 
 export type LemonButtonPopup = Omit<PopupProps, 'children'>
@@ -99,6 +99,7 @@ export function LemonButtonWithPopup({
     onClick,
     ...buttonProps
 }: LemonButtonWithPopupProps): JSX.Element {
+    const parentPopupId = useContext(PopupContext)
     const [popupVisible, setPopupVisible] = useState(false)
 
     if (!buttonProps.compact && !buttonProps.sideIcon) {
@@ -122,6 +123,11 @@ export function LemonButtonWithPopup({
                 onClick={(e) => {
                     setPopupVisible((state) => !state)
                     onClick?.(e)
+                    if (parentPopupId !== 0) {
+                        // If this button is inside another popup, let's not propagate this event so that
+                        // the parent popup doesn't close
+                        e.stopPropagation()
+                    }
                 }}
                 {...buttonProps}
             />

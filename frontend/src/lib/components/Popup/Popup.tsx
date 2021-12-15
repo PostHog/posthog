@@ -1,5 +1,5 @@
 import './Popup.scss'
-import React, { MouseEventHandler, ReactElement, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import React, { MouseEventHandler, ReactElement, useMemo, useState } from 'react'
 import ReactDOM from 'react-dom'
 import { usePopper } from 'react-popper'
 import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
@@ -25,9 +25,10 @@ export interface PopupProps {
     className?: string
 }
 
-const PopupContext = React.createContext<number>(0)
-const disabledPopups = new Map<number, number>()
-let uniqueMemoizedIndex = 0
+/** 0 means no parent. */
+export const PopupContext = React.createContext<number>(0)
+
+let uniqueMemoizedIndex = 1
 
 /** This is a custom popup control that uses `react-popper` to position DOM nodes */
 export function Popup({
@@ -42,43 +43,13 @@ export function Popup({
     actionable = false,
     sameWidth = false,
 }: PopupProps): JSX.Element {
-    const parentPopupId = useContext(PopupContext)
-
     const [referenceElement, setReferenceElement] = useState<HTMLDivElement | null>(null)
     const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
 
-    const popupId = useMemo(() => ++uniqueMemoizedIndex, [])
+    const popupId = useMemo(() => uniqueMemoizedIndex++, [])
     const localRefs = [popperElement, referenceElement]
 
-    useEffect(() => {
-        if (visible) {
-            disabledPopups.set(popupId, parentPopupId)
-            return () => {
-                disabledPopups.delete(popupId)
-            }
-        }
-    }, [visible, parentPopupId])
-
-    useOutsideClickHandler(
-        localRefs,
-        (event) => {
-            if (visible) {
-                onClickOutside?.(event)
-            }
-        },
-        [visible, disabledPopups]
-    )
-
-    const onClickInsideConditional = useCallback(
-        (event) => {
-            // Don't run onClickInside if this popup is a child of another popup
-            console.log('clicked', disabledPopups, parentPopupId, popupId)
-            if (!disabledPopups.has(popupId)) {
-                onClickInside?.(event)
-            }
-        },
-        [visible, disabledPopups]
-    )
+    useOutsideClickHandler(localRefs, (event) => visible && onClickOutside?.(event), [visible])
 
     const modifiers = useMemo<Partial<Modifier<any, any>>[]>(
         () => [
@@ -136,7 +107,7 @@ export function Popup({
                           className={clsx('Popup', actionable && 'Popup--actionable', className)}
                           ref={setPopperElement}
                           style={styles.popper}
-                          onClick={onClickInsideConditional}
+                          onClick={onClickInside}
                           {...attributes.popper}
                       >
                           <PopupContext.Provider value={popupId}>{overlay}</PopupContext.Provider>
