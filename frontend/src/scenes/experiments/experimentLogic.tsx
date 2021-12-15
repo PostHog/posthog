@@ -17,10 +17,13 @@ import {
     FunnelVizType,
     InsightModel,
     InsightType,
+    InsightShortId,
 } from '~/types'
 import { experimentLogicType } from './experimentLogicType'
 import { router } from 'kea-router'
 import { experimentsLogic } from './experimentsLogic'
+
+const DEFAULT_DURATION = 14 // days
 
 export const experimentLogic = kea<experimentLogicType>({
     path: ['scenes', 'experiment', 'experimentLogic'],
@@ -29,7 +32,7 @@ export const experimentLogic = kea<experimentLogicType>({
         setExperimentResults: (experimentResults: ExperimentResults | null) => ({ experimentResults }),
         setExperiment: (experiment: Experiment) => ({ experiment }),
         createExperiment: (draft?: boolean) => ({ draft }),
-        setExperimentFunnel: (funnel: InsightModel) => ({ funnel }),
+        setExperimentFunnelId: (shortId: InsightShortId) => ({ shortId }),
         createNewExperimentFunnel: (filters?: Partial<FilterType>) => ({ filters }),
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
         setExperimentId: (experimentId: number | 'new') => ({ experimentId }),
@@ -38,6 +41,7 @@ export const experimentLogic = kea<experimentLogicType>({
         prevPage: true,
         setPage: (page: number) => ({ page }),
         emptyData: true,
+        endExperiment: true,
     },
     reducers: {
         experimentId: [
@@ -65,10 +69,10 @@ export const experimentLogic = kea<experimentLogicType>({
                 setExperimentResults: (_, { experimentResults }) => experimentResults,
             },
         ],
-        experimentFunnel: [
-            null as InsightModel | null,
+        experimentFunnelId: [
+            null as InsightShortId | null,
             {
-                setExperimentFunnel: (_, { funnel }) => funnel,
+                setExperimentFunnelId: (_, { shortId }) => shortId,
             },
         ],
         newExperimentCurrentPage: [
@@ -126,6 +130,8 @@ export const experimentLogic = kea<experimentLogicType>({
                 filters: cleanFilters({
                     insight: InsightType.FUNNELS,
                     funnel_viz_type: FunnelVizType.Steps,
+                    date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                    date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
                     ...filters,
                 }),
                 result: null,
@@ -134,7 +140,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 `api/projects/${teamLogic.values.currentTeamId}/insights`,
                 newInsight
             )
-            actions.setExperimentFunnel(createdInsight)
+            actions.setExperimentFunnelId(createdInsight.short_id)
         },
         loadExperiment: async () => {
             try {
@@ -155,7 +161,7 @@ export const experimentLogic = kea<experimentLogicType>({
             }
         },
         setFilters: ({ filters }) => {
-            funnelLogic.findMounted({ dashboardItemId: values.experimentFunnel?.short_id })?.actions.setFilters(filters)
+            funnelLogic.findMounted({ dashboardItemId: values.experimentFunnelId })?.actions.setFilters(filters)
         },
         loadExperimentSuccess: ({ experimentData }) => {
             if (!experimentData?.start_date) {
@@ -164,6 +170,11 @@ export const experimentLogic = kea<experimentLogicType>({
                 actions.setPage(2)
                 actions.setNewExperimentData({ ...experimentData })
             }
+        },
+        endExperiment: async () => {
+            await api.update(`api/projects/${values.currentTeamId}/experiments/${values.experimentId}`, {
+                end_date: dayjs(),
+            })
         },
     }),
     loaders: ({ values }) => ({
@@ -195,6 +206,31 @@ export const experimentLogic = kea<experimentLogicType>({
                     path: urls.experiment(experimentId || 'new'),
                 },
             ],
+        ],
+        minimimumDetectableChange: [
+            (s) => [s.newExperimentData],
+            (newExperimentData): number => {
+                return newExperimentData?.parameters?.minimum_detectable_effect || 5
+            },
+        ],
+        recommendedSampleSize: [
+            (s) => [s.minimimumDetectableChange],
+            (mde) => (conversionRate: number) => {
+                // Using the rule of thumb: 16 * sigma^2 / (mde^2)
+                // refer https://en.wikipedia.org/wiki/Sample_size_determination with default beta and alpha
+                // The results are same as: https://www.evanmiller.org/ab-testing/sample-size.html
+                // and also: https://marketing.dynamicyield.com/ab-test-duration-calculator/
+                // this is per variant, so we need to multiply by 2
+                return 2 * Math.ceil((1600 * conversionRate * (1 - conversionRate / 100)) / (mde * mde))
+            },
+        ],
+        expectedRunningTime: [
+            () => [],
+            () =>
+                (entrants: number, sampleSize: number): number => {
+                    // recommended people / (actual people / day) = expected days
+                    return parseFloat((sampleSize / (entrants / DEFAULT_DURATION)).toFixed(1))
+                },
         ],
     },
     urlToAction: ({ actions, values }) => ({

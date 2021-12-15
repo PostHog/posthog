@@ -849,7 +849,10 @@ export interface FilterType {
     shown_as?: ShownAsType
     session?: string
     period?: string
+
     retention_type?: RetentionType
+    retention_reference?: 'total' | 'previous' // retention wrt cohort size or previous period
+
     new_entity?: Record<string, any>[]
     returning_entity?: Record<string, any>
     target_entity?: Record<string, any>
@@ -1351,6 +1354,7 @@ export interface Experiment {
     description?: string
     feature_flag_key: string
     filters: FilterType
+    parameters: Record<string, any>
     start_date?: string
     end_date?: string
     created_at: string

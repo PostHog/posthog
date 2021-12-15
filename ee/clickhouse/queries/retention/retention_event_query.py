@@ -22,11 +22,9 @@ class RetentionEventsQuery(ClickhouseEventQuery):
     _event_query_type: RetentionQueryType
     _trunc_func: str
 
-    def __init__(self, filter: RetentionFilter, event_query_type: RetentionQueryType, *args, **kwargs):
+    def __init__(self, filter: RetentionFilter, event_query_type: RetentionQueryType, team_id: int):
         self._event_query_type = event_query_type
-        super().__init__(
-            filter=filter, *args, **kwargs,
-        )  # type: ignore
+        super().__init__(filter=filter, team_id=team_id)
 
         self._trunc_func = get_trunc_func_ch(self._filter.period)
 
@@ -46,11 +44,7 @@ class RetentionEventsQuery(ClickhouseEventQuery):
             ),
         ]
 
-        if (
-            self._event_query_type != RetentionQueryType.RETURNING
-            and self._filter.breakdowns
-            and self._filter.breakdown_type
-        ):
+        if self._filter.breakdowns and self._filter.breakdown_type:
             # NOTE: `get_single_or_multi_property_string_expr` doesn't
             # support breakdowns with different types e.g. a person property
             # then an event property, so for now we just take the type of
@@ -69,7 +63,46 @@ class RetentionEventsQuery(ClickhouseEventQuery):
                 query_alias=None,
             )
 
-            _fields += [f"argMin({breakdown_values_expression}, {self._trunc_func}(e.timestamp)) AS breakdown_values"]
+            if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
+                _fields += [f"argMin({breakdown_values_expression}, e.timestamp) AS breakdown_values"]
+            else:
+                _fields += [f"{breakdown_values_expression} AS breakdown_values"]
+        else:
+            # If we didn't have a breakdown specified, we default to the
+            # initial event interval
+            # NOTE: we wrap as an array to maintain the same structure as
+            # for typical breakdowns
+            # NOTE: we could add support for specifying expressions to
+            # `get_single_or_multi_property_string_expr` or an abstraction
+            # over the top somehow
+            # NOTE: we use the datediff rather than the date to make our
+            # lives easier when zero filling the response. We could however
+            # handle this WITH FILL within the query.
+            if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
+                _fields += [
+                    f"""
+                    [
+                        dateDiff(
+                            %(period)s,
+                            {self._trunc_func}(toDateTime(%(start_date)s)),
+                            {self._trunc_func}(min(e.timestamp))
+                        )
+                    ] as breakdown_values
+                    """
+                ]
+            elif self._event_query_type == RetentionQueryType.TARGET:
+                _fields += [
+                    f"""
+                    [
+                        dateDiff(
+                            %(period)s,
+                            {self._trunc_func}(toDateTime(%(start_date)s)),
+                            {self._trunc_func}(e.timestamp)
+                        )
+                    ] as breakdown_values
+                    """
+                ]
+            self.params.update({"start_date": self._filter.date_from, "period": self._filter.period})
 
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
@@ -112,7 +145,7 @@ class RetentionEventsQuery(ClickhouseEventQuery):
         elif self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
             return f"min({self._trunc_func}(e.timestamp)) as event_date"
         else:
-            return f"{self.EVENT_TABLE_ALIAS}.timestamp AS event_date"
+            return f"{self._trunc_func}({self.EVENT_TABLE_ALIAS}.timestamp) AS event_date"
 
     def _determine_should_join_distinct_ids(self) -> None:
         if self._filter.aggregation_group_type_index is not None:

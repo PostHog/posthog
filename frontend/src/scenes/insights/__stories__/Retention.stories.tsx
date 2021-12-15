@@ -2,12 +2,7 @@ import { Meta } from '@storybook/react'
 import { createMemoryHistory } from 'history'
 import { Provider } from 'kea'
 import { mockGetPersonProperties } from 'lib/components/TaxonomicFilter/__stories__/TaxonomicFilter.stories'
-import {
-    ACTIONS_LINE_GRAPH_LINEAR,
-    FEATURE_FLAGS,
-    OrganizationMembershipLevel,
-    TeamMembershipLevel,
-} from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import { rest } from 'msw'
 import React from 'react'
 import { initKea } from '~/initKea'
@@ -18,7 +13,7 @@ export default {
     title: 'PostHog/Scenes/Insights/Retention',
 } as Meta
 
-export const Table = (): JSX.Element => {
+export const Cohort = (): JSX.Element => {
     worker.use(
         rest.get('/api/projects/:projectId/insights/retention/', (_, res, ctx) =>
             res(ctx.json(sampleRetentionResponse))
@@ -71,7 +66,7 @@ export const Table = (): JSX.Element => {
     )
 }
 
-export const TableWithBreakdown = (): JSX.Element => {
+export const Breakdown = (): JSX.Element => {
     worker.use(
         rest.get('/api/projects/:projectId/insights/retention/', (_, res, ctx) =>
             res(ctx.json(sampleBreakdownRetentionResponse))
@@ -102,51 +97,6 @@ export const TableWithBreakdown = (): JSX.Element => {
                 exclusions: JSON.stringify([]),
                 breakdowns: JSON.stringify([{ property: 'browser' }, { property: 'browser_version' }]),
                 breakdown_type: 'person',
-            })}#fromItem=`,
-        ],
-    })
-
-    // @ts-ignore
-    history.pushState = history.push
-    // @ts-ignore
-    history.replaceState = history.replace
-
-    // This is data that is rendered into the html. I tried not to use this and just
-    // use the endoints, but it appears to be difficult to set this up to not have
-    // race conditions.
-    // @ts-ignore
-    window.POSTHOG_APP_CONTEXT = sampleContextData
-
-    initKea({ routerHistory: history, routerLocation: history.location })
-
-    return (
-        <Provider>
-            <Insight />
-        </Provider>
-    )
-}
-
-export const Chart = (): JSX.Element => {
-    worker.use(
-        rest.get('/api/projects/:projectId/insights/retention/', (_, res, ctx) =>
-            res(ctx.json(sampleRetentionResponse))
-        ),
-        rest.get('/api/person/retention', (_, res, ctx) => res(ctx.json(sampleRetentionPeopleResponse))),
-        rest.post('/api/projects/:projectId/cohorts/', (_, res, ctx) => res(ctx.json({ id: 1 })))
-    )
-
-    const history = createMemoryHistory({
-        initialEntries: [
-            `/insights?${new URLSearchParams({
-                insight: 'RETENTION',
-                filter_test_accounts: 'false',
-                target_event: JSON.stringify([{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }]),
-                returning_event: JSON.stringify([{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }]),
-                actions: JSON.stringify([]),
-                new_entity: JSON.stringify([]),
-                date_from: '-14d',
-                exclusions: JSON.stringify([]),
-                display: ACTIONS_LINE_GRAPH_LINEAR,
             })}#fromItem=`,
         ],
     })
@@ -211,7 +161,7 @@ const sampleRetentionResponse = {
                 { count: 3, people: [] },
                 { count: 6, people: [] },
             ],
-            label: 'Oct 31',
+            label: 'Day 0',
             date: '2021-11-13T00:00:00Z',
         },
         {
@@ -227,7 +177,7 @@ const sampleRetentionResponse = {
                 { count: 3, people: [] },
                 { count: 3, people: [] },
             ],
-            label: 'Nov 1',
+            label: 'Day 1',
             date: '2021-11-14T00:00:00Z',
         },
         {
@@ -242,7 +192,7 @@ const sampleRetentionResponse = {
                 { count: 13, people: [] },
                 { count: 6, people: [] },
             ],
-            label: 'Nov 2',
+            label: 'Day 2',
             date: '2021-11-15T00:00:00Z',
         },
         {
@@ -256,7 +206,7 @@ const sampleRetentionResponse = {
                 { count: 29, people: [] },
                 { count: 10, people: [] },
             ],
-            label: 'Nov 3',
+            label: 'Day 3',
             date: '2021-11-16T00:00:00Z',
         },
         {
@@ -269,7 +219,7 @@ const sampleRetentionResponse = {
                 { count: 28, people: [] },
                 { count: 14, people: [] },
             ],
-            label: 'Nov 4',
+            label: 'Day 4',
             date: '2021-11-17T00:00:00Z',
         },
         {
@@ -281,7 +231,7 @@ const sampleRetentionResponse = {
                 { count: 34, people: [] },
                 { count: 20, people: [] },
             ],
-            label: 'Nov 5',
+            label: 'Day 5',
             date: '2021-11-18T00:00:00Z',
         },
         {
@@ -292,7 +242,7 @@ const sampleRetentionResponse = {
                 { count: 56, people: [] },
                 { count: 24, people: [] },
             ],
-            label: 'Nov 6',
+            label: 'Day 6',
             date: '2021-11-19T00:00:00Z',
         },
         {
@@ -302,7 +252,7 @@ const sampleRetentionResponse = {
                 { count: 18, people: [] },
                 { count: 12, people: [] },
             ],
-            label: 'Nov 7',
+            label: 'Day 7',
             date: '2021-11-20T00:00:00Z',
         },
         {
@@ -311,7 +261,7 @@ const sampleRetentionResponse = {
                 { count: 33, people: [] },
                 { count: 16, people: [] },
             ],
-            label: 'Nov 8',
+            label: 'Day 8',
             date: '2021-11-21T00:00:00Z',
         },
         {
@@ -319,10 +269,10 @@ const sampleRetentionResponse = {
                 { count: 1183, people: [] },
                 { count: 36, people: [] },
             ],
-            label: 'Nov 9',
+            label: 'Day 9',
             date: '2021-11-22T00:00:00Z',
         },
-        { values: [{ count: 810, people: [] }], label: 'Nov 10', date: '2021-11-23T00:00:00Z' },
+        { values: [{ count: 810, people: [] }], label: 'Day 10', date: '2021-11-23T00:00:00Z' },
     ],
     last_refresh: '2021-11-23T13:45:29.314009Z',
     is_cached: true,

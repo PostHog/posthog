@@ -26,12 +26,6 @@
         }
     }
 
-    .confirmation {
-        div {
-            padding-bottom: $default_spacing;
-        }
-    }
-
     .insights-graph-container {
         margin-bottom: $default_spacing;
         background-color: $bg_side;
@@ -99,5 +93,32 @@
         padding-left: $default_spacing;
         padding-right: $default_spacing;
         min-height: 48px;
+    }
+
+    .mde-selection {
+        border-top: 1px solid $border;
+        background-color: $bg_mid;
+        padding: 12px 16px;
+        margin-bottom: 1rem;
+
+        .ant-slider-handle {
+            z-index: 3;
+        }
+
+        .ant-slider-track {
+            z-index: 2;
+        }
+
+        .ant-slider-step {
+            background: darkgray;
+        }
+
+        .estimates {
+            .estimate {
+                font-weight: 500;
+                color: $text-muted;
+                font-size: 12px;
+            }
+        }
     }
 }
