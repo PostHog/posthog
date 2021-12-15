@@ -37,9 +37,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 //--Chart Style Options--//
 Chart.register(CrosshairPlugin)
-Chart.defaults.plugins.legend.display = false
 Chart.defaults.animation['duration'] = 0
-Chart.defaults.elements.line.tension = 0
 //--Chart Style Options--//
 
 interface LineGraphProps {
@@ -266,7 +264,15 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
             responsive: true,
             maintainAspectRatio: false,
             scaleShowHorizontalLines: false,
+            elements: {
+                line: {
+                    tension: 0,
+                },
+            },
             plugins: {
+                legend: {
+                    display: false,
+                },
                 tooltip: {
                     ...tooltipOptions,
                     external(args: { chart: Chart; tooltip: TooltipModel<ChartType> }) {
