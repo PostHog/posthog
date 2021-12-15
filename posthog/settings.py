@@ -454,7 +454,8 @@ if TEST or DEBUG:
     PG_HOST = os.getenv("PGHOST", "localhost")
     PG_USER = os.getenv("PGUSER", "posthog")
     PG_PASSWORD = os.getenv("PGPASSWORD", "posthog")
-    DATABASE_URL = os.getenv("DATABASE_URL", f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:5432/posthog")
+    PG_PORT = os.getenv("PGPORT", "5432")
+    DATABASE_URL = os.getenv("DATABASE_URL", f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/posthog")
 else:
     DATABASE_URL = os.getenv("DATABASE_URL", "")
 
