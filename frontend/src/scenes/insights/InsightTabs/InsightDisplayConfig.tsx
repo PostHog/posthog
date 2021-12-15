@@ -3,7 +3,7 @@ import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE, FEATURE_FLAGS } from 'lib/constants'
-import { ChartDisplayType, FilterType, FunnelVizType, ItemMode, InsightType } from '~/types'
+import { FilterType, FunnelVizType, ItemMode, InsightType } from '~/types'
 import { CalendarOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from '../InsightDateFilter'
 import { RetentionDatePicker } from '../RetentionDatePicker'
@@ -16,12 +16,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface InsightDisplayConfigProps {
-    clearAnnotationsToCreate: () => void
     filters: FilterType
     activeView: InsightType
     insightMode: ItemMode
     disableTable: boolean
-    annotationsToCreate: Record<string, any>[] // TODO: Annotate properly
 }
 
 const showIntervalFilter = function (activeView: InsightType, filter: FilterType): boolean {
@@ -81,12 +79,7 @@ const isFunnelEmpty = (filters: FilterType): boolean => {
     return (!filters.actions && !filters.events) || (filters.actions?.length === 0 && filters.events?.length === 0)
 }
 
-export function InsightDisplayConfig({
-    filters,
-    activeView,
-    clearAnnotationsToCreate,
-    disableTable,
-}: InsightDisplayConfigProps): JSX.Element {
+export function InsightDisplayConfig({ filters, activeView, disableTable }: InsightDisplayConfigProps): JSX.Element {
     const showFunnelBarOptions = activeView === InsightType.FUNNELS
     const showPathOptions = activeView === InsightType.PATHS
     const dateFilterDisabled = showFunnelBarOptions && isFunnelEmpty(filters)
@@ -139,15 +132,7 @@ export function InsightDisplayConfig({
                 {showChartFilter(activeView) && (
                     <span className="filter">
                         <span className="head-title-item">Chart type</span>
-                        <ChartFilter
-                            onChange={(display: ChartDisplayType | FunnelVizType) => {
-                                if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART) {
-                                    clearAnnotationsToCreate()
-                                }
-                            }}
-                            filters={filters}
-                            disabled={filters.insight === InsightType.LIFECYCLE}
-                        />
+                        <ChartFilter filters={filters} disabled={filters.insight === InsightType.LIFECYCLE} />
                     </span>
                 )}
                 {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.Steps && (

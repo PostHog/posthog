@@ -4,7 +4,7 @@ import { getChartColors } from 'lib/colors'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightEmptyState } from '../../insights/EmptyStates'
-import { FilterType, GraphTypes, InsightShortId, TrendResultWithAggregate } from '~/types'
+import { ActionFilter, FilterType, GraphType, InsightShortId } from '~/types'
 import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -19,7 +19,7 @@ interface Props {
 
 type DataSet = any
 
-export function ActionsBarValueGraph({
+export function ActionsHorizontalBar({
     dashboardItemId = null,
     filters: filtersParam,
     color = 'white',
@@ -27,13 +27,13 @@ export function ActionsBarValueGraph({
 }: Props): JSX.Element | null {
     const [data, setData] = useState<DataSet[] | null>(null)
     const [total, setTotal] = useState(0)
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
     const { results } = useValues(logic)
 
     function updateData(): void {
-        const _data = [...results] as TrendResultWithAggregate[]
+        const _data = [...results]
         _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
 
         // If there are more series than colors, we reuse colors sequentially so all series are colored
@@ -46,7 +46,7 @@ export function ActionsBarValueGraph({
                 labels: _data.map((item) => item.label),
                 data: _data.map((item) => item.aggregated_value),
                 actions: _data.map((item) => item.action),
-                persons: _data.map((item) => item.persons),
+                personsValues: _data.map((item) => item.persons),
                 days,
                 breakdownValues: _data.map((item) => item.breakdown_value),
                 backgroundColor: colorList,
@@ -69,11 +69,12 @@ export function ActionsBarValueGraph({
     return data && total > 0 ? (
         <LineGraph
             data-attr="trend-bar-value-graph"
-            type={GraphTypes.HorizontalBar}
+            type={GraphType.HorizontalBar}
             color={color}
             datasets={data}
             labels={data[0].labels}
-            dashboardItemId={dashboardItemId}
+            insightShortId={insight.short_id}
+            insightId={insight.id}
             totalValue={total}
             interval={filtersParam?.interval}
             onClick={
@@ -96,7 +97,7 @@ export function ActionsBarValueGraph({
                               ? dataset.breakdownValues[point.index]
                               : null
                           const params = {
-                              action,
+                              action: action as ActionFilter,
                               label: label ?? '',
                               date_from,
                               date_to,

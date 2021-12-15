@@ -1,35 +1,34 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import ReactDOM from 'react-dom'
 import { Provider } from 'react-redux'
 import { getContext, useActions, useValues } from 'kea'
 import {
+    ActiveElement,
     Chart,
     ChartDataset,
-    ChartOptions,
-    ChartType,
-    Color,
-    TickOptions,
-    TooltipOptions,
-    TooltipModel,
-    TooltipItem,
     ChartEvent,
     ChartItem,
+    ChartOptions,
     ChartPluginsOptions,
-    ActiveElement,
+    ChartType,
+    Color,
     InteractionItem,
+    TickOptions,
+    TooltipItem,
+    TooltipModel,
+    TooltipOptions,
 } from 'chart.js'
 import { CrosshairOptions, CrosshairPlugin } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs'
-import { compactNumber, lightenDarkenColor, noop, mapRange } from '~/lib/utils'
+import { compactNumber, lightenDarkenColor, mapRange } from '~/lib/utils'
 import { getBarColorFromStatus, getChartColors, getGraphColors } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { toast } from 'react-toastify'
-import { AnnotationMarker, annotationsLogic, renderAnnotations } from 'lib/components/Annotations'
+import { AnnotationMarker, Annotations, annotationsLogic } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import './LineGraph.scss'
 import { InsightTooltip } from '../InsightTooltip/InsightTooltip'
 import { dayjs } from 'lib/dayjs'
-import { AnnotationType, GraphDataset, GraphPointPayload, GraphTypes, InsightShortId, IntervalType } from '~/types'
+import { AnnotationType, GraphDataset, GraphPointPayload, GraphType, InsightShortId, IntervalType } from '~/types'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { LEGACY_LineGraph } from './LEGACY_LineGraph.jsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -45,11 +44,12 @@ interface LineGraphProps {
     visibilityMap?: Record<string | number, any>
     labels: string[]
     color: string
-    type: string
+    type: GraphType
     isInProgress?: boolean
     onClick?: (payload: GraphPointPayload) => void
     ['data-attr']: string
-    dashboardItemId?: InsightShortId | null // Used only for annotations, not to init any other logic
+    insightShortId?: InsightShortId
+    insightId?: number // Used only for annotations, not to init any other logic
     inSharedMode?: boolean
     percentage?: boolean
     interval?: IntervalType
@@ -59,6 +59,8 @@ interface LineGraphProps {
     isCompare?: boolean
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
 }
+
+const noop = (): void => {}
 
 export function LineGraph(props: LineGraphProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -76,7 +78,8 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
         isInProgress = false,
         onClick,
         ['data-attr']: dataAttr,
-        dashboardItemId,
+        insightShortId,
+        insightId,
         inSharedMode = false,
         percentage = false,
         interval = undefined,
@@ -98,12 +101,12 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
     const [labelIndex, setLabelIndex] = useState<number | null>(null)
     const [holdLabelIndex, setHoldLabelIndex] = useState<number | null>(null)
     const [selectedDayLabel, setSelectedDayLabel] = useState<string | null>(null)
-    const { createAnnotation, createAnnotationNow, updateDiffType, createGlobalAnnotation } = !inSharedMode
-        ? useActions(annotationsLogic({ insightId: dashboardItemId || undefined }))
-        : { createAnnotation: noop, createAnnotationNow: noop, updateDiffType: noop, createGlobalAnnotation: noop }
+    const { createAnnotation, updateDiffType, createGlobalAnnotation } = !inSharedMode
+        ? useActions(annotationsLogic({ insightId }))
+        : { createAnnotation: noop, updateDiffType: noop, createGlobalAnnotation: noop }
 
     const { annotationsList, annotationsLoading } = !inSharedMode
-        ? useValues(annotationsLogic({ insightId: dashboardItemId || undefined }))
+        ? useValues(annotationsLogic({ insightId }))
         : { annotationsList: [], annotationsLoading: false }
     const [leftExtent, setLeftExtent] = useState(0)
     const [boundaryInterval, setBoundaryInterval] = useState(0)
@@ -112,11 +115,12 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
     const size = useWindowSize()
 
     const annotationsCondition =
-        type === 'line' && datasets?.length > 0 && !inSharedMode && datasets[0].labels?.[0] !== '1 day' // stickiness graphs
+        type === GraphType.Line && datasets?.length > 0 && !inSharedMode && datasets[0].labels?.[0] !== '1 day' // stickiness graphs
 
     const colors = getGraphColors(color === 'white')
-    const isHorizontal = type === 'horizontalBar'
-    const isBar = ['bar', 'horizontalBar', 'histogram'].includes(type)
+    const isHorizontal = type === GraphType.HorizontalBar
+    const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
+    const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Pie]
 
     useEscapeKey(() => setFocused(false), [focused])
 
@@ -178,25 +182,22 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
         const mainColor = dataset?.status ? getBarColorFromStatus(dataset.status) : colorList[index % colorList.length]
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
 
-        // `horizontalBar` colors are set in `ActionsBarValueGraph.tsx` and overriden in spread of `dataset` below
-        const BACKGROUND_BASED_CHARTS = ['bar', 'horizontalBar', 'doughnut']
+        // `horizontalBar` colors are set in `ActionsHorizontalBar.tsx` and overriden in spread of `dataset` below
 
         return {
             borderColor: mainColor,
-            hoverBorderColor: BACKGROUND_BASED_CHARTS.includes(type) ? lightenDarkenColor(mainColor, -20) : hoverColor,
-            hoverBackgroundColor: BACKGROUND_BASED_CHARTS.includes(type)
-                ? lightenDarkenColor(mainColor, -20)
-                : undefined,
-            backgroundColor: BACKGROUND_BASED_CHARTS.includes(type) ? mainColor : undefined,
+            hoverBorderColor: isBackgroundBasedGraphType ? lightenDarkenColor(mainColor, -20) : hoverColor,
+            hoverBackgroundColor: isBackgroundBasedGraphType ? lightenDarkenColor(mainColor, -20) : undefined,
+            backgroundColor: isBackgroundBasedGraphType ? mainColor : undefined,
             fill: false,
             borderWidth: isBar ? 0 : 2,
             pointRadius: 0,
             hitRadius: 0,
-            ...(type === 'histogram' ? { barPercentage: 1 } : {}),
+            ...(type === GraphType.Histogram ? { barPercentage: 1 } : {}),
             ...dataset,
             hoverBorderWidth: isBar ? 0 : 2,
             hoverBorderRadius: isBar ? 0 : 2,
-            type: (isHorizontal ? GraphTypes.Bar : type) as ChartType,
+            type: (isHorizontal ? GraphType.Bar : type) as ChartType,
         }
     }
 
@@ -208,8 +209,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
         }
 
         // if chart is line graph, make duplicate lines and overlay to show dotted lines
-        const isLineGraph = type === 'line'
-        if (isLineGraph) {
+        if (type === GraphType.Line) {
             datasets = [
                 ...datasets.map((dataset, index) => {
                     const sliceTo = incompletenessOffsetFromEnd || (dataset.data?.length ?? 0)
@@ -226,7 +226,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
 
                     // if last date is still active show dotted line
                     if (isInProgress) {
-                        datasetCopy.borderDash = [10, 10]
+                        datasetCopy['borderDash'] = [10, 10]
                     }
 
                     // Nullify dates that don't have dotted line
@@ -510,7 +510,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
             },
         }
 
-        if (type === 'bar') {
+        if (type === GraphType.Bar) {
             options.scales = {
                 x: {
                     min: 0,
@@ -534,7 +534,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                     },
                 },
             }
-        } else if (type === 'line') {
+        } else if (type === GraphType.Line) {
             options.scales = {
                 x: {
                     min: 0,
@@ -597,7 +597,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                 },
             }
             options.indexAxis = 'y'
-        } else if (type === 'doughnut') {
+        } else if (type === GraphType.Pie) {
             options = {
                 responsive: true,
                 maintainAspectRatio: false,
@@ -613,7 +613,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
         }
 
         myLineChart.current = new Chart(myChartRef as ChartItem, {
-            type: (['histogram', 'horizontalBar'].includes(type) ? 'bar' : type) as ChartType,
+            type: (isBar ? GraphType.Bar : type) as ChartType,
             data: { labels, datasets },
             options,
         })
@@ -655,31 +655,36 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
         >
             <canvas ref={chartRef} />
             <div className="annotations-root" ref={annotationsRoot} />
-            {annotationsCondition &&
-                renderAnnotations({
-                    dates: datasets[0].days ?? [],
-                    leftExtent,
-                    interval: boundaryInterval,
-                    topExtent,
-                    insightId: dashboardItemId || undefined,
-                    currentDateMarker:
+            {annotationsCondition && (
+                <Annotations
+                    dates={datasets[0].days ?? []}
+                    leftExtent={leftExtent}
+                    interval={boundaryInterval}
+                    topExtent={topExtent}
+                    insightId={insightId}
+                    insightShortId={insightShortId}
+                    currentDateMarker={
                         focused || annotationsFocused
                             ? selectedDayLabel
                             : enabled && labelIndex
                             ? datasets[0].days?.[labelIndex]
-                            : null,
-                    onClick: () => {
+                            : null
+                    }
+                    onClick={() => {
                         setFocused(false)
                         setAnnotationsFocused(true)
-                    },
-                    onClose: () => setAnnotationsFocused(false),
-                    graphColor: color,
-                    color: colors.annotationColor,
-                    accessoryColor: colors.annotationAccessoryColor,
-                })}
+                    }}
+                    onClose={() => {
+                        setAnnotationsFocused(false)
+                    }}
+                    graphColor={color}
+                    color={colors.annotationColor}
+                    accessoryColor={colors.annotationAccessoryColor}
+                />
+            )}
             {annotationsCondition && !annotationsFocused && (enabled || focused) && left >= 0 && (
                 <AnnotationMarker
-                    dashboardItemId={dashboardItemId || undefined}
+                    insightId={insightId}
                     currentDateMarker={focused ? selectedDayLabel : labelIndex ? datasets[0].days?.[labelIndex] : null}
                     onClick={() => {
                         setFocused(true)
@@ -694,12 +699,9 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                         const date = holdLabelIndex ? datasets[0].days?.[holdLabelIndex] : null
                         if (date) {
                             if (applyAll) {
-                                createGlobalAnnotation(textInput, date, dashboardItemId || undefined)
-                            } else if (dashboardItemId) {
-                                createAnnotationNow(textInput, date)
+                                createGlobalAnnotation(textInput, date, insightShortId)
                             } else {
                                 createAnnotation(textInput, date)
-                                toast('This annotation will be saved if the graph is made into a dashboard item!')
                             }
                         }
                     }}

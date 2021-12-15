@@ -8,8 +8,7 @@ import PropTypes from 'prop-types'
 import { compactNumber, lightenDarkenColor } from '~/lib/utils'
 import { getBarColorFromStatus, getChartColors, getGraphColors } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { toast } from 'react-toastify'
-import { renderAnnotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
+import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import './LineGraph.scss'
 import { InsightLabel } from 'lib/components/InsightLabel'
@@ -33,7 +32,8 @@ export function LEGACY_LineGraph({
     isInProgress = false,
     onClick,
     ['data-attr']: dataAttr,
-    dashboardItemId /* used only for annotations, not to init any other logic */,
+    insightId /* used only for annotations, not to init any other logic */,
+    insightShortId,
     inSharedMode,
     percentage = false,
     interval = undefined,
@@ -54,12 +54,12 @@ export function LEGACY_LineGraph({
     const [labelIndex, setLabelIndex] = useState(null)
     const [holdLabelIndex, setHoldLabelIndex] = useState(null)
     const [selectedDayLabel, setSelectedDayLabel] = useState(null)
-    const { createAnnotation, createAnnotationNow, updateDiffType, createGlobalAnnotation } = !inSharedMode
-        ? useActions(annotationsLogic({ pageKey: dashboardItemId || null }))
-        : { createAnnotation: noop, createAnnotationNow: noop, updateDiffType: noop, createGlobalAnnotation: noop }
+    const { createAnnotation, updateDiffType, createGlobalAnnotation } = !inSharedMode
+        ? useActions(annotationsLogic({ insightId }))
+        : { createAnnotation: noop, updateDiffType: noop, createGlobalAnnotation: noop }
 
     const { annotationsList, annotationsLoading } = !inSharedMode
-        ? useValues(annotationsLogic({ pageKey: dashboardItemId || null }))
+        ? useValues(annotationsLogic({ insightId }))
         : { annotationsList: [], annotationsLoading: false }
     const [leftExtent, setLeftExtent] = useState(0)
     const [boundaryInterval, setBoundaryInterval] = useState(0)
@@ -145,7 +145,7 @@ export function LEGACY_LineGraph({
         const mainColor = dataset?.status ? getBarColorFromStatus(dataset.status) : colorList[index % colorList.length]
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
 
-        // `horizontalBar` colors are set in `ActionsBarValueGraph.tsx` and overriden in spread of `dataset` below
+        // `horizontalBar` colors are set in `ActionsHorizontalBar.tsx` and overriden in spread of `dataset` below
         const BACKGROUND_BASED_CHARTS = ['bar', 'doughnut']
 
         return {
@@ -543,32 +543,33 @@ export function LEGACY_LineGraph({
         >
             <canvas ref={chartRef} />
             <div className="annotations-root" ref={annotationsRoot} />
-            {annotationsCondition &&
-                renderAnnotations({
-                    labeledDays: datasets[0].labels,
-                    dates: datasets[0].days,
-                    leftExtent,
-                    interval: boundaryInterval,
-                    topExtent,
-                    dashboardItemId,
-                    currentDateMarker:
-                        focused || annotationsFocused
-                            ? selectedDayLabel
-                            : enabled
-                            ? datasets[0].days[labelIndex]
-                            : null,
-                    onClick: () => {
+            {annotationsCondition && (
+                <Annotations
+                    labeledDays={datasets[0].labels}
+                    dates={datasets[0].days}
+                    leftExtent={leftExtent}
+                    interval={boundaryInterval}
+                    topExtent={topExtent}
+                    insightId={insightId}
+                    insightShortId={insightShortId}
+                    currentDateMarker={
+                        focused || annotationsFocused ? selectedDayLabel : enabled ? datasets[0].days[labelIndex] : null
+                    }
+                    onClick={() => {
                         setFocused(false)
                         setAnnotationsFocused(true)
-                    },
-                    onClose: () => setAnnotationsFocused(false),
-                    graphColor: color,
-                    color: colors.annotationColor,
-                    accessoryColor: colors.annotationAccessoryColor,
-                })}
+                    }}
+                    onClose={() => {
+                        setAnnotationsFocused(false)
+                    }}
+                    graphColor={color}
+                    color={colors.annotationColor}
+                    accessoryColor={colors.annotationAccessoryColor}
+                />
+            )}
             {annotationsCondition && !annotationsFocused && (enabled || focused) && left >= 0 && (
                 <AnnotationMarker
-                    dashboardItemId={dashboardItemId}
+                    insightId={insightId}
                     currentDateMarker={focused ? selectedDayLabel : datasets[0].days[labelIndex]}
                     onClick={() => {
                         setFocused(true)
@@ -578,13 +579,13 @@ export function LEGACY_LineGraph({
                     }}
                     getPopupContainer={() => annotationsRoot?.current}
                     onCreateAnnotation={(textInput, applyAll) => {
-                        if (applyAll) {
-                            createGlobalAnnotation(textInput, datasets[0].days[holdLabelIndex], dashboardItemId)
-                        } else if (dashboardItemId) {
-                            createAnnotationNow(textInput, datasets[0].days[holdLabelIndex])
-                        } else {
-                            createAnnotation(textInput, datasets[0].days[holdLabelIndex])
-                            toast('This annotation will be saved if the graph is made into a dashboard item!')
+                        const date = datasets?.[0]?.days?.[holdLabelIndex]
+                        if (date) {
+                            if (applyAll) {
+                                createGlobalAnnotation(textInput, date, insightShortId)
+                            } else {
+                                createAnnotation(textInput, date)
+                            }
                         }
                     }}
                     onClose={() => setFocused(false)}

@@ -3,7 +3,7 @@ import { LineGraph } from 'scenes/insights/LineGraph/LineGraph'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { useActions, useValues } from 'kea'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
-import { ChartParams, GraphTypes, GraphDataset } from '~/types'
+import { ChartParams, GraphType, GraphDataset } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
@@ -13,7 +13,7 @@ export function FunnelLineGraph({
     inSharedMode,
     color = 'white',
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
     const { steps, filters, aggregationTargetLabel, incompletenessOffsetFromEnd } = useValues(logic)
     const { loadPeople } = useActions(personsModalLogic)
@@ -21,12 +21,13 @@ export function FunnelLineGraph({
     return (
         <LineGraph
             data-attr="trend-line-graph-funnel"
-            type={GraphTypes.Line}
+            type={GraphType.Line}
             color={color}
-            datasets={steps as unknown as GraphDataset[]}
+            datasets={steps as unknown as GraphDataset[] /* TODO: better typing */}
             labels={steps?.[0]?.labels ?? ([] as string[])}
             isInProgress={incompletenessOffsetFromEnd < 0}
-            dashboardItemId={dashboardItemId}
+            insightShortId={insight.short_id}
+            insightId={insight.id}
             inSharedMode={!!inSharedMode}
             percentage={true}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}

@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightEmptyState } from '../../insights/EmptyStates'
 import { ACTIONS_BAR_CHART } from 'lib/constants'
-import { ActionFilter, ChartParams, GraphTypes, InsightType } from '~/types'
+import { ActionFilter, ChartParams, GraphType, InsightType } from '~/types'
 import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { isMultiSeriesFormula } from 'lib/utils'
@@ -15,7 +15,7 @@ export function ActionsLineGraph({
     inSharedMode = false,
     showPersonsModal = true,
 }: ChartParams): JSX.Element | null {
-    const { insightProps, isViewedOnDashboard } = useValues(insightLogic)
+    const { insightProps, isViewedOnDashboard, insight } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { filters, indexedResults, visibilityMap } = useValues(logic)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
@@ -27,15 +27,16 @@ export function ActionsLineGraph({
             data-attr="trend-line-graph"
             type={
                 filters.insight === InsightType.LIFECYCLE || filters.display === ACTIONS_BAR_CHART
-                    ? GraphTypes.Bar
-                    : GraphTypes.Line
+                    ? GraphType.Bar
+                    : GraphType.Line
             }
             color={color}
             datasets={indexedResults}
             visibilityMap={visibilityMap}
             labels={(indexedResults[0] && indexedResults[0].labels) || []}
             isInProgress={!filters.date_to}
-            dashboardItemId={dashboardItemId ?? insightProps.dashboardItemId}
+            insightShortId={insight.short_id}
+            insightId={insight.id}
             inSharedMode={inSharedMode}
             interval={filters.interval}
             showPersonsModal={showPersonsModal}

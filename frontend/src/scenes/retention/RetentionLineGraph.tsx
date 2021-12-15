@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { InsightEmptyState } from '../insights/EmptyStates'
 import { Modal, Button } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
-import { GraphTypes, PersonType, InsightShortId, GraphDataset } from '~/types'
+import { GraphType, PersonType, GraphDataset } from '~/types'
 import { RetentionTrendPayload, RetentionTrendPeoplePayload } from 'scenes/retention/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -21,7 +21,7 @@ export function RetentionLineGraph({
     color = 'white',
     inSharedMode = false,
 }: RetentionLineGraphProps): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
     const logic = retentionTableLogic(insightProps)
     const { filters, results: _results, people: _people, peopleLoading, loadingMore } = useValues(logic)
     const results = _results as RetentionTrendPayload[]
@@ -43,12 +43,13 @@ export function RetentionLineGraph({
         <>
             <LineGraph
                 data-attr="trend-line-graph"
-                type={GraphTypes.Line}
+                type={GraphType.Line}
                 color={color}
                 datasets={results as GraphDataset[]}
                 labels={(results[0] && results[0].labels) || []}
                 isInProgress={!filters.date_to}
-                dashboardItemId={dashboardItemId ? (String(dashboardItemId) as InsightShortId) : undefined}
+                insightShortId={insight.short_id}
+                insightId={insight.id}
                 inSharedMode={!!inSharedMode}
                 percentage={true}
                 onClick={

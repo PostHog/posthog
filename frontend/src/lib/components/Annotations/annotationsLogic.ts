@@ -5,13 +5,11 @@ import { deleteWithUndo, determineDifferenceType, groupBy, toParams } from '~/li
 import { annotationsModel } from '~/models/annotationsModel'
 import { getNextKey } from './utils'
 import { annotationsLogicType } from './annotationsLogicType'
-import { AnnotationScope, AnnotationType, InsightShortId } from '~/types'
+import { AnnotationScope, AnnotationType } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
-import { userLogic } from 'scenes/userLogic'
-import { getInsightId } from 'scenes/insights/utils'
 
 interface AnnotationsLogicProps {
-    insightId?: InsightShortId
+    insightId?: number
 }
 
 export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>({
@@ -20,27 +18,16 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
     key: (props) => String(props.insightId || 'default'),
     connect: {
         actions: [annotationsModel, ['deleteGlobalAnnotation', 'createGlobalAnnotation']],
-        values: [annotationsModel, ['activeGlobalAnnotations'], userLogic, ['user']],
+        values: [annotationsModel, ['activeGlobalAnnotations']],
     },
     actions: () => ({
         createAnnotation: (content: string, date_marker: string, scope: AnnotationScope = AnnotationScope.Insight) => ({
-            content,
-            date_marker,
-            created_at: dayjs(),
-            scope,
-        }),
-        createAnnotationNow: (
-            content: string,
-            date_marker: string,
-            scope: AnnotationScope = AnnotationScope.Insight
-        ) => ({
             content,
             date_marker,
             created_at: dayjs() as Dayjs,
             scope,
         }),
         deleteAnnotation: (id: string) => ({ id }),
-        clearAnnotationsToCreate: true,
         updateDiffType: (dates: string[]) => ({ dates }),
         setDiffType: (type: OpUnitType) => ({ type }),
     }),
@@ -48,14 +35,12 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
         annotations: {
             __default: [] as AnnotationType[],
             loadAnnotations: async () => {
-                const insightId = props.insightId ? await getInsightId(props.insightId) : undefined
-
-                if (!insightId) {
-                    return []
+                if (!props.insightId) {
+                    throw new Error('Can only load annotations for insight whose id is known.')
                 }
 
                 const params = {
-                    ...(insightId ? { dashboardItemId: insightId } : {}),
+                    ...(props.insightId ? { dashboardItemId: props.insightId } : {}),
                     scope: AnnotationScope.Insight,
                     deleted: false,
                 }
@@ -68,7 +53,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
     }),
     reducers: {
         annotations: {
-            createAnnotationNow: (state, { content, date_marker, created_at, scope }) => [
+            createAnnotation: (state, { content, date_marker, created_at, scope }) => [
                 ...state,
                 {
                     id: getNextKey(state).toString(),
@@ -87,31 +72,6 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
                 }
             },
         },
-
-        annotationsToCreate: [
-            [] as AnnotationType[],
-            {
-                createAnnotation: (state, { content, date_marker, created_at, scope }) => [
-                    ...state,
-                    {
-                        id: getNextKey(state).toString(),
-                        content,
-                        date_marker: date_marker,
-                        created_at: created_at.toISOString(),
-                        updated_at: created_at.toISOString(),
-                        scope,
-                    },
-                ],
-                clearAnnotationsToCreate: () => [],
-                deleteAnnotation: (state, { id }) => {
-                    if (parseInt(id) < 0) {
-                        return state.filter((a) => a.id !== id)
-                    } else {
-                        return state
-                    }
-                },
-            },
-        ],
         diffType: [
             'day' as string,
             {
@@ -121,12 +81,8 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
     },
     selectors: ({ selectors }) => ({
         annotationsList: [
-            () => [selectors.annotationsToCreate, selectors.annotations, selectors.activeGlobalAnnotations],
-            (annotationsToCreate, annotations, activeGlobalAnnotations): AnnotationType[] => [
-                ...annotationsToCreate,
-                ...annotations,
-                ...activeGlobalAnnotations,
-            ],
+            () => [selectors.annotations, selectors.activeGlobalAnnotations],
+            (annotations, activeGlobalAnnotations): AnnotationType[] => [...annotations, ...activeGlobalAnnotations],
         ],
         groupedAnnotations: [
             () => [selectors.annotationsList, selectors.diffType],
@@ -139,18 +95,16 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
         ],
     }),
     listeners: ({ actions, props }) => ({
-        createAnnotationNow: async ({ content, date_marker, created_at, scope }) => {
-            const insightId = props.insightId ? await getInsightId(props.insightId) : undefined
-
-            if (!insightId) {
-                throw new Error('Can only create annotations for saved insight')
+        createAnnotation: async ({ content, date_marker, created_at, scope }) => {
+            if (!props.insightId) {
+                throw new Error('Can only create annotations for insights whose id is known.')
             }
 
             await api.create(`api/projects/${teamLogic.values.currentTeamId}/annotations`, {
                 content,
                 date_marker: dayjs(date_marker).toISOString(),
                 created_at: created_at.toISOString(),
-                dashboard_item: insightId,
+                dashboard_item: props.insightId,
                 scope,
             } as Partial<AnnotationType>)
             actions.loadAnnotations()
@@ -167,7 +121,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
             actions.setDiffType(determineDifferenceType(dates[0], dates[1]))
         },
     }),
-    events: ({ actions, props }) => ({
-        afterMount: () => props.insightId && actions.loadAnnotations(),
+    events: ({ actions }) => ({
+        afterMount: () => actions.loadAnnotations(),
     }),
 })

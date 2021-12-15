@@ -972,7 +972,7 @@ export interface ActionFilter extends EntityFilter {
 
 export interface TrendResult {
     action: ActionFilter
-    actions?: ActionFilter
+    actions?: ActionFilter[]
     count: number
     data: number[]
     days: string[]
@@ -984,14 +984,13 @@ export interface TrendResult {
     status?: string
     compare_label?: string
     compare?: boolean
+    persons_urls?: { url: string }[]
+    persons?: Person
 }
 
-export interface TrendResultWithAggregate extends TrendResult {
-    aggregated_value: number
-    persons: {
-        url: string
-        filter: Partial<FilterType>
-    }
+interface Person {
+    url: string
+    filter: Partial<FilterType>
 }
 
 export interface FunnelStep {
@@ -1477,7 +1476,7 @@ export interface Breadcrumb {
     popup?: Pick<PopupProps, 'overlay' | 'sameWidth' | 'actionable'>
 }
 
-export enum GraphTypes {
+export enum GraphType {
     Bar = 'bar',
     HorizontalBar = 'horizontalBar',
     Line = 'line',
@@ -1499,13 +1498,14 @@ export type GraphDataset = ChartDataset<ChartType> &
             | 'action'
             | 'actions'
             | 'breakdown_value'
+            | 'persons_urls'
+            | 'persons'
         >
     > & {
-        id: number
-        dotted?: boolean
-        borderDash?: number[]
-        breakdownValues?: string[]
-        persons_urls?: { url: string }[]
+        id: number // used in filtering out visibility of datasets. Set internally by chart.js
+        dotted?: boolean // toggled on to draw incompleteness lines in LineGraph.tsx
+        breakdownValues?: (string | number | undefined)[] // array of breakdown values used only in ActionsHorizontalBar.tsx data
+        personsValues?: (Person | undefined)[] // array of persons ussed only in (ActionsHorizontalBar|ActionsPie).tsx
     }
 
 interface PointsPayload {

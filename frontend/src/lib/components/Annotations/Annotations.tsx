@@ -10,8 +10,8 @@ interface AnnotationsProps {
     leftExtent: number
     interval: number
     topExtent: number
-    insightId?: InsightShortId
-    dashboardItemId?: number // only used for annotations
+    insightShortId?: InsightShortId
+    insightId?: number // only used for annotations
     color: string | null
     graphColor: string
     accessoryColor: string | null
@@ -20,11 +20,12 @@ interface AnnotationsProps {
     onClose: () => void
 }
 
-export function renderAnnotations({
+export function Annotations({
     dates,
     leftExtent,
     interval,
     topExtent,
+    insightShortId,
     insightId,
     onClick,
     color,
@@ -32,41 +33,34 @@ export function renderAnnotations({
     onClose,
     graphColor,
     currentDateMarker,
-}: AnnotationsProps): JSX.Element[] {
-    const { diffType, groupedAnnotations } = useValues(annotationsLogic({ insightId }))
+}: AnnotationsProps): JSX.Element {
+    const logic = annotationsLogic({ insightId })
+    const { diffType, groupedAnnotations } = useValues(logic)
+    const { createAnnotation, deleteAnnotation, deleteGlobalAnnotation, createGlobalAnnotation } = useActions(logic)
 
-    const { createAnnotation, createAnnotationNow, deleteAnnotation, deleteGlobalAnnotation, createGlobalAnnotation } =
-        useActions(annotationsLogic({ insightId }))
+    const onCreate =
+        (date: string) =>
+        (input: string, applyAll: boolean): void => {
+            if (applyAll) {
+                createGlobalAnnotation(input, date, insightShortId)
+            } else {
+                createAnnotation(input, date)
+            }
+        }
 
     const markers: JSX.Element[] = []
 
     const makeAnnotationMarker = (index: number, date: string, annotationsToMark: AnnotationType[]): JSX.Element => (
         <AnnotationMarker
-            dashboardItemId={insightId}
+            insightId={insightId}
             elementId={date}
             label={dayjs(date).format('MMMM Do YYYY')}
             key={index}
             left={index * interval + leftExtent - 12.5}
             top={topExtent}
             annotations={annotationsToMark}
-            onCreate={(input: string, applyAll: boolean) => {
-                if (applyAll) {
-                    createGlobalAnnotation(input, date, insightId)
-                } else if (insightId) {
-                    createAnnotationNow(input, date)
-                } else {
-                    createAnnotation(input, date)
-                }
-            }}
-            onCreateAnnotation={(input: string, applyAll: boolean) => {
-                if (applyAll) {
-                    createGlobalAnnotation(input, date, insightId)
-                } else if (insightId) {
-                    createAnnotationNow(input, date)
-                } else {
-                    createAnnotation(input, date)
-                }
-            }}
+            onCreate={onCreate(date)}
+            onCreateAnnotation={onCreate(date)}
             onDelete={(data: AnnotationType) => {
                 annotationsToMark.length === 1 && onClose?.()
                 if (data.scope !== AnnotationScope.Insight) {
@@ -109,5 +103,5 @@ export function renderAnnotations({
                 markers.push(makeAnnotationMarker(index, dates[index], annotations))
             }
         })
-    return markers
+    return <>{markers}</>
 }
