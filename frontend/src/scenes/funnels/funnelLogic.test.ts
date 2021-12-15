@@ -432,8 +432,9 @@ describe('funnelLogic', () => {
                         name: '$pageview',
                         order: 0,
                         type: 'events',
-                        converted_people_url: '/some/people/url',
-                        dropped_people_url: '/some/people/url',
+                        actor_endpoint: 'api/persons/funnel',
+                        converted_actor_params: 'test=fake&vkey=value',
+                        dropped_actor_params: 'test=fake&vkey=value',
                     },
                     converted: true,
                 })
@@ -456,8 +457,9 @@ describe('funnelLogic', () => {
                 correlation_type: FunnelCorrelationType.Success,
                 success_count: 1,
                 failure_count: 1,
-                success_people_url: '/some/people/url',
-                failure_people_url: '/some/people/url',
+                actor_endpoint: 'api/persons/funnel',
+                success_actors_params: 'test=fake&vkey=value',
+                failure_actors_params: 'test=fake&vkey=value',
                 result_type: FunnelCorrelationResultsType.Events,
             }
             it('chooses the correct name based on Event type', async () => {
@@ -544,8 +546,9 @@ describe('funnelLogic', () => {
             await expectLogic(logic, () =>
                 logic.actions.setFunnelCorrelationDetails({
                     event: { event: 'some event', elements: [], properties: {} },
-                    success_people_url: '',
-                    failure_people_url: '',
+                    actor_endpoint: 'api/persons/funnel',
+                    success_actors_params: '',
+                    failure_actors_params: '',
                     success_count: 2,
                     failure_count: 4,
                     odds_ratio: 3,
