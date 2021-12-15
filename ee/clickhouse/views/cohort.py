@@ -69,6 +69,11 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
     elif insight_type == INSIGHT_PATHS:
         path_filter = PathFilter(data=filter_data)
         query, params = ClickhousePathsActors(path_filter, cohort.team, funnel_filter=None).actor_query()
+    else:
+        if settings.DEBUG:
+            raise ValueError(f"Insight type: {insight_type} not supported for cohort creation")
+        else:
+            capture_exception(Exception(f"Insight type: {insight_type} not supported for cohort creation"))
 
     insert_actors_into_cohort_by_query(cohort, substitute_params(query, params))
 
