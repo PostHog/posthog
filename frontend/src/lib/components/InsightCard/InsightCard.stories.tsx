@@ -194,7 +194,7 @@ const EXAMPLE_TRENDS: InsightModel = {
 }
 
 export default {
-    title: 'PostHog/Components/InsightCard',
+    title: 'PostHog/Components',
     parameters: { options: { showPanel: true } },
     argTypes: {
         insightName: {
