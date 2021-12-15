@@ -2,6 +2,7 @@ import os
 import time
 from random import randrange
 
+import django
 from celery import Celery
 from celery.schedules import crontab
 from celery.signals import task_postrun, task_prerun
@@ -40,6 +41,9 @@ EVENT_PROPERTY_USAGE_INTERVAL_SECONDS = settings.EVENT_PROPERTY_USAGE_INTERVAL_S
 
 # How frequently do we want to check if dashboard items need to be recalculated
 UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS
+
+# Startup Django so we can hit models quickly
+django.setup()
 
 
 @app.on_after_configure.connect
