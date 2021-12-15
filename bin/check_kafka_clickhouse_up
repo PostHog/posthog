@@ -1,0 +1,15 @@
+#!/bin/bash
+set -e
+
+echo "Waiting for Kafka and Clickhouse"
+
+# Check Kafka
+while true; do
+nc -z localhost 9092 && break || echo "Trying kafka..." && sleep 1
+done
+
+# Check Clickhouse
+while true; do
+wget -nv -t1 --spider 'http://localhost:8123/' && break || sleep 1
+done
+

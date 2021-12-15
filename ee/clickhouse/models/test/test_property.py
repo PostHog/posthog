@@ -434,14 +434,21 @@ def test_parse_prop_clauses_defaults(snapshot):
         }
     )
 
-    assert parse_prop_clauses(filter.properties) == snapshot
+    assert parse_prop_clauses(filter.properties, allow_denormalized_props=False) == snapshot
     assert (
         parse_prop_clauses(
-            filter.properties, person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
+            filter.properties,
+            person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            allow_denormalized_props=False,
         )
         == snapshot
     )
-    assert parse_prop_clauses(filter.properties, person_properties_mode=PersonPropertiesMode.EXCLUDE) == snapshot
+    assert (
+        parse_prop_clauses(
+            filter.properties, person_properties_mode=PersonPropertiesMode.EXCLUDE, allow_denormalized_props=False
+        )
+        == snapshot
+    )
 
 
 TEST_BREAKDOWN_PROCESSING = [
