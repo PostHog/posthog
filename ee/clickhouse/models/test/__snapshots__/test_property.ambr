@@ -42,7 +42,7 @@
 ---
 # name: test_parse_prop_clauses_defaults.1
   <class 'tuple'> (
-    ' AND has(%(vglobal_0)s, trim(BOTH \'"\' FROM JSONExtractRaw(properties, %(kglobal_0)s))) AND trim(BOTH \'"\' FROM JSONExtractRaw(person_props, %(kglobalperson_1)s)) ILIKE %(vglobalperson_1)s',
+    ' AND has(%(vglobal_0)s, trim(BOTH \'"\' FROM JSONExtractRaw(properties, %(kglobal_0)s))) AND pmat_email ILIKE %(vglobalperson_1)s',
     <class 'dict'> {
       'kglobal_0': 'event_prop',
       'kglobalperson_1': 'email',
