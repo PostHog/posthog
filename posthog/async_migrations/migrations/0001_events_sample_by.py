@@ -1,7 +1,7 @@
 from constance import config
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.sql.events import EVENTS_TABLE, EVENTS_TABLE_SQL
+from ee.clickhouse.sql.events import EVENTS_TABLE
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
 from posthog.constants import AnalyticsDBMS
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
@@ -24,7 +24,13 @@ class Migration(AsyncMigrationDefinition):
     operations = [
         AsyncMigrationOperation(
             database=AnalyticsDBMS.CLICKHOUSE,
-            sql=EVENTS_TABLE_SQL().replace(EVENTS_TABLE, TEMPORARY_TABLE_NAME, 1),
+            sql=f"""
+            CREATE TABLE IF NOT EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER} AS {EVENTS_TABLE}
+            ENGINE = ReplacingMergeTree(_timestamp)
+            PARTITION BY toYYYYMM(timestamp)
+            ORDER BY (team_id, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))
+            SAMPLE BY cityHash64(distinct_id) 
+            """,
             rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
             resumable=True,
         ),
