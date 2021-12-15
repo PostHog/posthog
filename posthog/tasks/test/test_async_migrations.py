@@ -32,7 +32,7 @@ def inspect_mock() -> InspectorMock:
 
 
 # mock to make us run the migration in sync fashion
-def run_async_migration_mock(migration_name: str, _: Any, countdown: Any) -> TaskMock:
+def run_async_migration_mock(migration_name: str, _: Any) -> TaskMock:
     run_async_migration_next_op(migration_name)
     return TaskMock()
 
