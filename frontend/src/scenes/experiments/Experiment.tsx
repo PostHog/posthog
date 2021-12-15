@@ -1,5 +1,5 @@
 import SaveOutlined from '@ant-design/icons/lib/icons/SaveOutlined'
-import { Button, Card, Col, Collapse, Form, Input, Row, Slider, Tooltip } from 'antd'
+import { Alert, Button, Card, Col, Collapse, Form, Input, Row, Slider, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
@@ -17,6 +17,8 @@ import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { JSSnippet } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { IconJavascript } from 'lib/components/icons'
 import { InfoCircleOutlined } from '@ant-design/icons'
+import dayjs from 'dayjs'
+import { LemonButton } from 'lib/components/LemonButton'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -35,7 +37,8 @@ export function Experiment(): JSX.Element {
         newExperimentCurrentPage,
         experimentResults,
     } = useValues(experimentLogic)
-    const { setNewExperimentData, createExperiment, setFilters, nextPage, prevPage } = useActions(experimentLogic)
+    const { setNewExperimentData, createExperiment, setFilters, nextPage, prevPage, endExperiment } =
+        useActions(experimentLogic)
 
     const [form] = Form.useForm()
 
@@ -216,12 +219,12 @@ export function Experiment(): JSX.Element {
                                                 marks={
                                                     Math.floor(conversionRate) > 0
                                                         ? {
-                                                            [Math.floor(conversionRate)]: `${Math.floor(
-                                                                conversionRate
-                                                            )}%`,
-                                                            5: `5%`,
-                                                            10: `10%`,
-                                                        }
+                                                              [Math.floor(conversionRate)]: `${Math.floor(
+                                                                  conversionRate
+                                                              )}%`,
+                                                              5: `5%`,
+                                                              10: `10%`,
+                                                          }
                                                         : { 5: `5%`, 10: `10%` }
                                                 }
                                             />
@@ -374,6 +377,7 @@ export function Experiment(): JSX.Element {
                 </>
             ) : experimentData ? (
                 <div className="experiment-result">
+                    {experimentData.end_date && <Alert type="info" message="This experiment has ended" />}
                     <div>
                         <PageHeader title={experimentData.name} />
                         <div>{experimentData?.description}</div>
@@ -403,6 +407,11 @@ export function Experiment(): JSX.Element {
                                 <InsightContainer disableTable={true} />
                             </div>
                         </BindLogic>
+                    )}
+                    {!experimentData.end_date ? (
+                        <LemonButton onClick={() => endExperiment()}>End experiment</LemonButton>
+                    ) : (
+                        <div>Experiment ended {dayjs(experimentData.end_date)}</div>
                     )}
                 </div>
             ) : (
