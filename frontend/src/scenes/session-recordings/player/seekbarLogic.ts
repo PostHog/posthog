@@ -118,8 +118,13 @@ export const seekbarLogic = kea<seekbarLogicType>({
             if (!values.slider) {
                 return
             }
-            // Don't update thumb position if seekbar logic is already seeking and setting the thumb position
-            if (!values.isSeeking) {
+            // Don't update thumb position if seekbar logic is already seeking and setting the thumb position.
+            // Except in one case when the updated thumb position is at the start. This happens when the user
+            // scrubs to the end of the recording while playing, and then the player loop restarts the recording.
+            if (
+                !values.isSeeking ||
+                values.currentPlayerPosition === values.sessionPlayerData?.metadata?.segments[0]?.startPlayerPosition
+            ) {
                 const xValue = values.currentPlayerPosition
                     ? convertPlayerPositionToX(
                           values.currentPlayerPosition,

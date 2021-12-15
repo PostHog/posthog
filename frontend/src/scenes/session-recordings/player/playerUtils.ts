@@ -102,6 +102,10 @@ export function getPlayerPositionFromPlayerTime(
             currentTime += segment.durationMs
         }
     }
+    // If we're at the end of the recording, return the final player position
+    if (playerTime === currentTime && segments.length > 0) {
+        return segments.slice(-1)[0].endPlayerPosition
+    }
     return null
 }
 
