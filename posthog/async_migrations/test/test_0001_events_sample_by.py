@@ -77,10 +77,12 @@ class Test0001EventsSampleBy(BaseTest):
 
         res = sync_execute("SHOW CREATE TABLE events")
 
-        print(res[0][0])
-        self.assertTrue("ORDER BY (team_id, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))" in res[0][0])
-
         sm.refresh_from_db()
+
+        print(res[0][0], sm.last_error)
+
+        self.assertTrue(migration_successful)
+        self.assertTrue("ORDER BY (team_id, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))" in res[0][0])
 
         self.assertTrue(migration_successful)
 
