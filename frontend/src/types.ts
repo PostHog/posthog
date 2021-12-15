@@ -1005,6 +1005,8 @@ export interface FunnelStep {
     breakdown?: BreakdownKeyType
     breakdowns?: Breakdown[]
     breakdown_value?: BreakdownKeyType
+    data?: number[]
+    days?: string[]
 
     // Url that you can GET to retrieve the people that converted in this step
     converted_people_url: string
@@ -1036,8 +1038,8 @@ export interface FunnelTimeConversionMetrics {
 }
 
 export interface FunnelConversionWindow {
-    funnel_window_interval_unit?: FunnelConversionWindowTimeUnit
-    funnel_window_interval?: number | undefined
+    funnel_window_interval_unit: FunnelConversionWindowTimeUnit
+    funnel_window_interval: number
 }
 
 // https://github.com/PostHog/posthog/blob/master/posthog/models/filters/mixins/funnel.py#L100
@@ -1339,10 +1341,17 @@ export interface Experiment {
     description?: string
     feature_flag_key: string
     filters: FilterType
+    parameters: Record<string, any>
     start_date?: string
     end_date?: string
     created_at: string
     created_by: UserBasicType | null
+}
+export interface ExperimentResults {
+    funnel: FunnelStep[][]
+    probability: number
+    filters: FilterType
+    itemID: string
 }
 
 interface RelatedPerson {

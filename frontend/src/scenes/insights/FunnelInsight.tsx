@@ -3,8 +3,7 @@ import { useActions, useValues } from 'kea'
 import React from 'react'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
+import { FunnelLayout } from 'lib/constants'
 import { FunnelVizType, InsightType } from '~/types'
 import { PersonsModal } from 'scenes/trends/PersonsModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
@@ -15,7 +14,6 @@ export function FunnelInsight(): JSX.Element {
     const { isValidFunnel, isLoading, filters, areFiltersValid, barGraphLayout, aggregationTargetLabel } = useValues(
         funnelLogic(insightProps)
     )
-    const { featureFlags } = useValues(featureFlagLogic)
     const { showingPeople, cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
 
@@ -35,9 +33,7 @@ export function FunnelInsight(): JSX.Element {
                 className={clsx('funnel-insights-container', {
                     'non-empty-state': (isValidFunnel && areFiltersValid) || isLoading,
                     'no-padding':
-                        featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] &&
-                        filters.funnel_viz_type == FunnelVizType.Steps &&
-                        barGraphLayout === FunnelLayout.vertical,
+                        filters.funnel_viz_type == FunnelVizType.Steps && barGraphLayout === FunnelLayout.vertical,
                 })}
             >
                 <Funnel />

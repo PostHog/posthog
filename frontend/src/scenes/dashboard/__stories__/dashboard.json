@@ -49,7 +49,7 @@
                         "uuid": "01778ae6-973c-0000-5538-9848c4d397bc",
                         "organization": "01778ae6-967a-0000-449a-270bb4205419",
                         "api_token": "hKCGI5P_qrKIoAxBE7IBew8MXwXZ4w96J5QpVpYP6X4",
-                        "name": "HogFlix Demo App",
+                        "name": "Hogflix Demo App",
                         "completed_snippet_onboarding": true,
                         "ingested_event": true,
                         "is_demo": true,
@@ -82,7 +82,7 @@
                 "organization": "01778ae6-967a-0000-449a-270bb4205419",
                 "api_token": "hKCGI5P_qrKIoAxBE7IBew8MXwXZ4w96J5QpVpYP6X4",
                 "app_urls": ["http://localhost:8000/demo"],
-                "name": "HogFlix Demo App",
+                "name": "Hogflix Demo App",
                 "slack_incoming_webhook": "",
                 "created_at": "2021-02-10T07:45:03.805616Z",
                 "updated_at": "2021-06-22T19:59:51.198027Z",
@@ -139,7 +139,7 @@
                     "uuid": "01778ae6-973c-0000-5538-9848c4d397bc",
                     "organization": "01778ae6-967a-0000-449a-270bb4205419",
                     "api_token": "hKCGI5P_qrKIoAxBE7IBew8MXwXZ4w96J5QpVpYP6X4",
-                    "name": "HogFlix Demo App",
+                    "name": "Hogflix Demo App",
                     "completed_snippet_onboarding": true,
                     "ingested_event": true,
                     "is_demo": true,
@@ -183,7 +183,7 @@
                             "uuid": "01778ae6-973c-0000-5538-9848c4d397bc",
                             "organization": "01778ae6-967a-0000-449a-270bb4205419",
                             "api_token": "hKCGI5P_qrKIoAxBE7IBew8MXwXZ4w96J5QpVpYP6X4",
-                            "name": "HogFlix Demo App",
+                            "name": "Hogflix Demo App",
                             "completed_snippet_onboarding": true,
                             "ingested_event": true,
                             "is_demo": true,
@@ -3090,13 +3090,13 @@
                         {
                             "id": 4,
                             "short_id": "4rEguEMM",
-                            "name": "HogFlix signup -> watching movie",
+                            "name": "Hogflix signup -> watching movie",
                             "filters": {
                                 "actions": [
                                     {
                                         "id": 1,
                                         "math": null,
-                                        "name": "HogFlix homepage view",
+                                        "name": "Hogflix homepage view",
                                         "type": "actions",
                                         "order": 0,
                                         "properties": [],
@@ -3105,7 +3105,7 @@
                                     {
                                         "id": 2,
                                         "math": null,
-                                        "name": "HogFlix signed up",
+                                        "name": "Hogflix signed up",
                                         "type": "actions",
                                         "order": 1,
                                         "properties": [],
@@ -3114,7 +3114,7 @@
                                     {
                                         "id": 3,
                                         "math": null,
-                                        "name": "HogFlix paid",
+                                        "name": "Hogflix paid",
                                         "type": "actions",
                                         "order": 2,
                                         "properties": [],
@@ -3458,7 +3458,7 @@
                             "elements": [
                                 {
                                     "event": null,
-                                    "text": "HogFlix Demo App",
+                                    "text": "Hogflix Demo App",
                                     "tag_name": "strong",
                                     "attr_class": null,
                                     "href": null,
@@ -3600,7 +3600,7 @@
                                     "order": 9
                                 }
                             ],
-                            "elements_chain": "strong:nth-child=\"1\"nth-of-type=\"1\"text=\"HogFlix Demo App\";div.LemonRow__content:attr__class=\"LemonRow__content\"nth-child=\"2\"nth-of-type=\"1\";button.LemonButton.LemonButton--stealth.LemonRow.LemonRow--full-width:attr__class=\"LemonRow LemonButton LemonButton--stealth LemonRow--full-width\"attr__type=\"button\"nth-child=\"2\"nth-of-type=\"1\";div.ProjectSwitcher:attr__class=\"ProjectSwitcher\"nth-child=\"1\"nth-of-type=\"1\";div.SideBar__content:attr__class=\"SideBar__content\"nth-child=\"1\"nth-of-type=\"1\";div.SideBar__slider:attr__class=\"SideBar__slider\"nth-child=\"1\"nth-of-type=\"1\";div.SideBar.SideBar__layout:attr__class=\"SideBar SideBar__layout\"nth-child=\"2\"nth-of-type=\"1\";section.ant-layout:attr__class=\"ant-layout\"attr__style=\"min-height: 100vh;\"nth-child=\"1\"nth-of-type=\"1\";div:attr__id=\"root\"attr_id=\"root\"nth-child=\"4\"nth-of-type=\"2\";body:nth-child=\"2\"nth-of-type=\"1\""
+                            "elements_chain": "strong:nth-child=\"1\"nth-of-type=\"1\"text=\"Hogflix Demo App\";div.LemonRow__content:attr__class=\"LemonRow__content\"nth-child=\"2\"nth-of-type=\"1\";button.LemonButton.LemonButton--stealth.LemonRow.LemonRow--full-width:attr__class=\"LemonRow LemonButton LemonButton--stealth LemonRow--full-width\"attr__type=\"button\"nth-child=\"2\"nth-of-type=\"1\";div.ProjectSwitcher:attr__class=\"ProjectSwitcher\"nth-child=\"1\"nth-of-type=\"1\";div.SideBar__content:attr__class=\"SideBar__content\"nth-child=\"1\"nth-of-type=\"1\";div.SideBar__slider:attr__class=\"SideBar__slider\"nth-child=\"1\"nth-of-type=\"1\";div.SideBar.SideBar__layout:attr__class=\"SideBar SideBar__layout\"nth-child=\"2\"nth-of-type=\"1\";section.ant-layout:attr__class=\"ant-layout\"attr__style=\"min-height: 100vh;\"nth-child=\"1\"nth-of-type=\"1\";div:attr__id=\"root\"attr_id=\"root\"nth-child=\"4\"nth-of-type=\"2\";body:nth-child=\"2\"nth-of-type=\"1\""
                         },
                         {
                             "id": "017d0977-a39f-0000-a414-7b86a41e55e6",
@@ -14932,7 +14932,7 @@
                 },
                 {
                     "id": 3,
-                    "name": "HogFlix paid",
+                    "name": "Hogflix paid",
                     "post_to_slack": false,
                     "slack_message_format": "",
                     "steps": [
@@ -14958,7 +14958,7 @@
                 },
                 {
                     "id": 2,
-                    "name": "HogFlix signed up",
+                    "name": "Hogflix signed up",
                     "post_to_slack": false,
                     "slack_message_format": "",
                     "steps": [
@@ -14984,7 +14984,7 @@
                 },
                 {
                     "id": 1,
-                    "name": "HogFlix homepage view",
+                    "name": "Hogflix homepage view",
                     "post_to_slack": true,
                     "slack_message_format": "",
                     "steps": [

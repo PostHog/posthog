@@ -11,7 +11,7 @@ import { useThrottledCallback } from 'use-debounce'
 import './FunnelBarGraph.scss'
 import { useActions, useValues } from 'kea'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
-import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
+import { FunnelLayout } from 'lib/constants'
 import {
     formatDisplayPercentage,
     getBreakdownMaxIndex,
@@ -24,7 +24,6 @@ import {
 import { FunnelStepReference, StepOrderValue } from '~/types'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepTable'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/InsightTabs/FunnelTab/funnelStepTableUtils'
 import { FunnelStepDropdown } from './FunnelStepDropdown'
@@ -36,7 +35,6 @@ interface BarProps {
     name?: string
     onBarClick?: () => void
     disabled?: boolean
-    layout?: FunnelLayout
     isBreakdown?: boolean
     breakdownIndex?: number
     breakdownMaxIndex?: number
@@ -74,7 +72,6 @@ function Bar({
     name,
     onBarClick,
     disabled,
-    layout = FunnelLayout.horizontal,
     isBreakdown = false,
     breakdownIndex,
     breakdownMaxIndex,
@@ -98,49 +95,26 @@ function Bar({
         if (hasBreakdownSum) {
             // Label is always outside for breakdowns, but don't show if it doesn't fit in the wrapper
             setLabelPosition('outside')
-            if (layout === FunnelLayout.horizontal) {
-                const barWidth = barRef.current?.clientWidth ?? null
-                const barOffset = barRef.current?.offsetLeft ?? null
-                const wrapperWidth = barRef.current?.parentElement?.clientWidth ?? null
-                const labelWidth = labelRef.current?.clientWidth ?? null
-                if (barWidth !== null && barOffset !== null && wrapperWidth !== null && labelWidth !== null) {
-                    if (wrapperWidth - (barWidth + barOffset) < labelWidth + LABEL_POSITION_OFFSET * 2) {
-                        setLabelVisible(false)
-                    } else {
-                        setLabelVisible(true)
-                    }
-                }
-            } else {
-                const barOffset = barRef.current?.offsetTop ?? null
-                const labelHeight = labelRef.current?.clientHeight ?? null
-                if (barOffset !== null && labelHeight !== null) {
-                    if (barOffset < labelHeight + LABEL_POSITION_OFFSET * 2) {
-                        setLabelVisible(false)
-                    } else {
-                        setLabelVisible(true)
-                    }
+            const barWidth = barRef.current?.clientWidth ?? null
+            const barOffset = barRef.current?.offsetLeft ?? null
+            const wrapperWidth = barRef.current?.parentElement?.clientWidth ?? null
+            const labelWidth = labelRef.current?.clientWidth ?? null
+            if (barWidth !== null && barOffset !== null && wrapperWidth !== null && labelWidth !== null) {
+                if (wrapperWidth - (barWidth + barOffset) < labelWidth + LABEL_POSITION_OFFSET * 2) {
+                    setLabelVisible(false)
+                } else {
+                    setLabelVisible(true)
                 }
             }
             return
         }
         // Place label inside or outside bar, based on whether it fits
-        if (layout === FunnelLayout.horizontal) {
-            const barWidth = barRef.current?.clientWidth ?? null
-            const labelWidth = labelRef.current?.clientWidth ?? null
-            if (barWidth !== null && labelWidth !== null) {
-                if (labelWidth + LABEL_POSITION_OFFSET * 2 > barWidth) {
-                    setLabelPosition('outside')
-                    return
-                }
-            }
-        } else {
-            const barHeight = barRef.current?.clientHeight ?? null
-            const labelHeight = labelRef.current?.clientHeight ?? null
-            if (barHeight !== null && labelHeight !== null) {
-                if (labelHeight + LABEL_POSITION_OFFSET * 2 > barHeight) {
-                    setLabelPosition('outside')
-                    return
-                }
+        const barWidth = barRef.current?.clientWidth ?? null
+        const labelWidth = labelRef.current?.clientWidth ?? null
+        if (barWidth !== null && labelWidth !== null) {
+            if (labelWidth + LABEL_POSITION_OFFSET * 2 > barWidth) {
+                setLabelPosition('outside')
+                return
             }
         }
         setLabelPosition('inside')
@@ -327,24 +301,29 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
         isModalActive,
     } = useValues(logic)
     const { openPersonsModalForStep } = useActions(logic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     // If the layout is vertical, we render bars using the table as a legend. See FunnelStepTable
-    if (featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] && layout === FunnelLayout.vertical) {
+    if (layout === FunnelLayout.vertical) {
         return <FunnelStepTable />
     }
 
+    // Everything rendered after is a funnel in top-to-bottom mode.
     return (
         <div
             data-attr="funnel-bar-graph"
-            className={`funnel-bar-graph ${layout}${color && color !== 'white' ? ' colored' : ''} ${color}`}
+            className={clsx(
+                'funnel-bar-graph',
+                FunnelLayout.horizontal,
+                color && color !== 'white' && 'colored',
+                color
+            )}
             style={insightProps.syncWithUrl ? { minHeight: 450 } : {}}
         >
             {steps.map((step, stepIndex) => {
                 const basisStep = getReferenceStep(steps, stepReference, stepIndex)
                 const previousStep = getReferenceStep(steps, FunnelStepReference.previous, stepIndex)
-                const showLineBefore = layout === FunnelLayout.horizontal && stepIndex > 0
-                const showLineAfter = layout === FunnelLayout.vertical || stepIndex < steps.length - 1
+                const showLineBefore = stepIndex > 0
+                const showLineAfter = stepIndex < steps.length - 1
                 const breakdownMaxIndex = getBreakdownMaxIndex(
                     Array.isArray(step.nested_breakdown) ? step.nested_breakdown : undefined
                 )
@@ -388,7 +367,7 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                     step.action_id === steps[stepIndex - 1].action_id && <DuplicateStepIndicator />}
                                 <FunnelStepDropdown index={stepIndex} />
                             </div>
-                            <div className={`funnel-step-metadata funnel-time-metadata ${layout}`}>
+                            <div className={`funnel-step-metadata funnel-time-metadata ${FunnelLayout.horizontal}`}>
                                 {step.average_conversion_time && step.average_conversion_time >= 0 + Number.EPSILON ? (
                                     <AverageTimeInspector
                                         onClick={() => {}}
@@ -425,7 +404,6 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                                         })
                                                     }
                                                     disabled={!isModalActive}
-                                                    layout={layout}
                                                     popoverTitle={
                                                         <div style={{ wordWrap: 'break-word' }}>
                                                             <PropertyKeyInfo value={step.name} />
@@ -514,7 +492,6 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                             name={step.name}
                                             onBarClick={() => openPersonsModalForStep({ step, converted: true })}
                                             disabled={!isModalActive}
-                                            layout={layout}
                                             popoverTitle={<PropertyKeyInfo value={step.name} />}
                                             popoverMetrics={[
                                                 {
@@ -577,81 +554,71 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
                                     </>
                                 )}
                             </div>
-                            {(!featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] ||
-                                layout === FunnelLayout.horizontal) && (
-                                <div className="funnel-conversion-metadata funnel-step-metadata">
-                                    <div className="step-stat">
-                                        <div className="center-flex">
-                                            <ValueInspectorButton
-                                                onClick={() => openPersonsModalForStep({ step, converted: true })}
-                                                disabled={!isModalActive}
-                                            >
-                                                <span className="value-inspector-button-icon">
-                                                    <ArrowRightOutlined style={{ color: 'var(--success)' }} />
-                                                </span>
-                                                <b>
-                                                    {humanizeStepCount(step.count)}{' '}
-                                                    {pluralize(
-                                                        step.count,
-                                                        aggregationTargetLabel.singular,
-                                                        aggregationTargetLabel.plural,
-                                                        false
-                                                    )}
-                                                </b>
-                                            </ValueInspectorButton>
-                                            <span className="text-muted-alt">
-                                                (
-                                                {formatDisplayPercentage(
-                                                    step.order > 0 ? step.count / steps[stepIndex - 1].count : 1
-                                                )}
-                                                %)
-                                            </span>
-                                        </div>
-                                        <div
-                                            className="text-muted-alt conversion-metadata-caption"
-                                            style={
-                                                layout === FunnelLayout.horizontal
-                                                    ? { flexGrow: 1 }
-                                                    : { marginBottom: 8 }
-                                            }
+                            <div className="funnel-conversion-metadata funnel-step-metadata">
+                                <div className="step-stat">
+                                    <div className="center-flex">
+                                        <ValueInspectorButton
+                                            onClick={() => openPersonsModalForStep({ step, converted: true })}
+                                            disabled={!isModalActive}
                                         >
-                                            completed step
-                                        </div>
-                                    </div>
-                                    <div
-                                        className="step-stat"
-                                        style={stepIndex === 0 ? { visibility: 'hidden' } : undefined}
-                                    >
-                                        <div className="center-flex">
-                                            <ValueInspectorButton
-                                                onClick={() => openPersonsModalForStep({ step, converted: false })}
-                                                disabled={!isModalActive}
-                                            >
-                                                <span className="value-inspector-button-icon">
-                                                    <ArrowBottomRightOutlined style={{ color: 'var(--danger)' }} />
-                                                </span>
-                                                <b>
-                                                    {humanizeStepCount(dropOffCount)}{' '}
-                                                    {pluralize(
-                                                        dropOffCount,
-                                                        aggregationTargetLabel.singular,
-                                                        aggregationTargetLabel.plural,
-                                                        false
-                                                    )}
-                                                </b>
-                                            </ValueInspectorButton>
-                                            <span className="text-muted-alt">
-                                                (
-                                                {formatDisplayPercentage(
-                                                    step.order > 0 ? 1 - step.count / steps[stepIndex - 1].count : 0
-                                                )}
-                                                %)
+                                            <span className="value-inspector-button-icon">
+                                                <ArrowRightOutlined style={{ color: 'var(--success)' }} />
                                             </span>
-                                        </div>
-                                        <div className="text-muted-alt conversion-metadata-caption">dropped off</div>
+                                            <b>
+                                                {humanizeStepCount(step.count)}{' '}
+                                                {pluralize(
+                                                    step.count,
+                                                    aggregationTargetLabel.singular,
+                                                    aggregationTargetLabel.plural,
+                                                    false
+                                                )}
+                                            </b>
+                                        </ValueInspectorButton>
+                                        <span className="text-muted-alt">
+                                            (
+                                            {formatDisplayPercentage(
+                                                step.order > 0 ? step.count / steps[stepIndex - 1].count : 1
+                                            )}
+                                            %)
+                                        </span>
+                                    </div>
+                                    <div className="text-muted-alt conversion-metadata-caption" style={{ flexGrow: 1 }}>
+                                        completed step
                                     </div>
                                 </div>
-                            )}
+                                <div
+                                    className="step-stat"
+                                    style={stepIndex === 0 ? { visibility: 'hidden' } : undefined}
+                                >
+                                    <div className="center-flex">
+                                        <ValueInspectorButton
+                                            onClick={() => openPersonsModalForStep({ step, converted: false })}
+                                            disabled={!isModalActive}
+                                        >
+                                            <span className="value-inspector-button-icon">
+                                                <ArrowBottomRightOutlined style={{ color: 'var(--danger)' }} />
+                                            </span>
+                                            <b>
+                                                {humanizeStepCount(dropOffCount)}{' '}
+                                                {pluralize(
+                                                    dropOffCount,
+                                                    aggregationTargetLabel.singular,
+                                                    aggregationTargetLabel.plural,
+                                                    false
+                                                )}
+                                            </b>
+                                        </ValueInspectorButton>
+                                        <span className="text-muted-alt">
+                                            (
+                                            {formatDisplayPercentage(
+                                                step.order > 0 ? 1 - step.count / steps[stepIndex - 1].count : 0
+                                            )}
+                                            %)
+                                        </span>
+                                    </div>
+                                    <div className="text-muted-alt conversion-metadata-caption">dropped off</div>
+                                </div>
+                            </div>
                         </div>
                     </section>
                 )

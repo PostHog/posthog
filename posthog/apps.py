@@ -4,7 +4,7 @@ import posthoganalytics
 from django.apps import AppConfig
 from django.conf import settings
 
-from posthog.settings import SKIP_SPECIAL_MIGRATIONS_SETUP
+from posthog.settings import SKIP_ASYNC_MIGRATIONS_SETUP
 from posthog.utils import get_git_branch, get_git_commit, get_machine_id, print_warning
 from posthog.version import VERSION
 
@@ -43,9 +43,9 @@ class PostHogConfig(AppConfig):
                     )
                     exit(1)
 
-        from posthog.special_migrations.setup import setup_special_migrations
+        from posthog.async_migrations.setup import setup_async_migrations
 
-        if SKIP_SPECIAL_MIGRATIONS_SETUP:
-            print_warning(["Skipping special migrations setup. This is unsafe in production!"])
+        if SKIP_ASYNC_MIGRATIONS_SETUP:
+            print_warning(["Skipping async migrations setup. This is unsafe in production!"])
         else:
-            setup_special_migrations()
+            setup_async_migrations()

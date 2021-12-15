@@ -9,8 +9,8 @@ import './SelectBox.scss'
 import { selectBoxLogicType } from 'lib/logic/selectBoxLogicType'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
-import { AutoSizer } from 'react-virtualized/dist/commonjs/AutoSizer'
-import VirtualizedList, { ListRowProps, ListRowRenderer } from 'react-virtualized/dist/commonjs/List'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import VirtualizedList, { ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 
 export interface SelectBoxItem {
     dataSource: SelectedItem[]
