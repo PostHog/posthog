@@ -243,6 +243,7 @@ class ClickhouseTrendsBreakdown:
                     "aggregated_value": stats[0],
                     "filter": filter_params,
                     "actor_endpoint": f"api/projects/{self.team_id}/actions/people/",
+                    "cohort_endpoint": "api/cohort/",
                     "actors": {"filter": extra_params, "actor_params": f"{urllib.parse.urlencode(parsed_params)}",},
                     **result_descriptors,
                     **additional_values,
@@ -268,7 +269,11 @@ class ClickhouseTrendsBreakdown:
                 )
                 parsed_results.append(parsed_result)
                 parsed_result.update(
-                    {"filter": filter.to_dict(), "actor_endpoint": f"api/projects/{self.team_id}/actions/people/"}
+                    {
+                        "filter": filter.to_dict(),
+                        "actor_endpoint": f"api/projects/{self.team_id}/actions/people/",
+                        "cohort_endpoint": "api/cohort/",
+                    }
                 )
             return sorted(parsed_results, key=lambda x: 0 if x.get("breakdown_value") != "all" else 1)
 

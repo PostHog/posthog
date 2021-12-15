@@ -77,7 +77,11 @@ class ClickhouseTrendsTotalVolume:
                 parsed_results.append(parsed_result)
 
                 parsed_result.update(
-                    {"filter": filter.to_dict(), "actor_endpoint": f"api/projects/{team_id}/actions/people/"}
+                    {
+                        "filter": filter.to_dict(),
+                        "actor_endpoint": f"api/projects/{team_id}/actions/people/",
+                        "cohort_endpoint": "api/cohort/",
+                    }
                 )
             return parsed_results
 
@@ -99,6 +103,7 @@ class ClickhouseTrendsTotalVolume:
                     "days": time_range,
                     "filter": filter_params,
                     "actor_endpoint": f"api/projects/{team_id}/actions/people/",
+                    "cohort_endpoint": "api/cohort/",
                     "actors": {"filter": extra_params, "actor_params": f"{urllib.parse.urlencode(parsed_params)}",},
                 }
             ]

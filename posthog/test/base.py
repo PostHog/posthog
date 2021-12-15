@@ -142,13 +142,15 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
         if self.CONFIG_AUTO_LOGIN and self.user:
             self.client.force_login(self.user)
 
-    def assertEntityResponseEqual(self, response1, response2, remove=("action", "label", "actors", "filter")):
+    def assertEntityResponseEqual(
+        self, response1, response2, remove=("action", "label", "actors", "actor_endpoint", "cohort_endpoint", "filter")
+    ):
         stripped_response1 = stripResponse(response1, remove=remove)
         stripped_response2 = stripResponse(response2, remove=remove)
         self.assertDictEqual(stripped_response1[0], stripped_response2[0])
 
 
-def stripResponse(response, remove=("action", "label", "actors", "filter")):
+def stripResponse(response, remove=("action", "label", "actors", "actor_endpoint", "cohort_endpoint", "filter")):
     if len(response):
         for attr in remove:
             if attr in response[0]:

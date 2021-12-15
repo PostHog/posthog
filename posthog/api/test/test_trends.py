@@ -90,7 +90,7 @@ def test_includes_only_intervals_within_range(client: Client):
             team=team,
         )
 
-        assert stripResponse(trends["result"], remove=("actors", "filter")) == [
+        assert stripResponse(trends["result"], remove=("actors", "actor_endpoint", "cohort_endpoint", "filter")) == [
             {
                 "action": {
                     "id": "$pageview",
