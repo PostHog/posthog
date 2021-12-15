@@ -469,9 +469,7 @@ export const insightLogic = kea<insightLogicType>({
                     ...(filters.actions?.flatMap((action) =>
                         actions
                             ?.filter(({ id }) => id === parseInt(String(action.id)))
-                            ?.flatMap(
-                                (action) => action.steps?.map((step) => step.event).filter((e) => !!e) as string[]
-                            )
+                            ?.flatMap(({ steps }) => steps?.map((step) => step.event).filter((e) => !!e) as string[])
                     ) || []),
                 ].filter((a): a is string => !!a)
             },
