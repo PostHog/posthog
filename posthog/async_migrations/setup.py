@@ -96,7 +96,9 @@ def kickstart_migration_if_possible(migration_name: str, applied_migrations: set
 
 def get_async_migration_definition(migration_name: str) -> AsyncMigrationDefinition:
     if TEST:
-        return import_submodules(ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH)[migration_name].Migration()
+        test_migrations = import_submodules(ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH)
+        if migration_name in test_migrations:
+            return test_migrations[migration_name].Migration()
 
     return ALL_ASYNC_MIGRATIONS[migration_name]
 
