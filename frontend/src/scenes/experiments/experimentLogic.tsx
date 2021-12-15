@@ -22,6 +22,7 @@ import {
 import { experimentLogicType } from './experimentLogicType'
 import { router } from 'kea-router'
 import { experimentsLogic } from './experimentsLogic'
+import { FunnelLayout } from 'lib/constants'
 
 const DEFAULT_DURATION = 14 // days
 
@@ -132,6 +133,7 @@ export const experimentLogic = kea<experimentLogicType>({
                     funnel_viz_type: FunnelVizType.Steps,
                     date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                    layout: FunnelLayout.horizontal,
                     ...filters,
                 }),
                 result: null,
@@ -167,7 +169,6 @@ export const experimentLogic = kea<experimentLogicType>({
             if (!experimentData?.start_date) {
                 // loading a draft mode experiment
                 actions.createNewExperimentFunnel(experimentData?.filters)
-                actions.setPage(2)
                 actions.setNewExperimentData({ ...experimentData })
             }
         },
@@ -207,14 +208,14 @@ export const experimentLogic = kea<experimentLogicType>({
                 },
             ],
         ],
-        minimimumDetectableChange: [
+        minimumDetectableChange: [
             (s) => [s.newExperimentData],
             (newExperimentData): number => {
                 return newExperimentData?.parameters?.minimum_detectable_effect || 5
             },
         ],
         recommendedSampleSize: [
-            (s) => [s.minimimumDetectableChange],
+            (s) => [s.minimumDetectableChange],
             (mde) => (conversionRate: number) => {
                 // Using the rule of thumb: 16 * sigma^2 / (mde^2)
                 // refer https://en.wikipedia.org/wiki/Sample_size_determination with default beta and alpha

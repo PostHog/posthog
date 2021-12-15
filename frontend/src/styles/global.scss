@@ -185,6 +185,14 @@ body strong {
     background: none;
 }
 
+.card-secondary {
+    font-size: 11px;
+    color: $text_muted;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
 mark {
     background-color: $mark_color !important;
     border-radius: $radius;
