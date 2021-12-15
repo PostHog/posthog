@@ -451,7 +451,10 @@ DISABLE_SERVER_SIDE_CURSORS = get_from_env("USING_PGBOUNCER", False, type_cast=s
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 
 if TEST or DEBUG:
-    DATABASE_URL = os.getenv("DATABASE_URL", "postgres://posthog:posthog@localhost:5432/posthog")
+    PG_HOST = os.getenv("PGHOST", "localhost")
+    PG_USER = os.getenv("PGUSER", "posthog")
+    PG_PASSWORD = os.getenv("PGPASSWORD", "posthog")
+    DATABASE_URL = os.getenv("DATABASE_URL", f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:5432/posthog")
 else:
     DATABASE_URL = os.getenv("DATABASE_URL", "")
 
