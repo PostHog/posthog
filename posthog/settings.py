@@ -76,6 +76,7 @@ We use pytest-env to let us set environment variables from the closest pytest.in
 We can't rely only on pytest.ini as some tests evaluate this file before its environment variables have been read
 """
 runner = sys.argv[0] if len(sys.argv) >= 1 else None
+cmd = None
 
 if runner:
     cmd = sys.argv[1] if len(sys.argv) >= 2 else None
@@ -119,6 +120,9 @@ default_flag_persistence = [
     # Add hard-coded feature flags for static self-hosted releases here
     "5440-multivariate-support",
     "new-paths-ui-edge-weights",
+    "new-sessions-player-events-list",
+    "session-insight-removal",
+    "funnel-simple-mode",
 ]
 
 if env_feature_flags != "0" and env_feature_flags.lower() != "false" and not DEBUG:
@@ -321,8 +325,9 @@ INSTALLED_APPS = [
     "social_django",
     "django_filters",
     "axes",
+    "constance",
+    "constance.backends.database",
 ]
-
 
 MIDDLEWARE = [
     "django_structlog.middlewares.RequestMiddleware",
@@ -753,3 +758,29 @@ if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
     SERVICE_VERSION_REQUIREMENTS = SERVICE_VERSION_REQUIREMENTS + [
         ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0,<21.7.0"),
     ]
+
+AUTO_START_ASYNC_MIGRATIONS = get_from_env("AUTO_START_ASYNC_MIGRATIONS", False, type_cast=str_to_bool)
+
+_default_skip_async_migrations_setup = TEST or E2E_TESTING or SKIP_SERVICE_VERSION_REQUIREMENTS or cmd != "runserver"
+SKIP_ASYNC_MIGRATIONS_SETUP = get_from_env(
+    "SKIP_ASYNC_MIGRATIONS_SETUP", _default_skip_async_migrations_setup, type_cast=str_to_bool
+)
+
+ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT = get_from_env("ASYNC_MIGRATION_ROLLBACK_TIMEOUT", 30, type_cast=int)
+ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK = get_from_env(
+    "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK", False, type_cast=str_to_bool
+)
+
+## Dynamic configs settings
+
+CONSTANCE_BACKEND = "constance.backends.database.DatabaseBackend"
+
+CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
+
+CONSTANCE_CONFIG = {
+    "MATERIALIZED_COLUMNS_ENABLED": (
+        get_from_env("MATERIALIZED_COLUMNS_ENABLED", True, type_cast=str_to_bool),
+        "Whether materialized columns should be, created or used at query time",
+        bool,
+    ),
+}

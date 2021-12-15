@@ -2,8 +2,8 @@ import './InfiniteList.scss'
 import '../Popup/Popup.scss'
 import React, { useState } from 'react'
 import { Empty, Skeleton, Tag } from 'antd'
-import { AutoSizer } from 'react-virtualized/dist/commonjs/AutoSizer'
-import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/commonjs/List'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import {
     getKeyMapping,
     PropertyKeyDescription,

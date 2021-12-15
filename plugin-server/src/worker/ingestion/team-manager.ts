@@ -93,12 +93,7 @@ export class TeamManager {
         status.info(`✅ 🚽 flushLastSeenAtCache finished successfully in ${elapsedTime} ms.`)
     }
 
-    public async updateEventNamesAndProperties(
-        teamId: number,
-        event: string,
-        properties: Properties,
-        eventTimestamp: DateTime
-    ): Promise<void> {
+    public async updateEventNamesAndProperties(teamId: number, event: string, properties: Properties): Promise<void> {
         const startTime = DateTime.now()
         const team: Team | null = await this.fetchTeam(teamId)
 
@@ -119,10 +114,10 @@ export class TeamManager {
                 status.info('Inserting new event definition with last_seen_at')
                 await this.db.postgresQuery(
                     `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, last_seen_at, created_at)` +
-                        ` VALUES ($1, $2, NULL, NULL, $3, $4, NOW())` +
+                        ` VALUES ($1, $2, NULL, NULL, $3, NOW(), NOW())` +
                         ` ON CONFLICT ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq` +
-                        ` DO UPDATE SET last_seen_at=$4`,
-                    [new UUIDT().toString(), event, team.id, eventTimestamp],
+                        ` DO UPDATE SET last_seen_at=NOW()`,
+                    [new UUIDT().toString(), event, team.id],
                     'insertEventDefinition'
                 )
             } else {
@@ -139,8 +134,8 @@ export class TeamManager {
             // TODO: #7422 Temporary conditional to test experimental feature
             if (this.experimentalLastSeenAtEnabled) {
                 const eventCacheKey = JSON.stringify([team.id, event])
-                if ((this.eventLastSeenCache.get(eventCacheKey) ?? 0) < eventTimestamp.valueOf()) {
-                    this.eventLastSeenCache.set(eventCacheKey, eventTimestamp.valueOf())
+                if ((this.eventLastSeenCache.get(eventCacheKey) ?? 0) < DateTime.now().valueOf()) {
+                    this.eventLastSeenCache.set(eventCacheKey, DateTime.now().valueOf())
                 }
                 // TODO: Allow configuring this via env vars
                 // We flush here every 2 mins (as a failsafe) because the main thread flushes every minute
