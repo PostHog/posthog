@@ -24,8 +24,28 @@ describe('retentionTableLogic', () => {
         ) {
             return { results: [] }
         } else if (pathname === `api/projects/${MOCK_TEAM_ID}/insights/retention/`) {
-            return { result: ['result from api'] }
+            return {
+                result: [
+                    {
+                        values: [
+                            { count: 200, people: [] },
+                            { count: 100, people: [] },
+                            { count: 75, people: [] },
+                        ],
+                        label: 'Chrome::96',
+                    },
+                    {
+                        values: [
+                            { count: 400, people: [] },
+                            { count: 200, people: [] },
+                            { count: 150, people: [] },
+                        ],
+                        label: 'Safari::34',
+                    },
+                ],
+            }
         }
+
         return defaultAPIMocks(url)
     })
 
@@ -71,6 +91,20 @@ describe('retentionTableLogic', () => {
                     filters: expect.objectContaining({
                         period: 'Week',
                     }),
+                })
+        })
+
+        it('handles conversion from cohort percentage to derivative of percentages when retentionReference is previous', async () => {
+            await expectLogic(logic, () => {
+                insightLogic(props).actions.setFilters({ insight: InsightType.RETENTION, period: 'Week' })
+                logic.actions.setRetentionReference('previous')
+            })
+                .toFinishAllListeners()
+                .toMatchValues(logic, {
+                    trendSeries: expect.arrayContaining([
+                        expect.objectContaining({ data: [100, 50, 75] }),
+                        expect.objectContaining({ data: [100, 50, 75] }),
+                    ]),
                 })
         })
     })

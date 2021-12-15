@@ -26,7 +26,7 @@ export function ChangePassword(): JSX.Element {
                 rules={[
                     {
                         required: !user || user.has_password,
-                        message: 'Please input your current password',
+                        message: 'Please enter your current password',
                     },
                 ]}
                 name="current_password"

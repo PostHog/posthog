@@ -70,7 +70,7 @@ class ClickhouseFunnelExperimentResult:
 
         probability = self.calculate_results(variants)
 
-        return {"funnel": funnel_results, "probability": probability}
+        return {"funnel": funnel_results, "probability": probability, "filters": self.funnel._filter.to_dict()}
 
     def get_variants(self, funnel_results):
         variants = []
