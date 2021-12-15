@@ -199,7 +199,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
             // On loading more of the recording, trigger some state changes
             const currentEvents = values.player?.replayer?.service.state.context.events ?? []
             const eventsToAdd = []
-            if (values.currentSegment?.windowId) {
+            if (values.currentSegment?.windowId !== undefined) {
                 eventsToAdd.push(
                     ...(values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId] ?? []).slice(
                         currentEvents.length
