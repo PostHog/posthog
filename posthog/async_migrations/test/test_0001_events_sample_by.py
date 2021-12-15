@@ -80,6 +80,10 @@ class Test0001EventsSampleBy(BaseTest):
 
         sm.refresh_from_db()
 
+        print(res[0][0])
+        print(sm.last_error)
+        print(sm.current_operation_index)
+        print(repr(sm))
         self.assertTrue(migration_successful)
         self.assertTrue("ORDER BY (team_id, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))" in res[0][0])
 
