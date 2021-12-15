@@ -5,6 +5,7 @@ import pytest
 from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
+from posthog.settings import CLICKHOUSE_DATABASE
 from posthog.test.base import BaseTest
 
 MIGRATION_NAME = "0001_events_sample_by"
@@ -23,15 +24,15 @@ class Test0001EventsSampleBy(BaseTest):
         from ee.clickhouse.sql.events import EVENTS_TABLE_MV_SQL, KAFKA_EVENTS_TABLE_SQL
 
         super().setUp()
-        self.create_events_table_query = execute_query("SHOW CREATE TABLE events")[0][0]
+        self.create_events_table_query = execute_query(f"SHOW CREATE TABLE {CLICKHOUSE_DATABASE}.events")[0][0]
 
-        execute_query("DROP TABLE IF EXISTS events_mv")
-        execute_query("DROP TABLE IF EXISTS kafka_events")
-        execute_query("DROP TABLE events")
+        execute_query(f"DROP TABLE IF EXISTS {CLICKHOUSE_DATABASE}.events_mv")
+        execute_query(f"DROP TABLE IF EXISTS {CLICKHOUSE_DATABASE}.kafka_events")
+        execute_query(f"DROP TABLE {CLICKHOUSE_DATABASE}.events")
 
         execute_query(
             f"""
-        CREATE TABLE events
+        CREATE TABLE {CLICKHOUSE_DATABASE}.events
         (
             `uuid` UUID,
             `event` String,
@@ -62,9 +63,9 @@ class Test0001EventsSampleBy(BaseTest):
         )
 
     def tearDown(self):
-        execute_query("DROP TABLE IF EXISTS events_mv")
-        execute_query("DROP TABLE IF EXISTS kafka_events")
-        execute_query("DROP TABLE events")
+        execute_query(f"DROP TABLE IF EXISTS {CLICKHOUSE_DATABASE}.events_mv")
+        execute_query(f"DROP TABLE IF EXISTS {CLICKHOUSE_DATABASE}.kafka_events")
+        execute_query(f"DROP TABLE {CLICKHOUSE_DATABASE}.events")
         execute_query(self.create_events_table_query)
 
     # Run the full migration through
@@ -75,11 +76,9 @@ class Test0001EventsSampleBy(BaseTest):
 
         from ee.clickhouse.client import sync_execute
 
-        res = sync_execute("SHOW CREATE TABLE events")
+        res = sync_execute(f"SHOW CREATE TABLE {CLICKHOUSE_DATABASE}.events")
 
         sm.refresh_from_db()
-
-        print(res[0][0], sm.last_error)
 
         self.assertTrue(migration_successful)
         self.assertTrue("ORDER BY (team_id, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))" in res[0][0])
