@@ -33,7 +33,6 @@ export function renderAnnotations({
     graphColor,
     currentDateMarker,
 }: AnnotationsProps): JSX.Element[] {
-    console.log('INSIGHTID', insightId)
     const { diffType, groupedAnnotations } = useValues(annotationsLogic({ insightId }))
 
     const { createAnnotation, createAnnotationNow, deleteAnnotation, deleteGlobalAnnotation, createGlobalAnnotation } =
@@ -51,7 +50,6 @@ export function renderAnnotations({
             top={topExtent}
             annotations={annotationsToMark}
             onCreate={(input: string, applyAll: boolean) => {
-                console.log('ON CREATE ANNOTATION', input, applyAll, insightId)
                 if (applyAll) {
                     createGlobalAnnotation(input, date, insightId)
                 } else if (insightId) {
@@ -61,7 +59,6 @@ export function renderAnnotations({
                 }
             }}
             onCreateAnnotation={(input: string, applyAll: boolean) => {
-                console.log('ON CREATE ANNOTATION', input, applyAll, insightId)
                 if (applyAll) {
                     createGlobalAnnotation(input, date, insightId)
                 } else if (insightId) {

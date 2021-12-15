@@ -60,7 +60,6 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
         funnelLogic(insightProps)
     )
-    console.log('INSIGHT', insight)
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ insightId: insight.short_id }))
     const { annotationsToCreate } = useValues(annotationsLogic({ insightId: insight.short_id }))
 

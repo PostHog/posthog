@@ -141,7 +141,6 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
     listeners: ({ actions, props }) => ({
         createAnnotationNow: async ({ content, date_marker, created_at, scope }) => {
             const insightId = props.insightId ? await getInsightId(props.insightId) : undefined
-            console.log('CREATE ANNOTATION NOW', insightId)
 
             if (!insightId) {
                 throw new Error('Can only create annotations for saved insight')

@@ -96,7 +96,6 @@ export function AnnotationMarker({
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
-    console.log('INSIGHTID', dashboardItemId)
     const { diffType, groupedAnnotations } = useValues(annotationsLogic({ insightId: dashboardItemId || undefined }))
 
     function closePopup(): void {
@@ -172,7 +171,6 @@ export function AnnotationMarker({
                                 <Button
                                     type="primary"
                                     onClick={() => {
-                                        console.log('CLLICK', onCreateAnnotation, textInput, applyAll)
                                         onCreateAnnotation && onCreateAnnotation(textInput, applyAll)
                                         closePopup()
                                         setTextInput('')
@@ -253,7 +251,6 @@ export function AnnotationMarker({
                                         <Button
                                             type="primary"
                                             onClick={() => {
-                                                console.log('CLLICK')
                                                 onCreate && onCreate(textInput, applyAll)
                                                 setTextInput('')
                                                 setTextAreaVisible(false)
@@ -268,7 +265,6 @@ export function AnnotationMarker({
                                     <Button
                                         type="primary"
                                         onClick={() => {
-                                            console.log('CLLICK')
                                             setTextAreaVisible(true)
                                         }}
                                     >
