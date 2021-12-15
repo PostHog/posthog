@@ -26,6 +26,7 @@ export function TaxonomicPropertyFilter({
     onComplete,
     disablePopover, // inside a dropdown if this is false
     taxonomicGroupTypes,
+    eventNames,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || [
@@ -49,6 +50,7 @@ export function TaxonomicPropertyFilter({
         filterIndex: index,
         taxonomicGroupTypes: groupTypes,
         taxonomicOnChange,
+        eventNames,
     })
     const { filter, dropdownOpen, selectedCohortName, activeTaxonomicGroup } = useValues(logic)
     const { openDropdown, closeDropdown, selectItem } = useActions(logic)
@@ -66,6 +68,7 @@ export function TaxonomicPropertyFilter({
             value={cohortOrOtherValue}
             onChange={taxonomicOnChange}
             taxonomicGroupTypes={groupTypes}
+            eventNames={eventNames}
         />
     )
 

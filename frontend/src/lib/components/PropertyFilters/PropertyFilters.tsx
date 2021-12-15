@@ -22,6 +22,7 @@ interface PropertyFiltersProps {
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     showNestedArrow?: boolean
     greyBadges?: boolean
+    eventNames?: string[]
 }
 
 export function PropertyFilters({
@@ -36,10 +37,13 @@ export function PropertyFilters({
     style = {},
     showNestedArrow = false,
     greyBadges = false,
+    eventNames = [],
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filters } = useValues(propertyFilterLogic(logicProps))
     const { remove } = useActions(propertyFilterLogic(logicProps))
+
+    console.log({ eventNames })
 
     return (
         <div className="property-filters" style={style}>
@@ -62,26 +66,21 @@ export function PropertyFilters({
                                 label={'Add filter'}
                                 onRemove={remove}
                                 greyBadges={greyBadges}
-                                filterComponent={(onComplete) => {
-                                    const propertyFilterCommonProps = {
-                                        key: index,
-                                        pageKey,
-                                        index,
-                                        onComplete,
-                                        selectProps: {},
-                                        taxonomicGroupTypes,
-                                    }
-                                    return (
-                                        <TaxonomicPropertyFilter
-                                            {...propertyFilterCommonProps}
-                                            disablePopover={disablePopover}
-                                            selectProps={{
-                                                delayBeforeAutoOpen: 150,
-                                                placement: pageKey === 'trends-filters' ? 'bottomLeft' : undefined,
-                                            }}
-                                        />
-                                    )
-                                }}
+                                filterComponent={(onComplete) => (
+                                    <TaxonomicPropertyFilter
+                                        key={index}
+                                        pageKey={pageKey}
+                                        index={index}
+                                        onComplete={onComplete}
+                                        taxonomicGroupTypes={taxonomicGroupTypes}
+                                        eventNames={eventNames}
+                                        disablePopover={disablePopover}
+                                        selectProps={{
+                                            delayBeforeAutoOpen: 150,
+                                            placement: pageKey === 'trends-filters' ? 'bottomLeft' : undefined,
+                                        }}
+                                    />
+                                )}
                             />
                         )
                     })}

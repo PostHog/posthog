@@ -435,6 +435,7 @@ export function ActionFilterRow({
                         style={{ marginBottom: 0 }}
                         showNestedArrow={showNestedArrow}
                         taxonomicGroupTypes={propertiesTaxonomicGroupTypes}
+                        eventNames={filter.type === TaxonomicFilterGroupType.Events && filter.name ? [filter.name] : []}
                     />
                 </div>
             )}

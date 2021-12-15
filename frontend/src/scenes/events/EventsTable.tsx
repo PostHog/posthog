@@ -340,7 +340,13 @@ export function EventsTable({
                                 setEventFilter(value || '')
                             }}
                         />
-                        {filtersEnabled && <PropertyFilters pageKey={pageKey} style={{ marginBottom: 0 }} />}
+                        {filtersEnabled && (
+                            <PropertyFilters
+                                pageKey={pageKey}
+                                style={{ marginBottom: 0 }}
+                                eventNames={eventFilter ? [eventFilter] : []}
+                            />
+                        )}
                     </div>
 
                     <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.75rem' }}>

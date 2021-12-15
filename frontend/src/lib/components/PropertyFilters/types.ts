@@ -20,6 +20,7 @@ export interface TaxonomicPropertyFilterLogicProps extends PropertyFilterBasePro
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicOnChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
     filterIndex: number
+    eventNames?: string[]
 }
 
 export interface PropertyFilterInternalProps {
@@ -29,4 +30,5 @@ export interface PropertyFilterInternalProps {
     onComplete: () => void
     disablePopover: boolean
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
+    eventNames?: string[]
 }

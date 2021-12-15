@@ -1,3 +1,4 @@
+import json
 from typing import Any, Type
 
 from rest_framework import mixins, permissions, serializers, viewsets
@@ -71,8 +72,12 @@ class PropertyDefinitionViewSet(
                     names = ()
                     name_filter = ""
 
-                event_name = "insight analyzed"
-                if event_name:
+                # Passed as JSON instead of duplicate properties like event_names[] to work with frontend's combineUrl
+                event_names = self.request.GET.get("event_names", None)
+                if event_names:
+                    event_names = json.loads(event_names)
+
+                if event_names and len(event_names) > 0:
                     event_property_field = "(SELECT count(*) > 0 FROM posthog_eventproperty WHERE posthog_eventproperty.team_id=posthog_propertydefinition.team_id AND posthog_eventproperty.event IN %(event_names)s AND posthog_eventproperty.property = posthog_propertydefinition.name)"
                     total_volume_field = "(SELECT SUM(posthog_eventproperty.total_volume) FROM posthog_eventproperty WHERE posthog_eventproperty.team_id=posthog_propertydefinition.team_id AND posthog_eventproperty.event IN %(event_names)s AND posthog_eventproperty.property = posthog_propertydefinition.name)"
                 else:
@@ -95,7 +100,7 @@ class PropertyDefinitionViewSet(
                     ORDER BY is_event_property DESC, {custom_first}, {total_volume_field} DESC NULLS LAST, name ASC
                     """,
                     params={
-                        "event_names": (event_name,),
+                        "event_names": tuple(event_names or []),
                         "names": names,
                         "team_id": self.team_id,
                         "excluded_properties": tuple(HIDDEN_PROPERTY_DEFINITIONS),
