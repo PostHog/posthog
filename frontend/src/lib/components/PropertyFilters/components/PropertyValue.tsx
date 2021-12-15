@@ -36,6 +36,7 @@ interface PropertyValueProps {
     outerOptions?: Option[] // If no endpoint provided, options are given here
     autoFocus?: boolean
     allowCustom?: boolean
+    holdDropdownOpen?: (holdOpen: boolean) => void
 }
 
 function matchesLowerCase(needle?: string, haystack?: string): boolean {
@@ -69,6 +70,7 @@ export function PropertyValue({
     outerOptions = undefined,
     autoFocus = false,
     allowCustom = true,
+    holdDropdownOpen = () => {},
 }: PropertyValueProps): JSX.Element {
     const isMultiSelect = operator && isOperatorMulti(operator)
     const [input, setInput] = useState(isMultiSelect ? '' : toString(value))
@@ -231,12 +233,14 @@ export function PropertyValue({
                 <>
                     <DatePicker
                         {...commonInputProps}
-                        onOpenChange={() => setShouldBlur(false)}
+                        inputReadOnly={true}
+                        onOpenChange={(isOpen) => isOpen && holdDropdownOpen(true)}
                         format="YYYY-MM-DD HH:mm:ss"
                         showTime={true}
                         value={dayJSMightParse(value) ? dayjs(value) : null}
-                        onSelect={(selectedDate) => {
+                        onOk={(selectedDate) => {
                             setValue(selectedDate.format('YYYY-MM-DD HH:MM:ss'))
+                            holdDropdownOpen(false)
                         }}
                     />
                 </>

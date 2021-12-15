@@ -54,8 +54,8 @@ export function TaxonomicPropertyFilter({
         taxonomicGroupTypes: groupTypes,
         taxonomicOnChange,
     })
-    const { filter, dropdownOpen, selectedCohortName, activeTaxonomicGroup } = useValues(logic)
-    const { openDropdown, closeDropdown, selectItem } = useActions(logic)
+    const { filter, dropdownOpen, selectedCohortName, activeTaxonomicGroup, dropdownHeldOpen } = useValues(logic)
+    const { openDropdown, closeDropdown, selectItem, holdDropdownOpen } = useActions(logic)
     const showInitialSearchInline = !disablePopover && ((!filter?.type && !filter?.key) || filter?.type === 'cohort')
     const showOperatorValueSelect = filter?.type && filter?.key && filter?.type !== 'cohort'
 
@@ -93,7 +93,7 @@ export function TaxonomicPropertyFilter({
                     </Col>
 
                     <Popup
-                        overlay={dropdownOpen ? taxonomicFilter : null}
+                        overlay={dropdownOpen && !dropdownHeldOpen ? taxonomicFilter : null}
                         placement={'bottom-start'}
                         fallbackPlacements={['bottom-end']}
                         visible={dropdownOpen}
@@ -118,6 +118,7 @@ export function TaxonomicPropertyFilter({
                     {showOperatorValueSelect && (
                         <OperatorValueSelect
                             allowQueryingEventsByDateTime={featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME]}
+                            holdDropdownOpen={holdDropdownOpen}
                             type={filter?.type}
                             propkey={filter?.key}
                             operator={filter?.operator}

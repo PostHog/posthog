@@ -11,10 +11,7 @@ jest.mock('lib/api')
 describe('the taxonomic property filter', () => {
     let logic: BuiltLogic<taxonomicPropertyFilterLogicType>
 
-    mockAPI(async (url) => {
-        console.log(url)
-        return defaultAPIMocks(url)
-    })
+    mockAPI(defaultAPIMocks)
 
     initKeaTestLogic({
         logic: taxonomicPropertyFilterLogic,
@@ -30,14 +27,53 @@ describe('the taxonomic property filter', () => {
         },
         onLogic: (l) => (logic = l),
     })
-    it('closes the dropdown onCloseDropdown', () => {
-        expectLogic(logic, () => {
-            logic.actions.openDropdown
-            logic.actions.closeDropdown
+
+    it('starts with dropdown closed', async () => {
+        await expectLogic(logic).toMatchValues({
+            dropdownOpen: false,
+        })
+    })
+
+    it('closes the dropdown onCloseDropdown', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.openDropdown()
+            logic.actions.closeDropdown()
         }).toMatchValues({
+            dropdownOpen: false,
+        })
+    })
+
+    it('opens the dropdown onOpenDropdown', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.openDropdown()
+        }).toMatchValues({
+            dropdownHeldOpen: false,
+            dropdownMightOpen: true,
             dropdownOpen: true,
         })
     })
-    it.todo('opens the dropdown onOpenDropdown')
-    it.todo('does not close the dropdown onCloseDropdown when locked open')
+    it('does not close the dropdown onCloseDropdown when locked open', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.openDropdown()
+            logic.actions.holdDropdownOpen(true)
+            logic.actions.closeDropdown()
+        }).toMatchValues({
+            dropdownHeldOpen: true,
+            dropdownMightOpen: false,
+            dropdownOpen: true,
+        })
+    })
+
+    it('can release a hold when locked open', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.openDropdown()
+            logic.actions.holdDropdownOpen(true)
+            logic.actions.holdDropdownOpen(false)
+            logic.actions.closeDropdown()
+        }).toMatchValues({
+            dropdownHeldOpen: false,
+            dropdownMightOpen: false,
+            dropdownOpen: false,
+        })
+    })
 })
