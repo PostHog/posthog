@@ -26,13 +26,14 @@ import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { AnnotationMarker, Annotations, annotationsLogic } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import './LineGraph.scss'
-import { InsightTooltip } from '../InsightTooltip/InsightTooltip'
+import { LEGACY_InsightTooltip } from '../InsightTooltip/LEGACY_InsightTooltip'
 import { dayjs } from 'lib/dayjs'
 import { AnnotationType, GraphDataset, GraphPointPayload, GraphType, IntervalType } from '~/types'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { LEGACY_LineGraph } from './LEGACY_LineGraph.jsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
 //--Chart Style Options--//
 Chart.register(CrosshairPlugin)
@@ -323,15 +324,19 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
 
                             ReactDOM.render(
                                 <Provider store={getContext().store}>
-                                    <InsightTooltip
-                                        altTitle={altTitle}
-                                        referenceDate={referenceDate}
-                                        interval={interval}
-                                        bodyLines={bodyLines}
-                                        inspectPersonsLabel={onClick && showPersonsModal}
-                                        preferAltTitle={tooltipPreferAltTitle}
-                                        hideHeader={isHorizontal}
-                                    />
+                                    {featureFlags[FEATURE_FLAGS.NEW_INSIGHT_TOOLTIPS] ? (
+                                        <InsightTooltip />
+                                    ) : (
+                                        <LEGACY_InsightTooltip
+                                            altTitle={altTitle}
+                                            referenceDate={referenceDate}
+                                            interval={interval}
+                                            bodyLines={bodyLines}
+                                            inspectPersonsLabel={onClick && showPersonsModal}
+                                            preferAltTitle={tooltipPreferAltTitle}
+                                            hideHeader={isHorizontal}
+                                        />
+                                    )}
                                 </Provider>,
                                 tooltipEl
                             )

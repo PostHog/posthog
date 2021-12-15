@@ -84,6 +84,7 @@ export const FEATURE_FLAGS = {
     STALE_EVENTS: 'stale-events', // owner: @paolodamico
     INSIGHT_LEGENDS: 'insight-legends', // owner: @alexkim205
     LINE_GRAPH_V2: 'line-graph-v2', // owner @alexkim205
+    NEW_INSIGHT_TOOLTIPS: 'insight-tooltips', // owner @alexkim205
     DASHBOARD_REDESIGN: 'dashboard-redesign', // owner: @Twixes
 }
 
