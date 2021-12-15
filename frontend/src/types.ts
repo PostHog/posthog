@@ -1005,12 +1005,13 @@ export interface FunnelStep {
     breakdown?: BreakdownKeyType
     breakdowns?: Breakdown[]
     breakdown_value?: BreakdownKeyType
+    actor_endpoint: string
 
     // Url that you can GET to retrieve the people that converted in this step
-    converted_people_url: string
+    converted_actor_params: string
 
     // Url that you can GET to retrieve the people that dropped in this step
-    dropped_people_url: string
+    dropped_actor_params: string
 }
 
 export interface FunnelStepWithNestedBreakdown extends FunnelStep {

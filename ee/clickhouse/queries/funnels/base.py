@@ -178,9 +178,10 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
             serialized_result.update(
                 {
-                    "converted_people_url": f"{self._base_uri}api/person/funnel/?{urllib.parse.urlencode(converted_people_filter.to_params())}",
-                    "dropped_people_url": (
-                        f"{self._base_uri}api/person/funnel/?{urllib.parse.urlencode(dropped_people_filter.to_params())}"
+                    "actor_endpoint": "api/person/funnel/",
+                    "converted_actor_params": f"{urllib.parse.urlencode(converted_people_filter.to_params())}",
+                    "dropped_actor_params": (
+                        f"{urllib.parse.urlencode(dropped_people_filter.to_params())}"
                         # NOTE: If we are looking at the first step, there is no drop off,
                         # everyone converted, otherwise they would not have been
                         # included in the funnel.

@@ -77,5 +77,8 @@ class ClickhouseTestUnorderedFunnelGroups(ClickhouseTestMixin, LicensedTestMixin
         assert result["paid"]["count"] == 1
         assert result["paid"]["average_conversion_time"] == 86400
 
-        actors = get_funnel_actors_ok(self.client, result["user signed up"]["converted_people_url"])
+        actors = get_funnel_actors_ok(
+            self.client,
+            f"{result['user signed up']['actor_endpoint']}?{result['user signed up']['converted_actor_params']}",
+        )
         assert len(actors) == 2

@@ -1352,8 +1352,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
     return TestFunnelBreakdown
 
 
-def exclude_people_urls_from_funnel_response(steps):
-    return [{**step, "converted_people_url": None, "dropped_people_url": None} for step in steps]
+def exclude_actors_urls_from_funnel_response(steps):
+    return [{**step, "converted_actor_params": None, "dropped_actor_params": None} for step in steps]
 
 
 def assert_funnel_results_equal(left: List[Dict[str, Any]], right: List[Dict[str, Any]]):
@@ -1367,8 +1367,8 @@ def assert_funnel_results_equal(left: List[Dict[str, Any]], right: List[Dict[str
     """
 
     assert len(left) == len(right)
-    for index, item in enumerate(exclude_people_urls_from_funnel_response(left)):
-        other = exclude_people_urls_from_funnel_response(right)[index]
+    for index, item in enumerate(exclude_actors_urls_from_funnel_response(left)):
+        other = exclude_actors_urls_from_funnel_response(right)[index]
         assert item.keys() == other.keys()
         for key in item.keys():
             try:
@@ -1382,6 +1382,6 @@ def assert_funnel_breakdown_results_equal(left, right):
     """
     Helper to be able to compare two funnel with breakdown results.
     """
-    assert [exclude_people_urls_from_funnel_response(result) for result in left] == [
-        exclude_people_urls_from_funnel_response(result) for result in right
+    assert [exclude_actors_urls_from_funnel_response(result) for result in left] == [
+        exclude_actors_urls_from_funnel_response(result) for result in right
     ]

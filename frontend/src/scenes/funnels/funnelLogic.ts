@@ -1243,7 +1243,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             const breakdownValues = getBreakdownStepValues(step, funnelStep)
 
             personsModalLogic.actions.loadPeopleFromUrl({
-                url: converted ? step.converted_people_url : step.dropped_people_url,
+                url: `${step.actor_endpoint}?${converted ? step.converted_actor_params : step.dropped_actor_params}`,
                 // NOTE: although we have the url that contains all of the info needed
                 // to return people, we currently still need to pass something in for the
                 // purpose of the modal displaying the label.

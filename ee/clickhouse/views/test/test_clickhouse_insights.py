@@ -864,7 +864,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
 
 def get_converted_and_dropped_people(client: Client, step):
     # Helper for fetching converted/dropped people for a specified funnel step response
-    converted_people_response = client.get(step["converted_people_url"])
+    converted_people_response = client.get(f"{step['actor_endpoint']}?{step['converted_actor_params']}")
     assert converted_people_response.status_code == status.HTTP_200_OK
 
     converted_people = converted_people_response.json()["results"][0]["people"]
@@ -874,7 +874,7 @@ def get_converted_and_dropped_people(client: Client, step):
         #  If it's the first step, we don't expect a dropped people url
         dropped_distinct_ids = []
     else:
-        dropped_people_response = client.get(step["dropped_people_url"])
+        dropped_people_response = client.get(f"{step['actor_endpoint']}?{step['dropped_actor_params']}")
         assert dropped_people_response.status_code == status.HTTP_200_OK
 
         dropped_people = dropped_people_response.json()["results"][0]["people"]
