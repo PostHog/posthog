@@ -1416,9 +1416,10 @@ export interface FunnelCorrelation {
     event: Pick<EventType, 'elements' | 'event' | 'properties'>
     odds_ratio: number
     success_count: number
-    success_people_url: string
+    actor_endpoint: string
+    success_actors_params: string
     failure_count: number
-    failure_people_url: string
+    failure_actors_params: string
     correlation_type: FunnelCorrelationType.Failure | FunnelCorrelationType.Success
     result_type:
         | FunnelCorrelationResultsType.Events

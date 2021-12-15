@@ -1258,7 +1258,9 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             if (correlation.result_type === FunnelCorrelationResultsType.Properties) {
                 const { breakdown, breakdown_value } = parseBreakdownValue(correlation.event.event)
                 personsModalLogic.actions.loadPeopleFromUrl({
-                    url: success ? correlation.success_people_url : correlation.failure_people_url,
+                    url: `${correlation.actor_endpoint}?${
+                        success ? correlation.success_actors_params : correlation.failure_actors_params
+                    }`,
                     // just display that we either completed the last step, or
                     // dropped at the second to last step
                     funnelStep: success ? values.stepsWithCount.length : -2,
@@ -1277,7 +1279,9 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 const { name, properties } = parseEventAndProperty(correlation.event)
 
                 personsModalLogic.actions.loadPeopleFromUrl({
-                    url: success ? correlation.success_people_url : correlation.failure_people_url,
+                    url: `${correlation.actor_endpoint}?${
+                        success ? correlation.success_actors_params : correlation.failure_actors_params
+                    }`,
                     funnelStep: success ? values.stepsWithCount.length : -2,
                     label: name,
                     action: 'session',

@@ -85,16 +85,16 @@ def get_people_for_correlation_ok(client: Client, correlation: EventOddsRatioSer
     Helper for getting people for a correlation. Note we keep checking to just
     inclusion of name, to make the stable to changes in other people props.
     """
-    success_people_url = correlation["success_people_url"]
-    failure_people_url = correlation["failure_people_url"]
+    success_actors_url = f"{correlation['actor_endpoint']}?{correlation['success_actors_params']}"
+    failure_actors_url = f"{correlation['actor_endpoint']}?{correlation['failure_actors_params']}"
 
-    if not success_people_url or not failure_people_url:
+    if not success_actors_url or not failure_actors_url:
         return {}
 
-    success_people_response = client.get(success_people_url)
+    success_people_response = client.get(success_actors_url)
     assert success_people_response.status_code == 200, success_people_response.content
 
-    failure_people_response = client.get(failure_people_url)
+    failure_people_response = client.get(failure_actors_url)
     assert failure_people_response.status_code == 200, failure_people_response.content
 
     return {

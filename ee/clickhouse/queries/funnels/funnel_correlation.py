@@ -56,13 +56,15 @@ class EventOddsRatioSerialized(TypedDict):
     event: EventDefinition
 
     success_count: int
-    success_people_url: Optional[str]
+    success_actors_params: Optional[str]
 
     failure_count: int
-    failure_people_url: Optional[str]
+    failure_actors_params: Optional[str]
 
     odds_ratio: float
     correlation_type: Literal["success", "failure"]
+
+    actor_endpoint: str
 
 
 class FunnelCorrelationResponse(TypedDict):
@@ -614,7 +616,7 @@ class FunnelCorrelation:
         events = positively_correlated_events[:10] + negatively_correlated_events[:10]
         return events, skewed_totals
 
-    def construct_people_url(self, success: bool, event_definition: EventDefinition) -> Optional[str]:
+    def construct_actors_url(self, success: bool, event_definition: EventDefinition) -> Optional[str]:
         """
         Given an event_definition and success/failure flag, returns a url that
         get be used to GET the associated people for the event/sucess pair. The
@@ -622,17 +624,17 @@ class FunnelCorrelation:
         fetching incorrect people, given an event definition.
         """
         if not self._filter.correlation_type or self._filter.correlation_type == FunnelCorrelationType.EVENTS:
-            return self.construct_event_correlation_people_url(success=success, event_definition=event_definition)
+            return self.construct_event_correlation_actors_url(success=success, event_definition=event_definition)
 
         elif self._filter.correlation_type == FunnelCorrelationType.EVENT_WITH_PROPERTIES:
-            return self.construct_event_with_properties_people_url(success=success, event_definition=event_definition)
+            return self.construct_event_with_properties_actors_url(success=success, event_definition=event_definition)
 
         elif self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
-            return self.construct_person_properties_people_url(success=success, event_definition=event_definition)
+            return self.construct_person_properties_actors_url(success=success, event_definition=event_definition)
 
         return None
 
-    def construct_event_correlation_people_url(self, success: bool, event_definition: EventDefinition) -> str:
+    def construct_event_correlation_actors_url(self, success: bool, event_definition: EventDefinition) -> str:
         # NOTE: we need to convert certain params to strings. I don't think this
         # class should need to know these details, but with_data is
         # expecting the values as they are serialized in the url
@@ -644,9 +646,9 @@ class FunnelCorrelation:
                 "funnel_correlation_person_entity": {"id": event_definition["event"], "type": "events"},
             }
         ).to_params()
-        return f"{self._base_uri}api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
+        return f"{urllib.parse.urlencode(params)}"
 
-    def construct_event_with_properties_people_url(self, success: bool, event_definition: EventDefinition) -> str:
+    def construct_event_with_properties_actors_url(self, success: bool, event_definition: EventDefinition) -> str:
         if self.support_autocapture_elements():
             # If we have an $autocapture event, we need to special case the
             # url by converting the `elements` chain into an `Action`
@@ -673,7 +675,7 @@ class FunnelCorrelation:
                     },
                 }
             ).to_params()
-            return f"{self._base_uri}api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
+            return f"{urllib.parse.urlencode(params)}"
 
         event_name, property_name, property_value = event_definition["event"].split("::")
         params = self._filter.with_data(
@@ -688,9 +690,9 @@ class FunnelCorrelation:
                 },
             }
         ).to_params()
-        return f"{self._base_uri}api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
+        return f"{urllib.parse.urlencode(params)}"
 
-    def construct_person_properties_people_url(self, success: bool, event_definition: EventDefinition) -> str:
+    def construct_person_properties_actors_url(self, success: bool, event_definition: EventDefinition) -> str:
         # NOTE: for property correlations, we just use the regular funnel
         # persons endpoint, with the breakdown value set, and we assume that
         # event.event will be of the format "{property_name}::{property_value}"
@@ -703,7 +705,7 @@ class FunnelCorrelation:
                 ],
             }
         ).to_params()
-        return f"{self._base_uri}api/person/funnel/correlation?{urllib.parse.urlencode(params)}"
+        return f"{urllib.parse.urlencode(params)}"
 
     def format_results(self, results: Tuple[List[EventOddsRatio], bool]) -> FunnelCorrelationResponse:
         odds_ratios, skewed_totals = results
@@ -777,12 +779,13 @@ class FunnelCorrelation:
         event_definition = self.serialize_event_with_property(event=odds_ratio["event"])
         return {
             "success_count": odds_ratio["success_count"],
-            "success_people_url": self.construct_people_url(success=True, event_definition=event_definition),
+            "success_actors_params": self.construct_actors_url(success=True, event_definition=event_definition),
             "failure_count": odds_ratio["failure_count"],
-            "failure_people_url": self.construct_people_url(success=False, event_definition=event_definition),
+            "failure_actors_params": self.construct_actors_url(success=False, event_definition=event_definition),
             "odds_ratio": odds_ratio["odds_ratio"],
             "correlation_type": odds_ratio["correlation_type"],
             "event": event_definition,
+            "actor_endpoint": "api/person/funnel/correlation",
         }
 
     def serialize_event_with_property(self, event: str) -> EventDefinition:
