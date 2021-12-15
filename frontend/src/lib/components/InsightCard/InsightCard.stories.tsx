@@ -256,6 +256,7 @@ export const InsightCard: Story = (args) => {
                     apiError={false}
                     highlighted={false}
                     updateColor={() => {}}
+                    removeItem={() => {}}
                     refresh={() => {}}
                 />
                 <InsightCardComponent
@@ -265,6 +266,7 @@ export const InsightCard: Story = (args) => {
                     apiError={false}
                     highlighted={false}
                     updateColor={() => {}}
+                    removeItem={() => {}}
                     refresh={() => {}}
                 />
             </div>
