@@ -1,3 +1,4 @@
+import { Alert } from 'antd'
 import clsx from 'clsx'
 import { BindLogic } from 'kea'
 import { capitalizeFirstLetter, dateFilterToText, Loading } from 'lib/utils'
@@ -132,7 +133,9 @@ function InsightViz({
     return (
         <div className="InsightViz">
             {loading && <Loading />}
-            <ActionsLineGraph dashboardItemId={short_id} cachedResults={cachedResults} filters={filters} />
+            <Alert.ErrorBoundary message="Insight visualization errored">
+                <ActionsLineGraph dashboardItemId={short_id} cachedResults={cachedResults} filters={filters} />
+            </Alert.ErrorBoundary>
         </div>
     )
 }
@@ -143,7 +146,7 @@ function InsightCardInternal(
 ): JSX.Element {
     const { short_id, filters, result: cachedResults } = insight
 
-    const logicProps: InsightLogicProps = {
+    const insightLogicProps: InsightLogicProps = {
         dashboardItemId: short_id,
         filters,
         cachedResults,
@@ -156,7 +159,7 @@ function InsightCardInternal(
             {...divProps}
             ref={ref}
         >
-            <BindLogic logic={insightLogic} props={logicProps}>
+            <BindLogic logic={insightLogic} props={insightLogicProps}>
                 <InsightViz insight={insight} index={index} loading={loading} apiError={apiError} />
             </BindLogic>
             <InsightMeta insight={insight} index={index} updateColor={updateColor} refresh={refresh} />
