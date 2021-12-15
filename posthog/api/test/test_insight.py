@@ -17,13 +17,14 @@ from posthog.models import (
     Team,
     User,
 )
+from posthog.models.organization import OrganizationMembership
 from posthog.tasks.update_cache import update_dashboard_item_cache
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from posthog.utils import is_clickhouse_enabled
 
 
 def insight_test_factory(event_factory, person_factory):
-    class TestInsight(APIBaseTest):
+    class TestInsight(APIBaseTest, QueryMatchingTest):
         maxDiff = None
 
         CLASS_DATA_LEVEL_SETUP = False
@@ -151,6 +152,26 @@ def insight_test_factory(event_factory, person_factory):
                     "updated_at",
                 ],
             )
+
+        @snapshot_postgres_queries
+        def test_insights_does_not_nplus1(self):
+            for i in range(20):
+                user = User.objects.create(email=f"testuser{i}@posthog.com")
+                OrganizationMembership.objects.create(user=user, organization=self.organization)
+                dashboard = Dashboard.objects.create(name=f"Dashboard {i}", team=self.team)
+                Insight.objects.create(
+                    filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+                    team=self.team,
+                    short_id=f"insight{i}",
+                    dashboard=dashboard,
+                    created_by=user,
+                )
+
+            # 4 for request overhead (django sessions/auth), then item count + items + dashboards + users
+            with self.assertNumQueries(8):
+                response = self.client.get(f"/api/projects/{self.team.id}/insights")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(len(response.json()["results"]), 20)
 
         def test_create_insight_items(self):
             # Make sure the endpoint works with and without the trailing slash
@@ -386,6 +407,24 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEntityResponseEqual(
                 response_user_property_data["result"], response_precalculated_cohort_data["result"]
             )
+
+        def test_insight_trends_compare(self):
+            with freeze_time("2012-01-14T03:21:34.000Z"):
+                for i in range(25):
+                    event_factory(
+                        team=self.team, event="$pageview", distinct_id="1", properties={"$some_property": f"value{i}"},
+                    )
+
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                response = self.client.get(
+                    f"/api/projects/{self.team.id}/insights/trend/",
+                    data={"events": json.dumps([{"id": "$pageview"}]), "compare": "true",},
+                )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            result = response.json()
+            self.assertEqual(len(result["result"]), 2)
+            self.assertEqual(result["result"][0]["compare_label"], "current")
+            self.assertEqual(result["result"][1]["compare_label"], "previous")
 
         def test_insight_trends_breakdown_pagination(self):
             with freeze_time("2012-01-14T03:21:34.000Z"):

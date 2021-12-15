@@ -82,7 +82,7 @@ export function EmptyDashboardComponent(): JSX.Element {
                             icon={<PlusOutlined />}
                             hotkey="n"
                         >
-                            Add graph
+                            New insight
                         </HotkeyButton>
                     </div>
                 </Card>

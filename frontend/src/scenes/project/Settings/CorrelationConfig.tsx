@@ -8,6 +8,7 @@ import PlusCircleOutlined from '@ant-design/icons/lib/icons/PlusCircleOutlined'
 import { Button } from 'antd'
 import { InfoMessage } from 'lib/components/InfoMessage/InfoMessage'
 import { IconSelectEvents, IconSelectProperties } from 'lib/components/icons'
+import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 
 export function CorrelationConfig(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -57,7 +58,10 @@ export function CorrelationConfig(): JSX.Element {
     return (
         <>
             <h2 className="subtitle" id="internal-users-filtering">
-                Correlation analysis exclusions
+                Correlation analysis exclusions{' '}
+                <LemonTag type="warning" style={{ marginLeft: 8 }}>
+                    Beta
+                </LemonTag>
             </h2>
             <p>Globally exclude events or properties that do not provide relevant signals for your conversions.</p>
 

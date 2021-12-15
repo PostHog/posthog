@@ -61,6 +61,7 @@ export function CopyToClipboardInline({
                 onClick={!selectable ? undefined : copy}
                 style={{
                     [iconPosition === 'end' ? 'marginLeft' : 'marginRight']: 4,
+                    fontSize: 20,
                     color: 'var(--primary)',
                     cursor: 'pointer',
                     flexShrink: 0,

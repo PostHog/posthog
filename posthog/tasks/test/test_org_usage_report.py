@@ -55,6 +55,8 @@ def factory_org_usage_report(
                 self.assertIsNotNone(org_report["organization_created_at"])
                 self.assertGreaterEqual(org_report["organization_user_count"], 1)
                 self.assertEqual(org_report["team_count"], 1)
+                self.assertEqual(org_report["group_types_total"], 0)
+                self.assertEqual(org_report["event_count_with_groups_month"], 0)
 
             with self.settings(**_instance_settings):
                 with freeze_time("2020-11-02"):

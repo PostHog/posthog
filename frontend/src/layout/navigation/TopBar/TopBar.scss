@@ -55,7 +55,6 @@
     background: #000;
     font-size: 1rem;
     color: white;
-    font-weight: 600;
     height: 3rem;
     padding: 0 1rem 0 0.5rem; // padding is larger on the right to accommodate the close button
     text-align: center;
@@ -74,6 +73,14 @@
     }
     a:visited {
         color: var(--purple-light);
+    }
+
+    .GroupsAnnouncement__button:link,
+    .GroupsAnnouncement__button:visited {
+        color: #2d2d2d;
+        background-color: #dcb1e3;
+        margin-left: 8px;
+        margin-right: 8px;
     }
 }
 
@@ -196,10 +203,5 @@
 
 .AccessLevelIndicator {
     font-size: 0.625rem;
-    font-weight: 600;
-    background: var(--border);
-    padding: 0.125rem 0.25rem;
-    border-radius: var(--radius);
     margin-left: 0.5rem;
-    text-transform: uppercase;
 }

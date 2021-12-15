@@ -25,7 +25,11 @@ from ee.clickhouse.models.cohort import (
 from ee.clickhouse.models.util import PersonPropertiesMode, is_json
 from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
 from ee.clickhouse.sql.groups import GET_GROUP_IDS_BY_PROPERTY_SQL
-from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
+from ee.clickhouse.sql.person import (
+    GET_DISTINCT_IDS_BY_PERSON_ID_FILTER,
+    GET_DISTINCT_IDS_BY_PROPERTY_SQL,
+    GET_TEAM_PERSON_DISTINCT_IDS,
+)
 from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
 from posthog.models.property import NEGATED_OPERATORS, OperatorType, Property, PropertyIdentifier, PropertyName
@@ -78,7 +82,9 @@ def parse_prop_clauses(
             else:
                 final.append(
                     "AND {table_name}distinct_id IN ({filter_query})".format(
-                        filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(filters=filter_query),
+                        filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(
+                            filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
+                        ),
                         table_name=table_name,
                     )
                 )
@@ -133,7 +139,10 @@ def parse_prop_clauses(
                 final.append(f" AND {filter_query}")
             else:
                 # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
-                subquery = GET_DISTINCT_IDS_BY_PERSON_ID_FILTER.format(filters=filter_query)
+                # :TODO: Use get_team_distinct_ids_query instead when possible instead of GET_TEAM_PERSON_DISTINCT_IDS
+                subquery = GET_DISTINCT_IDS_BY_PERSON_ID_FILTER.format(
+                    filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
+                )
                 final.append(f"AND {table_name}distinct_id IN ({subquery})")
             params.update(filter_params)
 

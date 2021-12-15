@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import React from 'react'
 import defaultImg from 'public/plan-default.svg'
 import { Link } from 'lib/components/Link'
-import { IconExternalLink } from 'lib/components/icons'
+import { IconOpenInNew } from 'lib/components/icons'
 import { ToolOutlined, WarningOutlined } from '@ant-design/icons'
 import { billingLogic, UTM_TAGS } from './billingLogic'
 import { PlanInterface } from '~/types'
@@ -44,7 +44,7 @@ export function CurrentPlan({ plan }: { plan: PlanInterface }): JSX.Element {
                                 {plan.name}
                             </h3>
                             <Link target="_blank" to={`https://posthog.com/pricing#plan-${plan.key}?${UTM_TAGS}`}>
-                                More plan details <IconExternalLink />
+                                More plan details <IconOpenInNew />
                             </Link>
                             <div style={{ marginTop: 4 }}>{plan.price_string}</div>
                             <div className="text-muted mt">

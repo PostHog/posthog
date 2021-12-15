@@ -3,7 +3,6 @@ import { useValues } from 'kea'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
-import { TZIndicator } from 'lib/components/TimezoneAware'
 import {
     ACTIONS_BAR_CHART_VALUE,
     ACTIONS_LINE_GRAPH_LINEAR,
@@ -13,6 +12,7 @@ import {
 } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React from 'react'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { FunnelBinsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBinsPicker'
 import { ChartDisplayType, FilterType, FunnelVizType, InsightType, ItemMode } from '~/types'
 import { InsightDateFilter } from '../InsightDateFilter'
@@ -27,6 +27,7 @@ interface InsightDisplayConfigProps {
     filters: FilterType
     activeView: InsightType
     insightMode: ItemMode
+    disableTable: boolean
     annotationsToCreate: Record<string, any>[] // TODO: Annotate properly
 }
 
@@ -91,30 +92,42 @@ export function InsightDisplayConfig({
     filters,
     activeView,
     clearAnnotationsToCreate,
+    disableTable,
 }: InsightDisplayConfigProps): JSX.Element {
     const showFunnelBarOptions = activeView === InsightType.FUNNELS
     const showPathOptions = activeView === InsightType.PATHS
     const dateFilterDisabled = showFunnelBarOptions && isFunnelEmpty(filters)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { currentFormattedDateRange } = useValues(insightLogic)
 
     return (
         <div className="display-config-inner">
-            <span className="hide-lte-md">
-                <TZIndicator style={{ float: 'left', fontSize: '0.75rem', marginRight: 16 }} placement="topRight" />
-            </span>
-            <div style={{ width: '100%', textAlign: 'right' }}>
-                {showChartFilter(activeView) && (
-                    <ChartFilter
-                        onChange={(display: ChartDisplayType | FunnelVizType) => {
-                            if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART) {
-                                clearAnnotationsToCreate()
-                            }
-                        }}
-                        filters={filters}
-                        disabled={filters.insight === InsightType.LIFECYCLE}
-                    />
+            <div className="display-config-inner-row">
+                {showDateFilter[activeView] && !disableTable && (
+                    <span className="filter">
+                        <span className="head-title-item">Date range</span>
+                        <InsightDateFilter
+                            defaultValue={currentFormattedDateRange}
+                            disabled={dateFilterDisabled}
+                            bordered
+                            makeLabel={(key) => (
+                                <>
+                                    <CalendarOutlined /> {key}
+                                </>
+                            )}
+                            isDateFormatted
+                        />
+                    </span>
                 )}
-                {showIntervalFilter(activeView, filters) && <IntervalFilter view={activeView} />}
+
+                {showIntervalFilter(activeView, filters) && (
+                    <span className="filter">
+                        <span className="head-title-item">
+                            <span className="hide-lte-md">grouped </span>by
+                        </span>
+                        <IntervalFilter view={activeView} />
+                    </span>
+                )}
 
                 {activeView === InsightType.RETENTION && (
                     <>
@@ -130,34 +143,52 @@ export function InsightDisplayConfig({
                     </>
                 )}
 
-                {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.TimeToConvert && (
-                    <>
-                        <FunnelBinsPicker />
-                    </>
-                )}
+                {activeView === InsightType.RETENTION && <RetentionDatePicker />}
 
                 {showPathOptions && (
-                    <>
+                    <span className="filter">
                         <PathStepPicker />
-                    </>
+                    </span>
                 )}
 
-                {showDateFilter[activeView] && (
-                    <>
-                        <InsightDateFilter
-                            defaultValue="Last 7 days"
-                            disabled={dateFilterDisabled}
-                            bordered={false}
-                            makeLabel={(key) => (
-                                <>
-                                    <CalendarOutlined /> {key}
-                                </>
-                            )}
+                {showComparePrevious[activeView] && (
+                    <span className="filter">
+                        <CompareFilter />
+                    </span>
+                )}
+            </div>
+            <div className="display-config-inner-row">
+                {showChartFilter(activeView) && (
+                    <span className="filter">
+                        <span className="head-title-item">Chart type</span>
+                        <ChartFilter
+                            onChange={(display: ChartDisplayType | FunnelVizType) => {
+                                if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART) {
+                                    clearAnnotationsToCreate()
+                                }
+                            }}
+                            filters={filters}
+                            disabled={filters.insight === InsightType.LIFECYCLE}
                         />
+                    </span>
+                )}
+                {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.Steps && (
+                    <>
+                        <span className="filter">
+                            <FunnelDisplayLayoutPicker />
+                        </span>
+                        {!featureFlags[FEATURE_FLAGS.FUNNEL_SIMPLE_MODE] && (
+                            <span className="filter">
+                                <FunnelStepReferencePicker bordered />
+                            </span>
+                        )}
                     </>
                 )}
-
-                {showComparePrevious[activeView] && <CompareFilter />}
+                {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.TimeToConvert && (
+                    <span className="filter">
+                        <FunnelBinsPicker />
+                    </span>
+                )}
             </div>
         </div>
     )

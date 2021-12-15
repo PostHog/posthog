@@ -12,6 +12,7 @@ import {
 } from '@ant-design/icons'
 import { ChartDisplayType, FilterType, FunnelVizType, InsightType } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 
 interface ChartFilterProps {
     filters: FilterType
@@ -131,7 +132,8 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                 setChartFilter(value)
                 onChange(value)
             }}
-            bordered={false}
+            bordered
+            dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
             dropdownMatchSelectWidth={false}
             data-attr="chart-filter"
             disabled={disabled}

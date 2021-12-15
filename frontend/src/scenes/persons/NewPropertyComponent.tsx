@@ -2,8 +2,7 @@ import React, { useState } from 'react'
 import { Input, Button, Radio } from 'antd'
 import { useActions } from 'kea'
 import { personsLogic } from './personsLogic'
-import { PlusOutlined, SaveOutlined, BulbOutlined, StopOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons'
-import { IconText } from 'lib/components/icons'
+import { PlusOutlined, SaveOutlined, StopOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons'
 import Modal from 'antd/lib/modal/Modal'
 
 interface NewPropertyInterface {
@@ -77,12 +76,8 @@ export const NewPropertyComponent = (): JSX.Element => {
                             id="propertyType"
                             buttonStyle="solid"
                         >
-                            <Radio.Button value="string">
-                                <IconText /> Text or Number
-                            </Radio.Button>
-                            <Radio.Button value="boolean">
-                                <BulbOutlined /> Boolean or Null
-                            </Radio.Button>
+                            <Radio.Button value="string">Text or Number</Radio.Button>
+                            <Radio.Button value="boolean">Boolean or Null</Radio.Button>
                         </Radio.Group>
                     </div>
                 </div>

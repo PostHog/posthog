@@ -87,6 +87,7 @@ export default {
         '^lib/(.*)$': '<rootDir>/lib/$1',
         '^scenes/(.*)$': '<rootDir>/scenes/$1',
         '^antd/es/(.*)$': 'antd/lib/$1',
+        '^react-virtualized/dist/es/(.*)$': 'react-virtualized/dist/commonjs/$1',
     },
 
     // An array of regexp pattern strings, matched against all module paths before considered 'visible' to the module loader

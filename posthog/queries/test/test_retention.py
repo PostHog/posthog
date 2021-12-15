@@ -377,7 +377,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                 ],
             )
 
-        def test_retention_people(self):
+        def test_retention_people_basic(self):
             person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
             person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"])
 
@@ -401,7 +401,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                 RetentionFilter(data={"date_to": self._date(10, hour=6), "selected_interval": 2}), self.team
             )
             self.assertEqual(len(result), 1)
-            self.assertEqual(result[0]["id"], person1.pk)
+            self.assertTrue(result[0]["id"] == person1.pk or result[0]["id"], person1.uuid)
 
         def test_retention_people_first_time(self):
             _, _, p3, _ = self._create_first_time_retention_events()
@@ -422,7 +422,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             )
 
             self.assertEqual(len(result), 1)
-            self.assertEqual(result[0]["id"], p3.pk)
+            self.assertTrue(result[0]["id"] == p3.pk or result[0]["id"] == p3.uuid)
 
             result = retention().people(
                 RetentionFilter(
@@ -495,10 +495,10 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                 RetentionFilter(data={"date_to": self._date(10, hour=6), "selected_interval": 2}), self.team
             )
 
-            self.assertEqual(result[0]["person"]["id"], person2.pk)
+            self.assertTrue(result[0]["person"]["id"] == person2.pk or result[0]["person"]["id"] == person2.uuid)
             self.assertEqual(result[0]["appearances"], [1, 1, 0, 0, 1, 1, 0, 0, 0])
 
-            self.assertEqual(result[1]["person"]["id"], person1.pk)
+            self.assertTrue(result[1]["person"]["id"] == person1.pk or result[1]["person"]["id"] == person1.uuid)
             self.assertEqual(result[1]["appearances"], [1, 0, 0, 1, 1, 0, 0, 0, 0])
 
         def test_retention_people_in_period_first_time(self):
@@ -519,7 +519,7 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             )
 
             self.assertEqual(len(result1), 1)
-            self.assertEqual(result1[0]["person"]["id"], p3.pk)
+            self.assertTrue(result1[0]["person"]["id"] == p3.pk or result1[0]["person"]["id"] == p3.uuid)
             self.assertEqual(result1[0]["appearances"], [1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0])
 
             # Make sure later people aren't included

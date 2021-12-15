@@ -60,11 +60,9 @@ export function Dashboards(): JSX.Element {
             render: function Render(name, { id, description, _highlight, is_shared }) {
                 return (
                     <div className={_highlight ? 'highlighted' : undefined} style={{ display: 'inline-block' }}>
-                        <div>
+                        <div className="row-name">
                             <Link data-attr="dashboard-name" to={urls.dashboard(id)}>
-                                <h4 className="row-name" style={{ display: 'inline' }}>
-                                    {name || 'Untitled'}
-                                </h4>
+                                {name || 'Untitled'}
                             </Link>
                             {is_shared && (
                                 <Tooltip title="This dashboard is shared publicly.">

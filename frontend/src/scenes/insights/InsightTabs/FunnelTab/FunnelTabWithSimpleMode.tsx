@@ -242,8 +242,10 @@ export function FunnelTabWithSimpleMode(): JSX.Element {
                                     <Tooltip
                                         title={
                                             <>
-                                                Exclude {aggregationTargetLabel.plural} who completed the specified
-                                                event between two specific steps. Note that these
+                                                Exclude {aggregationTargetLabel.plural}{' '}
+                                                {filters.aggregation_group_type_index != undefined ? 'that' : 'who'}{' '}
+                                                completed the specified event between two specific steps. Note that
+                                                these
                                                 {aggregationTargetLabel.plural} will be{' '}
                                                 <b>completely excluded from the entire funnel</b>.
                                             </>

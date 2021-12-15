@@ -10,6 +10,7 @@ export const compareFilterLogic = kea<compareFilterLogicType>({
         setCompare: (compare: boolean) => ({ compare }),
         setDisabled: (disabled: boolean) => ({ disabled }),
         toggleCompare: true,
+        init: (searchParams: Record<string, any>) => ({ searchParams }),
     }),
     reducers: () => ({
         compare: [
@@ -26,6 +27,16 @@ export const compareFilterLogic = kea<compareFilterLogicType>({
         ],
     }),
     listeners: ({ actions, values }) => ({
+        init: ({ searchParams: { compare, date_from, insight } }) => {
+            if (compare !== undefined) {
+                actions.setCompare(compare)
+            }
+            if (insight === InsightType.LIFECYCLE || date_from === 'all') {
+                actions.setDisabled(true)
+            } else {
+                actions.setDisabled(false)
+            }
+        },
         setCompare: () => {
             const { compare, ...searchParams } = router.values.searchParams // eslint-disable-line
             const { pathname } = router.values.location
@@ -39,28 +50,13 @@ export const compareFilterLogic = kea<compareFilterLogicType>({
         toggleCompare: () => {
             actions.setCompare(!values.compare)
         },
+        [router.actionTypes.locationChanged]: ({ searchParams }) => {
+            actions.init(searchParams)
+        },
     }),
-    urlToAction: ({ actions }) => ({
-        '/insights': (
-            _: any,
-            {
-                compare,
-                insight,
-                date_from,
-            }: {
-                compare?: boolean
-                insight?: InsightType
-                date_from?: string
-            }
-        ) => {
-            if (compare !== undefined) {
-                actions.setCompare(compare)
-            }
-            if (insight === InsightType.LIFECYCLE || date_from === 'all') {
-                actions.setDisabled(true)
-            } else {
-                actions.setDisabled(false)
-            }
+    events: ({ actions }) => ({
+        afterMount: () => {
+            actions.init(router.values.searchParams)
         },
     }),
 })

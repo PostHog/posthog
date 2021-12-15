@@ -17,7 +17,7 @@ HIDDEN_PROPERTY_DEFINITIONS = set(
         # used for updating properties
         "$set",
         "$set_once",
-        # Group analytics
+        # Group Analytics
         "$groups",
         "$group_type",
         "$group_key",
@@ -97,7 +97,7 @@ class PropertyDefinitionViewSet(
         serializer_class = self.serializer_class
         if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
             try:
-                from ee.api.enterprise_property_definition import EnterprisePropertyDefinitionSerializer
+                from ee.api.ee_property_definition import EnterprisePropertyDefinitionSerializer
             except ImportError:
                 pass
             else:

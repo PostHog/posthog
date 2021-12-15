@@ -1,7 +1,7 @@
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { InsightsResult, savedInsightsLogic } from './savedInsightsLogic'
-import { DashboardItemType, InsightShortId, InsightType } from '~/types'
+import { InsightModel, InsightShortId, InsightType } from '~/types'
 import { combineUrl, router } from 'kea-router'
 import { defaultAPIMocks, MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { urls } from 'scenes/urls'
@@ -11,7 +11,7 @@ jest.mock('lib/api')
 
 const Insight42 = 'ii42' as InsightShortId
 
-const createInsight = (id: number, string = 'hi'): DashboardItemType =>
+const createInsight = (id: number, string = 'hi'): InsightModel =>
     ({
         id: id || 1,
         name: `${string} ${id || 1}`,
@@ -32,7 +32,7 @@ const createInsight = (id: number, string = 'hi'): DashboardItemType =>
         saved: true,
         filters_hash: 'hash',
         filters: {},
-    } as any as DashboardItemType)
+    } as any as InsightModel)
 const createSavedInsights = (string = 'hello'): InsightsResult => ({
     count: 3,
     results: [createInsight(1, string), createInsight(2, string), createInsight(3, string)],

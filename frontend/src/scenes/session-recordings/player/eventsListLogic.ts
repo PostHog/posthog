@@ -4,7 +4,7 @@ import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordin
 import { eventsListLogicType } from './eventsListLogicType'
 import { clamp, colonDelimitedDuration, findLastIndex, floorMsToClosestSecond, ceilMsToClosestSecond } from 'lib/utils'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import List, { RenderedRows } from 'react-virtualized/dist/commonjs/List'
+import List, { RenderedRows } from 'react-virtualized/dist/es/List'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export const DEFAULT_ROW_HEIGHT = 65 // Two lines

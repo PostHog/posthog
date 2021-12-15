@@ -5,7 +5,7 @@ import pytz
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
-from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
+from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -129,6 +129,10 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
             [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1],],
         )
 
+        actor_result = ClickhouseRetention().people(filter.with_data({"selected_interval": 0}), self.team)
+
+        assert [actor["id"] for actor in actor_result] == ["org:5", "org:6"]
+
         filter = RetentionFilter(
             data={
                 "date_to": self._date(10, month=1, hour=0),
@@ -144,3 +148,25 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
             self.pluck(result, "values", "count"),
             [[1, 0, 0, 1, 0, 0, 1], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [1, 0, 0, 1], [0, 0, 0], [0, 0], [1],],
         )
+
+    @snapshot_clickhouse_queries
+    def test_groups_in_period(self):
+        self._create_groups_and_events()
+
+        filter = RetentionFilter(
+            data={
+                "date_to": self._date(10, month=1, hour=0),
+                "period": "Week",
+                "total_intervals": 7,
+                "aggregation_group_type_index": 0,
+            },
+            team=self.team,
+        )
+
+        actor_result = ClickhouseRetention().people_in_period(filter.with_data({"selected_interval": 0}), self.team)
+
+        self.assertTrue(actor_result[0]["person"]["id"] == "org:5")
+        self.assertEqual(actor_result[0]["appearances"], [1, 1, 1, 1, 1, 0, 0])
+
+        self.assertTrue(actor_result[1]["person"]["id"] == "org:6")
+        self.assertEqual(actor_result[1]["appearances"], [1, 1, 0, 1, 1, 0, 1])

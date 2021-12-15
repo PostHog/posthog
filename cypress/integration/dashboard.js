@@ -7,9 +7,21 @@ describe('Dashboard', () => {
     it('Dashboards loaded', () => {
         cy.get('h1').should('contain', 'Dashboards')
         // Breadcrumbs work
-        cy.get('[data-attr=breadcrumb-0]').should('contain', 'HogFlix')
-        cy.get('[data-attr=breadcrumb-1]').should('contain', 'HogFlix Demo App')
+        cy.get('[data-attr=breadcrumb-0]').should('contain', 'Hogflix')
+        cy.get('[data-attr=breadcrumb-1]').should('contain', 'Hogflix Demo App')
         cy.get('[data-attr=breadcrumb-2]').should('have.text', 'Dashboards')
+    })
+
+    it('Adding new insight to dashboard works', () => {
+        cy.get('[data-attr=menu-item-insight]').click() // Create a new insight
+        cy.get('[data-attr="insight-save-button"]').click() // Save the insight
+        cy.get('[data-attr="edit-prop-name"]').click() // Rename insight
+        cy.focused().clear().type('Test Insight Zeus')
+        cy.get('button').contains('Done').click() // Save the new name
+        cy.get('[data-attr="save-to-dashboard-button"]').click() // Open the Save to dashboard modal
+        cy.get('button').contains('Add insight to dashboard').click() // Add the insight to a dashboard
+        cy.get('[data-attr="save-to-dashboard-button"]').click() // Go to the dashboard
+        cy.get('[data-attr="insight-name"]').should('contain', 'Test Insight Zeus') // Check if the insight is there
     })
 
     it('Cannot see tags or description (non-FOSS feature)', () => {
@@ -71,8 +83,8 @@ describe('Dashboard', () => {
         cy.contains(TEST_DASHBOARD_NAME).should('exist')
         cy.get('.dashboard-item').its('length').should('be.gte', 2)
         // Breadcrumbs work
-        cy.get('[data-attr=breadcrumb-0]').should('contain', 'HogFlix')
-        cy.get('[data-attr=breadcrumb-1]').should('contain', 'HogFlix Demo App')
+        cy.get('[data-attr=breadcrumb-0]').should('contain', 'Hogflix')
+        cy.get('[data-attr=breadcrumb-1]').should('contain', 'Hogflix Demo App')
         cy.get('[data-attr=breadcrumb-2]').should('have.text', 'Dashboards')
         cy.get('[data-attr=breadcrumb-3]').should('have.text', TEST_DASHBOARD_NAME)
     })

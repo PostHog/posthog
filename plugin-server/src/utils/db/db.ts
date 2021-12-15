@@ -8,7 +8,12 @@ import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
 
-import { KAFKA_GROUPS, KAFKA_PERSON_UNIQUE_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
+import {
+    KAFKA_GROUPS,
+    KAFKA_PERSON_DISTINCT_ID,
+    KAFKA_PERSON_UNIQUE_ID,
+    KAFKA_PLUGIN_LOG_ENTRIES,
+} from '../../config/kafka-topics'
 import {
     Action,
     ActionEventPair,
@@ -17,6 +22,7 @@ import {
     ClickhouseGroup,
     ClickHousePerson,
     ClickHousePersonDistinctId,
+    ClickHousePersonDistinctId2,
     Cohort,
     CohortPeople,
     Database,
@@ -532,19 +538,15 @@ export class DB {
             }
 
             for (const distinctId of distinctIds || []) {
-                const kafkaMessage = await this.addDistinctIdPooled(person, distinctId, client)
-                if (kafkaMessage) {
-                    kafkaMessages.push(kafkaMessage)
-                }
+                const messages = await this.addDistinctIdPooled(person, distinctId, client)
+                kafkaMessages.push(...messages)
             }
 
             return person
         })
 
         if (this.kafkaProducer) {
-            for (const kafkaMessage of kafkaMessages) {
-                await this.kafkaProducer.queueMessage(kafkaMessage)
-            }
+            await this.kafkaProducer.queueMessages(kafkaMessages)
         }
 
         return person
@@ -625,14 +627,20 @@ export class DB {
     public async fetchDistinctIds(person: Person, database: Database.ClickHouse): Promise<ClickHousePersonDistinctId[]>
     public async fetchDistinctIds(
         person: Person,
-        database: Database = Database.Postgres
-    ): Promise<PersonDistinctId[] | ClickHousePersonDistinctId[]> {
+        database: Database.ClickHouse,
+        clichouseTable: 'person_distinct_id2'
+    ): Promise<ClickHousePersonDistinctId2[]>
+    public async fetchDistinctIds(
+        person: Person,
+        database: Database = Database.Postgres,
+        clickhouseTable = 'person_distinct_id'
+    ): Promise<PersonDistinctId[] | ClickHousePersonDistinctId[] | ClickHousePersonDistinctId2[]> {
         if (database === Database.ClickHouse) {
             return (
                 await this.clickhouseQuery(
                     `
                         SELECT *
-                        FROM person_distinct_id
+                        FROM ${clickhouseTable}
                         FINAL
                         WHERE person_id='${escapeClickHouseString(person.uuid)}'
                           AND team_id='${person.team_id}'
@@ -658,9 +666,9 @@ export class DB {
     }
 
     public async addDistinctId(person: Person, distinctId: string): Promise<void> {
-        const kafkaMessage = await this.addDistinctIdPooled(person, distinctId)
-        if (this.kafkaProducer && kafkaMessage) {
-            await this.kafkaProducer.queueMessage(kafkaMessage)
+        const kafkaMessages = await this.addDistinctIdPooled(person, distinctId)
+        if (this.kafkaProducer && kafkaMessages.length) {
+            await this.kafkaProducer.queueMessages(kafkaMessages)
         }
     }
 
@@ -668,26 +676,50 @@ export class DB {
         person: Person,
         distinctId: string,
         client?: PoolClient
-    ): Promise<ProducerRecord | void> {
+    ): Promise<ProducerRecord[]> {
         const insertResult = await this.postgresQuery(
-            'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id) VALUES ($1, $2, $3) RETURNING *',
+            'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, 0) RETURNING *',
             [distinctId, person.id, person.team_id],
             'addDistinctIdPooled',
             client
         )
 
-        const personDistinctIdCreated = insertResult.rows[0] as PersonDistinctId
+        const { id, version: versionStr, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId
         if (this.kafkaProducer) {
-            return {
-                topic: KAFKA_PERSON_UNIQUE_ID,
-                messages: [
-                    {
-                        value: Buffer.from(
-                            JSON.stringify({ ...personDistinctIdCreated, person_id: person.uuid, is_deleted: 0 })
-                        ),
-                    },
-                ],
-            }
+            const version = Number(versionStr || 0)
+            return [
+                {
+                    topic: KAFKA_PERSON_UNIQUE_ID,
+                    messages: [
+                        {
+                            value: Buffer.from(
+                                JSON.stringify({
+                                    ...personDistinctIdCreated,
+                                    person_id: person.uuid,
+                                    is_deleted: 0,
+                                })
+                            ),
+                        },
+                    ],
+                },
+                {
+                    topic: KAFKA_PERSON_DISTINCT_ID,
+                    messages: [
+                        {
+                            value: Buffer.from(
+                                JSON.stringify({
+                                    ...personDistinctIdCreated,
+                                    version,
+                                    person_id: person.uuid,
+                                    is_deleted: 0,
+                                })
+                            ),
+                        },
+                    ],
+                },
+            ]
+        } else {
+            return []
         }
     }
 
@@ -697,7 +729,7 @@ export class DB {
             movedDistinctIdResult = await this.postgresQuery(
                 `
                     UPDATE posthog_persondistinctid
-                    SET person_id = $1
+                    SET person_id = $1, version = COALESCE(version, 0)::numeric + 1
                     WHERE person_id = $2
                       AND team_id = $3
                     RETURNING *
@@ -733,7 +765,8 @@ export class DB {
         const kafkaMessages = []
         if (this.kafkaProducer) {
             for (const row of movedDistinctIdResult.rows) {
-                const { id, ...usefulColumns } = row
+                const { id, version: versionStr, ...usefulColumns } = row as PersonDistinctId
+                const version = Number(versionStr || 0)
                 kafkaMessages.push({
                     topic: KAFKA_PERSON_UNIQUE_ID,
                     messages: [
@@ -745,6 +778,16 @@ export class DB {
                         {
                             value: Buffer.from(
                                 JSON.stringify({ ...usefulColumns, person_id: source.uuid, is_deleted: 1 })
+                            ),
+                        },
+                    ],
+                })
+                kafkaMessages.push({
+                    topic: KAFKA_PERSON_DISTINCT_ID,
+                    messages: [
+                        {
+                            value: Buffer.from(
+                                JSON.stringify({ ...usefulColumns, version, person_id: target.uuid, is_deleted: 0 })
                             ),
                         },
                     ],
@@ -894,10 +937,10 @@ export class DB {
             result = (
                 await this.postgresQuery(
                     `
-                SELECT text, tag_name, href, attr_id, nth_child, nth_of_type, attributes, attr_class 
+                SELECT text, tag_name, href, attr_id, nth_child, nth_of_type, attributes, attr_class
                 FROM posthog_element
                 LEFT JOIN posthog_elementgroup on posthog_element.group_id = posthog_elementgroup.id
-                WHERE 
+                WHERE
                     posthog_elementgroup.team_id=$1 AND
                     posthog_elementgroup.hash=$2
                 ORDER BY posthog_element.order
