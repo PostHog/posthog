@@ -3,7 +3,6 @@ from uuid import uuid4
 
 import pytest
 
-from ee.clickhouse.models.event import create_event
 from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
@@ -11,13 +10,6 @@ from posthog.settings import CLICKHOUSE_DATABASE
 from posthog.test.base import BaseTest
 
 MIGRATION_NAME = "0001_events_sample_by"
-
-
-def _create_event(**kwargs):
-    pk = str(uuid4())
-    kwargs.update({"event_uuid": pk})
-    create_event(**kwargs)
-    return pk
 
 
 def execute_query(query: str) -> Any:
