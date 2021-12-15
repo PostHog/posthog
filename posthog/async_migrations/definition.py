@@ -83,7 +83,11 @@ class AsyncMigrationDefinition:
     def is_required(self) -> bool:
         return True
 
-    # run before the migration and at regular intervals
+    # run before starting the migration
+    def precheck(self) -> Tuple[bool, Optional[str]]:
+        return (True, None)
+
+    # run at a regular interval while the migration is being executed
     def healthcheck(self) -> Tuple[bool, Optional[str]]:
         return (True, None)
 
