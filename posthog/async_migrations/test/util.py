@@ -1,7 +1,7 @@
-from posthog.models.special_migration import MigrationStatus, SpecialMigration
+from posthog.models.async_migration import AsyncMigration, MigrationStatus
 
 
-def create_special_migration(
+def create_async_migration(
     name="test1",
     description="my desc",
     posthog_min_version="1.0.0",
@@ -9,7 +9,7 @@ def create_special_migration(
     status=MigrationStatus.NotStarted,
     last_error="",
 ):
-    return SpecialMigration.objects.create(
+    return AsyncMigration.objects.create(
         name=name,
         description=description,
         posthog_min_version=posthog_min_version,

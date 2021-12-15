@@ -137,7 +137,7 @@ def get_entity_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: in
     date_query, date_params = get_date_query(days, start_time, end_time)
     entity_query, entity_params = _get_entity_query(event_id, action_id, cohort.team.pk, group_idx)
 
-    if count:
+    if count is not None:
         count_operator = _get_count_operator(count_operator)
         extract_person = GET_PERSON_ID_BY_ENTITY_COUNT_SQL.format(
             entity_query=entity_query,

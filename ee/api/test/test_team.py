@@ -8,7 +8,6 @@ from rest_framework.status import (
 
 from ee.api.test.base import APILicensedTest
 from ee.models.explicit_team_membership import ExplicitTeamMembership
-from posthog.models import organization
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -385,12 +384,35 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         other_team = Team.objects.create(organization=self.organization, name="Other", access_control=True)
-        # Other team should not be returned as it's restricted for the logged-in user
+
+        # The other team should not be returned as it's restricted for the logged-in user
         with self.assertNumQueries(9):
-            response = self.client.get(f"/api/projects/")
-        self.assertEqual(response.status_code, HTTP_200_OK)
+            projects_response = self.client.get(f"/api/projects/")
+        with self.assertNumQueries(9):
+            current_org_response = self.client.get(f"/api/organizations/{self.organization.id}/")
+
+        self.assertEqual(projects_response.status_code, HTTP_200_OK)
         self.assertEqual(
-            response.json().get("results"),
+            projects_response.json().get("results"),
+            [
+                {
+                    "id": self.team.id,
+                    "uuid": str(self.team.uuid),
+                    "organization": str(self.organization.id),
+                    "api_token": self.team.api_token,
+                    "name": self.team.name,
+                    "completed_snippet_onboarding": False,
+                    "ingested_event": False,
+                    "is_demo": False,
+                    "timezone": "UTC",
+                    "access_control": False,
+                    "effective_membership_level": int(OrganizationMembership.Level.MEMBER),
+                }
+            ],
+        )
+        self.assertEqual(current_org_response.status_code, HTTP_200_OK)
+        self.assertEqual(
+            current_org_response.json().get("teams"),
             [
                 {
                     "id": self.team.id,

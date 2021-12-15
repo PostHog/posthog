@@ -45,7 +45,7 @@
                     "uuid": "0179fcb6-e5b1-0000-2042-7b48b76d29ff",
                     "organization": "0179fcb6-dfdf-0000-7e5a-3f65203b1885",
                     "api_token": "ASECtCtPHPry2b9W_9_imSU2CO6dl3gpro2ESWuKwMU",
-                    "name": "HogFlix Demo App",
+                    "name": "Hogflix Demo App",
                     "completed_snippet_onboarding": true,
                     "ingested_event": true,
                     "is_demo": true,
@@ -77,7 +77,7 @@
                             "uuid": "0179fcb6-e5b1-0000-2042-7b48b76d29ff",
                             "organization": "0179fcb6-dfdf-0000-7e5a-3f65203b1885",
                             "api_token": "ASECtCtPHPry2b9W_9_imSU2CO6dl3gpro2ESWuKwMU",
-                            "name": "HogFlix Demo App",
+                            "name": "Hogflix Demo App",
                             "completed_snippet_onboarding": true,
                             "ingested_event": true,
                             "is_demo": true,
@@ -615,7 +615,7 @@
                         "uuid": "0179fcb6-e5b1-0000-2042-7b48b76d29ff",
                         "organization": "0179fcb6-dfdf-0000-7e5a-3f65203b1885",
                         "api_token": "ASECtCtPHPry2b9W_9_imSU2CO6dl3gpro2ESWuKwMU",
-                        "name": "HogFlix Demo App",
+                        "name": "Hogflix Demo App",
                         "completed_snippet_onboarding": true,
                         "ingested_event": true,
                         "is_demo": true,
@@ -739,7 +739,7 @@
                 "organization": "0179fcb6-dfdf-0000-7e5a-3f65203b1885",
                 "api_token": "ASECtCtPHPry2b9W_9_imSU2CO6dl3gpro2ESWuKwMU",
                 "app_urls": [],
-                "name": "HogFlix Demo App",
+                "name": "Hogflix Demo App",
                 "slack_incoming_webhook": null,
                 "created_at": "2021-06-11T20:15:15.378152Z",
                 "updated_at": "2021-06-11T20:15:16.311308Z",
@@ -1516,7 +1516,7 @@
                 },
                 {
                     "id": 3,
-                    "name": "HogFlix paid",
+                    "name": "Hogflix paid",
                     "post_to_slack": false,
                     "slack_message_format": "",
                     "steps": [
@@ -1542,7 +1542,7 @@
                 },
                 {
                     "id": 2,
-                    "name": "HogFlix signed up",
+                    "name": "Hogflix signed up",
                     "post_to_slack": false,
                     "slack_message_format": "",
                     "steps": [
@@ -1568,7 +1568,7 @@
                 },
                 {
                     "id": 1,
-                    "name": "HogFlix homepage view",
+                    "name": "Hogflix homepage view",
                     "post_to_slack": false,
                     "slack_message_format": "",
                     "steps": [

@@ -70,7 +70,7 @@ export function InsightsNav(): JSX.Element {
                 label: 'Lifecycle',
                 type: InsightType.LIFECYCLE,
                 dataAttr: 'insight-lifecycle-tab',
-                hotkey: 'i',
+                hotkey: 'l',
             },
             {
                 label: 'Sessions',

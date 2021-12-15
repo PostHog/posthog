@@ -1348,10 +1348,17 @@ export interface Experiment {
     description?: string
     feature_flag_key: string
     filters: FilterType
+    parameters: Record<string, any>
     start_date?: string
     end_date?: string
     created_at: string
     created_by: UserBasicType | null
+}
+export interface ExperimentResults {
+    funnel: FunnelStep[][]
+    probability: number
+    filters: FilterType
+    itemID: string
 }
 
 interface RelatedPerson {
