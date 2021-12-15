@@ -2,7 +2,6 @@ import os
 import time
 from random import randrange
 
-import django
 from celery import Celery
 from celery.schedules import crontab
 from celery.signals import task_postrun, task_prerun
@@ -41,9 +40,6 @@ EVENT_PROPERTY_USAGE_INTERVAL_SECONDS = settings.EVENT_PROPERTY_USAGE_INTERVAL_S
 
 # How frequently do we want to check if dashboard items need to be recalculated
 UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS
-
-# Startup Django so we can hit models quickly
-django.setup()
 
 
 @app.on_after_configure.connect
@@ -105,9 +101,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         )  # every day at a random minute past midnight. Randomize to avoid overloading license.posthog.com
         try:
             from ee.settings import MATERIALIZE_COLUMNS_SCHEDULE_CRON
-
-            if not getattr(config, "MATERIALIZED_COLUMNS_ENABLED"):
-                return
 
             minute, hour, day_of_month, month_of_year, day_of_week = MATERIALIZE_COLUMNS_SCHEDULE_CRON.strip().split(
                 " "
@@ -258,9 +251,15 @@ def clickhouse_mutation_count():
         pass
 
 
+def materialized_columns_enabled() -> bool:
+    if is_clickhouse_enabled() and settings.EE_AVAILABLE and getattr(config, "MATERIALIZED_COLUMNS_ENABLED"):
+        return True
+    return False
+
+
 @app.task(ignore_result=True)
 def clickhouse_materialize_columns():
-    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
+    if materialized_columns_enabled():
         from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 
         materialize_properties_task()
@@ -268,7 +267,7 @@ def clickhouse_materialize_columns():
 
 @app.task(ignore_result=True)
 def clickhouse_mark_all_materialized():
-    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
+    if materialized_columns_enabled():
         from ee.tasks.materialized_columns import mark_all_materialized
 
         mark_all_materialized()
