@@ -974,7 +974,7 @@ export interface TrendResult {
     action: ActionFilter
     actions?: ActionFilter
     count: number
-    data: (number | null)[]
+    data: number[]
     days: string[]
     dates?: string[]
     label: string

@@ -236,7 +236,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                     datasetCopy.data = [
                         ...(datasetCopy.data?.slice(0, sliceFrom).map(() => null) ?? []),
                         ...(datasetCopy.data?.slice(sliceFrom) ?? []),
-                    ] as (number | null)[]
+                    ] as number[]
 
                     return processDataset(datasetCopy, index)
                 }),
