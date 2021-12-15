@@ -80,11 +80,16 @@
 .InsightMeta__main {
     display: flex;
     flex-direction: column;
+    align-items: flex-start;
     overflow: auto;
     width: 100%;
+    > * {
+        max-width: 100%; // Make sure that horizontal overflow is capped, so that ellipsis on insight name works
+    }
 }
 
 .InsightMeta__top {
+    align-self: stretch;
     display: flex;
     align-items: center;
     justify-content: space-between;
