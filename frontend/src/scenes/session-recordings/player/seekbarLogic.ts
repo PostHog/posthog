@@ -25,7 +25,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
             sessionRecordingLogic,
             ['eventsToShow'],
         ],
-        actions: [sessionRecordingPlayerLogic, ['seek', 'setScrub', 'endScrub', 'setCurrentPlayerPosition']],
+        actions: [sessionRecordingPlayerLogic, ['seek', 'startScrub', 'endScrub', 'setCurrentPlayerPosition']],
     },
     actions: {
         setThumbLeftPos: (thumbLeftPos: number, shouldSeek: boolean) => ({ thumbLeftPos, shouldSeek }),
@@ -76,7 +76,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
         isScrubbing: [
             false,
             {
-                setScrub: () => true,
+                startScrub: () => true,
                 endScrub: () => false,
             },
         ],
@@ -161,7 +161,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
             if (!values.slider) {
                 return
             }
-            actions.setScrub()
+            actions.startScrub()
             const newX = getXPos(event) - values.cursorDiff - values.slider.getBoundingClientRect().left
             actions.handleSeek(newX, false)
         },
@@ -183,7 +183,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
                 return
             }
 
-            actions.setScrub()
+            actions.startScrub()
             const xPos = getXPos(event)
             let diffFromThumb = xPos - values.thumb.getBoundingClientRect().left - THUMB_OFFSET
             // If click is too far from thumb, move thumb to click position

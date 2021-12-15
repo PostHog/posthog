@@ -31,9 +31,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
         setPlayer: (player: Player | null) => ({ player }),
         setPlay: true,
         setPause: true,
-        setBuffer: true,
+        startBuffer: true,
         endBuffer: true,
-        setScrub: true,
+        startScrub: true,
         endScrub: true,
         setCurrentPlayerPosition: (playerPosition: PlayerPosition | null) => ({ playerPosition }),
         setSpeed: (speed: number) => ({ speed }),
@@ -94,8 +94,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
                 setPause: () => SessionPlayerState.PAUSE,
             },
         ],
-        isBuffering: [true, { setBuffer: () => true, endBuffer: () => false }],
-        isScrubbing: [false, { setScrub: () => true, endScrub: () => false }],
+        isBuffering: [true, { startBuffer: () => true, endBuffer: () => false }],
+        isScrubbing: [false, { startScrub: () => true, endScrub: () => false }],
     }),
     selectors: {
         currentPlayerState: [
@@ -234,10 +234,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
             values.player?.replayer?.setConfig({ speed: values.speed }) // hotfix: speed changes on player state change
             values.player?.replayer?.pause()
         },
-        setBuffer: () => {
+        startBuffer: () => {
             actions.stopAnimation()
         },
-        setScrub: () => {
+        startScrub: () => {
             actions.stopAnimation()
         },
         setSpeed: ({ speed }) => {
@@ -272,7 +272,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
                 ) > 0
             ) {
                 values.player?.replayer?.pause()
-                actions.setBuffer()
+                actions.startBuffer()
             }
 
             // If not forced to play and if last playing state was pause, pause
@@ -389,7 +389,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
                 // Pause only the animation, not our player, so it will restart
                 // when the buffering progresses
                 values.player?.replayer?.pause()
-                actions.setBuffer()
+                actions.startBuffer()
             } else {
                 // The normal loop. Progress the player position and continue the loop
                 actions.setCurrentPlayerPosition(nextPlayerPosition)
