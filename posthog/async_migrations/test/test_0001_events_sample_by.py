@@ -1,7 +1,9 @@
 from typing import Any
+from uuid import uuid4
 
 import pytest
 
+from ee.clickhouse.models.event import create_event
 from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
@@ -9,6 +11,13 @@ from posthog.settings import CLICKHOUSE_DATABASE
 from posthog.test.base import BaseTest
 
 MIGRATION_NAME = "0001_events_sample_by"
+
+
+def _create_event(**kwargs):
+    pk = str(uuid4())
+    kwargs.update({"event_uuid": pk})
+    create_event(**kwargs)
+    return pk
 
 
 def execute_query(query: str) -> Any:
@@ -26,6 +35,8 @@ class Test0001EventsSampleBy(BaseTest):
         super().setUp()
         self.create_events_table_query = execute_query(f"SHOW CREATE TABLE {CLICKHOUSE_DATABASE}.events")[0][0]
 
+        # execute_query(f"ATTACH TABLE {CLICKHOUSE_DATABASE}.events_mv")
+        execute_query(f"DROP TABLE IF EXISTS {CLICKHOUSE_DATABASE}.events_backup_0001_events_sample_by")
         execute_query(f"DROP TABLE IF EXISTS {CLICKHOUSE_DATABASE}.events_mv")
         execute_query(f"DROP TABLE IF EXISTS {CLICKHOUSE_DATABASE}.kafka_events")
         execute_query(f"DROP TABLE {CLICKHOUSE_DATABASE}.events")
@@ -54,6 +65,10 @@ class Test0001EventsSampleBy(BaseTest):
         execute_query(KAFKA_EVENTS_TABLE_SQL)
         execute_query(EVENTS_TABLE_MV_SQL)
 
+        execute_query(
+            f"INSERT INTO {CLICKHOUSE_DATABASE}.events (event, uuid) VALUES ('event1', '{str(uuid4())}') ('event2', '{str(uuid4())}') ('event3', '{str(uuid4())}') ('event4', '{str(uuid4())}') ('event5', '{str(uuid4())}')"
+        )
+
         definition = ALL_ASYNC_MIGRATIONS[MIGRATION_NAME]
         AsyncMigration.objects.get_or_create(
             name=MIGRATION_NAME,
@@ -71,24 +86,24 @@ class Test0001EventsSampleBy(BaseTest):
     # Run the full migration through
     @pytest.mark.ee
     def test_run_migration_in_full(self):
+        from ee.clickhouse.client import sync_execute
+
         migration_successful = start_async_migration(MIGRATION_NAME)
         sm = AsyncMigration.objects.get(name=MIGRATION_NAME)
 
-        from ee.clickhouse.client import sync_execute
-
-        res = sync_execute(f"SHOW CREATE TABLE {CLICKHOUSE_DATABASE}.events")
-
-        sm.refresh_from_db()
-
-        print(res[0][0])
-        print(sm.last_error)
-        print(sm.current_operation_index)
-        print(repr(sm))
-        self.assertTrue(migration_successful)
-        self.assertTrue("ORDER BY (team_id, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))" in res[0][0])
+        create_table_res = sync_execute(f"SHOW CREATE TABLE {CLICKHOUSE_DATABASE}.events")
+        events_count_res = sync_execute(f"SELECT COUNT(*) FROM {CLICKHOUSE_DATABASE}.events")
+        backup_events_count_res = sync_execute(
+            f"SELECT COUNT(*) FROM {CLICKHOUSE_DATABASE}.events_backup_0001_events_sample_by"
+        )
 
         self.assertTrue(migration_successful)
+        self.assertTrue(
+            "ORDER BY (team_id, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))" in create_table_res[0][0]
+        )
 
+        self.assertEqual(events_count_res[0][0], 5)
+        self.assertEqual(backup_events_count_res[0][0], 5)
         self.assertEqual(sm.status, MigrationStatus.CompletedSuccessfully)
         self.assertEqual(sm.progress, 100)
         self.assertEqual(sm.last_error, "")
