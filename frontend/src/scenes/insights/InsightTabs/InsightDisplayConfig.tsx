@@ -3,12 +3,7 @@ import { useValues } from 'kea'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
-import {
-    ACTIONS_BAR_CHART_VALUE,
-    ACTIONS_PIE_CHART,
-    ACTIONS_TABLE,
-    FEATURE_FLAGS
-} from 'lib/constants'
+import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
