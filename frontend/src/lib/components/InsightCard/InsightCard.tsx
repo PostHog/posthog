@@ -30,7 +30,9 @@ export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     /** Layout of the card on a grid. */
     layout?: Layout
     /** Callback for updating insight color. */
-    updateColor: (newColor: InsightColor | null) => void
+    updateColor: (newColor: InsightModel['color']) => void
+    /** Callback for updating which dashboard ID the insight belongs to. */
+    removeItem: () => void
     /** Callback for refreshing insight. */
     refresh: () => void
 }
@@ -38,8 +40,9 @@ export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
 function InsightMeta({
     insight,
     updateColor,
+    removeItem,
     refresh,
-}: Pick<InsightCardProps, 'insight' | 'index' | 'updateColor' | 'refresh'>): JSX.Element {
+}: Pick<InsightCardProps, 'insight' | 'index' | 'updateColor' | 'removeItem' | 'refresh'>): JSX.Element {
     const { short_id, name, description, tags, color, filters } = insight
 
     return (
@@ -108,7 +111,7 @@ function InsightMeta({
                                         <LemonButton
                                             type="stealth"
                                             style={{ color: 'var(--danger)' }}
-                                            onClick={() => console.warn('TODO')}
+                                            onClick={removeItem}
                                             fullWidth
                                         >
                                             Remove from dashboard
@@ -146,7 +149,18 @@ function InsightViz({
 }
 
 function InsightCardInternal(
-    { insight, index, loading, apiError, highlighted, updateColor, refresh, className, ...divProps }: InsightCardProps,
+    {
+        insight,
+        index,
+        loading,
+        apiError,
+        highlighted,
+        updateColor,
+        removeItem,
+        refresh,
+        className,
+        ...divProps
+    }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element {
     const { short_id, filters, result: cachedResults } = insight
@@ -167,7 +181,13 @@ function InsightCardInternal(
             <BindLogic logic={insightLogic} props={insightLogicProps}>
                 <InsightViz insight={insight} index={index} loading={loading} apiError={apiError} />
             </BindLogic>
-            <InsightMeta insight={insight} index={index} updateColor={updateColor} refresh={refresh} />
+            <InsightMeta
+                insight={insight}
+                index={index}
+                updateColor={updateColor}
+                removeItem={removeItem}
+                refresh={refresh}
+            />
         </div>
     )
 }

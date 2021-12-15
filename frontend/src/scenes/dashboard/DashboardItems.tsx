@@ -33,6 +33,7 @@ export function DashboardItems(): JSX.Element {
         updateLayouts,
         updateContainerWidth,
         updateItemColor,
+        removeItem,
         setDashboardMode,
         setDiveDashboard,
         refreshAllDashboardItems,
@@ -116,6 +117,7 @@ export function DashboardItems(): JSX.Element {
                         apiError={refreshStatus[item.short_id]?.error || false}
                         highlighted={highlightedInsightId && item.short_id === highlightedInsightId}
                         updateColor={(color) => updateItemColor(item.id, color)}
+                        removeItem={() => removeItem(item.id)}
                         refresh={() => refreshAllDashboardItems([item])}
                     />
                 ) : (
