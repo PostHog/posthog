@@ -1,5 +1,7 @@
 import { Meta, Story } from '@storybook/react'
 import React, { useState } from 'react'
+import { Provider as KeaProvider } from 'kea'
+import { initKea } from '~/initKea'
 import { InsightColor, InsightModel, InsightShortId, InsightType } from '~/types'
 import { InsightCard as InsightCardComponent } from '.'
 
@@ -216,48 +218,52 @@ export default {
 } as Meta
 
 export const InsightCard: Story = (args) => {
+    initKea()
+
     const [insightColor, setInsightColor] = useState<InsightColor | null>(null)
 
     return (
-        <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(2, 1fr)', width: 'fit-content' }}>
-            <InsightCardComponent
-                insight={{
-                    ...EXAMPLE_TRENDS,
-                    name: args.insightName,
-                    description: args.insightDescription,
-                    color: insightColor,
-                }}
-                index={0}
-                loading={args.loading}
-                apiError={args.apiError}
-                highlighted={args.highlighted}
-                updateColor={setInsightColor}
-                refresh={() => {}}
-            />
-            <InsightCardComponent
-                insight={{
-                    ...EXAMPLE_TRENDS,
-                    name: 'Wow, this name is really really long! How do we even manage to fit it into an insight card?!',
-                    description:
-                        'Neque porro quisquam est qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit.',
-                    tags: ['every', 'green', 'bus', 'drives', 'fast', 'face'],
-                }}
-                index={1}
-                loading={false}
-                apiError={false}
-                highlighted={false}
-                updateColor={() => {}}
-                refresh={() => {}}
-            />
-            <InsightCardComponent
-                insight={{ ...EXAMPLE_TRENDS, name: '', description: '', tags: [] }}
-                index={2}
-                loading={false}
-                apiError={false}
-                highlighted={false}
-                updateColor={() => {}}
-                refresh={() => {}}
-            />
-        </div>
+        <KeaProvider>
+            <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(2, 1fr)' }}>
+                <InsightCardComponent
+                    insight={{
+                        ...EXAMPLE_TRENDS,
+                        name: args.insightName,
+                        description: args.insightDescription,
+                        color: insightColor,
+                    }}
+                    index={0}
+                    loading={args.loading}
+                    apiError={args.apiError}
+                    highlighted={args.highlighted}
+                    updateColor={setInsightColor}
+                    refresh={() => {}}
+                />
+                <InsightCardComponent
+                    insight={{
+                        ...EXAMPLE_TRENDS,
+                        name: 'Wow, this name is really really long! How do we even manage to fit it into an insight card?!',
+                        description:
+                            'Neque porro quisquam est qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit.',
+                        tags: ['every', 'green', 'bus', 'drives', 'fast', 'face'],
+                    }}
+                    index={1}
+                    loading={false}
+                    apiError={false}
+                    highlighted={false}
+                    updateColor={() => {}}
+                    refresh={() => {}}
+                />
+                <InsightCardComponent
+                    insight={{ ...EXAMPLE_TRENDS, name: '', description: '', tags: [] }}
+                    index={2}
+                    loading={false}
+                    apiError={false}
+                    highlighted={false}
+                    updateColor={() => {}}
+                    refresh={() => {}}
+                />
+            </div>
+        </KeaProvider>
     )
 }

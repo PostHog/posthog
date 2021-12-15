@@ -1,10 +1,13 @@
 import clsx from 'clsx'
-import { capitalizeFirstLetter, dateFilterToText } from 'lib/utils'
+import { BindLogic } from 'kea'
+import { capitalizeFirstLetter, dateFilterToText, Loading } from 'lib/utils'
 import React from 'react'
 import { Layout } from 'react-grid-layout'
 import { UNNAMED_INSIGHT_NAME } from 'scenes/insights/EmptyStates'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { ActionsLineGraph } from 'scenes/trends/viz'
 import { urls } from 'scenes/urls'
-import { InsightColor, InsightModel } from '~/types'
+import { InsightColor, InsightLogicProps, InsightModel } from '~/types'
 import { Splotch, SplotchColor } from '../icons/Splotch'
 import { LemonButton, LemonButtonWithPopup } from '../LemonButton'
 import { More } from '../LemonButton/More'
@@ -120,21 +123,42 @@ function InsightMeta({
     )
 }
 
-function InsightViz({}: Pick<InsightCardProps, 'insight' | 'index' | 'loading' | 'apiError'>): JSX.Element {
-    return <div className="InsightViz">Imagine a graph here</div>
+function InsightViz({
+    insight,
+    loading,
+}: Pick<InsightCardProps, 'insight' | 'index' | 'loading' | 'apiError'>): JSX.Element {
+    const { short_id, filters, result: cachedResults } = insight
+
+    return (
+        <div className="InsightViz">
+            {loading && <Loading />}
+            <ActionsLineGraph dashboardItemId={short_id} cachedResults={cachedResults} filters={filters} />
+        </div>
+    )
 }
 
 function InsightCardInternal(
     { insight, index, loading, apiError, highlighted, updateColor, refresh, className, ...divProps }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element {
+    const { short_id, filters, result: cachedResults } = insight
+
+    const logicProps: InsightLogicProps = {
+        dashboardItemId: short_id,
+        filters,
+        cachedResults,
+        doNotLoad: true,
+    }
+
     return (
         <div
             className={clsx('InsightCard', highlighted && 'InsightCard--highlighted', className)}
             {...divProps}
             ref={ref}
         >
-            <InsightViz insight={insight} index={index} loading={loading} apiError={apiError} />
+            <BindLogic logic={insightLogic} props={logicProps}>
+                <InsightViz insight={insight} index={index} loading={loading} apiError={apiError} />
+            </BindLogic>
             <InsightMeta insight={insight} index={index} updateColor={updateColor} refresh={refresh} />
         </div>
     )

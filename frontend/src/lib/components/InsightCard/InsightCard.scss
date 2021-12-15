@@ -4,7 +4,6 @@
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    width: 20rem;
     height: 30rem;
     border-radius: var(--radius);
     border: 1px solid var(--border);
@@ -21,10 +20,15 @@
 }
 
 .InsightViz {
+    position: relative;
     flex-grow: 1;
     display: flex;
     align-items: center;
     justify-content: center;
+    padding: 1rem;
+    .graph-container {
+        padding: 1rem;
+    }
 }
 
 .InsightMeta {
