@@ -52,7 +52,12 @@ function InsightMeta({
                 <div className="InsightMeta__main">
                     <div className="InsightMeta__top">
                         <h5>
-                            {filters.insight} • {dateFilterToText(filters.date_from, filters.date_to, '?')}
+                            {filters.insight} •{' '}
+                            {dateFilterToText(
+                                filters.date_from,
+                                filters.date_to,
+                                '?' /* TODO: Implement actual default based on insight type instead of ? */
+                            )}
                         </h5>
                         <div className="InsightMeta__controls">
                             <More
