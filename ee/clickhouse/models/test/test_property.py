@@ -568,6 +568,8 @@ def test_prop_filter_json_extract(test_events, property, expected_event_indexes,
 
 @pytest.mark.parametrize("property,expected_event_indexes", TEST_PROPERTIES)
 def test_prop_filter_json_extract_materialized(test_events, property, expected_event_indexes, team):
+    materialize("events", "attr")
+    materialize("events", "email")
     materialize("events", property.key)
 
     query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=True)
