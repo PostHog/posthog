@@ -41,6 +41,7 @@ export function LineGraph({
     showPersonsModal = true,
     tooltipPreferAltTitle = false,
     isCompare = false,
+    incompletenessOffsetFromEnd = -1, // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
 }) {
     const chartRef = useRef()
     const myLineChart = useRef()
@@ -177,12 +178,10 @@ export function LineGraph({
             datasets = [
                 ...datasets.map((dataset, index) => {
                     let datasetCopy = Object.assign({}, dataset)
-                    let data = [...(dataset.data || [])]
-                    let _labels = [...(dataset.labels || [])]
-                    let days = [...(dataset.days || [])]
-                    data.pop()
-                    _labels.pop()
-                    days.pop()
+                    const sliceTo = incompletenessOffsetFromEnd || (datasetCopy.data?.length ?? 0)
+                    const data = [...(dataset.data || [])].slice(0, sliceTo)
+                    const _labels = [...(dataset.labels || [])].slice(0, sliceTo)
+                    const days = [...(dataset.days || [])].slice(0, sliceTo)
                     datasetCopy.data = data
                     datasetCopy.labels = _labels
                     datasetCopy.days = days
@@ -190,7 +189,6 @@ export function LineGraph({
                 }),
                 ...datasets.map((dataset, index) => {
                     let datasetCopy = Object.assign({}, dataset)
-                    let datasetLength = datasetCopy.data?.length ?? 0
                     datasetCopy.dotted = true
 
                     // if last date is still active show dotted line
@@ -198,12 +196,12 @@ export function LineGraph({
                         datasetCopy.borderDash = [10, 10]
                     }
 
-                    datasetCopy.data =
-                        datasetCopy.data?.length > 2
-                            ? datasetCopy.data.map((datum, idx) =>
-                                  idx === datasetLength - 1 || idx === datasetLength - 2 ? datum : null
-                              )
-                            : datasetCopy.data
+                    // Nullify dates that don't have dotted line
+                    const sliceFrom = incompletenessOffsetFromEnd - 1 || (datasetCopy.data?.length ?? 0)
+                    datasetCopy.data = (datasetCopy.data?.slice(0, sliceFrom).map(() => null) ?? []).concat(
+                        datasetCopy.data?.slice(sliceFrom) ?? []
+                    )
+
                     return processDataset(datasetCopy, index)
                 }),
             ]

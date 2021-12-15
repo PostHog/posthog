@@ -1,52 +1,21 @@
-from typing import Dict, Optional, Tuple, cast
+from typing import Dict, Optional, Tuple
 
-from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.group import get_aggregation_target_field
-from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.client import substitute_params, sync_execute
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
-from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
-from ee.clickhouse.queries.retention.retention_event_query import RetentionEventsQuery
-from ee.clickhouse.queries.util import get_trunc_func_ch
-from ee.clickhouse.sql.retention.people_in_period import (
-    DEFAULT_REFERENCE_EVENT_PEOPLE_PER_PERIOD_SQL,
-    DEFAULT_REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL,
-    REFERENCE_EVENT_PEOPLE_PER_PERIOD_SQL,
-    REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL,
-    RETENTION_PEOPLE_PER_PERIOD_SQL,
+from ee.clickhouse.queries.retention.clickhouse_retention import (
+    BreakdownValues,
+    build_returning_event_query,
+    build_target_event_query,
 )
-from ee.clickhouse.sql.retention.retention import RETENTION_PEOPLE_SQL
-from posthog.constants import (
-    RETENTION_FIRST_TIME,
-    TREND_FILTER_TYPE_ACTIONS,
-    TREND_FILTER_TYPE_EVENTS,
-    RetentionQueryType,
-)
-from posthog.models.action import Action
-from posthog.models.entity import Entity
+from ee.clickhouse.sql.retention.retention import RETENTION_BREAKDOWN_ACTOR_SQL
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.team import Team
-
-
-def _get_condition(target_entity: Entity, table: str, prepend: str = "") -> Tuple[str, Dict]:
-    if target_entity.type == TREND_FILTER_TYPE_ACTIONS:
-        action = Action.objects.get(pk=target_entity.id)
-        action_query, params = format_action_filter(action, prepend=prepend, use_loop=False)
-        condition = action_query
-    elif target_entity.type == TREND_FILTER_TYPE_EVENTS:
-        condition = "{}.event = %({}_event)s".format(table, prepend)
-        params = {"{}_event".format(prepend): target_entity.id}
-    else:
-        condition = "{}.event = %({}_event)s".format(table, prepend)
-        params = {"{}_event".format(prepend): "$pageview"}
-    return condition, params
+from posthog.queries.retention import AppearanceRow
 
 
 class ClickhouseRetentionActors(ActorBaseQuery):
-    DISTINCT_ID_TABLE_ALIAS = "pdi"
-    EVENT_TABLE_ALIAS = "e"
     _filter: RetentionFilter
 
     def __init__(self, team: Team, filter: RetentionFilter):
@@ -57,70 +26,18 @@ class ClickhouseRetentionActors(ActorBaseQuery):
         return self._filter.aggregation_group_type_index is not None
 
     def actor_query(self) -> Tuple[str, Dict]:
-        is_first_time_retention = self._filter.retention_type == RETENTION_FIRST_TIME
-        prop_filters, prop_filter_params = parse_prop_clauses(self._filter.properties)
-
-        returning_entity = (
-            self._filter.returning_entity if self._filter.selected_interval > 0 else self._filter.target_entity
-        )
-        return_query, return_params = _get_condition(returning_entity, table="e", prepend="returning")
-        return_query_formatted = f"AND {return_query}"
-
-        reference_date_from = self._filter.date_from
-        reference_date_to = self._filter.date_from + self._filter.period_increment
-        date_from = self._filter.date_from + self._filter.selected_interval * self._filter.period_increment
-        date_to = date_from + self._filter.period_increment
-
-        target_event_query, target_params = RetentionEventsQuery(
+        actor_query = _build_actor_query(
             filter=self._filter,
-            team_id=self._team.pk,
-            event_query_type=RetentionQueryType.TARGET_FIRST_TIME
-            if is_first_time_retention
-            else RetentionQueryType.TARGET,
-        ).get_query()
-
-        actor_field_name = f"{get_aggregation_target_field(cast(Optional[GroupTypeIndex], self._filter.aggregation_group_type_index), self.EVENT_TABLE_ALIAS, self.DISTINCT_ID_TABLE_ALIAS)} AS actor_id"
-
-        target_params.update(
-            {
-                "target_start_date": reference_date_from.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if self._filter.period == "Hour" else " 00:00:00")
-                ),
-                "target_end_date": reference_date_to.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if self._filter.period == "Hour" else " 00:00:00")
-                ),
-            }
+            team=self._team,
+            filter_by_breakdown=self._filter.breakdown_values or (0,),
+            selected_interval=self._filter.selected_interval,
         )
 
-        return (
-            RETENTION_PEOPLE_SQL.format(
-                target_event_query=target_event_query,
-                returning_query=return_query_formatted,
-                filters=prop_filters,
-                actor_field_name=actor_field_name,
-                person_join=""
-                if self.is_aggregating_by_groups
-                else f"JOIN ({get_team_distinct_ids_query(self._team.pk)}) pdi on e.distinct_id = pdi.distinct_id",
-            ),
-            {
-                "team_id": self._team.pk,
-                "start_date": date_from.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if self._filter.period == "Hour" else " 00:00:00")
-                ),
-                "end_date": date_to.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if self._filter.period == "Hour" else " 00:00:00")
-                ),
-                "offset": self._filter.offset,
-                **target_params,
-                **return_params,
-                **prop_filter_params,
-            },
-        )
+        return actor_query, {}
 
 
+# Note: This class does not respect the entire flor from ActorBaseQuery because the result shape differs from other actor queries
 class ClickhouseRetentionActorsByPeriod(ActorBaseQuery):
-    DISTINCT_ID_TABLE_ALIAS = "pdi"
-    EVENT_TABLE_ALIAS = "e"
     _filter: RetentionFilter
 
     def __init__(self, team: Team, filter: RetentionFilter):
@@ -130,73 +47,112 @@ class ClickhouseRetentionActorsByPeriod(ActorBaseQuery):
     def is_aggregating_by_groups(self) -> bool:
         return self._filter.aggregation_group_type_index is not None
 
-    def actor_query(self) -> Tuple[str, Dict]:
-        period = self._filter.period
-        is_first_time_retention = self._filter.retention_type == RETENTION_FIRST_TIME
-        trunc_func = get_trunc_func_ch(period)
-        prop_filters, prop_filter_params = parse_prop_clauses(self._filter.properties)
+    def actors(self):
+        """
+        Creates a response of the form
 
-        target_query, target_params = _get_condition(self._filter.target_entity, table="e")
-        target_query_formatted = f"AND {target_query}"
-        return_query, return_params = _get_condition(self._filter.returning_entity, table="e", prepend="returning")
-        return_query_formatted = f"AND {return_query}"
-
-        actor_field_name = f"{get_aggregation_target_field(cast(Optional[GroupTypeIndex], self._filter.aggregation_group_type_index), self.EVENT_TABLE_ALIAS, self.DISTINCT_ID_TABLE_ALIAS)} AS actor_id"
-        person_join = (
-            ""
-            if self.is_aggregating_by_groups
-            else f"JOIN ({get_team_distinct_ids_query(self._team.pk)}) pdi on e.distinct_id = pdi.distinct_id"
-        )
-
-        first_event_sql = (
-            REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL
-            if is_first_time_retention
-            else REFERENCE_EVENT_PEOPLE_PER_PERIOD_SQL
-        ).format(
-            target_query=target_query_formatted,
-            filters=prop_filters,
-            trunc_func=trunc_func,
-            person_join=person_join,
-            actor_field_name=actor_field_name,
-        )
-        default_event_query = (
-            DEFAULT_REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL
-            if is_first_time_retention
-            else DEFAULT_REFERENCE_EVENT_PEOPLE_PER_PERIOD_SQL
-        ).format(
-            target_query=target_query_formatted,
-            filters=prop_filters,
-            trunc_func=trunc_func,
-            person_join=person_join,
-            actor_field_name=actor_field_name,
-        )
-
-        date_from = self._filter.date_from + self._filter.selected_interval * self._filter.period_increment
-        date_to = self._filter.date_to
-
-        return (
-            RETENTION_PEOPLE_PER_PERIOD_SQL.format(
-                returning_query=return_query_formatted,
-                filters=prop_filters,
-                first_event_sql=first_event_sql,
-                first_event_default_sql=default_event_query,
-                trunc_func=trunc_func,
-                person_join=person_join,
-                actor_field_name=actor_field_name,
-            ),
+        ```
+        [
             {
-                "team_id": self._team.pk,
-                "start_date": date_from.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if self._filter.period == "Hour" else " 00:00:00")
-                ),
-                "end_date": date_to.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if self._filter.period == "Hour" else " 00:00:00")
-                ),
-                "offset": self._filter.offset,
-                "limit": 100,
-                "period": period,
-                **target_params,
-                **return_params,
-                **prop_filter_params,
-            },
+                "person": {"distinct_id": ..., ...},
+                "appearance_count": 3,
+                "appearances": [1, 0, 1, 1, 0, 0]
+            }
+            ...
+        ]
+        ```
+
+        where appearances values represent if the person was active in an
+        interval, where the index of the list is the interval it refers to.
+        """
+        actor_query = _build_actor_query(
+            filter=self._filter,
+            team=self._team,
+            filter_by_breakdown=(
+                self._filter.breakdown_values or (self._filter.selected_interval,)
+                if self._filter.selected_interval is not None
+                else None
+            ),
         )
+
+        actor_appearances = [
+            AppearanceRow(actor_id=str(row[0]), appearance_count=len(row[1]), appearances=row[1])
+            for row in sync_execute(actor_query)
+        ]
+
+        _, serialized_actors = self.get_actors_from_result(
+            [(actor_appearance.actor_id,) for actor_appearance in actor_appearances]
+        )
+
+        actors_lookup = {str(actor["id"]): actor for actor in serialized_actors}
+
+        return [
+            {
+                "person": actors_lookup.get(actor.actor_id, {"id": actor.actor_id, "distinct_ids": []}),
+                "appearances": [
+                    1 if interval_number in actor.appearances else 0
+                    for interval_number in range(self._filter.total_intervals - (self._filter.selected_interval or 0))
+                ],
+            }
+            for actor in sorted(actor_appearances, key=lambda x: x.appearance_count, reverse=True)
+        ]
+
+
+def build_actor_activity_query(
+    filter: RetentionFilter,
+    team: Team,
+    filter_by_breakdown: Optional[BreakdownValues] = None,
+    selected_interval: Optional[int] = None,
+) -> str:
+    """
+    The retention actor query is used to retrieve something of the form:
+
+        breakdown_values, intervals_from_base, actor_id
+
+    We use actor here as an abstraction over the different types we can have aside from
+    person_ids
+    """
+    returning_event_query = build_returning_event_query(filter=filter, team=team)
+
+    target_event_query = build_target_event_query(filter=filter, team=team)
+
+    all_params = {
+        "period": filter.period.lower(),
+        "breakdown_values": list(filter_by_breakdown) if filter_by_breakdown else None,
+        "selected_interval": selected_interval,
+    }
+
+    query = substitute_params(RETENTION_BREAKDOWN_ACTOR_SQL, all_params).format(
+        returning_event_query=returning_event_query, target_event_query=target_event_query,
+    )
+
+    return query
+
+
+def _build_actor_query(
+    filter: RetentionFilter,
+    team: Team,
+    filter_by_breakdown: Optional[BreakdownValues] = None,
+    selected_interval: Optional[int] = None,
+):
+    actor_activity_query = build_actor_activity_query(
+        filter=filter, team=team, filter_by_breakdown=filter_by_breakdown, selected_interval=selected_interval,
+    )
+
+    actor_query = f"""
+        SELECT
+            actor_id,
+            groupArray(actor_activity.intervals_from_base) AS appearances
+
+        FROM ({actor_activity_query}) AS actor_activity
+
+        GROUP BY actor_id
+
+        -- make sure we have stable ordering/pagination
+        -- NOTE: relies on ids being monotonic
+        ORDER BY actor_id
+
+        LIMIT 100 OFFSET %(offset)s
+    """
+
+    return substitute_params(actor_query, {"offset": filter.offset})

@@ -5,6 +5,7 @@ from random import randrange
 from celery import Celery
 from celery.schedules import crontab
 from celery.signals import task_postrun, task_prerun
+from constance import config
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
@@ -79,7 +80,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS, check_cached_items.s(), name="check dashboard items"
     )
 
-    sender.add_periodic_task(crontab(minute=30, hour="*"), check_special_migration_health.s())
+    sender.add_periodic_task(crontab(minute=30, hour="*"), check_async_migration_health.s())
 
     sender.add_periodic_task(
         crontab(
@@ -99,10 +100,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             crontab(hour=0, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
         )  # every day at a random minute past midnight. Randomize to avoid overloading license.posthog.com
         try:
-            from ee.settings import MATERIALIZE_COLUMNS_SCHEDULE_CRON, MATERIALIZED_COLUMNS_ENABLED
-
-            if not MATERIALIZED_COLUMNS_ENABLED:
-                return
+            from ee.settings import MATERIALIZE_COLUMNS_SCHEDULE_CRON
 
             minute, hour, day_of_month, month_of_year, day_of_week = MATERIALIZE_COLUMNS_SCHEDULE_CRON.strip().split(
                 " "
@@ -253,9 +251,15 @@ def clickhouse_mutation_count():
         pass
 
 
+def materialized_columns_enabled() -> bool:
+    if is_clickhouse_enabled() and settings.EE_AVAILABLE and getattr(config, "MATERIALIZED_COLUMNS_ENABLED"):
+        return True
+    return False
+
+
 @app.task(ignore_result=True)
 def clickhouse_materialize_columns():
-    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
+    if materialized_columns_enabled():
         from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 
         materialize_properties_task()
@@ -263,7 +267,7 @@ def clickhouse_materialize_columns():
 
 @app.task(ignore_result=True)
 def clickhouse_mark_all_materialized():
-    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
+    if materialized_columns_enabled():
         from ee.tasks.materialized_columns import mark_all_materialized
 
         mark_all_materialized()
@@ -405,7 +409,7 @@ def sync_all_organization_available_features():
 
 
 @app.task(ignore_result=False, track_started=True, max_retries=0)
-def check_special_migration_health():
-    from posthog.tasks.special_migrations import check_special_migration_health
+def check_async_migration_health():
+    from posthog.tasks.async_migrations import check_async_migration_health
 
-    check_special_migration_health()
+    check_async_migration_health()

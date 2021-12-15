@@ -14,7 +14,7 @@ export function FunnelLineGraph({
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
-    const { steps, filters, aggregationTargetLabel } = useValues(logic)
+    const { steps, filters, aggregationTargetLabel, incompletenessOffsetFromEnd } = useValues(logic)
     const { loadPeople } = useActions(personsModalLogic)
 
     return (
@@ -24,10 +24,11 @@ export function FunnelLineGraph({
             color={color}
             datasets={steps}
             labels={steps?.[0]?.labels ?? ([] as string[])}
-            isInProgress={!filters.date_to}
+            isInProgress={incompletenessOffsetFromEnd < 0}
             dashboardItemId={dashboardItemId}
             inSharedMode={inSharedMode}
             percentage={true}
+            incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             onClick={
                 dashboardItemId
                     ? null

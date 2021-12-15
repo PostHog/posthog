@@ -4,6 +4,7 @@ from django.db import models, transaction
 from django.utils import timezone
 
 from posthog.models.utils import UUIDT
+from posthog.utils import is_clickhouse_enabled
 
 
 class PersonManager(models.Manager):
@@ -60,7 +61,21 @@ class Person(models.Model):
             if not distinct_id == main_distinct_id:
                 with transaction.atomic():
                     PersonDistinctId.objects.filter(person=self, distinct_id=distinct_id).delete()
-                    Person.objects.create(team_id=self.team_id, distinct_ids=[distinct_id])
+                    person = Person.objects.create(team_id=self.team_id, distinct_ids=[distinct_id])
+
+                # :TODO: Tests!
+                if is_clickhouse_enabled():
+                    from ee.clickhouse.models.person import create_person, create_person_distinct_id
+
+                    create_person_distinct_id(
+                        team_id=self.team_id, distinct_id=distinct_id, person_id=str(self.uuid), sign=-1
+                    )
+                    create_person_distinct_id(
+                        team_id=self.team_id, distinct_id=distinct_id, person_id=str(person.uuid), sign=1
+                    )
+                    create_person(
+                        team_id=self.team_id, uuid=str(person.uuid),
+                    )
 
     objects = PersonManager()
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)

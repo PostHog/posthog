@@ -6,14 +6,22 @@ import { teamLogic } from 'scenes/teamLogic'
 
 export const UTM_TAGS = '?utm_medium=in-product&utm_campaign=feature-flag'
 
-export function JSSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+export function JSSnippet({ flagKey, variants }: { flagKey: string; variants?: string[] }): JSX.Element {
     return (
         <>
-            <CodeSnippet language={Language.JavaScript} wrap>
-                {`if (posthog.isFeatureEnabled('${flagKey ?? ''}')) {
+            {!!variants?.length ? (
+                <CodeSnippet language={Language.JavaScript} wrap>
+                    {`if (posthog.getFeatureFlag('${flagKey ?? ''}') === '${variants[0]}') {
+    // where '${variants[0]}' is the variant, run your code here
+}`}
+                </CodeSnippet>
+            ) : (
+                <CodeSnippet language={Language.JavaScript} wrap>
+                    {`if (posthog.isFeatureEnabled('${flagKey ?? ''}')) {
     // run your activation code here
 }`}
-            </CodeSnippet>
+                </CodeSnippet>
+            )}
             <div className="mt">
                 Need more information?{' '}
                 <a

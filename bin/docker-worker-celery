@@ -75,9 +75,9 @@ FLAGS+=("-n node@%h")
 [[ -n "${WEB_CONCURRENCY}" ]]    && FLAGS+=" --concurrency $WEB_CONCURRENCY"
 
 echo
-echo "celery -A posthog worker ${FLAGS[*]}"
+echo "SKIP_ASYNC_MIGRATIONS_SETUP=0 celery -A posthog worker ${FLAGS[*]}"
 echo
-celery -A posthog worker ${FLAGS[*]}
+SKIP_ASYNC_MIGRATIONS_SETUP=0 celery -A posthog worker ${FLAGS[*]}
 
 # Stop the beat!
 trap 'kill $(jobs -p)' EXIT

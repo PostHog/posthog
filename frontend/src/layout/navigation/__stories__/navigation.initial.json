@@ -29,7 +29,7 @@
                     "uuid": "017bee67-6f35-0000-1aa4-099013f32dd1",
                     "organization": "017bee67-6ad9-0000-2ae2-0c6fd4bd9273",
                     "api_token": "e2e_token_1239",
-                    "name": "HogFlix Demo App",
+                    "name": "Hogflix Demo App",
                     "completed_snippet_onboarding": true,
                     "ingested_event": true,
                     "is_demo": false,
@@ -38,7 +38,7 @@
                 },
                 "organization": {
                     "id": "017bee67-6ad9-0000-2ae2-0c6fd4bd9273",
-                    "name": "HogFlix",
+                    "name": "Hogflix",
                     "created_at": "2021-09-16T11:39:20.154006Z",
                     "updated_at": "2021-09-16T12:37:01.817475Z",
                     "membership_level": 15,
@@ -54,7 +54,7 @@
                             "uuid": "017bee67-6f35-0000-1aa4-099013f32dd1",
                             "organization": "017bee67-6ad9-0000-2ae2-0c6fd4bd9273",
                             "api_token": "e2e_token_1239",
-                            "name": "HogFlix Demo App",
+                            "name": "Hogflix Demo App",
                             "completed_snippet_onboarding": true,
                             "ingested_event": true,
                             "is_demo": false,
@@ -78,7 +78,7 @@
                 "organizations": [
                     {
                         "id": "017bee67-6ad9-0000-2ae2-0c6fd4bd9273",
-                        "name": "HogFlix"
+                        "name": "Hogflix"
                     }
                 ],
                 "events_column_config": {
@@ -137,7 +137,7 @@
         "organizationLogic": {
             "currentOrganization": {
                 "id": "017bee67-6ad9-0000-2ae2-0c6fd4bd9273",
-                "name": "HogFlix",
+                "name": "Hogflix",
                 "created_at": "2021-09-16T11:39:20.154006Z",
                 "updated_at": "2021-09-16T12:37:01.817475Z",
                 "membership_level": 15,
@@ -153,7 +153,7 @@
                         "uuid": "017bee67-6f35-0000-1aa4-099013f32dd1",
                         "organization": "017bee67-6ad9-0000-2ae2-0c6fd4bd9273",
                         "api_token": "e2e_token_1239",
-                        "name": "HogFlix Demo App",
+                        "name": "Hogflix Demo App",
                         "completed_snippet_onboarding": true,
                         "ingested_event": true,
                         "is_demo": false,
@@ -296,7 +296,7 @@
                 "organization": "017bee67-6ad9-0000-2ae2-0c6fd4bd9273",
                 "api_token": "e2e_token_1239",
                 "app_urls": [],
-                "name": "HogFlix Demo App",
+                "name": "Hogflix Demo App",
                 "slack_incoming_webhook": null,
                 "created_at": "2021-09-16T11:39:21.270216Z",
                 "updated_at": "2021-09-16T11:39:21.589504Z",
