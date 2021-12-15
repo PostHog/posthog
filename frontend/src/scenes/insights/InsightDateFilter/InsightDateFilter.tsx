@@ -8,7 +8,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 export function InsightDateFilter(props: DateFilterProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { setFilters } = useActions(insightLogic)
-    const logic = insightDateFilterLogic({ dashboardItemId: undefined, ...insightProps })
+    const logic = insightDateFilterLogic(insightProps)
     const {
         dates: { dateFrom, dateTo },
         highlightDateChange,
