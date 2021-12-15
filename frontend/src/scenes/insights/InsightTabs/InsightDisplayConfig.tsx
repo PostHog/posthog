@@ -137,8 +137,6 @@ export function InsightDisplayConfig({
                     </>
                 )}
 
-                {activeView === InsightType.RETENTION && <RetentionDatePicker />}
-
                 {showPathOptions && (
                     <span className="filter">
                         <PathStepPicker />
