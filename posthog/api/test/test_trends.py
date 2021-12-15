@@ -196,7 +196,7 @@ def get_trends_aggregate_ok(client: Client, request: TrendsRequest, team: Team) 
         res[item["label"]] = NormalizedTrendResult(
             value=item["aggregated_value"],
             label=item["action"]["name"],
-            actor_url=item["actors"]["url"],
+            actor_url=item["actors"]["actor_params"],
             breakdown_value=item.get("breakdown_value", None),
         )
 
