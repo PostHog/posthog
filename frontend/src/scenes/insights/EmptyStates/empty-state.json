@@ -489,7 +489,9 @@
                                 "data": [0, 0],
                                 "labels": ["18-Nov-2021", "19-Nov-2021"],
                                 "days": ["2021-11-18", "2021-11-19"],
-                                "persons_urls": [
+                                "actor_endpoint": "api/projects/2/actions/people/",
+                                "cohort_endpoint": "api/cohort/",
+                                "actors": [
                                     {
                                         "filter": {
                                             "entity_id": "$feature_flag_called",
@@ -497,7 +499,7 @@
                                             "date_from": "2021-11-18",
                                             "date_to": "2021-11-18"
                                         },
-                                        "url": "api/projects/2/actions/people/?date_from=2021-11-18&date_to=2021-11-18&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24feature_flag_called%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24feature_flag_called%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24feature_flag_called&entity_type=events"
+                                        "actor_params": "date_from=2021-11-18&date_to=2021-11-18&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24feature_flag_called%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24feature_flag_called%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24feature_flag_called&entity_type=events"
                                     },
                                     {
                                         "filter": {
@@ -506,7 +508,7 @@
                                             "date_from": "2021-11-19",
                                             "date_to": "2021-11-19"
                                         },
-                                        "url": "api/projects/2/actions/people/?date_from=2021-11-19&date_to=2021-11-19&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24feature_flag_called%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24feature_flag_called%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24feature_flag_called&entity_type=events"
+                                        "actor_params": "date_from=2021-11-19&date_to=2021-11-19&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24feature_flag_called%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24feature_flag_called%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&insight=TRENDS&interval=day&entity_id=%24feature_flag_called&entity_type=events"
                                     }
                                 ],
                                 "filter": {

@@ -454,7 +454,9 @@
                                         "data": [0],
                                         "labels": ["18-Nov-2021"],
                                         "days": ["2021-11-18"],
-                                        "persons_urls": [
+                                        "actor_endpoint": "api/projects/2/actions/people/",
+                                        "cohort_endpoint": "api/cohort/",
+                                        "actors": [
                                             {
                                                 "filter": {
                                                     "entity_id": "$pageview",
@@ -462,7 +464,7 @@
                                                     "date_from": "2021-11-18",
                                                     "date_to": "2021-11-18"
                                                 },
-                                                "url": "api/projects/2/actions/people/?date_from=2021-11-18&date_to=2021-11-18&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&funnel_from_step=0&funnel_to_step=1&funnel_viz_type=steps&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events"
+                                                "actor_params": "date_from=2021-11-18&date_to=2021-11-18&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&funnel_from_step=0&funnel_to_step=1&funnel_viz_type=steps&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events"
                                             }
                                         ],
                                         "filter": {
@@ -585,7 +587,9 @@
                                         "data": [0],
                                         "labels": ["18-Nov-2021"],
                                         "days": ["2021-11-18"],
-                                        "persons_urls": [
+                                        "actor_endpoint": "api/projects/2/actions/people/",
+                                        "cohort_endpoint": "api/cohort/",
+                                        "actors": [
                                             {
                                                 "filter": {
                                                     "entity_id": "$pageview",
@@ -593,7 +597,7 @@
                                                     "date_from": "2021-11-18",
                                                     "date_to": "2021-11-18"
                                                 },
-                                                "url": "api/projects/2/actions/people/?date_from=2021-11-18&date_to=2021-11-18&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&funnel_from_step=0&funnel_to_step=1&funnel_viz_type=steps&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events"
+                                                "actor_params": "date_from=2021-11-18&date_to=2021-11-18&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&funnel_from_step=0&funnel_to_step=1&funnel_viz_type=steps&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events"
                                             }
                                         ],
                                         "filter": {
@@ -716,7 +720,9 @@
                                         "data": [0],
                                         "labels": ["18-Nov-2021"],
                                         "days": ["2021-11-18"],
-                                        "persons_urls": [
+                                        "actor_endpoint": "api/projects/2/actions/people/",
+                                        "cohort_endpoint": "api/cohort/",
+                                        "actors": [
                                             {
                                                 "filter": {
                                                     "entity_id": "$pageview",
@@ -724,7 +730,7 @@
                                                     "date_from": "2021-11-18",
                                                     "date_to": "2021-11-18"
                                                 },
-                                                "url": "api/projects/2/actions/people/?date_from=2021-11-18&date_to=2021-11-18&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&funnel_from_step=0&funnel_to_step=1&funnel_viz_type=steps&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events"
+                                                "actor_params": "date_from=2021-11-18&date_to=2021-11-18&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&funnel_from_step=0&funnel_to_step=1&funnel_viz_type=steps&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events"
                                             }
                                         ],
                                         "filter": {
@@ -845,7 +851,9 @@
                                 "data": [0],
                                 "labels": ["18-Nov-2021"],
                                 "days": ["2021-11-18"],
-                                "persons_urls": [
+                                "actor_endpoint": "api/projects/2/actions/people/",
+                                "cohort_endpoint": "api/cohort/",
+                                "actors": [
                                     {
                                         "filter": {
                                             "entity_id": "$pageview",
@@ -853,7 +861,7 @@
                                             "date_from": "2021-11-18",
                                             "date_to": "2021-11-18"
                                         },
-                                        "url": "api/projects/2/actions/people/?date_from=2021-11-18&date_to=2021-11-18&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&funnel_from_step=0&funnel_to_step=1&funnel_viz_type=steps&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events"
+                                        "actor_params": "date_from=2021-11-18&date_to=2021-11-18&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&funnel_from_step=0&funnel_to_step=1&funnel_viz_type=steps&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events"
                                     }
                                 ],
                                 "filter": {
@@ -988,7 +996,9 @@
                                 "data": [0],
                                 "labels": ["18-Nov-2021"],
                                 "days": ["2021-11-18"],
-                                "persons_urls": [
+                                "actor_endpoint": "api/projects/2/actions/people/",
+                                "cohort_endpoint": "api/cohort/",
+                                "actors": [
                                     {
                                         "filter": {
                                             "entity_id": "$pageview",
@@ -996,7 +1006,7 @@
                                             "date_from": "2021-11-18",
                                             "date_to": "2021-11-18"
                                         },
-                                        "url": "api/projects/2/actions/people/?date_from=2021-11-18&date_to=2021-11-18&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&funnel_from_step=0&funnel_to_step=1&funnel_viz_type=steps&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events"
+                                        "actor_params": "date_from=2021-11-18&date_to=2021-11-18&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&funnel_from_step=0&funnel_to_step=1&funnel_viz_type=steps&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events"
                                     }
                                 ],
                                 "filter": {
@@ -1131,7 +1141,9 @@
                                 "data": [0],
                                 "labels": ["18-Nov-2021"],
                                 "days": ["2021-11-18"],
-                                "persons_urls": [
+                                "actor_endpoint": "api/projects/2/actions/people/",
+                                "cohort_endpoint": "api/cohort/",
+                                "actors": [
                                     {
                                         "filter": {
                                             "entity_id": "$pageview",
@@ -1139,7 +1151,7 @@
                                             "date_from": "2021-11-18",
                                             "date_to": "2021-11-18"
                                         },
-                                        "url": "api/projects/2/actions/people/?date_from=2021-11-18&date_to=2021-11-18&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&funnel_from_step=0&funnel_to_step=1&funnel_viz_type=steps&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events"
+                                        "actor_params": "date_from=2021-11-18&date_to=2021-11-18&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22total%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%5B%5D%7D%5D&funnel_from_step=0&funnel_to_step=1&funnel_viz_type=steps&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events"
                                     }
                                 ],
                                 "filter": {
