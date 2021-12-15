@@ -14,7 +14,7 @@ interface MetricRow {
 }
 
 const METRIC_KEY_TO_INTERNAL_LINK = {
-    special_migrations_ok: '/instance/special_migrations',
+    async_migrations_ok: '/instance/async_migrations',
 }
 
 function RenderValue(value: any): JSX.Element | string {

@@ -325,8 +325,9 @@ INSTALLED_APPS = [
     "social_django",
     "django_filters",
     "axes",
+    "constance",
+    "constance.backends.database",
 ]
-
 
 MIDDLEWARE = [
     "django_structlog.middlewares.RequestMiddleware",
@@ -450,7 +451,7 @@ DISABLE_SERVER_SIDE_CURSORS = get_from_env("USING_PGBOUNCER", False, type_cast=s
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 
 if TEST or DEBUG:
-    DATABASE_URL = os.getenv("DATABASE_URL", "postgres://localhost:5432/posthog")
+    DATABASE_URL = os.getenv("DATABASE_URL", "postgres://posthog:posthog@localhost:5432/posthog")
 else:
     DATABASE_URL = os.getenv("DATABASE_URL", "")
 
@@ -758,14 +759,28 @@ if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
         ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0,<21.7.0"),
     ]
 
-AUTO_START_SPECIAL_MIGRATIONS = get_from_env("AUTO_START_SPECIAL_MIGRATIONS", False, type_cast=str_to_bool)
+AUTO_START_ASYNC_MIGRATIONS = get_from_env("AUTO_START_ASYNC_MIGRATIONS", False, type_cast=str_to_bool)
 
-_default_skip_special_migrations_setup = TEST or E2E_TESTING or SKIP_SERVICE_VERSION_REQUIREMENTS or cmd != "runserver"
-SKIP_SPECIAL_MIGRATIONS_SETUP = get_from_env(
-    "SKIP_SPECIAL_MIGRATIONS_SETUP", _default_skip_special_migrations_setup, type_cast=str_to_bool
+_default_skip_async_migrations_setup = TEST or E2E_TESTING or SKIP_SERVICE_VERSION_REQUIREMENTS or cmd != "runserver"
+SKIP_ASYNC_MIGRATIONS_SETUP = get_from_env(
+    "SKIP_ASYNC_MIGRATIONS_SETUP", _default_skip_async_migrations_setup, type_cast=str_to_bool
 )
 
-SPECIAL_MIGRATIONS_ROLLBACK_TIMEOUT = get_from_env("SPECIAL_MIGRATION_ROLLBACK_TIMEOUT", 30, type_cast=int)
-SPECIAL_MIGRATIONS_DISABLE_AUTO_ROLLBACK = get_from_env(
-    "SPECIAL_MIGRATIONS_DISABLE_AUTO_ROLLBACK", False, type_cast=str_to_bool
+ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT = get_from_env("ASYNC_MIGRATION_ROLLBACK_TIMEOUT", 30, type_cast=int)
+ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK = get_from_env(
+    "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK", False, type_cast=str_to_bool
 )
+
+## Dynamic configs settings
+
+CONSTANCE_BACKEND = "constance.backends.database.DatabaseBackend"
+
+CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
+
+CONSTANCE_CONFIG = {
+    "MATERIALIZED_COLUMNS_ENABLED": (
+        get_from_env("MATERIALIZED_COLUMNS_ENABLED", True, type_cast=str_to_bool),
+        "Whether materialized columns should be, created or used at query time",
+        bool,
+    ),
+}
