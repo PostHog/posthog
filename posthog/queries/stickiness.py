@@ -81,11 +81,12 @@ class Stickiness(BaseQuery):
             "data": data,
             "count": sum(data),
             "filter": filter_params,
-            "persons_urls": self._get_persons_url(filter, entity),
+            "actor_endpoint": "api/person/stickiness/",
+            "actors": self._get_actors_url(filter, entity),
         }
 
-    def _get_persons_url(self, filter: StickinessFilter, entity: Entity) -> List[Dict[str, Any]]:
-        persons_url = []
+    def _get_actors_url(self, filter: StickinessFilter, entity: Entity) -> List[Dict[str, Any]]:
+        actors_url = []
         for interval_idx in range(1, filter.total_intervals):
             filter_params = filter.to_params()
             extra_params = {
@@ -95,10 +96,10 @@ class Stickiness(BaseQuery):
                 "entity_math": entity.math,
             }
             parsed_params: Dict[str, Union[Any, int, str]] = {**filter_params, **extra_params}
-            persons_url.append(
-                {"filter": extra_params, "url": f"api/person/stickiness/?{urllib.parse.urlencode(parsed_params)}",}
+            actors_url.append(
+                {"filter": extra_params, "actor_params": f"{urllib.parse.urlencode(parsed_params)}",}
             )
-        return persons_url
+        return actors_url
 
     def run(self, filter: StickinessFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
 

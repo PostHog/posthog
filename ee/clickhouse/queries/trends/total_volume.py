@@ -73,12 +73,12 @@ class ClickhouseTrendsTotalVolume:
             parsed_results = []
             for _, stats in enumerate(result):
                 parsed_result = parse_response(stats, filter)
-                parsed_result.update(
-                    {"persons_urls": self._get_persons_url(filter, entity, team_id, parsed_result["days"])}
-                )
+                parsed_result.update({"actors": self._get_actor_urls(filter, entity, team_id, parsed_result["days"])})
                 parsed_results.append(parsed_result)
 
-                parsed_result.update({"filter": filter.to_dict()})
+                parsed_result.update(
+                    {"filter": filter.to_dict(), "actor_endpoint": f"api/projects/{team_id}/actions/people/"}
+                )
             return parsed_results
 
         return _parse
@@ -98,17 +98,15 @@ class ClickhouseTrendsTotalVolume:
                     "aggregated_value": result[0][0] if result and len(result) else 0,
                     "days": time_range,
                     "filter": filter_params,
-                    "persons": {
-                        "filter": extra_params,
-                        "url": f"api/projects/{team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
-                    },
+                    "actor_endpoint": f"api/projects/{team_id}/actions/people/",
+                    "actors": {"filter": extra_params, "actor_params": f"{urllib.parse.urlencode(parsed_params)}",},
                 }
             ]
 
         return _parse
 
-    def _get_persons_url(self, filter: Filter, entity: Entity, team_id: int, dates: List[str]) -> List[Dict[str, Any]]:
-        persons_url = []
+    def _get_actor_urls(self, filter: Filter, entity: Entity, team_id: int, dates: List[str]) -> List[Dict[str, Any]]:
+        actors_url = []
         for date in dates:
             filter_params = filter.to_params()
             extra_params = {
@@ -119,10 +117,7 @@ class ClickhouseTrendsTotalVolume:
                 "date_to": date,
             }
             parsed_params: Dict[str, Union[Any, int, str]] = {**filter_params, **extra_params}
-            persons_url.append(
-                {
-                    "filter": extra_params,
-                    "url": f"api/projects/{team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
-                }
+            actors_url.append(
+                {"filter": extra_params, "actor_params": f"{urllib.parse.urlencode(parsed_params)}",}
             )
-        return persons_url
+        return actors_url

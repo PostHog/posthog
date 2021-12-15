@@ -97,10 +97,10 @@ export function ActionsBarValueGraph({
                               breakdown_value,
                               pointValue,
                           }
-                          if (dataset.persons_urls?.[index].url) {
+                          if (dataset.actor_endpoint && dataset.actors?.[index].actor_params) {
                               loadPeopleFromUrl({
                                   ...params,
-                                  url: dataset.persons_urls?.[index].url,
+                                  url: `${dataset.actor_endpoint}?${dataset.actors?.[index].actor_params}`,
                               })
                           } else {
                               loadPeople(params)

@@ -90,7 +90,7 @@ def test_includes_only_intervals_within_range(client: Client):
             team=team,
         )
 
-        assert stripResponse(trends["result"], remove=("persons_urls", "filter")) == [
+        assert stripResponse(trends["result"], remove=("actors", "filter")) == [
             {
                 "action": {
                     "id": "$pageview",
@@ -163,7 +163,7 @@ def get_trends_ok(client: Client, request: TrendsRequest, team: Team):
 class NormalizedTrendResult:
     value: float
     label: str
-    person_url: str
+    actor_url: str
     breakdown_value: Optional[Union[str, int]]
 
 
@@ -182,7 +182,7 @@ def get_time_series_ok(data):
             collect_dates[date] = NormalizedTrendResult(
                 value=item["data"][idx],
                 label=item["labels"][idx],
-                person_url=item["persons_urls"][idx]["url"],
+                actor_url=f"{item['actor_endpoint']}?{item['actors'][idx]['actor_params']}",
                 breakdown_value=item.get("breakdown_value", None),
             )
         res[item["label"]] = collect_dates
@@ -196,7 +196,7 @@ def get_trends_aggregate_ok(client: Client, request: TrendsRequest, team: Team) 
         res[item["label"]] = NormalizedTrendResult(
             value=item["aggregated_value"],
             label=item["action"]["name"],
-            person_url=item["persons"]["url"],
+            actor_url=item["persons"]["url"],
             breakdown_value=item.get("breakdown_value", None),
         )
 

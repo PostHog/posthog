@@ -242,10 +242,8 @@ class ClickhouseTrendsBreakdown:
                 parsed_result = {
                     "aggregated_value": stats[0],
                     "filter": filter_params,
-                    "persons": {
-                        "filter": extra_params,
-                        "url": f"api/projects/{self.team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
-                    },
+                    "actor_endpoint": f"api/projects/{self.team_id}/actions/people/",
+                    "actors": {"filter": extra_params, "actor_params": f"{urllib.parse.urlencode(parsed_params)}",},
                     **result_descriptors,
                     **additional_values,
                 }
@@ -263,21 +261,23 @@ class ClickhouseTrendsBreakdown:
                 parsed_result = parse_response(stats, filter, result_descriptors)
                 parsed_result.update(
                     {
-                        "persons_urls": self._get_persons_url(
+                        "actors": self._get_actor_urls(
                             filter, entity, self.team_id, parsed_result["days"], result_descriptors["breakdown_value"]
                         )
                     }
                 )
                 parsed_results.append(parsed_result)
-                parsed_result.update({"filter": filter.to_dict()})
+                parsed_result.update(
+                    {"filter": filter.to_dict(), "actor_endpoint": f"api/projects/{self.team_id}/actions/people/"}
+                )
             return sorted(parsed_results, key=lambda x: 0 if x.get("breakdown_value") != "all" else 1)
 
         return _parse
 
-    def _get_persons_url(
+    def _get_actor_urls(
         self, filter: Filter, entity: Entity, team_id: int, dates: List[str], breakdown_value: Union[str, int]
     ) -> List[Dict[str, Any]]:
-        persons_url = []
+        actors_url = []
         for date in dates:
             filter_params = filter.to_params()
             extra_params = {
@@ -290,13 +290,10 @@ class ClickhouseTrendsBreakdown:
                 "breakdown_type": filter.breakdown_type or "event",
             }
             parsed_params: Dict[str, Union[Any, int, str]] = {**filter_params, **extra_params}
-            persons_url.append(
-                {
-                    "filter": extra_params,
-                    "url": f"api/projects/{team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
-                }
+            actors_url.append(
+                {"filter": extra_params, "actor_params": f"{urllib.parse.urlencode(parsed_params)}",}
             )
-        return persons_url
+        return actors_url
 
     def _breakdown_result_descriptors(self, breakdown_value, filter: Filter, entity: Entity):
         extra_label = self._determine_breakdown_label(

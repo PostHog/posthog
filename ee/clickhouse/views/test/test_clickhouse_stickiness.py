@@ -73,9 +73,9 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
         assert data["watched movie"][3].value == 1
 
         with freeze_time("2020-02-15T13:01:01Z"):
-            week1_actors = get_people_from_url_ok(self.client, data["watched movie"][1].person_url)
-            week2_actors = get_people_from_url_ok(self.client, data["watched movie"][2].person_url)
-            week3_actors = get_people_from_url_ok(self.client, data["watched movie"][3].person_url)
+            week1_actors = get_people_from_url_ok(self.client, data["watched movie"][1].actor_url)
+            week2_actors = get_people_from_url_ok(self.client, data["watched movie"][2].actor_url)
+            week3_actors = get_people_from_url_ok(self.client, data["watched movie"][3].actor_url)
 
         assert sorted([p["id"] for p in week1_actors]) == sorted([str(p1.pk)])
         assert sorted([p["id"] for p in week2_actors]) == sorted([])
@@ -115,9 +115,9 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
         assert data["watched movie"][3].value == 1
 
         with freeze_time("2020-02-15T13:01:01Z"):
-            week1_actors = get_people_from_url_ok(self.client, data["watched movie"][1].person_url)
-            week2_actors = get_people_from_url_ok(self.client, data["watched movie"][2].person_url)
-            week3_actors = get_people_from_url_ok(self.client, data["watched movie"][3].person_url)
+            week1_actors = get_people_from_url_ok(self.client, data["watched movie"][1].actor_url)
+            week2_actors = get_people_from_url_ok(self.client, data["watched movie"][2].actor_url)
+            week3_actors = get_people_from_url_ok(self.client, data["watched movie"][3].actor_url)
 
         assert sorted([p["id"] for p in week1_actors]) == sorted(["org:0", "org:2"])
         assert sorted([p["id"] for p in week2_actors]) == sorted([])
