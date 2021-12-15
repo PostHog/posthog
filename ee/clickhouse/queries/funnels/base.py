@@ -15,7 +15,11 @@ from ee.clickhouse.models.property import (
     parse_prop_clauses,
 )
 from ee.clickhouse.models.util import PersonPropertiesMode
-from ee.clickhouse.queries.breakdown_props import format_breakdown_cohort_join_query, get_breakdown_prop_values
+from ee.clickhouse.queries.breakdown_props import (
+    format_breakdown_cohort_join_query,
+    get_breakdown_cohort_name,
+    get_breakdown_prop_values,
+)
 from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
 from posthog.constants import FUNNEL_WINDOW_INTERVAL, FUNNEL_WINDOW_INTERVAL_UNIT, LIMIT, TREND_FILTER_TYPE_ACTIONS
@@ -157,7 +161,14 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
             if with_breakdown:
                 breakdown = results[-1]
-                serialized_result.update({"breakdown": breakdown, "breakdown_value": breakdown})
+                serialized_result.update(
+                    {
+                        "breakdown": get_breakdown_cohort_name(breakdown)
+                        if self._filter.breakdown_type == "cohort"
+                        else breakdown,
+                        "breakdown_value": breakdown,
+                    }
+                )
                 # important to not try and modify this value any how - as these
                 # are keys for fetching persons
 
