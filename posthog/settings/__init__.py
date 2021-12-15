@@ -23,6 +23,7 @@ from posthog.settings.base_variables import *
 from posthog.settings.access import *
 from posthog.settings.celery import *
 from posthog.settings.data_stores import *
+from posthog.settings.dynamic_settings import *
 from posthog.settings.emails import *
 from posthog.settings.feature_flags import *
 from posthog.settings.logging import *
