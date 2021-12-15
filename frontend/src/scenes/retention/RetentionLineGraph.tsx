@@ -6,8 +6,9 @@ import { InsightEmptyState } from '../insights/EmptyStates'
 import { Modal, Button } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { GraphType, PersonType, GraphDataset } from '~/types'
-import { RetentionTrendPayload, RetentionTrendPeoplePayload } from 'scenes/retention/types'
+import { RetentionTrendPeoplePayload } from 'scenes/retention/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import './RetentionLineGraph.scss'
 
 interface RetentionLineGraphProps {
     dashboardItemId?: number | null
@@ -23,8 +24,7 @@ export function RetentionLineGraph({
 }: RetentionLineGraphProps): JSX.Element | null {
     const { insightProps, insight } = useValues(insightLogic)
     const logic = retentionTableLogic(insightProps)
-    const { filters, results: _results, people: _people, peopleLoading, loadingMore } = useValues(logic)
-    const results = _results as RetentionTrendPayload[]
+    const { filters, trendSeries, people: _people, peopleLoading, loadingMore } = useValues(logic)
     const people = _people as RetentionTrendPeoplePayload
 
     const { loadPeople, loadMorePeople } = useActions(logic)
@@ -35,18 +35,18 @@ export function RetentionLineGraph({
     }
     const peopleData = people?.result as PersonType[]
     const peopleNext = people?.next
-    if (results.length === 0) {
+    if (trendSeries.length === 0) {
         return null
     }
 
-    return results ? (
+    return trendSeries ? (
         <>
             <LineGraph
                 data-attr="trend-line-graph"
                 type={GraphType.Line}
                 color={color}
-                datasets={results as GraphDataset[]}
-                labels={(results[0] && results[0].labels) || []}
+                datasets={trendSeries as GraphDataset[]}
+                labels={(trendSeries[0] && trendSeries[0].labels) || []}
                 isInProgress={!filters.date_to}
                 insightShortId={insight.short_id}
                 insightId={insight.id}

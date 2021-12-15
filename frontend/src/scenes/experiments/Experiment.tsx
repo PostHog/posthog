@@ -1,5 +1,5 @@
 import SaveOutlined from '@ant-design/icons/lib/icons/SaveOutlined'
-import { Button, Card, Col, Form, Input, Row, Slider, Tooltip } from 'antd'
+import { Alert, Button, Card, Col, Collapse, Form, Input, Row, Slider, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
@@ -14,7 +14,11 @@ import { FunnelVizType, PropertyFilter } from '~/types'
 import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
+import { JSSnippet } from 'scenes/feature-flags/FeatureFlagSnippets'
+import { IconJavascript } from 'lib/components/icons'
 import { InfoCircleOutlined } from '@ant-design/icons'
+import dayjs from 'dayjs'
+import { LemonButton } from 'lib/components/LemonButton'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -33,7 +37,8 @@ export function Experiment(): JSX.Element {
         newExperimentCurrentPage,
         experimentResults,
     } = useValues(experimentLogic)
-    const { setNewExperimentData, createExperiment, setFilters, nextPage, prevPage } = useActions(experimentLogic)
+    const { setNewExperimentData, createExperiment, setFilters, nextPage, prevPage, endExperiment } =
+        useActions(experimentLogic)
 
     const [form] = Form.useForm()
 
@@ -287,12 +292,46 @@ export function Experiment(): JSX.Element {
 
                         {newExperimentCurrentPage === 2 && (
                             <div className="confirmation">
-                                <div>Name: {newExperimentData?.name}</div>
                                 {newExperimentData?.description && (
-                                    <div>Description: {newExperimentData?.description}</div>
+                                    <Row>Description: {newExperimentData?.description}</Row>
                                 )}
-                                <div>Feature flag key: {newExperimentData?.feature_flag_key}</div>
-                                <Row>
+                                <Row className="mt">
+                                    <Col span={12}>
+                                        <div>Feature flag key: {newExperimentData?.feature_flag_key}</div>
+                                        <div>Variants: 'control' and 'test'</div>
+                                    </Col>
+                                    <Col span={12}>
+                                        <Collapse>
+                                            <Collapse.Panel
+                                                header={
+                                                    <div
+                                                        style={{
+                                                            display: 'flex',
+                                                            fontWeight: 'bold',
+                                                            alignItems: 'center',
+                                                        }}
+                                                    >
+                                                        <IconJavascript style={{ marginRight: 6 }} /> Javascript
+                                                        integration instructions
+                                                    </div>
+                                                }
+                                                key="js"
+                                            >
+                                                <Form.Item
+                                                    shouldUpdate={(prevValues, currentValues) =>
+                                                        prevValues.key !== currentValues.key
+                                                    }
+                                                >
+                                                    <JSSnippet
+                                                        variants={['control', 'test']}
+                                                        flagKey={newExperimentData?.feature_flag_key || ''}
+                                                    />
+                                                </Form.Item>
+                                            </Collapse.Panel>
+                                        </Collapse>
+                                    </Col>
+                                </Row>
+                                <Row className="mt">
                                     <Col>
                                         <Row>Person allocation:</Row>
                                         <Row>The following users will participate in the experiment</Row>
@@ -338,6 +377,7 @@ export function Experiment(): JSX.Element {
                 </>
             ) : experimentData ? (
                 <div className="experiment-result">
+                    {experimentData.end_date && <Alert type="info" message="This experiment has ended" />}
                     <div>
                         <PageHeader title={experimentData.name} />
                         <div>{experimentData?.description}</div>
@@ -367,6 +407,11 @@ export function Experiment(): JSX.Element {
                                 <InsightContainer disableTable={true} />
                             </div>
                         </BindLogic>
+                    )}
+                    {!experimentData.end_date ? (
+                        <LemonButton onClick={() => endExperiment()}>End experiment</LemonButton>
+                    ) : (
+                        <div>Experiment ended {dayjs(experimentData.end_date)}</div>
                     )}
                 </div>
             ) : (

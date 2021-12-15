@@ -41,6 +41,7 @@ export const experimentLogic = kea<experimentLogicType>({
         prevPage: true,
         setPage: (page: number) => ({ page }),
         emptyData: true,
+        endExperiment: true,
     },
     reducers: {
         experimentId: [
@@ -169,6 +170,11 @@ export const experimentLogic = kea<experimentLogicType>({
                 actions.setPage(2)
                 actions.setNewExperimentData({ ...experimentData })
             }
+        },
+        endExperiment: async () => {
+            await api.update(`api/projects/${values.currentTeamId}/experiments/${values.experimentId}`, {
+                end_date: dayjs(),
+            })
         },
     }),
     loaders: ({ values }) => ({

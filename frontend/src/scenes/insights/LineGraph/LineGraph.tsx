@@ -606,6 +606,9 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                 },
                 onHover: options.onHover,
                 plugins: {
+                    legend: {
+                        display: false,
+                    },
                     crosshair: false as CrosshairOptions,
                 },
                 onClick: options.onClick,
