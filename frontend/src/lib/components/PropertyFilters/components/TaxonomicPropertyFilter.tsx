@@ -9,7 +9,6 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
 import { Popup } from 'lib/components/Popup/Popup'
-import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
     TaxonomicFilterGroup,
@@ -17,6 +16,7 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
+import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
 
 let uniqueMemoizedIndex = 0
 

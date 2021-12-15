@@ -7,7 +7,7 @@ import { TooltipPlacement } from 'antd/lib/tooltip'
 import { AnyPropertyFilter } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Placement } from '@popperjs/core'
-import { PropertyFilter } from '.'
+import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 
 interface PropertyFiltersProps {
     endpoint?: string | null
@@ -72,7 +72,7 @@ export function PropertyFilters({
                                         taxonomicGroupTypes,
                                     }
                                     return (
-                                        <PropertyFilter
+                                        <TaxonomicPropertyFilter
                                             {...propertyFilterCommonProps}
                                             disablePopover={disablePopover}
                                             selectProps={{
