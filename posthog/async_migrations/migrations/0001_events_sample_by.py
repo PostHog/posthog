@@ -1,4 +1,5 @@
 from constance import config
+from django.conf import settings
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.events import EVENTS_TABLE
@@ -114,6 +115,9 @@ class Migration(AsyncMigrationDefinition):
     ]
 
     def is_required(self):
+        if settings.MULTI_TENANCY:
+            return False
+
         res = sync_execute(f"SHOW CREATE TABLE {EVENTS_TABLE_NAME}")
         return "ORDER BY (team_id, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))" not in res[0][0]
 
