@@ -221,24 +221,28 @@ export const InsightCard: Story = (args) => {
     initKea()
 
     const [insightColor, setInsightColor] = useState<InsightColor | null>(null)
+    const [wasItemRemoved, setWasItemRemoved] = useState(false)
 
     return (
         <KeaProvider>
             <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(2, 1fr)' }}>
-                <InsightCardComponent
-                    insight={{
-                        ...EXAMPLE_TRENDS,
-                        name: args.insightName,
-                        description: args.insightDescription,
-                        color: insightColor,
-                    }}
-                    index={0}
-                    loading={args.loading}
-                    apiError={args.apiError}
-                    highlighted={args.highlighted}
-                    updateColor={setInsightColor}
-                    refresh={() => {}}
-                />
+                {!wasItemRemoved && (
+                    <InsightCardComponent
+                        insight={{
+                            ...EXAMPLE_TRENDS,
+                            name: args.insightName,
+                            description: args.insightDescription,
+                            color: insightColor,
+                        }}
+                        index={0}
+                        loading={args.loading}
+                        apiError={args.apiError}
+                        highlighted={args.highlighted}
+                        updateColor={setInsightColor}
+                        removeItem={() => setWasItemRemoved(true)}
+                        refresh={() => {}}
+                    />
+                )}
                 <InsightCardComponent
                     insight={{
                         ...EXAMPLE_TRENDS,
