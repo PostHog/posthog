@@ -80,7 +80,14 @@ export function ActionsBarValueGraph({
                 dashboardItemId || filtersParam.formula || !showPersonsModal
                     ? undefined
                     : (point) => {
-                          const { dataset, value: pointValue, index } = point
+                          const { value: pointValue, index, points } = point
+
+                          // For now, take first point when clicking a specific point.
+                          // TODO: Implement case when if the entire line was clicked, show people for that entire day across actions.
+                          const dataset = points.clickedPointNotLine
+                              ? points.pointsIntersectingClick[0].dataset
+                              : points.pointsIntersectingLine[0].dataset
+
                           const action = dataset.actions?.[point.index]
                           const label = dataset.labels?.[point.index]
                           const date_from = filtersParam?.date_from || ''

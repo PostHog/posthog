@@ -401,22 +401,14 @@ export function LEGACY_LineGraph({
             onClick: (_, [point]) => {
                 if (point && onClick) {
                     const dataset = datasets[point._datasetIndex]
+                    // Makes onClick forward compatible with new LineGraph typing
                     onClick({
-                        point,
-                        dataset,
+                        points: {
+                            pointsIntersectingLine: [{ ...point, dataset }],
+                            pointsIntersectingClick: [{ ...point, dataset }],
+                            clickedPointNotLine: true,
+                        },
                         index: point._index,
-                        label:
-                            typeof point._index !== 'undefined' && dataset.labels
-                                ? dataset.labels[point._index]
-                                : undefined,
-                        day:
-                            typeof point._index !== 'undefined' && dataset.days
-                                ? dataset.days[point._index]
-                                : undefined,
-                        value:
-                            typeof point._index !== 'undefined' && dataset.data
-                                ? dataset.data[point._index]
-                                : undefined,
                     })
                 }
             },

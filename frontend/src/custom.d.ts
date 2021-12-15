@@ -19,5 +19,6 @@ declare module '*.mp3' {
 // This fixes TS errors when importing chartjs-plugin-crosshair
 declare module 'chartjs-plugin-crosshair' {
     const CrosshairPlugin: any
-    export { CrosshairPlugin }
+    type CrosshairOptions = any
+    export { CrosshairPlugin, CrosshairOptions }
 }

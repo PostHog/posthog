@@ -1507,11 +1507,16 @@ export type GraphDataset = ChartDataset<ChartType> &
         persons_urls?: { url: string }[]
     }
 
+interface PointsPayload {
+    pointsIntersectingLine: (InteractionItem & { dataset: GraphDataset })[]
+    pointsIntersectingClick: (InteractionItem & { dataset: GraphDataset })[]
+    clickedPointNotLine: boolean
+}
+
 export interface GraphPointPayload {
-    point: InteractionItem
-    dataset: GraphDataset
+    points: PointsPayload
     index: number
-    label?: string
-    day?: string
+    label?: string // Soon to be deprecated with LEGACY_LineGraph
+    day?: string // Soon to be deprecated with LEGACY_LineGraph
     value?: number
 }

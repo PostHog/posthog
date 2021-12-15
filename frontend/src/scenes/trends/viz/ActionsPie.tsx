@@ -72,7 +72,8 @@ export function ActionsPie({
                             dashboardItemId || filtersParam.formula || !showPersonsModal
                                 ? undefined
                                 : (payload) => {
-                                      const { dataset, index } = payload
+                                      const { points, index } = payload
+                                      const dataset = points.pointsIntersectingClick?.[0]?.dataset
                                       const action = dataset.actions?.[index]
                                       const label = dataset.labels?.[index]
                                       const date_from = filtersParam.date_from || ''

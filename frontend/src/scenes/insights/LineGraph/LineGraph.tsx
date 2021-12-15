@@ -15,8 +15,10 @@ import {
     ChartEvent,
     ChartItem,
     ChartPluginsOptions,
+    ActiveElement,
+    InteractionItem,
 } from 'chart.js'
-import { CrosshairPlugin } from 'chartjs-plugin-crosshair'
+import { CrosshairOptions, CrosshairPlugin } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs'
 import { compactNumber, lightenDarkenColor, noop, mapRange } from '~/lib/utils'
 import { getBarColorFromStatus, getChartColors, getGraphColors } from 'lib/colors'
@@ -34,7 +36,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
 //--Chart Style Options--//
-console.log('CHART DEFAULTS', Chart.defaults)
 Chart.register(CrosshairPlugin)
 Chart.defaults.plugins.legend.display = false
 Chart.defaults.animation['duration'] = 0
@@ -110,13 +111,14 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
     const [boundaryInterval, setBoundaryInterval] = useState(0)
     const [topExtent, setTopExtent] = useState(0)
     const [annotationInRange, setInRange] = useState(false)
-    const [tooltipVisible, setTooltipVisible] = useState(false)
     const size = useWindowSize()
 
     const annotationsCondition =
         type === 'line' && datasets?.length > 0 && !inSharedMode && datasets[0].labels?.[0] !== '1 day' // stickiness graphs
 
     const colors = getGraphColors(color === 'white')
+    const isHorizontal = type === 'horizontalBar'
+    const isBar = ['bar', 'horizontalBar', 'histogram'].includes(type)
 
     useEscapeKey(() => setFocused(false), [focused])
 
@@ -124,26 +126,12 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
         buildChart()
     }, [datasets, color, visibilityMap])
 
-    // Hacky! - Chartjs doesn't internally call tooltip callback on mouseout from right border.
-    // Let's manually remove tooltips when the chart is being hovered over. #5061
-    useEffect(() => {
-        const removeTooltip = (): void => {
-            const tooltipEl = document.getElementById('ph-graph-tooltip')
-
-            if (tooltipEl && !tooltipVisible) {
-                tooltipEl.style.opacity = '0'
-            }
-        }
-        removeTooltip()
-        return removeTooltip // remove tooltip on component unmount
-    }, [tooltipVisible])
-
     // annotation related effects
 
     // update boundaries and axis padding when user hovers with mouse or annotations load
     useEffect(() => {
-        if (annotationsCondition && myLineChart.current?.options.layout) {
-            myLineChart.current.options.layout.padding = annotationInRange || focused ? { bottom: 35 } : {}
+        if (annotationsCondition && myLineChart.current?.options?.scales?.x?.grid) {
+            myLineChart.current.options.scales.x.grid.tickLength = annotationInRange || focused ? 45 : 10
             myLineChart.current.update()
             calculateBoundaries()
         }
@@ -193,7 +181,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
 
         // `horizontalBar` colors are set in `ActionsBarValueGraph.tsx` and overriden in spread of `dataset` below
-        const BACKGROUND_BASED_CHARTS = ['bar', 'doughnut']
+        const BACKGROUND_BASED_CHARTS = ['bar', 'horizontalBar', 'doughnut']
 
         return {
             borderColor: mainColor,
@@ -203,13 +191,14 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                 : undefined,
             backgroundColor: BACKGROUND_BASED_CHARTS.includes(type) ? mainColor : undefined,
             fill: false,
-            borderWidth: 2,
+            borderWidth: isBar ? 0 : 2,
             pointRadius: 0,
-            pointHoverBorderWidth: 2,
-            pointHitRadius: 8,
+            hitRadius: 0,
             ...(type === 'histogram' ? { barPercentage: 1 } : {}),
             ...dataset,
-            type: (type === 'horizontalBar' ? GraphTypes.Bar : type) as ChartType,
+            hoverBorderWidth: isBar ? 0 : 2,
+            hoverBorderRadius: isBar ? 0 : 2,
+            type: (isHorizontal ? GraphTypes.Bar : type) as ChartType,
         }
     }
 
@@ -268,8 +257,8 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
             mode: 'nearest',
             // If bar, we want to only show the tooltip for what we're hovering over
             // to avoid confusion
-            axis: type === 'horizontalBar' ? 'xy' : 'x',
-            intersect: type === 'horizontalBar',
+            axis: isHorizontal ? 'y' : 'x',
+            intersect: false,
             itemSort: (a, b) => a.label.localeCompare(b.label),
         }
 
@@ -277,12 +266,13 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
             responsive: true,
             maintainAspectRatio: false,
             scaleShowHorizontalLines: false,
-            tooltips: tooltipOptions,
             plugins: {
                 tooltip: {
+                    ...tooltipOptions,
                     external(args: { chart: Chart; tooltip: TooltipModel<ChartType> }) {
                         let tooltipEl = document.getElementById('ph-graph-tooltip')
                         const { tooltip } = args
+
                         // Create element on first render
                         if (!tooltipEl) {
                             tooltipEl = document.createElement('div')
@@ -295,14 +285,12 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                             return
                         }
 
-                        // Set caret position
-                        // Reference: https://www.chartjs.org/docs/master/configuration/tooltip.html
                         if (!chartRef.current) {
                             return
                         }
 
-                        console.log('TOOLTIPAlex', tooltip)
-
+                        // Set caret position
+                        // Reference: https://www.chartjs.org/docs/master/configuration/tooltip.html
                         tooltipEl.classList.remove('above', 'below', 'no-transform')
                         tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
                         const bounds = chartRef.current.getBoundingClientRect()
@@ -319,7 +307,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
 
                             const altTitle =
                                 tooltip.title && (dataset.compare || tooltipPreferAltTitle) ? tooltip.title[0] : '' // When comparing we show the whole range for clarity; when on stickiness we show the relative timeframe (e.g. `5 days`)
-                            const referenceDate = dataset.compare
+                            const referenceDate = !dataset.compare
                                 ? dataset.days?.[referenceDataPoint.dataIndex]
                                 : undefined
                             const bodyLines = tooltip.body
@@ -338,15 +326,14 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                                         bodyLines={bodyLines}
                                         inspectPersonsLabel={onClick && showPersonsModal}
                                         preferAltTitle={tooltipPreferAltTitle}
-                                        hideHeader={type === 'horizontalBar'}
+                                        hideHeader={isHorizontal}
                                     />
                                 </Provider>,
                                 tooltipEl
                             )
                         }
 
-                        const horizontalBarTopOffset =
-                            type === 'horizontalBar' ? tooltip.caretY - tooltipEl.clientHeight / 2 : 0
+                        const horizontalBarTopOffset = isHorizontal ? tooltip.caretY - tooltipEl.clientHeight / 2 : 0
                         const tooltipClientTop = bounds.top + window.pageYOffset + horizontalBarTopOffset
 
                         const defaultOffsetLeft = Math.max(chartClientLeft, chartClientLeft + tooltip.caretX + 8)
@@ -362,7 +349,6 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                     callbacks: {
                         // @ts-ignore: label callback is typed to return string | string[], but practically can return ReactNode
                         label(tooltipItem: TooltipItem<any>) {
-                            console.log('TOOLTIP', tooltipItem, this)
                             const entityData = tooltipItem.dataset
                             const tooltipDatasets = this.dataPoints.map((point) => point.dataset as ChartDataset<any>)
                             if (entityData.dotted && !(tooltipItem.dataIndex === entityData.data.length - 1)) {
@@ -373,10 +359,10 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                             const action =
                                 entityData.action || (entityData.actions && entityData.actions[tooltipItem.dataIndex])
 
-                            let value = tooltipItem.label.toLocaleString()
-                            const actionObjKey = type === 'horizontalBar' ? 'actions' : 'action'
+                            let value = tooltipItem.formattedValue.toLocaleString()
+                            const actionObjKey = isHorizontal ? 'actions' : 'action'
 
-                            if (type === 'horizontalBar' && totalValue) {
+                            if (isHorizontal && totalValue) {
                                 const perc = Math.round((Number(tooltipItem.raw) / totalValue) * 100)
                                 value = `${tooltipItem.label.toLocaleString()} (${perc}%)`
                             }
@@ -398,7 +384,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                             return (
                                 <InsightLabel
                                     action={action}
-                                    seriesColor={type === 'horizontalBar' ? colorSet[tooltipItem.dataIndex] : colorSet}
+                                    seriesColor={isHorizontal ? colorSet[tooltipItem.dataIndex] : colorSet}
                                     value={value}
                                     fallbackName={label}
                                     showCountedByTag={showCountedByTag}
@@ -419,7 +405,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                         },
                     },
                 },
-                ...(type !== 'horizontalBar'
+                ...(!isBar
                     ? {
                           crosshair: {
                               snap: {
@@ -442,54 +428,79 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                       }),
             },
             hover: {
-                mode: 'nearest',
-                axis: 'x',
+                mode: isBar ? 'point' : 'nearest',
+                axis: isHorizontal ? 'y' : 'x',
                 intersect: false,
             },
-            onHover(event: ChartEvent, _, chart: Chart) {
+            onHover(event: ChartEvent, _: ActiveElement[], chart: Chart) {
                 const nativeEvent = event.native
                 if (!nativeEvent) {
                     return
                 }
 
                 const target = nativeEvent?.target as HTMLDivElement
-                const point = chart.getElementsAtEventForMode(nativeEvent, 'nearest', { intersect: true }, true)
-                if (target.style) {
-                    if (onClick && point.length) {
-                        target.style.cursor = 'pointer'
-                    } else {
-                        target.style.cursor = 'default'
-                    }
-                }
+                const point = chart.getElementsAtEventForMode(nativeEvent, 'index', { intersect: true }, true)
 
-                if (event.type === 'mouseout') {
-                    setTooltipVisible(false)
+                if (onClick && point.length) {
+                    target.style.cursor = 'pointer'
                 } else {
-                    setTooltipVisible(true)
+                    target.style.cursor = 'default'
                 }
             },
-            onClick: (evt, _, chart) => {
-                const point = chart.getElementsAtEventForMode(
-                    evt as unknown as Event,
-                    'point',
-                    {
-                        intersect: true,
-                    },
-                    true
-                )?.[0]
-
-                if (point && onClick) {
-                    const dataset = datasets[point.datasetIndex]
-                    const indexExists = typeof point.index !== 'undefined'
-                    onClick({
-                        point,
-                        dataset,
-                        index: point.index,
-                        label: indexExists && dataset.labels ? dataset.labels[point.index] : undefined,
-                        day: indexExists && dataset.days ? dataset.days[point.index] : undefined,
-                        value: indexExists && dataset.data ? dataset.data[point.index] ?? undefined : undefined,
-                    })
+            onClick: (event: ChartEvent, _: ActiveElement[], chart: Chart) => {
+                const nativeEvent = event.native
+                if (!nativeEvent) {
+                    return
                 }
+                // Get all points along line
+                const sortDirection = isHorizontal ? 'x' : 'y'
+                const sortPoints = (a: InteractionItem, b: InteractionItem): number =>
+                    Math.abs(a.element[sortDirection] - (event[sortDirection] ?? 0)) -
+                    Math.abs(b.element[sortDirection] - (event[sortDirection] ?? 0))
+                const pointsIntersectingLine = chart
+                    .getElementsAtEventForMode(
+                        nativeEvent,
+                        isHorizontal ? 'y' : 'index',
+                        {
+                            intersect: false,
+                        },
+                        true
+                    )
+                    .sort(sortPoints)
+                // Get all points intersecting clicked point
+                const pointsIntersectingClick = chart
+                    .getElementsAtEventForMode(
+                        nativeEvent,
+                        'point',
+                        {
+                            intersect: true,
+                        },
+                        true
+                    )
+                    .sort(sortPoints)
+
+                if (!pointsIntersectingClick.length && !pointsIntersectingLine.length) {
+                    return
+                }
+
+                const clickedPointNotLine = pointsIntersectingClick.length !== 0
+
+                onClick?.({
+                    points: {
+                        pointsIntersectingLine: pointsIntersectingLine.map((p) => ({
+                            ...p,
+                            dataset: datasets[p.datasetIndex],
+                        })),
+                        pointsIntersectingClick: pointsIntersectingClick.map((p) => ({
+                            ...p,
+                            dataset: datasets[p.datasetIndex],
+                        })),
+                        clickedPointNotLine,
+                    },
+                    index: clickedPointNotLine
+                        ? pointsIntersectingClick?.[0]?.index
+                        : pointsIntersectingLine?.[0]?.index,
+                })
             },
         }
 
@@ -523,13 +534,11 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                     min: 0,
                     beginAtZero: true,
                     display: true,
-                    ticks: {
-                        ...tickOptions,
-                        padding: annotationsLoading || !annotationInRange ? 0 : 35,
-                    },
+                    ticks: tickOptions,
                     grid: {
                         display: false,
                         borderColor: colors.axisLine as string,
+                        tickLength: annotationInRange || focused ? 45 : 10,
                     },
                 },
                 y: {
@@ -558,7 +567,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                     },
                 },
             }
-        } else if (type === 'horizontalBar') {
+        } else if (isHorizontal) {
             options.scales = {
                 x: {
                     min: 0,
@@ -591,7 +600,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                 },
                 onHover: options.onHover,
                 plugins: {
-                    crosshair: undefined,
+                    crosshair: false as CrosshairOptions,
                 },
                 onClick: options.onClick,
             }

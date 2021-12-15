@@ -6,6 +6,7 @@ import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { ChartParams, GraphTypes, GraphDataset } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { dayjs } from 'lib/dayjs'
 
 export function FunnelLineGraph({
     dashboardItemId,
@@ -32,17 +33,24 @@ export function FunnelLineGraph({
             onClick={
                 dashboardItemId
                     ? undefined
-                    : (point) => {
+                    : (payload) => {
+                          const { points, index } = payload
+                          const dataset = points.clickedPointNotLine
+                              ? points.pointsIntersectingClick[0].dataset
+                              : points.pointsIntersectingLine[0].dataset
+                          const day = dataset?.days?.[index] ?? ''
+                          const label = dataset?.label ?? dataset?.labels?.[index] ?? ''
+
                           loadPeople({
-                              action: { id: point.index, name: point.label ?? null, properties: [], type: 'actions' },
-                              label: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} converted on ${
-                                  point.label
-                              }`,
-                              date_from: point.day ?? '',
-                              date_to: point.day ?? '',
+                              action: { id: index, name: label ?? null, properties: [], type: 'actions' },
+                              label: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} converted on ${dayjs(
+                                  label
+                              ).format('MMMM Do YYYY')}`,
+                              date_from: day ?? '',
+                              date_to: day ?? '',
                               filters: filters,
                               saveOriginal: true,
-                              pointValue: point.value,
+                              pointValue: dataset?.data?.[index] ?? undefined,
                           })
                       }
             }

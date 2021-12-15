@@ -44,19 +44,30 @@ export function ActionsLineGraph({
             onClick={
                 dashboardItemId || isMultiSeriesFormula(filters.formula) || !showPersonsModal
                     ? undefined
-                    : (point) => {
-                          const { dataset, day, value: pointValue, index } = point
+                    : (payload) => {
+                          const { index, points } = payload
+
+                          // For now, take first point when clicking a specific point.
+                          // TODO: Implement case when if the entire line was clicked, show people for that entire day across actions.
+                          const dataset = points.clickedPointNotLine
+                              ? points.pointsIntersectingClick[0].dataset
+                              : points.pointsIntersectingLine[0].dataset
+                          const day = dataset?.days?.[index] ?? ''
+                          const label = dataset?.label ?? dataset?.labels?.[index] ?? ''
+
+                          if (!dataset) {
+                              return
+                          }
 
                           const params = {
                               action: (dataset.action || 'session') as ActionFilter | 'session',
-                              label: dataset.label ?? '',
-                              date_from: day ?? '',
-                              date_to: day ?? '',
-                              filters: filters,
-                              breakdown_value:
-                                  dataset.breakdown_value === undefined ? dataset.status : dataset.breakdown_value,
+                              label,
+                              date_from: day,
+                              date_to: day,
+                              filters,
+                              breakdown_value: points.clickedPointNotLine ? dataset.breakdown_value : undefined,
                               saveOriginal: true,
-                              pointValue,
+                              pointValue: dataset?.data?.[index] ?? undefined,
                           }
                           if (dataset.persons_urls?.[index].url) {
                               loadPeopleFromUrl({
