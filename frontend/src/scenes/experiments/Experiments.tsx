@@ -3,7 +3,7 @@ import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { experimentsLogic } from './experimentsLogic'
 import { PlusOutlined } from '@ant-design/icons'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '../../lib/components/LemonTable'
 import { createdAtColumn, createdByColumn } from '../../lib/components/LemonTable/columnUtils'
 import { Experiment } from '~/types'
@@ -14,9 +14,7 @@ import { Link } from 'lib/components/Link'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { LinkButton } from 'lib/components/LinkButton'
 import dayjs from 'dayjs'
-import { LemonButton } from 'lib/components/LemonButton'
-import { Popconfirm } from 'antd'
-import { DeleteOutlined } from '@ant-design/icons'
+import { Tag } from 'antd'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -25,7 +23,6 @@ export const scene: SceneExport = {
 
 export function Experiments(): JSX.Element {
     const { experiments, experimentsLoading } = useValues(experimentsLogic)
-    const { deleteExperiment } = useActions(experimentsLogic)
 
     const columns: LemonTableColumns<Experiment> = [
         {
@@ -59,36 +56,39 @@ export function Experiments(): JSX.Element {
             },
             sorter: (a, b) => (new Date(a.start_date || 0) > new Date(b.start_date || 0) ? 1 : -1),
         },
-        {
-            title: 'Days Running',
-            render: function Render(_, experiment: Experiment) {
-                return experiment.end_date ? (
-                    <div>{dayjs(experiment.start_date).diff(dayjs(experiment.end_date), 'day')}</div>
-                ) : (
-                    <div>0</div>
-                )
-            },
-        },
         createdByColumn<Experiment>() as LemonTableColumn<Experiment, keyof Experiment | undefined>,
         createdAtColumn<Experiment>() as LemonTableColumn<Experiment, keyof Experiment | undefined>,
         {
-            width: 0,
+            title: 'Duration',
             render: function Render(_, experiment: Experiment) {
                 return (
-                    <Popconfirm
-                        title="Are you sure you wish to delete this experiment? This will end the experiment and delete any associated feature flags."
-                        onConfirm={() => deleteExperiment(experiment.id)}
-                        okText="Delete"
-                        cancelText="Cancel"
-                        className="plugins-popconfirm"
-                    >
-                        <LemonButton
-                            style={{ color: 'var(--danger)', padding: 4 }}
-                            type="stealth"
-                            icon={<DeleteOutlined style={{ color: 'var(--danger)', fontSize: 16 }} />}
-                            data-attr="plugin-uninstall"
-                        />
-                    </Popconfirm>
+                    <div>
+                        {`${
+                            experiment.end_date
+                                ? dayjs(experiment.start_date).diff(dayjs(experiment.end_date), 'day')
+                                : 0
+                        }`}{' '}
+                        days
+                    </div>
+                )
+            },
+        },
+        {
+            title: 'Status',
+            render: function Render(_, experiment: Experiment) {
+                const statusColors = { active: 'green', draft: 'red', complete: 'purple' }
+                const status = (): string => {
+                    if (!experiment.start_date) {
+                        return 'draft'
+                    } else if (!experiment.end_date) {
+                        return 'active'
+                    }
+                    return 'complete'
+                }
+                return (
+                    <Tag color={statusColors[status()]} style={{ fontWeight: 600 }}>
+                        {status().toUpperCase()}
+                    </Tag>
                 )
             },
         },
