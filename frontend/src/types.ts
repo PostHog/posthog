@@ -37,6 +37,7 @@ export enum AvailableFeature {
     PATHS_ADVANCED = 'paths_advanced',
     CORRELATION_ANALYSIS = 'correlation_analysis',
     GROUP_ANALYTICS = 'group_analytics',
+    MULTIVARIATE_FLAGS = 'multivariate_flags',
 }
 
 export type ColumnChoice = string[] | 'DEFAULT'

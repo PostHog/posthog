@@ -36,6 +36,8 @@ import { LemonSpacer } from 'lib/components/LemonRow'
 import { groupsModel } from '~/models/groupsModel'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
+import { userLogic } from 'scenes/userLogic'
+import { AvailableFeature } from '~/types'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -79,6 +81,7 @@ export function FeatureFlag(): JSX.Element {
         setAggregationGroupTypeIndex,
     } = useActions(featureFlagLogic)
     const { showGroupsOptions } = useValues(groupsModel)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
@@ -297,12 +300,21 @@ export function FeatureFlag(): JSX.Element {
                                         },
                                         {
                                             label: (
-                                                <div>
-                                                    String value (Multivariate test){' '}
-                                                    <LemonTag type="warning">Beta</LemonTag>
-                                                </div>
+                                                <Tooltip
+                                                    title={
+                                                        hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS)
+                                                            ? ''
+                                                            : 'This feature is not available on your current plan.'
+                                                    }
+                                                >
+                                                    <div>
+                                                        String value (Multivariate test){' '}
+                                                        <LemonTag type="warning">Beta</LemonTag>
+                                                    </div>
+                                                </Tooltip>
                                             ),
                                             value: true,
+                                            disabled: !hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS),
                                         },
                                     ]}
                                     onChange={(e) => {
