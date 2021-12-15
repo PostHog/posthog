@@ -862,7 +862,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         }
 
 
-def get_converted_and_dropped_people(client: Client, step):
+def get_converted_and_dropped_actors(client: Client, step):
     # Helper for fetching converted/dropped people for a specified funnel step response
     converted_people_response = client.get(f"{step['actor_endpoint']}?{step['converted_actor_params']}")
     assert converted_people_response.status_code == status.HTTP_200_OK
@@ -889,7 +889,7 @@ def get_converted_and_dropped_people(client: Client, step):
 
 def get_funnel_people_breakdown_by_step(client: Client, funnel_response):
     # Helper to fetch converted/dropped people for a non-breakdown funnel response
-    return [get_converted_and_dropped_people(client=client, step=step) for step in funnel_response["result"]]
+    return [get_converted_and_dropped_actors(client=client, step=step) for step in funnel_response["result"]]
 
 
 def get_funnel_breakdown_people_breakdown_by_step(client: Client, funnel_response):
@@ -897,7 +897,7 @@ def get_funnel_breakdown_people_breakdown_by_step(client: Client, funnel_respons
     return [
         {
             "breakdown_value": breakdown_steps[0]["breakdown_value"],
-            "steps": [get_converted_and_dropped_people(client=client, step=step) for step in breakdown_steps],
+            "steps": [get_converted_and_dropped_actors(client=client, step=step) for step in breakdown_steps],
         }
         for breakdown_steps in funnel_response["result"]
     ]
