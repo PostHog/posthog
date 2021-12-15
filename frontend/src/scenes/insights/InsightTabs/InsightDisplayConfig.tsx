@@ -130,13 +130,6 @@ export function InsightDisplayConfig({
                     </>
                 )}
 
-                {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.Steps && (
-                    <>
-                        <FunnelDisplayLayoutPicker />
-                        {!featureFlags[FEATURE_FLAGS.FUNNEL_SIMPLE_MODE] && <FunnelStepReferencePicker />}
-                    </>
-                )}
-
                 {showPathOptions && (
                     <span className="filter">
                         <PathStepPicker />
