@@ -1,19 +1,20 @@
-import React from 'react'
+import { CalendarOutlined } from '@ant-design/icons'
+import { useValues } from 'kea'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE, FEATURE_FLAGS } from 'lib/constants'
-import { ChartDisplayType, FilterType, FunnelVizType, ItemMode, InsightType } from '~/types'
-import { CalendarOutlined } from '@ant-design/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import React from 'react'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { FunnelBinsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBinsPicker'
+import { ChartDisplayType, FilterType, FunnelVizType, InsightType, ItemMode } from '~/types'
 import { InsightDateFilter } from '../InsightDateFilter'
 import { RetentionDatePicker } from '../RetentionDatePicker'
-import { FunnelStepReferencePicker } from './FunnelTab/FunnelStepReferencePicker'
 import { FunnelDisplayLayoutPicker } from './FunnelTab/FunnelDisplayLayoutPicker'
-import { FunnelBinsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBinsPicker'
+import { FunnelStepReferencePicker } from './FunnelTab/FunnelStepReferencePicker'
 import { PathStepPicker } from './PathTab/PathStepPicker'
-import { useValues } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { ReferencePicker as RetentionReferencePicker } from './RetentionTab/ReferencePicker'
 
 interface InsightDisplayConfigProps {
     clearAnnotationsToCreate: () => void
@@ -45,8 +46,8 @@ const showChartFilter = function (activeView: InsightType): boolean {
         case InsightType.TRENDS:
         case InsightType.STICKINESS:
         case InsightType.SESSIONS:
-        case InsightType.RETENTION:
             return true
+        case InsightType.RETENTION:
         case InsightType.FUNNELS:
             return false
         case InsightType.LIFECYCLE:
@@ -112,6 +113,7 @@ export function InsightDisplayConfig({
                         />
                     </span>
                 )}
+
                 {showIntervalFilter(activeView, filters) && (
                     <span className="filter">
                         <span className="head-title-item">
@@ -121,7 +123,12 @@ export function InsightDisplayConfig({
                     </span>
                 )}
 
-                {activeView === InsightType.RETENTION && <RetentionDatePicker />}
+                {activeView === InsightType.RETENTION && (
+                    <>
+                        <RetentionDatePicker />
+                        <RetentionReferencePicker />
+                    </>
+                )}
 
                 {showPathOptions && (
                     <span className="filter">
