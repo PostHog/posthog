@@ -262,7 +262,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
             toast.success(
                 <div>
                     <h1>Your feature flag has been saved!</h1>
-                    <p>Click here to back to the feature flag list.</p>
+                    <p>Click here to go back to the feature flag list.</p>
                 </div>,
                 {
                     onClick: () => {

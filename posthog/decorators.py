@@ -61,8 +61,8 @@ def cached_function(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
                     cache_key, fresh_result_package, settings.TEMP_CACHE_RESULTS_TTL,
                 )
                 if filter:
-                    dashboard_items = Insight.objects.filter(team_id=team.pk, filters_hash=cache_key)
-                    dashboard_items.update(last_refresh=now())
+                    insights = Insight.objects.filter(team_id=team.pk, filters_hash=cache_key)
+                    insights.update(last_refresh=now())
         return fresh_result_package
 
     return wrapper

@@ -4,12 +4,8 @@ import { Input } from 'antd'
 import { useValues, useActions, BindLogic } from 'kea'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
-import {
-    TaxonomicFilterGroupType,
-    TaxonomicFilterLogicProps,
-    TaxonomicFilterProps,
-} from 'lib/components/TaxonomicFilter/types'
-import { IconKeyboard } from '../icons'
+import { TaxonomicFilterLogicProps, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
+import { IconKeyboard, IconMagnifier } from '../icons'
 import { Tooltip } from '../Tooltip'
 
 let uniqueMemoizedIndex = 0
@@ -20,11 +16,7 @@ export function TaxonomicFilter({
     value,
     onChange,
     onClose,
-    taxonomicGroupTypes = [
-        TaxonomicFilterGroupType.EventProperties,
-        TaxonomicFilterGroupType.PersonProperties,
-        TaxonomicFilterGroupType.Cohorts,
-    ],
+    taxonomicGroupTypes,
     optionsFromProp,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
@@ -60,6 +52,9 @@ export function TaxonomicFilter({
                         style={{ flexGrow: 1 }}
                         data-attr="taxonomic-filter-searchfield"
                         placeholder={`Search ${searchPlaceholder}`}
+                        prefix={
+                            <IconMagnifier className={`magnifier-icon${searchQuery ? ' magnifier-icon-active' : ''}`} />
+                        }
                         value={searchQuery}
                         ref={(ref) => (searchInputRef.current = ref)}
                         onChange={(e) => setSearchQuery(e.target.value)}

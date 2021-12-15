@@ -70,7 +70,7 @@ export function InsightsNav(): JSX.Element {
                 label: 'Lifecycle',
                 type: InsightType.LIFECYCLE,
                 dataAttr: 'insight-lifecycle-tab',
-                hotkey: 'i',
+                hotkey: 'l',
             },
             {
                 label: 'Sessions',
@@ -101,23 +101,21 @@ export function InsightsNav(): JSX.Element {
                 {tabs.map(({ label, type, dataAttr, hotkey, ref, className }) => {
                     const Outer = ({ children }: { children: ReactNode }): JSX.Element =>
                         INSIGHT_TYPES_METADATA[type]?.description ? (
-                            <Tooltip
-                                placement="top"
-                                title={INSIGHT_TYPES_METADATA[type].description}
-                                data-attr={dataAttr}
-                            >
+                            <Tooltip placement="top" title={INSIGHT_TYPES_METADATA[type].description}>
                                 {children}
                             </Tooltip>
                         ) : (
-                            <span data-attr={dataAttr} ref={ref}>
-                                {children}
-                            </span>
+                            <span ref={ref}>{children}</span>
                         )
                     return (
                         <TabPane
                             key={type}
                             tab={
-                                <Link className={clsx('tab-text', className)} to={createInsightUrl(type)}>
+                                <Link
+                                    className={clsx('tab-text', className)}
+                                    to={createInsightUrl(type)}
+                                    data-attr={dataAttr}
+                                >
                                     <Outer>
                                         {label}
                                         <InsightHotkey hotkey={hotkey} />

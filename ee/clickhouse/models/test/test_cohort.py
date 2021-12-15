@@ -534,6 +534,19 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(len(results), 1)
 
+        cohort4 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"action_id": action.pk, "days": 3, "count": 0, "count_operator": "lte"}],
+            name="cohort4",
+        )
+        with freeze_time("2020-01-10"):
+            cohort4.calculate_people_ch()
+
+        results = sync_execute(
+            "SELECT person_id FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort4.pk}
+        )
+        self.assertEqual(len(results), 0)
+
     def test_cohortpeople_deleted_person(self):
         p1 = Person.objects.create(
             team_id=self.team.pk,
@@ -651,7 +664,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             self.assertEqual(
                 sqlparse.format(sql, reindent=True),
                 sqlparse.format(
-                    """
+                    f"""
                 SELECT distinct_id
                 FROM
                 (SELECT distinct_id,
@@ -661,7 +674,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                             person_id,
                             max(_timestamp) as _timestamp
                     FROM person_distinct_id
-                    WHERE team_id = %(team_id)s
+                    WHERE team_id = {self.team.pk}
                     GROUP BY person_id,
                             distinct_id,
                             team_id

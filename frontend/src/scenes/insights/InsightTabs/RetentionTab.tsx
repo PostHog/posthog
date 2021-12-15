@@ -11,7 +11,7 @@ import { TestAccountFilter } from '../TestAccountFilter'
 import './RetentionTab.scss'
 import { ACTIONS_LINE_GRAPH_LINEAR, FEATURE_FLAGS, RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
-import { IconExternalLink } from 'lib/components/icons'
+import { IconOpenInNew } from 'lib/components/icons'
 import { GlobalFiltersTitle } from '../common'
 import { ActionFilter } from '../ActionFilter/ActionFilter'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -152,7 +152,7 @@ export function RetentionTab(): JSX.Element {
                                     style={{ display: 'inline-flex', alignItems: 'center' }}
                                 >
                                     Go to docs
-                                    <IconExternalLink style={{ marginLeft: 4 }} />
+                                    <IconOpenInNew style={{ marginLeft: 4 }} />
                                 </a>
                             </p>
                         </Col>

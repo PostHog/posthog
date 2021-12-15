@@ -8,7 +8,7 @@ import { Breadcrumb as IBreadcrumb } from '~/types'
 import clsx from 'clsx'
 import { Popup } from 'lib/components/Popup/Popup'
 
-function Breadcrumb({ breadcrumb }: { breadcrumb: IBreadcrumb }): JSX.Element {
+function Breadcrumb({ breadcrumb, index }: { breadcrumb: IBreadcrumb; index: number }): JSX.Element {
     const [popoverShown, setPopoverShown] = useState(false)
 
     let breadcrumbContent = (
@@ -18,6 +18,7 @@ function Breadcrumb({ breadcrumb }: { breadcrumb: IBreadcrumb }): JSX.Element {
                 (breadcrumb.path || breadcrumb.popup) && 'Breadcrumbs__breadcrumb--actionable'
             )}
             onClick={() => breadcrumb.popup && setPopoverShown(!popoverShown)}
+            data-attr={`breadcrumb-${index}`}
         >
             {breadcrumb.symbol}
             {breadcrumb.name}
@@ -49,11 +50,11 @@ export function Breadcrumbs(): JSX.Element | null {
 
     return firstBreadcrumb ? (
         <div className="Breadcrumbs">
-            <Breadcrumb breadcrumb={firstBreadcrumb} />
-            {tailBreadcrumbs.map((breadcrumb) => (
+            <Breadcrumb breadcrumb={firstBreadcrumb} index={0} />
+            {tailBreadcrumbs.map((breadcrumb, index) => (
                 <React.Fragment key={breadcrumb.name || '…'}>
                     <IconChevronRight className="Breadcrumbs__separator" />
-                    <Breadcrumb breadcrumb={breadcrumb} />
+                    <Breadcrumb breadcrumb={breadcrumb} index={index + 1} />
                 </React.Fragment>
             ))}
         </div>

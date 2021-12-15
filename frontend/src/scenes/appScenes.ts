@@ -21,6 +21,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Group]: () => import('./groups/Group'),
     [Scene.Action]: () => import('./actions/Action'), // TODO
     [Scene.Experiments]: () => import('./experiments/Experiments'),
+    [Scene.Experiment]: () => import('./experiments/Experiment'),
     [Scene.FeatureFlags]: () => import('./feature-flags/FeatureFlags'),
     [Scene.FeatureFlag]: () => import('./feature-flags/FeatureFlag'),
     [Scene.OrganizationSettings]: () => import('./organization/Settings'),
@@ -29,6 +30,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.ProjectCreateFirst]: () => import('./project/Create'),
     [Scene.SystemStatus]: () => import('./instance/SystemStatus'),
     [Scene.Licenses]: () => import('./instance/Licenses'),
+    [Scene.AsyncMigrations]: () => import('./instance/AsyncMigrations'),
     [Scene.MySettings]: () => import('./me/Settings'),
     [Scene.Annotations]: () => import('./annotations'),
     [Scene.PreflightCheck]: () => import('./PreflightCheck'),

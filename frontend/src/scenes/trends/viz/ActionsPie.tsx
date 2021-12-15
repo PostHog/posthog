@@ -29,7 +29,7 @@ export function ActionsPie({
         _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
         const days = results.length > 0 ? results[0].days : []
 
-        const colorList = getChartColors(color)
+        const colorList = getChartColors(color, results.length)
 
         setData([
             {

@@ -10,10 +10,15 @@ jest.mock('kea-router', () => ({
 }))
 
 describe('createActionFromEvent()', () => {
-    given('subject', () => () => createActionFromEvent(given.teamId, given.event, given.increment, given.recurse))
+    given(
+        'subject',
+        () => () =>
+            createActionFromEvent(given.teamId, given.event, given.increment, given.dataAttributes, given.recurse)
+    )
 
     given('teamId', () => 44)
     given('increment', () => 0)
+    given('dataAttributes', () => [])
     given('recurse', () => jest.fn())
 
     given('event', () => ({
@@ -67,24 +72,115 @@ describe('createActionFromEvent()', () => {
 
         describe('$autocapture events', () => {
             given('eventName', () => '$autocapture')
-            given('eventType', () => 'submit')
-            given('elements', () => [{ tag_name: 'form', text: 'Submit form!' }, {}])
 
-            it('handles submit $autocapture events with elements', async () => {
-                await given.subject()
+            describe('without data attributes', () => {
+                given('eventType', () => 'submit')
+                given('elements', () => [
+                    { tag_name: 'form', text: 'Submit form!', attributes: { 'attr__data-attr': 'form' } },
+                ])
 
-                expect(api.actions.create).toHaveBeenCalledWith({
-                    name: 'submitted form with text "Submit form!"',
-                    steps: [
-                        {
-                            event: '$autocapture',
-                            url: 'http://foo.bar/some/path',
-                            url_matching: 'exact',
-                            tag_name: 'form',
-                            text: 'Submit form!',
-                            properties: [{ key: '$event_type', value: 'submit' }],
-                        },
-                    ],
+                it('handles submit $autocapture events with elements', async () => {
+                    await given.subject()
+
+                    expect(api.actions.create).toHaveBeenCalledWith({
+                        name: 'submitted form with text "Submit form!"',
+                        steps: [
+                            {
+                                event: '$autocapture',
+                                url: 'http://foo.bar/some/path',
+                                url_matching: 'exact',
+                                tag_name: 'form',
+                                text: 'Submit form!',
+                                properties: [{ key: '$event_type', value: 'submit' }],
+                            },
+                        ],
+                    })
+                })
+            })
+
+            describe('with data attributes', () => {
+                given('eventType', () => 'click')
+                given('elements', () => [
+                    { tag_name: 'input', text: 'Submit form!' },
+                    { tag_name: 'form', text: 'Submit form!', attributes: { 'attr__data-attr': 'form' } },
+                ])
+                given('dataAttributes', () => ['data-attr'])
+
+                it('handles data attributes', async () => {
+                    await given.subject()
+
+                    expect(api.actions.create).toHaveBeenCalledWith({
+                        name: 'clicked input with text "Submit form!"',
+                        steps: [
+                            {
+                                event: '$autocapture',
+                                url: 'http://foo.bar/some/path',
+                                url_matching: 'exact',
+                                tag_name: 'input',
+                                href: undefined,
+                                text: 'Submit form!',
+                                selector: '[data-attr="form"] > input',
+                            },
+                        ],
+                    })
+                })
+            })
+
+            describe('with data attributes on a link', () => {
+                given('eventType', () => 'click')
+                given('elements', () => [
+                    { tag_name: 'svg' },
+                    { tag_name: 'a', text: 'Submit form via link!', attributes: { 'attr__data-attr': 'link' } },
+                    { tag_name: 'form', text: 'Submit form!', attributes: { 'attr__data-attr': 'form' } },
+                ])
+                given('dataAttributes', () => ['data-attr'])
+
+                it('handles data attributes', async () => {
+                    await given.subject()
+
+                    expect(api.actions.create).toHaveBeenCalledWith({
+                        name: 'clicked svg',
+                        steps: [
+                            {
+                                event: '$autocapture',
+                                url: 'http://foo.bar/some/path',
+                                url_matching: 'exact',
+                                href: undefined,
+                                tag_name: 'svg',
+                                text: undefined,
+                                selector: '[data-attr="link"]',
+                            },
+                        ],
+                    })
+                })
+            })
+
+            describe('with wildcard data attributes', () => {
+                given('eventType', () => 'click')
+                given('elements', () => [
+                    { tag_name: 'svg' },
+                    { tag_name: 'a', text: 'Submit form via link!', attributes: { 'attr__data-attr': 'link' } },
+                    { tag_name: 'form', text: 'Submit form!', attributes: { 'attr__data-attr': 'form' } },
+                ])
+                given('dataAttributes', () => ['data-at*'])
+
+                it('handles data attributes', async () => {
+                    await given.subject()
+
+                    expect(api.actions.create).toHaveBeenCalledWith({
+                        name: 'clicked svg',
+                        steps: [
+                            {
+                                event: '$autocapture',
+                                url: 'http://foo.bar/some/path',
+                                url_matching: 'exact',
+                                href: undefined,
+                                tag_name: 'svg',
+                                text: undefined,
+                                selector: '[data-attr="link"]',
+                            },
+                        ],
+                    })
                 })
             })
         })
@@ -113,7 +209,13 @@ describe('createActionFromEvent()', () => {
         it('recurses with increment + 1', async () => {
             await given.subject()
 
-            expect(given.recurse).toHaveBeenCalledWith(given.teamId, given.event, 1, given.recurse)
+            expect(given.recurse).toHaveBeenCalledWith(
+                given.teamId,
+                given.event,
+                1,
+                given.dataAttributes,
+                given.recurse
+            )
             expect(toast).not.toHaveBeenCalled()
         })
 

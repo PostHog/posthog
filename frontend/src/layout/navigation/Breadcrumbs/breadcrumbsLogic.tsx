@@ -127,7 +127,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>({
             (activeScene, sceneConfig, appBreadcrumbs, sceneBreadcrumbs) => {
                 if (sceneBreadcrumbs && sceneBreadcrumbs.length > 0) {
                     return [...appBreadcrumbs, ...sceneBreadcrumbs]
-                } else if (sceneConfig) {
+                } else if (sceneConfig?.name) {
                     return [...appBreadcrumbs, { name: sceneConfig.name }]
                 } else if (activeScene) {
                     return [...appBreadcrumbs, { name: identifierToHuman(activeScene) }]

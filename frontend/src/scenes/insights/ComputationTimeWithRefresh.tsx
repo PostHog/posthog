@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { dayjs } from 'lib/dayjs'
 
-export function ComputationTimeWithRefresh(): JSX.Element {
+export function ComputationTimeWithRefresh(): JSX.Element | null {
     const { lastRefresh } = useValues(insightLogic)
     const { loadResults } = useActions(insightLogic)
     const [, setRerenderCounter] = useState(0)
@@ -20,10 +20,7 @@ export function ComputationTimeWithRefresh(): JSX.Element {
     }, [])
 
     return (
-        <div
-            className="text-muted-alt"
-            style={{ marginLeft: 'auto', height: 32, display: 'flex', alignItems: 'center' }}
-        >
+        <div className="text-muted-alt" style={{ height: 32, display: 'flex', alignItems: 'center' }}>
             Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
             <span style={{ padding: '0 4px' }}>•</span>
             <Tooltip

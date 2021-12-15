@@ -2,12 +2,13 @@
 import { kea } from 'kea'
 import { encodeParams } from 'kea-router'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { elementToActionStep, elementToSelector, toolbarFetch, trimElement } from '~/toolbar/utils'
+import { elementToActionStep, toolbarFetch, trimElement } from '~/toolbar/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { heatmapLogicType } from './heatmapLogicType'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
 import { posthog } from '~/toolbar/posthog'
 import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
+import { elementToSelector } from 'lib/actionUtils'
 
 export const heatmapLogic = kea<heatmapLogicType>({
     path: ['toolbar', 'elements', 'heatmapLogic'],
@@ -89,8 +90,8 @@ export const heatmapLogic = kea<heatmapLogicType>({
 
     selectors: {
         elements: [
-            (selectors) => [selectors.events],
-            (events) => {
+            (selectors) => [selectors.events, toolbarLogic.selectors.dataAttributes],
+            (events, dataAttributes) => {
                 // cache all elements in shadow roots
                 const allElements = collectAllElementsDeep('*', document)
                 const elements: CountedHTMLElement[] = []
@@ -98,7 +99,7 @@ export const heatmapLogic = kea<heatmapLogicType>({
                     let combinedSelector
                     let lastSelector
                     for (let i = 0; i < event.elements.length; i++) {
-                        const selector = elementToSelector(event.elements[i])
+                        const selector = elementToSelector(event.elements[i], dataAttributes) || '*'
                         combinedSelector = lastSelector ? `${selector} > ${lastSelector}` : selector
 
                         try {
@@ -148,7 +149,7 @@ export const heatmapLogic = kea<heatmapLogicType>({
                             }
                         } catch (error) {
                             console.error('Invalid selector!', combinedSelector)
-                            throw error
+                            break
                         }
 
                         lastSelector = combinedSelector

@@ -41,6 +41,7 @@ class UserManager(BaseUserManager):
         organization_fields: Optional[Dict[str, Any]] = None,
         team_fields: Optional[Dict[str, Any]] = None,
         create_team: Optional[Callable[["Organization", "User"], "Team"]] = None,
+        is_staff: bool = False,
         **user_fields,
     ) -> Tuple["Organization", "Team", "User"]:
         """Instead of doing the legwork of creating a user from scratch, delegate the details with bootstrap."""
@@ -48,7 +49,9 @@ class UserManager(BaseUserManager):
             organization_fields = organization_fields or {}
             organization_fields.setdefault("name", organization_name)
             organization = Organization.objects.create(**organization_fields)
-            user = self.create_user(email=email, password=password, first_name=first_name, **user_fields)
+            user = self.create_user(
+                email=email, password=password, first_name=first_name, is_staff=is_staff, **user_fields
+            )
             if create_team:
                 team = create_team(organization, user)
             else:

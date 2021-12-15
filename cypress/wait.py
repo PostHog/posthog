@@ -20,7 +20,7 @@ def main():
                 # recieved not 200 from PostHog, but service is up
                 print("Found status %d" % (r.status,))
                 with open("cypress/screenshots/curl.html", "wb") as f:
-                    f.write(r.read)
+                    f.write(r.read)  # type: ignore
                 print("PostHog is still booting. Sleeping for 1 second")
         except:
             print("PostHog is still booting. Sleeping for 1 second")

@@ -96,6 +96,11 @@ class ColumnOptimizer:
                     (self.filter.breakdown, self.filter.breakdown_type, self.filter.breakdown_group_type_index)
                 ] += 1
 
+            # If we have a breakdowns attribute then make sure we pull in everything we
+            # need to calculate it
+            for breakdown in self.filter.breakdowns or []:
+                counter[(breakdown["property"], breakdown["type"], self.filter.breakdown_group_type_index)] += 1
+
         # Both entities and funnel exclusions can contain nested property filters
         for entity in self.filter.entities + cast(List[Entity], self.filter.exclusions):
             counter += extract_tables_and_properties(entity.properties)

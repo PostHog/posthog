@@ -23,9 +23,18 @@ if (typeof window !== 'undefined') {
     }
 }
 
-ReactDOM.render(
-    <Provider store={getContext().store}>
-        <App />
-    </Provider>,
-    document.getElementById('root')
-)
+function renderApp(): void {
+    ReactDOM.render(
+        <Provider store={getContext().store}>
+            <App />
+        </Provider>,
+        document.getElementById('root')
+    )
+}
+
+// Render react only when DOM has loaded - javascript might be cached and loaded before the page is ready.
+if (document.readyState !== 'loading') {
+    renderApp()
+} else {
+    document.addEventListener('DOMContentLoaded', renderApp)
+}

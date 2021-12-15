@@ -1,7 +1,7 @@
 # name: TestClickhousePaths.test_path_by_funnel_after_dropoff_with_group_filter
   '
-  WITH funnel_persons AS
-    (SELECT aggregation_target as person_id,
+  WITH funnel_actors AS
+    (SELECT aggregation_target AS actor_id,
             timestamp
      FROM
        (SELECT aggregation_target,
@@ -152,7 +152,7 @@
               FROM
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id as person_id,
-                        funnel_persons.timestamp AS target_timestamp,
+                        funnel_actors.timestamp AS target_timestamp,
                         if(e.event = '$screen', trim(BOTH '"'
                                                      FROM JSONExtractRaw(properties, '$screen_name')), if(e.event = '$pageview', if(length(trim(BOTH '"'
                                                                                                                                                 FROM JSONExtractRaw(properties, '$current_url'))) > 1, trim(TRAILING '/'
@@ -183,7 +183,7 @@
                     WHERE team_id = 2
                       AND group_type_index = 0
                     GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
-                 JOIN funnel_persons ON funnel_persons.person_id = pdi.person_id
+                 JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
                    AND timestamp >= '2021-05-01 00:00:00'
                    AND timestamp <= '2021-05-07 23:59:59'
@@ -208,8 +208,8 @@
 ---
 # name: TestClickhousePaths.test_path_by_funnel_after_dropoff_with_group_filter.1
   '
-  WITH funnel_persons AS
-    (SELECT aggregation_target as person_id,
+  WITH funnel_actors AS
+    (SELECT aggregation_target AS actor_id,
             timestamp
      FROM
        (SELECT aggregation_target,
@@ -357,7 +357,7 @@
               FROM
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id as person_id,
-                        funnel_persons.timestamp AS target_timestamp,
+                        funnel_actors.timestamp AS target_timestamp,
                         if(e.event = '$screen', trim(BOTH '"'
                                                      FROM JSONExtractRaw(properties, '$screen_name')), if(e.event = '$pageview', if(length(trim(BOTH '"'
                                                                                                                                                 FROM JSONExtractRaw(properties, '$current_url'))) > 1, trim(TRAILING '/'
@@ -388,7 +388,7 @@
                     WHERE team_id = 2
                       AND group_type_index = 0
                     GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
-                 JOIN funnel_persons ON funnel_persons.person_id = pdi.person_id
+                 JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
                    AND timestamp >= '2021-05-01 00:00:00'
                    AND timestamp <= '2021-05-07 23:59:59'
@@ -411,8 +411,8 @@
 ---
 # name: TestClickhousePaths.test_path_by_funnel_after_dropoff_with_group_filter.2
   '
-  WITH funnel_persons AS
-    (SELECT aggregation_target as person_id,
+  WITH funnel_actors AS
+    (SELECT aggregation_target AS actor_id,
             timestamp
      FROM
        (SELECT aggregation_target,
@@ -560,7 +560,7 @@
               FROM
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id as person_id,
-                        funnel_persons.timestamp AS target_timestamp,
+                        funnel_actors.timestamp AS target_timestamp,
                         if(e.event = '$screen', trim(BOTH '"'
                                                      FROM JSONExtractRaw(properties, '$screen_name')), if(e.event = '$pageview', if(length(trim(BOTH '"'
                                                                                                                                                 FROM JSONExtractRaw(properties, '$current_url'))) > 1, trim(TRAILING '/'
@@ -591,7 +591,7 @@
                     WHERE team_id = 2
                       AND group_type_index = 0
                     GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
-                 JOIN funnel_persons ON funnel_persons.person_id = pdi.person_id
+                 JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
                    AND timestamp >= '2021-05-01 00:00:00'
                    AND timestamp <= '2021-05-07 23:59:59'
@@ -614,8 +614,8 @@
 ---
 # name: TestClickhousePaths.test_path_by_funnel_after_dropoff_with_group_filter.3
   '
-  WITH funnel_persons AS
-    (SELECT aggregation_target as person_id,
+  WITH funnel_actors AS
+    (SELECT aggregation_target AS actor_id,
             timestamp
      FROM
        (SELECT aggregation_target,
@@ -763,7 +763,7 @@
               FROM
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id as person_id,
-                        funnel_persons.timestamp AS target_timestamp,
+                        funnel_actors.timestamp AS target_timestamp,
                         if(e.event = '$screen', trim(BOTH '"'
                                                      FROM JSONExtractRaw(properties, '$screen_name')), if(e.event = '$pageview', if(length(trim(BOTH '"'
                                                                                                                                                 FROM JSONExtractRaw(properties, '$current_url'))) > 1, trim(TRAILING '/'
@@ -794,7 +794,7 @@
                     WHERE team_id = 2
                       AND group_type_index = 0
                     GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
-                 JOIN funnel_persons ON funnel_persons.person_id = pdi.person_id
+                 JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
                    AND timestamp >= '2021-05-01 00:00:00'
                    AND timestamp <= '2021-05-07 23:59:59'
@@ -817,8 +817,8 @@
 ---
 # name: TestClickhousePaths.test_path_by_funnel_after_dropoff_with_group_filter.4
   '
-  WITH funnel_persons AS
-    (SELECT aggregation_target as person_id,
+  WITH funnel_actors AS
+    (SELECT aggregation_target AS actor_id,
             timestamp
      FROM
        (SELECT aggregation_target,
@@ -966,7 +966,7 @@
               FROM
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id as person_id,
-                        funnel_persons.timestamp AS target_timestamp,
+                        funnel_actors.timestamp AS target_timestamp,
                         if(e.event = '$screen', trim(BOTH '"'
                                                      FROM JSONExtractRaw(properties, '$screen_name')), if(e.event = '$pageview', if(length(trim(BOTH '"'
                                                                                                                                                 FROM JSONExtractRaw(properties, '$current_url'))) > 1, trim(TRAILING '/'
@@ -997,7 +997,7 @@
                     WHERE team_id = 2
                       AND group_type_index = 0
                     GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
-                 JOIN funnel_persons ON funnel_persons.person_id = pdi.person_id
+                 JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
                    AND timestamp >= '2021-05-01 00:00:00'
                    AND timestamp <= '2021-05-07 23:59:59'

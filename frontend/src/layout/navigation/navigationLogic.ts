@@ -1,8 +1,6 @@
 import dayjs from 'dayjs'
 import { kea } from 'kea'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -24,12 +22,12 @@ type WarningType =
 export const navigationLogic = kea<navigationLogicType<WarningType>>({
     path: ['layout', 'navigation', 'navigationLogic'],
     connect: {
-        values: [featureFlagLogic, ['featureFlags'], sceneLogic, ['sceneConfig']],
+        values: [sceneLogic, ['sceneConfig']],
     },
     actions: {
-        toggleSideBar: true,
-        hideSideBar: true,
-        hideAnnouncement: true,
+        toggleSideBarBase: true,
+        toggleSideBarMobile: true,
+        hideSideBarMobile: true,
         openSitePopover: true,
         closeSitePopover: true,
         toggleSitePopover: true,
@@ -46,17 +44,20 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
         setHotkeyNavigationEngaged: (hotkeyNavigationEngaged: boolean) => ({ hotkeyNavigationEngaged }),
     },
     reducers: {
-        isSideBarShownRaw: [
-            window.innerWidth >= 992, // Sync width threshold with Sass variable $lg!
+        // Non-mobile base
+        isSideBarShownBase: [
+            true,
+            { persist: true },
             {
-                toggleSideBar: (state) => !state,
-                hideSideBar: () => false,
+                toggleSideBarBase: (state) => !state,
             },
         ],
-        isAnnouncementShown: [
-            true,
+        // Mobile, applied on top of base, so that the sidebar does not show up annoyingly when shrinking the window
+        isSideBarShownMobile: [
+            false,
             {
-                hideAnnouncement: () => false,
+                toggleSideBarMobile: (state) => !state,
+                hideSideBarMobile: () => false,
             },
         ],
         isSitePopoverOpen: [
@@ -111,22 +112,15 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
     },
     windowValues: () => ({
         fullscreen: (window) => !!window.document.fullscreenElement,
+        mobileLayout: (window) => window.innerWidth < 992, // Sync width threshold with Sass variable $lg!
     }),
     selectors: {
         /** `bareNav` whether the current scene should display a sidebar at all */
         bareNav: [(s) => [s.fullscreen, s.sceneConfig], (fullscreen, sceneConfig) => fullscreen || sceneConfig?.plain],
         isSideBarShown: [
-            (s) => [s.isSideBarShownRaw, s.bareNav],
-            (isSideBarShownRaw, bareNav) => isSideBarShownRaw && !bareNav,
-        ],
-        announcementMessage: [
-            (s) => [s.featureFlags],
-            (featureFlags): string | null => {
-                const flagValue = featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]
-                return flagValue && typeof flagValue === 'string'
-                    ? featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]
-                    : null
-            },
+            (s) => [s.mobileLayout, s.isSideBarShownBase, s.isSideBarShownMobile, s.bareNav],
+            (mobileLayout, isSideBarShownBase, isSideBarShownMobile, bareNav) =>
+                !bareNav && (mobileLayout ? isSideBarShownMobile : isSideBarShownBase),
         ],
         systemStatus: [
             () => [
@@ -150,7 +144,7 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
                 }
 
                 // if you have status metrics these three must have `value: true`
-                const aliveMetrics = ['redis_alive', 'db_alive', 'plugin_sever_alive']
+                const aliveMetrics = ['redis_alive', 'db_alive', 'plugin_sever_alive', 'async_migrations_ok']
                 const aliveSignals = statusMetrics
                     .filter((sm) => sm.key && aliveMetrics.includes(sm.key))
                     .filter((sm) => sm.value).length

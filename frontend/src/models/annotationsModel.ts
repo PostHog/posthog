@@ -35,11 +35,11 @@ export const annotationsModel = kea<annotationsModelType>({
             createGlobalAnnotation: async ({ insightId, content, date_marker, created_at }) => {
                 await api.create(`api/projects/${teamLogic.values.currentTeamId}/annotations`, {
                     content,
-                    date_marker: dayjs.isDayjs(date_marker) ? date_marker : dayjs(date_marker),
-                    created_at,
+                    date_marker: (dayjs.isDayjs(date_marker) ? date_marker : dayjs(date_marker)).toISOString(),
+                    created_at: created_at.toISOString(),
                     dashboard_item: insightId,
                     scope: AnnotationScope.Organization,
-                })
+                } as Partial<AnnotationType>)
                 return values.globalAnnotations || []
             },
         },

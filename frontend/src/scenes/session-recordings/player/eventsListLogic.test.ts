@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
-import { List } from 'react-virtualized/dist/commonjs/List'
+import { List } from 'react-virtualized/dist/es/List'
 import { initKeaTestLogic } from '~/test/init'
 import {
     DEFAULT_SCROLLING_RESET_TIME_INTERVAL,
@@ -46,9 +46,13 @@ describe('eventsListLogic', () => {
 
     describe('handle event click', () => {
         it('happy case', async () => {
+            const playerPosition = {
+                windowId: 'window-id',
+                time: 10000,
+            }
             await expectLogic(logic, () => {
-                logic.actions.handleEventClick(10)
-            }).toDispatchActions(['handleEventClick', sessionRecordingPlayerLogic.actionCreators.seek(10)])
+                logic.actions.handleEventClick(playerPosition)
+            }).toDispatchActions(['handleEventClick', sessionRecordingPlayerLogic.actionCreators.seek(playerPosition)])
         })
 
         const nanInputs: Record<string, any> = {
@@ -61,7 +65,10 @@ describe('eventsListLogic', () => {
         Object.entries(nanInputs).forEach(([key, value]) => {
             it(`NaN case: ${key}`, async () => {
                 await expectLogic(logic, async () => {
-                    logic.actions.handleEventClick(value)
+                    logic.actions.handleEventClick({
+                        windowId: 'window-id',
+                        time: value,
+                    })
                 })
                     .toDispatchActions(['handleEventClick'])
                     .toNotHaveDispatchedActions([sessionRecordingPlayerLogic.actionCreators.seek(value)])

@@ -1,16 +1,11 @@
 import Simmer, { Simmer as SimmerType } from '@posthog/simmerjs'
 import { cssEscape } from 'lib/utils/cssEscape'
-import { ActionStepType, ActionStepUrlMatching, ElementType } from '~/types'
+import { ActionStepType, ActionStepUrlMatching } from '~/types'
 import { ActionStepForm, BoxColor } from '~/toolbar/types'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { combineUrl, encodeParams } from 'kea-router'
-
-// these plus any element with cursor:pointer will be click targets
-const CLICK_TARGET_SELECTOR = `a, button, input, select, textarea, label`
-
-// always ignore the following
-const TAGS_TO_IGNORE = ['html', 'body', 'meta', 'head', 'script', 'link', 'style']
+import { CLICK_TARGET_SELECTOR, CLICK_TARGETS, escapeRegex, TAGS_TO_IGNORE } from 'lib/actionUtils'
 
 let simmer: SimmerType
 
@@ -58,37 +53,6 @@ export function elementToActionStep(element: HTMLElement, dataAttributes: string
         url: window.location.protocol + '//' + window.location.host + window.location.pathname,
         url_matching: ActionStepUrlMatching.Exact,
     }
-}
-
-export function elementToSelector(element: ElementType): string {
-    let selector = ''
-    if (element.tag_name) {
-        selector += cssEscape(element.tag_name)
-    }
-    if (element.attributes?.['attr__data-attr']) {
-        selector += `[data-attr="${element.attributes['attr__data-attr']}"]`
-        return selector
-    }
-    if (element.attr_id) {
-        selector += `#${cssEscape(element.attr_id)}`
-        return selector
-    }
-    if (element.attr_class) {
-        selector += element.attr_class
-            .filter((a) => a)
-            .map((a) => `.${cssEscape(a)}`)
-            .join('')
-    }
-    if (element.href && element.tag_name === 'a') {
-        selector += `[href="${cssEscape(element.href)}"]`
-    }
-    if (element.nth_child) {
-        selector += `:nth-child(${parseInt(element.nth_child as any)})`
-    }
-    if (element.nth_of_type) {
-        selector += `:nth-of-type(${parseInt(element.nth_of_type as any)})`
-    }
-    return selector
 }
 
 export function getToolbarElement(): HTMLElement | null {
@@ -173,11 +137,10 @@ export function getAllClickTargets(startNode: Document | HTMLElement | ShadowRoo
     const elements = startNode.querySelectorAll(CLICK_TARGET_SELECTOR) as unknown as HTMLElement[]
 
     const allElements = [...(startNode.querySelectorAll('*') as unknown as HTMLElement[])]
-    const clickTags = CLICK_TARGET_SELECTOR.split(',').map((c) => c.trim())
 
     // loop through all elements and getComputedStyle
     const pointerElements = allElements.filter((el) => {
-        if (clickTags.indexOf(el.tagName.toLowerCase()) >= 0) {
+        if (CLICK_TARGETS.indexOf(el.tagName.toLowerCase()) >= 0) {
             return false
         }
         const compStyles = window.getComputedStyle(el)
@@ -210,7 +173,6 @@ export function stepMatchesHref(step: ActionStepType, href: string): boolean {
 }
 
 function matchRuleShort(str: string, rule: string): boolean {
-    const escapeRegex = (strng: string): string => strng.replace(/([.*+?^=!:${}()|[\]/\\])/g, '\\$1')
     return new RegExp('^' + rule.split('%').map(escapeRegex).join('.*') + '$').test(str)
 }
 

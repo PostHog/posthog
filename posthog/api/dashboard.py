@@ -211,11 +211,6 @@ class SharedDashboardsViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet
     lookup_field = "share_token"
 
 
-# TODO: Delete this class, as it's been replaced by InsightViewSet
-class DashboardItemViewSet(InsightViewSet):
-    pass
-
-
 @xframe_options_exempt
 def shared_dashboard(request: HttpRequest, share_token: str):
     dashboard = get_object_or_404(Dashboard, is_shared=True, share_token=share_token)
@@ -234,5 +229,5 @@ def shared_dashboard(request: HttpRequest, share_token: str):
     )
 
 
-class LegacyDashboardItemViewSet(DashboardItemViewSet):
+class LegacyInsightViewSet(InsightViewSet):
     legacy_team_compatibility = True

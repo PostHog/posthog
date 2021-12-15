@@ -5,7 +5,7 @@ import { Link } from 'lib/components/Link'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { deleteWithUndo } from 'lib/utils'
 import React from 'react'
-import { DashboardItemType, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
+import { InsightModel, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
 import { AppstoreFilled, StarFilled, StarOutlined, PlusOutlined, UnorderedListOutlined } from '@ant-design/icons'
 import './SavedInsights.scss'
@@ -121,9 +121,11 @@ function NewInsightButton(): JSX.Element {
                             <Row wrap={false}>
                                 <Col flex="none">
                                     {listedInsightTypeMetadata.icon && (
-                                        <div style={{ fontSize: '2rem' }}>
-                                            <listedInsightTypeMetadata.icon color="var(--muted-alt)" noBackground />
-                                        </div>
+                                        <listedInsightTypeMetadata.icon
+                                            color="var(--muted-alt)"
+                                            noBackground
+                                            style={{ fontSize: '2rem' }}
+                                        />
                                     )}
                                 </Col>
                                 <Col flex="Auto" style={{ paddingLeft: '1rem' }}>
@@ -171,7 +173,7 @@ export function SavedInsights(): JSX.Element {
     const startCount = (page - 1) * INSIGHTS_PER_PAGE + 1
     const endCount = page * INSIGHTS_PER_PAGE < count ? page * INSIGHTS_PER_PAGE : count
 
-    const columns: LemonTableColumns<DashboardItemType> = [
+    const columns: LemonTableColumns<InsightModel> = [
         {
             key: 'id',
             className: 'icon-column',
@@ -179,11 +181,7 @@ export function SavedInsights(): JSX.Element {
             render: function renderType(_, insight) {
                 const typeMetadata = INSIGHT_TYPES_METADATA[insight.filters?.insight || InsightType.TRENDS]
                 if (typeMetadata && typeMetadata.icon) {
-                    return (
-                        <span style={{ fontSize: '2rem' }}>
-                            <typeMetadata.icon />
-                        </span>
-                    )
+                    return <typeMetadata.icon style={{ display: 'block', fontSize: '2rem' }} />
                 }
             },
         },
@@ -193,10 +191,10 @@ export function SavedInsights(): JSX.Element {
             key: 'name',
             render: function renderName(name: string, insight) {
                 return (
-                    <Col>
-                        <Row wrap={false}>
-                            <Link to={urls.insightView(insight.short_id, insight.filters)}>
-                                <h4 className="row-name">{name || <i>{UNNAMED_INSIGHT_NAME}</i>}</h4>
+                    <>
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <Link to={urls.insightView(insight.short_id, insight.filters)} className="row-name">
+                                {name || <i>{UNNAMED_INSIGHT_NAME}</i>}
                             </Link>
                             <div
                                 style={{ cursor: 'pointer', width: 'fit-content', marginLeft: 8 }}
@@ -208,11 +206,11 @@ export function SavedInsights(): JSX.Element {
                                     <StarOutlined className="star-outlined" />
                                 )}
                             </div>
-                        </Row>
+                        </div>
                         {hasDashboardCollaboration && insight.description && (
                             <span className="row-description">{insight.description}</span>
                         )}
-                    </Col>
+                    </>
                 )
             },
         },
@@ -220,7 +218,7 @@ export function SavedInsights(): JSX.Element {
             ? [
                   {
                       title: 'Tags',
-                      dataIndex: 'tags' as keyof DashboardItemType,
+                      dataIndex: 'tags' as keyof InsightModel,
                       key: 'tags',
                       render: function renderTags(tags: string[]) {
                           return <ObjectTags tags={tags} staticOnly />
@@ -230,8 +228,8 @@ export function SavedInsights(): JSX.Element {
             : []),
         ...(tab === SavedInsightsTabs.Yours
             ? []
-            : [createdByColumn() as LemonTableColumn<DashboardItemType, keyof DashboardItemType | undefined>]),
-        createdAtColumn() as LemonTableColumn<DashboardItemType, keyof DashboardItemType | undefined>,
+            : [createdByColumn() as LemonTableColumn<InsightModel, keyof InsightModel | undefined>]),
+        createdAtColumn() as LemonTableColumn<InsightModel, keyof InsightModel | undefined>,
         {
             title: 'Last modified',
             sorter: true,
@@ -446,7 +444,7 @@ export function SavedInsights(): JSX.Element {
                     ) : (
                         <Row gutter={[16, 16]}>
                             {insights &&
-                                insights.results.map((insight: DashboardItemType, index: number) => (
+                                insights.results.map((insight: InsightModel, index: number) => (
                                     <Col
                                         xs={24}
                                         sm={24}

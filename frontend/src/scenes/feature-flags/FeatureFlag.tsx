@@ -30,13 +30,14 @@ import { featureFlagLogic } from './featureFlagLogic'
 import { featureFlagLogic as featureFlagClientLogic } from 'lib/logic/featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
-import { IconExternalLink, IconJavascript, IconPython } from 'lib/components/icons'
+import { IconOpenInNew, IconJavascript, IconPython } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SceneExport } from 'scenes/sceneTypes'
 import { APISnippet, JSSnippet, PythonSnippet, UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { LemonSpacer } from 'lib/components/LemonRow'
 import { groupsModel } from '~/models/groupsModel'
+import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -90,6 +91,9 @@ export function FeatureFlag(): JSX.Element {
     useEffect(() => {
         form.setFieldsValue({ ...featureFlag })
     }, [featureFlag])
+
+    // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
+    const matchByGroupsIntroductionOption = GroupsIntroductionOption({ value: -2 })
 
     return (
         <div className="feature-flag">
@@ -192,7 +196,7 @@ export function FeatureFlag(): JSX.Element {
                                                 rel="noopener"
                                             >
                                                 {' '}
-                                                affect the persistence of your flag <IconExternalLink />
+                                                affect the persistence of your flag <IconOpenInNew />
                                             </a>
                                         </small>
                                     ) : undefined
@@ -491,6 +495,10 @@ export function FeatureFlag(): JSX.Element {
                                     style={{ marginLeft: 8 }}
                                     data-attr="feature-flag-aggregation-filter"
                                     dropdownMatchSelectWidth={false}
+                                    dropdownAlign={{
+                                        // Align this dropdown by the right-hand-side of button
+                                        points: ['tr', 'br'],
+                                    }}
                                 >
                                     <Select.Option key={-1} value={-1}>
                                         Users
@@ -503,6 +511,7 @@ export function FeatureFlag(): JSX.Element {
                                             {capitalizeFirstLetter(groupType.group_type)}(s)
                                         </Select.Option>
                                     ))}
+                                    {matchByGroupsIntroductionOption}
                                 </Select>
                             </div>
                         )}

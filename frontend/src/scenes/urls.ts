@@ -28,6 +28,7 @@ export const urls = {
         `/groups/${groupTypeIndex}/${encode ? encodeURIComponent(groupKey) : groupKey}`,
     cohort: (id: string | number) => `/cohorts/${id}`,
     cohorts: () => '/cohorts',
+    experiment: (id: string | number) => `/experiments/${id}`,
     experiments: () => '/experiments',
     featureFlags: () => '/feature_flags',
     featureFlag: (id: string | number) => `/feature_flags/${id}`,
@@ -55,4 +56,5 @@ export const urls = {
     instanceLicenses: () => '/instance/licenses',
     systemStatus: () => '/instance/status',
     systemStatusPage: (page: string) => `/instance/status/${page}`,
+    asyncMigrations: () => '/instance/async_migrations',
 }

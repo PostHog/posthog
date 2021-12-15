@@ -14,7 +14,7 @@ class Command(BaseCommand):
         test_runner.setup_test_environment()
 
         if is_clickhouse_enabled():
-            from infi.clickhouse_orm import Database  # type: ignore
+            from infi.clickhouse_orm import Database
 
             from posthog.settings import (
                 CLICKHOUSE_DATABASE,

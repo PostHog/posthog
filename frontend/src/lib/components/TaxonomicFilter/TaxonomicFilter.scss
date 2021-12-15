@@ -4,16 +4,60 @@
     max-width: calc(100vw - 40px);
     background: white;
 
-    .ant-tabs-tab {
-        margin: 0 1rem 0 0;
-        .ant-tag {
-            margin: 0 0 0 0.125rem;
-        }
-    }
-
     &.one-taxonomic-tab {
         .taxonomic-infinite-list {
             margin-top: 10px;
+        }
+    }
+
+    .taxonomic-group-title {
+        display: flex;
+        width: 100%;
+        align-items: stretch;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        font-size: 12px;
+        line-height: 12px;
+        padding-top: 16px;
+        margin-bottom: 12px;
+        font-weight: 600;
+        &.with-border {
+            border-top: 1px solid var(--border-light);
+        }
+    }
+
+    .taxonomic-pills {
+        margin-top: 8px;
+        margin-bottom: 8px;
+        .ant-tag {
+            transition: none;
+            margin-right: 2px;
+            margin-bottom: 2px;
+            cursor: pointer;
+            color: var(--primary);
+            background: var(--bg-side);
+            border-color: var(--bg-side);
+            &.taxonomic-count-zero {
+                color: var(--text-muted);
+                cursor: not-allowed;
+            }
+            &.taxonomic-pill-active {
+                color: var(--text-light);
+                background: var(--primary);
+                border-color: var(--primary);
+            }
+        }
+    }
+
+    .ant-input-affix-wrapper {
+        padding: 4px 18px 4px 8px;
+    }
+
+    .magnifier-icon {
+        font-size: 18px;
+        color: var(--text-muted);
+        &.magnifier-icon-active {
+            color: var(--primary);
         }
     }
 }
