@@ -1,0 +1,107 @@
+.InsightCard {
+    transition: border 200ms ease;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    height: 30rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    z-index: 3;
+    background: var(--bg-side);
+    overflow: hidden;
+    &--highlighted {
+        border-color: var(--primary);
+    }
+    .InsightMeta {
+        background: #fff;
+        border-top: 1px solid var(--border);
+    }
+}
+
+.InsightViz {
+    position: relative;
+    flex-grow: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    .graph-container {
+        padding: 1rem;
+    }
+}
+
+.InsightMeta {
+    padding: 0 1rem;
+    width: 100%;
+    > div {
+        display: flex;
+        padding: 1rem 0;
+        width: 100%;
+        &:not(:last-child) {
+            border-bottom: 1px solid var(--border);
+        }
+    }
+    h5 {
+        line-height: 1.5rem;
+        margin-bottom: 0;
+    }
+    h4 {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        height: 1.5em;
+        font-size: 1rem;
+        font-weight: 600;
+        margin-bottom: 0.125rem;
+    }
+}
+
+.InsightMeta__ribbon {
+    align-self: stretch;
+    width: 0.25rem;
+    margin-right: 0.75rem;
+    border-radius: var(--radius);
+    background: var(--text-muted); // Just a fallback value in case there's some unrecognized value
+    &.blue {
+        background: var(--blue);
+    }
+    &.purple {
+        background: var(--purple);
+    }
+    &.green {
+        background: var(--green);
+    }
+    &.black {
+        background: var(--text-default);
+    }
+}
+
+.InsightMeta__main {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    overflow: auto;
+    width: 100%;
+    > * {
+        max-width: 100%; // Make sure that horizontal overflow is capped, so that ellipsis on insight name works
+    }
+}
+
+.InsightMeta__top {
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 1.5rem;
+}
+
+.InsightMeta__controls {
+    display: flex;
+}
+
+.InsightMeta__description {
+    color: var(--text-muted);
+    max-height: 7em; // Display at most 4.5 lines at once, then scroll
+    overflow: auto;
+}

@@ -635,6 +635,13 @@ export interface PlanInterface {
 
 // Creating a nominal type: https://github.com/microsoft/TypeScript/issues/202#issuecomment-961853101
 export type InsightShortId = string & { readonly '': unique symbol }
+export enum InsightColor {
+    White = 'white',
+    Black = 'black',
+    Blue = 'blue',
+    Green = 'green',
+    Purple = 'purple',
+}
 
 export interface InsightModel {
     /** The unique key we use when communicating with the user, e.g. in URLs */
@@ -651,7 +658,7 @@ export interface InsightModel {
     saved: boolean
     created_at: string
     layouts: Record<string, any>
-    color: string | null
+    color: InsightColor | null
     last_refresh: string
     refreshing: boolean
     created_by: UserBasicType | null
