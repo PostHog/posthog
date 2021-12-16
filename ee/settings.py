@@ -46,7 +46,7 @@ SOCIAL_AUTH_SAML_TECHNICAL_CONTACT = {"givenName": "PostHog Support", "emailAddr
 SOCIAL_AUTH_SAML_SUPPORT_CONTACT = SOCIAL_AUTH_SAML_TECHNICAL_CONTACT
 
 
-def get_env_default_if_empty_string(key, default=""):
+def getenv(key, default=""):
     """
     This is prevent a bug in helm deploys where the env var is not returning the default
     because os.getenv is returning an empty string '' 
@@ -65,13 +65,13 @@ if not SAML_DISABLED and os.getenv("SAML_ENTITY_ID") and os.getenv("SAML_ACS_URL
     ]
     SOCIAL_AUTH_SAML_ENABLED_IDPS = {
         "posthog_custom": {
-            "entity_id": get_env_default_if_empty_string("SAML_ENTITY_ID"),
-            "url": get_env_default_if_empty_string("SAML_ACS_URL"),
-            "x509cert": get_env_default_if_empty_string("SAML_X509_CERT"),
-            "attr_user_permanent_id": get_env_default_if_empty_string("SAML_ATTR_PERMANENT_ID", "name_id"),
-            "attr_first_name": get_env_default_if_empty_string("SAML_ATTR_FIRST_NAME", "first_name"),
-            "attr_last_name": get_env_default_if_empty_string("SAML_ATTR_LAST_NAME", "last_name"),
-            "attr_email": get_env_default_if_empty_string("SAML_ATTR_EMAIL", "email"),
+            "entity_id": getenv("SAML_ENTITY_ID"),
+            "url": getenv("SAML_ACS_URL"),
+            "x509cert": getenv("SAML_X509_CERT"),
+            "attr_user_permanent_id": getenv("SAML_ATTR_PERMANENT_ID", "name_id"),
+            "attr_first_name": getenv("SAML_ATTR_FIRST_NAME", "first_name"),
+            "attr_last_name": getenv("SAML_ATTR_LAST_NAME", "last_name"),
+            "attr_email": getenv("SAML_ATTR_EMAIL", "email"),
         },
     }
     SAML_ENFORCED = get_from_env("SAML_ENFORCED", False, type_cast=str_to_bool)
