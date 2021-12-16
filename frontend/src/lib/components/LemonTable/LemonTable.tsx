@@ -66,7 +66,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
 export function LemonTable<T extends Record<string, any>>({
     id,
     columns,
-    dataSource,
+    dataSource = [],
     rowKey,
     rowClassName,
     onRow,

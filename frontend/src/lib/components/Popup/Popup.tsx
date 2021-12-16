@@ -1,5 +1,5 @@
 import './Popup.scss'
-import React, { MouseEventHandler, ReactElement, useContext, useEffect, useMemo, useState } from 'react'
+import React, { MouseEventHandler, ReactElement, useMemo, useState } from 'react'
 import ReactDOM from 'react-dom'
 import { usePopper } from 'react-popper'
 import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
@@ -25,10 +25,10 @@ export interface PopupProps {
     className?: string
 }
 
-// if we're inside a popup inside a popup, prevent the parent's onClickOutside from working
-const PopupContext = React.createContext<number>(0)
-const disabledPopups = new Map<number, number>()
-let uniqueMemoizedIndex = 0
+/** 0 means no parent. */
+export const PopupContext = React.createContext<number>(0)
+
+let uniqueMemoizedIndex = 1
 
 /** This is a custom popup control that uses `react-popper` to position DOM nodes */
 export function Popup({
@@ -43,32 +43,13 @@ export function Popup({
     actionable = false,
     sameWidth = false,
 }: PopupProps): JSX.Element {
-    const popupId = useMemo(() => ++uniqueMemoizedIndex, [])
-
     const [referenceElement, setReferenceElement] = useState<HTMLDivElement | null>(null)
     const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
 
-    const parentPopupId = useContext(PopupContext)
+    const popupId = useMemo(() => uniqueMemoizedIndex++, [])
     const localRefs = [popperElement, referenceElement]
 
-    useEffect(() => {
-        if (visible) {
-            disabledPopups.set(parentPopupId, (disabledPopups.get(parentPopupId) || 0) + 1)
-            return () => {
-                disabledPopups.set(parentPopupId, (disabledPopups.get(parentPopupId) || 0) - 1)
-            }
-        }
-    }, [visible, parentPopupId])
-
-    useOutsideClickHandler(
-        localRefs,
-        (event) => {
-            if (visible && !disabledPopups.get(popupId)) {
-                onClickOutside?.(event)
-            }
-        },
-        [visible, disabledPopups]
-    )
+    useOutsideClickHandler(localRefs, (event) => visible && onClickOutside?.(event), [visible])
 
     const modifiers = useMemo<Partial<Modifier<any, any>>[]>(
         () => [

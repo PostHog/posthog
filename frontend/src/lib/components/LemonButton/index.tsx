@@ -1,17 +1,17 @@
 import clsx from 'clsx'
-import React from 'react'
-import { IconArrowDropDown } from '../icons'
+import React, { useContext, useState } from 'react'
+import { IconArrowDropDown, IconChevronRight } from '../icons'
 import { LemonRow, LemonRowProps, LemonRowPropsBase } from '../LemonRow'
 import { Link } from '../Link'
-import { Popup, PopupProps } from '../Popup/Popup'
+import { Popup, PopupProps, PopupContext } from '../Popup/Popup'
 import './LemonButton.scss'
 
 export type LemonButtonPopup = Omit<PopupProps, 'children'>
-
 export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 'tag' | 'type' | 'ref'> {
     type?: 'default' | 'primary' | 'stealth' | 'highlighted'
     /** URL to link to. */
     to?: string
+    /** DEPRECATED: Use `LemonButtonWithPopup` instead. */
     popup?: LemonButtonPopup
 }
 
@@ -73,5 +73,64 @@ export function LemonButtonWithSideAction({ sideAction, ...buttonProps }: LemonB
             <LemonButton {...buttonProps} sideIcon={<div />} />{' '}
             <LemonButton className="side-button" compact {...sideAction} />
         </div>
+    )
+}
+
+/** Note that a LemonButtonWithPopup can be compact OR have a sideIcon, but not both at once. */
+export type LemonButtonWithPopupProps =
+    | (LemonButtonPropsBase & {
+          popup: LemonButtonPopup
+          sideIcon?: null
+          compact?: boolean
+      })
+    | (LemonButtonPropsBase & {
+          popup: LemonButtonPopup
+
+          sideIcon?: React.ReactElement | null
+          compact?: false
+      })
+
+/**
+ * Styled button that opens a popup menu on click.
+ * The difference vs. plain `LemonButton` is popup visibility being controlled internally, which is more convenient.
+ */
+export function LemonButtonWithPopup({
+    popup: { onClickOutside, onClickInside, ...popupProps },
+    onClick,
+    ...buttonProps
+}: LemonButtonWithPopupProps): JSX.Element {
+    const parentPopupId = useContext(PopupContext)
+    const [popupVisible, setPopupVisible] = useState(false)
+
+    if (!buttonProps.compact && !buttonProps.sideIcon) {
+        buttonProps.sideIcon = popupProps.placement?.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
+    }
+
+    return (
+        <Popup
+            visible={popupVisible}
+            onClickOutside={(e) => {
+                setPopupVisible(false)
+                onClickOutside?.(e)
+            }}
+            onClickInside={(e) => {
+                setPopupVisible(false)
+                onClickInside?.(e)
+            }}
+            {...popupProps}
+        >
+            <LemonButton
+                onClick={(e) => {
+                    setPopupVisible((state) => !state)
+                    onClick?.(e)
+                    if (parentPopupId !== 0) {
+                        // If this button is inside another popup, let's not propagate this event so that
+                        // the parent popup doesn't close
+                        e.stopPropagation()
+                    }
+                }}
+                {...buttonProps}
+            />
+        </Popup>
     )
 }

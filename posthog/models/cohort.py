@@ -29,7 +29,7 @@ ON CONFLICT DO NOTHING
 """
 
 
-class Group(object):
+class Group:
     def __init__(
         self,
         properties: Optional[Dict[str, Any]] = None,

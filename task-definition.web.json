@@ -23,6 +23,10 @@
             "essential": true,
             "environment": [
                 {
+                    "name": "MULTI_TENANCY",
+                    "value": "True"
+                },
+                {
                     "name": "USING_PGBOUNCER",
                     "value": "True"
                 },
