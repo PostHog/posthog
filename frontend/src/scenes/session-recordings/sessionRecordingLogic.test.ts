@@ -213,9 +213,9 @@ describe('sessionRecordingLogic', () => {
 
         expected_events.push({
             ...events[2],
-            playerTime: 39998,
+            playerTime: 38998,
             playerPosition: {
-                time: 40000,
+                time: 39000,
                 windowId: events[2].properties.$window_id as string,
             },
             percentageOfRecordingDuration: 1.46755585429964,
