@@ -1,6 +1,11 @@
 @import '~/vars.scss';
 
+.experiment-result,
 .experiment-form {
+    .person-selection {
+        padding-top: $default_spacing;
+        border-top: 1px solid $border;
+    }
     .metrics-selection {
         border-top: 1px solid $border;
         padding-top: $default_spacing;
@@ -15,19 +20,6 @@
             .row-action-btn {
                 color: $primary_alt;
             }
-        }
-
-        &.person-selection {
-            label {
-                font-size: 16px;
-                font-weight: 600;
-            }
-        }
-    }
-
-    .confirmation {
-        div {
-            padding-bottom: $default_spacing;
         }
     }
 
@@ -98,5 +90,15 @@
         padding-left: $default_spacing;
         padding-right: $default_spacing;
         min-height: 48px;
+    }
+
+    .experiment-preview {
+        margin-bottom: $default_spacing;
+        border-bottom: 1px solid $border;
+        .preview-row {
+            border-bottom: 1px solid $border;
+            padding-bottom: $default_spacing;
+            margin-bottom: $default_spacing;
+        }
     }
 }

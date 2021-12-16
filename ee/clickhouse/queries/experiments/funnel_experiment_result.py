@@ -5,7 +5,7 @@ from typing import List, Optional, Tuple, Type
 from numpy.random import default_rng
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.queries.funnels import ClickhouseFunnel, funnel
+from ee.clickhouse.queries.funnels import ClickhouseFunnel
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 
@@ -70,7 +70,7 @@ class ClickhouseFunnelExperimentResult:
 
         probability = self.calculate_results(variants)
 
-        return {"funnel": funnel_results, "probability": probability}
+        return {"funnel": funnel_results, "probability": probability, "filters": self.funnel._filter.to_dict()}
 
     def get_variants(self, funnel_results):
         variants = []
@@ -104,10 +104,10 @@ class ClickhouseFunnelExperimentResult:
         
         """
         if len(variants) > 2:
-            raise ValidationError("Can't calculate A/B test results for more than 2 variants")
+            raise ValidationError("Can't calculate A/B test results for more than 2 variants", code="too_much_data")
 
         if len(variants) < 2:
-            raise ValidationError("Can't calculate A/B test results for less than 2 variants")
+            raise ValidationError("Can't calculate A/B test results for less than 2 variants", code="no_data")
 
         prior_success, prior_failure = priors
 

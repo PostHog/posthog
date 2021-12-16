@@ -22,6 +22,7 @@ import {
     SessionRecordingUsageType,
     FunnelCorrelation,
     ItemMode,
+    AnyPropertyFilter,
 } from '~/types'
 import { Dayjs } from 'dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -86,6 +87,10 @@ function flattenProperties(properties: PropertyFilter[]): string[] {
     return output
 }
 
+function hasGroupProperties(properties: AnyPropertyFilter[] | undefined): boolean {
+    return !!properties && properties.some((property) => property.group_type_index != undefined)
+}
+
 /*
     Takes a full list of filters for an insight and sanitizes any potentially sensitive info to report usage
 */
@@ -105,17 +110,44 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
 
     let properties_local: string[] = []
 
-    const events = Array.isArray(filters.events) ? filters.events : []
-    for (const event of events) {
-        properties_local = properties_local.concat(flattenProperties(event.properties || []))
-    }
+    // // If we're aggregating this query by groups
+    // properties.aggregating_by_groups = filters.aggregation_group_type_index != undefined
+    // // If groups are being used in this query
+    // properties.using_groups =
+    //     hasGroupProperties(filters.properties) || filters.breakdown_group_type_index != undefined
 
-    const actions = Array.isArray(filters.actions) ? filters.actions : []
-    for (const action of actions) {
-        properties_local = properties_local.concat(flattenProperties(action.properties || []))
-    }
+    // let totalEventActionFilters = 0
+    // const entities = (filters.events || []).concat(filters.actions || [])
+    // entities.forEach((entity) => {
+    //     if (entity.properties?.length) {
+    //         totalEventActionFilters += entity.properties.length
+    //         properties.using_groups = properties.using_groups || hasGroupProperties(entity.properties)
+    //     }
+    //     if (entity.math_group_type_index != undefined) {
+    //         properties.aggregating_by_groups = true
+    //     }
+    // })
+    // properties.using_groups = properties.using_groups || properties.aggregating_by_groups
 
     const properties = Array.isArray(filters.properties) ? filters.properties : []
+    const events = Array.isArray(filters.events) ? filters.events : []
+    const actions = Array.isArray(filters.actions) ? filters.actions : []
+    const entities = events.concat(actions)
+
+    // If we're aggregating this query by groups
+    let aggregating_by_groups = filters.aggregation_group_type_index != undefined
+    const breakdown_by_groups = filters.breakdown_group_type_index != undefined
+    // If groups are being used in this query
+    let using_groups = hasGroupProperties(filters.properties)
+
+    for (const entity of entities) {
+        properties_local = properties_local.concat(flattenProperties(entity.properties || []))
+
+        using_groups = using_groups || hasGroupProperties(entity.properties || [])
+        if (entity.math_group_type_index != undefined) {
+            aggregating_by_groups = true
+        }
+    }
     const properties_global = flattenProperties(properties)
 
     return {
@@ -137,6 +169,9 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
         properties_local,
         properties_local_custom_count: properties_local.filter((item) => item === 'custom').length,
         properties_all: properties_global.concat(properties_local), // Global and local properties together
+        aggregating_by_groups,
+        breakdown_by_groups,
+        using_groups: using_groups || aggregating_by_groups || breakdown_by_groups,
     }
 }
 
@@ -372,14 +407,10 @@ export const eventUsageLogic = kea<
             properties.total_event_actions_count = (properties.events_count || 0) + (properties.actions_count || 0)
 
             let totalEventActionFilters = 0
-            filters.events?.forEach((event) => {
-                if (event.properties?.length) {
-                    totalEventActionFilters += event.properties.length
-                }
-            })
-            filters.actions?.forEach((action) => {
-                if (action.properties?.length) {
-                    totalEventActionFilters += action.properties.length
+            const entities = (filters.events || []).concat(filters.actions || [])
+            entities.forEach((entity) => {
+                if (entity.properties?.length) {
+                    totalEventActionFilters += entity.properties.length
                 }
             })
 
@@ -405,6 +436,9 @@ export const eventUsageLogic = kea<
             } else if (insight === 'PATHS') {
                 properties.path_type = filters.path_type
                 properties.has_start_point = !!filters.start_point
+                properties.has_end_point = !!filters.end_point
+                properties.has_funnel_filter = !!filters.funnel_filter
+                properties.funnel_paths = filters.funnel_paths
             } else if (insight === 'STICKINESS') {
                 properties.stickiness_days = filters.stickiness_days
             }
@@ -654,8 +688,8 @@ export const eventUsageLogic = kea<
             const payload: Partial<RecordingViewedProps> = {
                 load_time: loadTime,
                 duration: eventIndex.getDuration(),
-                start_time: recordingData?.session_recording?.start_time,
-                end_time: recordingData?.session_recording?.end_time,
+                start_time: recordingData?.session_recording?.segments[0]?.startTimeEpochMs,
+                end_time: recordingData?.session_recording?.segments.slice(-1)[0]?.endTimeEpochMs,
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingMetadata(0)[0]?.width,
                 source: source,
@@ -666,7 +700,7 @@ export const eventUsageLogic = kea<
             posthog.capture(`recording events fetched`, { num_events: numEvents, load_time: loadTime })
         },
         reportRecordingScrollTo: ({ rowIndex }) => {
-            posthog.capture(`recording event list scrolled to row index ${rowIndex ?? -1}`)
+            posthog.capture(`recording event list scrolled`, { rowIndex })
         },
         reportPayGateShown: (props) => {
             posthog.capture('pay gate shown', props)

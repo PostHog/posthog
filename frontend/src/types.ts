@@ -339,18 +339,36 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
 
 export type SessionRecordingId = string
 
+export interface PlayerPosition {
+    time: number
+    windowId: string
+}
+
+export interface RecordingSegment {
+    startPlayerPosition: PlayerPosition // Player time (for the specific window_id's player) that the segment starts. If the segment starts 10 seconds into a recording, this would be 10000
+    endPlayerPosition: PlayerPosition // Player time (for the specific window_id' player) that the segment ends
+    startTimeEpochMs: number // Epoch time that the segment starts
+    endTimeEpochMs: number // Epoch time that the segment ends
+    durationMs: number
+    windowId: string
+    isActive: boolean
+}
+
+export interface RecordingStartAndEndTime {
+    startTimeEpochMs: number
+    endTimeEpochMs: number
+}
+
 export interface SessionRecordingMeta {
-    id: string
-    viewed: boolean
-    recording_duration: number
-    start_time: number
-    end_time: number
-    distinct_id: string
+    segments: RecordingSegment[]
+    startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
+    recordingDurationMs: number
 }
 export interface SessionPlayerData {
-    snapshots: eventWithTime[]
+    snapshotsByWindowId: Record<string, eventWithTime[]>
     person: PersonType | null
     session_recording: SessionRecordingMeta
+    bufferedTo: PlayerPosition
     next?: string
 }
 
@@ -364,13 +382,7 @@ export enum SessionPlayerState {
     BUFFER = 'buffer',
     PLAY = 'play',
     PAUSE = 'pause',
-    SKIP = 'skip',
     SCRUB = 'scrub',
-}
-
-export interface SessionPlayerTime {
-    current: number
-    lastBuffered: number
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -562,17 +574,15 @@ export interface EventType {
     id: number | string
     properties: Record<string, any>
     timestamp: string
-    zeroOffsetTime?: number // Used in session recording events that have a start time offset
     colonTimestamp?: string // Used in session recording events list
     person?: Partial<PersonType> | null
     event: string
 }
 
-export interface RecordingEventType extends Omit<EventType, 'timestamp'> {
-    percentage: number
-    timestamp: number
-    queryValue?: string
-    colonTimestamp?: string
+export interface RecordingEventType extends EventType {
+    playerTime: number
+    playerPosition: PlayerPosition
+    percentageOfRecordingDuration: number // Used to place the event on the seekbar
 }
 
 export interface EventsTableRowItem {
@@ -840,7 +850,10 @@ export interface FilterType {
     shown_as?: ShownAsType
     session?: string
     period?: string
+
     retention_type?: RetentionType
+    retention_reference?: 'total' | 'previous' // retention wrt cohort size or previous period
+
     new_entity?: Record<string, any>[]
     returning_entity?: Record<string, any>
     target_entity?: Record<string, any>
@@ -1006,6 +1019,8 @@ export interface FunnelStep {
     breakdown?: BreakdownKeyType
     breakdowns?: Breakdown[]
     breakdown_value?: BreakdownKeyType
+    data?: number[]
+    days?: string[]
 
     // Url that you can GET to retrieve the people that converted in this step
     converted_people_url: string
@@ -1037,8 +1052,8 @@ export interface FunnelTimeConversionMetrics {
 }
 
 export interface FunnelConversionWindow {
-    funnel_window_interval_unit?: FunnelConversionWindowTimeUnit
-    funnel_window_interval?: number | undefined
+    funnel_window_interval_unit: FunnelConversionWindowTimeUnit
+    funnel_window_interval: number
 }
 
 // https://github.com/PostHog/posthog/blob/master/posthog/models/filters/mixins/funnel.py#L100
@@ -1340,10 +1355,17 @@ export interface Experiment {
     description?: string
     feature_flag_key: string
     filters: FilterType
+    parameters: Record<string, any>
     start_date?: string
     end_date?: string
     created_at: string
     created_by: UserBasicType | null
+}
+export interface ExperimentResults {
+    funnel: FunnelStep[][]
+    probability: number
+    filters: FilterType
+    itemID: string
 }
 
 interface RelatedPerson {

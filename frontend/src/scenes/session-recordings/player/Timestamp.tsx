@@ -4,10 +4,13 @@ import { IconSeekBack, IconSeekForward } from 'scenes/session-recordings/player/
 import { colonDelimitedDuration } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { seekbarLogic } from './seekbarLogic'
 
 export function Timestamp(): JSX.Element {
     const { seekBackward, seekForward } = useActions(sessionRecordingPlayerLogic)
-    const { jumpTimeMs, meta, zeroOffsetTime } = useValues(sessionRecordingPlayerLogic)
+    const { jumpTimeMs, currentPlayerTime, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
+    const { isScrubbing, scrubbingTime } = useValues(seekbarLogic)
+
     return (
         <>
             <Tooltip
@@ -29,8 +32,8 @@ export function Timestamp(): JSX.Element {
                 </span>
             </Tooltip>
             <div className="rrweb-timestamp">
-                {colonDelimitedDuration(Math.floor(zeroOffsetTime.current / 1000))} /{' '}
-                {colonDelimitedDuration(Math.floor(meta.totalTime / 1000))}
+                {colonDelimitedDuration(((isScrubbing ? scrubbingTime : currentPlayerTime) ?? 0) / 1000)} /{' '}
+                {colonDelimitedDuration(Math.floor((sessionPlayerData?.metadata?.recordingDurationMs ?? 0) / 1000))}
             </div>
         </>
     )

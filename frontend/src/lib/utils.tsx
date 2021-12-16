@@ -602,7 +602,7 @@ export function colonDelimitedDuration(d: string | number | null | undefined, nu
         m = Math.floor(s / 60)
         s -= m * 60
     }
-    s = Math.round(s)
+    s = Math.floor(s)
 
     const units = [zeroPad(weeks, 2), zeroPad(days, 2), zeroPad(h, 2), zeroPad(m, 2), zeroPad(s, 2)]
 
@@ -787,8 +787,8 @@ export const dateMapping: Record<string, dateMappingOption> = {
 
 export const isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
 
-export function getFormattedLastWeekDate(): string {
-    return `${dayjs().subtract(7, 'week').format(DATE_FORMAT)} - ${dayjs().endOf('d').format(DATE_FORMAT)}`
+export function getFormattedLastWeekDate(lastDay: dayjs.Dayjs = dayjs()): string {
+    return `${lastDay.subtract(7, 'week').format(DATE_FORMAT)} - ${lastDay.endOf('d').format(DATE_FORMAT)}`
 }
 
 export function dateFilterToText(

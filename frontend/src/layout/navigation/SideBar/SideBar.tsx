@@ -10,6 +10,7 @@ import {
     IconBarChart,
     IconCohort,
     IconComment,
+    IconExperiment,
     IconExtension,
     IconFlag,
     IconGauge,
@@ -76,6 +77,7 @@ interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClick' | 'p
 
 function PageButton({ title, sideAction, identifier, highlight, ...buttonProps }: PageButtonProps): JSX.Element {
     const { aliasedActiveScene, activeScene } = useValues(sceneLogic)
+    const { hideSideBarMobile } = useActions(navigationLogic)
     const { lastDashboardId } = useValues(dashboardsModel)
 
     const isActiveSide: boolean = sideAction?.identifier === aliasedActiveScene
@@ -89,6 +91,7 @@ function PageButton({ title, sideAction, identifier, highlight, ...buttonProps }
         <LemonButtonWithSideAction
             fullWidth
             type={isActive ? 'highlighted' : 'stealth'}
+            onClick={hideSideBarMobile}
             sideAction={{
                 ...sideAction,
                 type: isActiveSide ? 'highlighted' : isActive ? undefined : 'stealth',
@@ -104,6 +107,7 @@ function PageButton({ title, sideAction, identifier, highlight, ...buttonProps }
             fullWidth
             type={isActive ? 'highlighted' : 'stealth'}
             data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
+            onClick={hideSideBarMobile}
             {...buttonProps}
         >
             <span style={{ flexGrow: 1 }}>{title || sceneConfigurations[identifier].name}</span>
@@ -122,7 +126,7 @@ function PageButton({ title, sideAction, identifier, highlight, ...buttonProps }
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
-    const { showToolbarModal } = useActions(navigationLogic)
+    const { showToolbarModal, hideSideBarMobile } = useActions(navigationLogic)
     const { pinnedDashboards } = useValues(dashboardsModel)
     const { featureFlags } = useValues(featureFlagLogic)
     const { showGroupsOptions } = useValues(groupsModel)
@@ -154,6 +158,7 @@ function Pages(): JSX.Element {
                     popup: {
                         visible: arePinnedDashboardsShown,
                         onClickOutside: () => setArePinnedDashboardsShown(false),
+                        onClickInside: hideSideBarMobile,
                         overlay: (
                             <div className="SideBar__pinned-dashboards">
                                 <h5>Pinned dashboards</h5>
@@ -191,17 +196,13 @@ function Pages(): JSX.Element {
                     to: urls.insightNew({ insight: InsightType.TRENDS }),
                     tooltip: 'New insight',
                     identifier: Scene.Insight,
+                    onClick: hideSideBarMobile,
                 }}
             />
-            <PageButton
-                icon={<IconRecording />}
-                identifier={Scene.SessionRecordings}
-                to={urls.sessionRecordings()}
-                highlight="beta"
-            />
+            <PageButton icon={<IconRecording />} identifier={Scene.SessionRecordings} to={urls.sessionRecordings()} />
             <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
             {featureFlags[FEATURE_FLAGS.EXPERIMENTATION] && (
-                <PageButton icon={<IconFlag />} identifier={Scene.Experiments} to={urls.experiments()} />
+                <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
             )}
             <LemonSpacer />
             <PageButton icon={<IconGroupedEvents />} identifier={Scene.Events} to={urls.events()} />
@@ -226,7 +227,7 @@ function Pages(): JSX.Element {
 export function SideBar({ children }: { children: React.ReactNode }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { isSideBarShown, isToolbarModalShown } = useValues(navigationLogic)
-    const { hideSideBar, hideToolbarModal } = useActions(navigationLogic)
+    const { hideSideBarMobile, hideToolbarModal } = useActions(navigationLogic)
 
     return (
         <div className={clsx('SideBar', 'SideBar__layout', !isSideBarShown && 'SideBar--hidden')}>
@@ -241,7 +242,7 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
                     )}
                 </div>
             </div>
-            <div className="SideBar__overlay" onClick={hideSideBar} />
+            <div className="SideBar__overlay" onClick={hideSideBarMobile} />
             {children}
             <ToolbarModal visible={isToolbarModalShown} onCancel={hideToolbarModal} />
         </div>

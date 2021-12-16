@@ -15,7 +15,9 @@ import {
     FunnelStepReference,
     TeamType,
     FlattenedFunnelStepByBreakdown,
+    FunnelConversionWindow,
 } from '~/types'
+import { dayjs } from 'lib/dayjs'
 
 const PERCENTAGE_DISPLAY_PRECISION = 1 // Number of decimals to show in percentages
 
@@ -371,4 +373,12 @@ export function getMeanAndStandardDeviation(values?: number[]): number[] {
     })
     const avgSquareDiff = squareDiffs.reduce((acc, current) => current + acc, 0) / n
     return [average, Math.sqrt(avgSquareDiff)]
+}
+
+export function getIncompleteConversionWindowStartDate(
+    window: FunnelConversionWindow,
+    startDate: dayjs.Dayjs = dayjs()
+): dayjs.Dayjs {
+    const { funnel_window_interval, funnel_window_interval_unit } = window
+    return startDate.subtract(funnel_window_interval, funnel_window_interval_unit)
 }

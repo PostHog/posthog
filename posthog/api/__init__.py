@@ -6,6 +6,7 @@ from posthog.utils import is_clickhouse_enabled
 from . import (
     action,
     annotation,
+    async_migration,
     authentication,
     cohort,
     dashboard,
@@ -94,6 +95,7 @@ router.register(r"users", user.UserViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
 router.register(r"shared_dashboards", dashboard.SharedDashboardsViewSet)
+router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
 
 if is_clickhouse_enabled():
     from ee.clickhouse.views.actions import ClickhouseActionsViewSet, LegacyClickhouseActionsViewSet

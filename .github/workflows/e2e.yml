@@ -107,7 +107,9 @@ jobs:
                   restore-keys: |
                       ${{ runner.os }}-cypress-node-modules-3-
             - name: Yarn install deps
-              if: steps.cypress-node-modules-cache-3.outputs.cache-hit != 'true'
+              # NOTE: we always try to run yarn install, as we're using a cache
+              # from the prep phase that hasn't been proven to be correct. We
+              # should still get some cache benefits.
               run: |
                   yarn install --frozen-lockfile
                   yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0

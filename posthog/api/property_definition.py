@@ -17,7 +17,7 @@ HIDDEN_PROPERTY_DEFINITIONS = set(
         # used for updating properties
         "$set",
         "$set_once",
-        # Group analytics
+        # Group Analytics
         "$groups",
         "$group_type",
         "$group_key",
