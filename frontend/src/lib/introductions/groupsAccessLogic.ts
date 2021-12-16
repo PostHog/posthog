@@ -26,7 +26,7 @@ export const groupsAccessLogic = kea<groupsAccessLogicType<GroupsAccessStatus>>(
             preflightLogic,
             ['clickhouseEnabled', 'preflight'],
             userLogic,
-            ['hasAvailableFeature'],
+            ['hasAvailableFeature', 'upgradeLink'],
         ],
     },
     selectors: {
@@ -62,9 +62,5 @@ export const groupsAccessLogic = kea<groupsAccessLogicType<GroupsAccessStatus>>(
             },
         ],
         showGroupsAnnouncementBanner: [(s) => [s.groupsAccessStatus], (status) => status !== GroupsAccessStatus.Hidden],
-        upgradeLink: [
-            (s) => [s.preflight],
-            (preflight) => (preflight?.cloud ? '/organization/billing' : '/instance/licenses'),
-        ],
     },
 })

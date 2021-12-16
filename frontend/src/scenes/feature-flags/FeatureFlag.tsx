@@ -24,6 +24,7 @@ import {
     PlusOutlined,
     ApiFilled,
     MergeCellsOutlined,
+    LockOutlined,
 } from '@ant-design/icons'
 import { featureFlagLogic } from './featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -38,6 +39,7 @@ import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOp
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature } from '~/types'
+import { Link } from 'lib/components/Link'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -81,7 +83,7 @@ export function FeatureFlag(): JSX.Element {
         setAggregationGroupTypeIndex,
     } = useActions(featureFlagLogic)
     const { showGroupsOptions } = useValues(groupsModel)
-    const { hasAvailableFeature } = useValues(userLogic)
+    const { hasAvailableFeature, upgradeLink } = useValues(userLogic)
 
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
@@ -308,6 +310,13 @@ export function FeatureFlag(): JSX.Element {
                                                     }
                                                 >
                                                     <div>
+                                                        {!hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) && (
+                                                            <Link to={upgradeLink} target="_blank">
+                                                                <LockOutlined
+                                                                    style={{ marginRight: 4, color: 'var(--warning)' }}
+                                                                />
+                                                            </Link>
+                                                        )}
                                                         String value (Multivariate test){' '}
                                                         <LemonTag type="warning">Beta</LemonTag>
                                                     </div>
