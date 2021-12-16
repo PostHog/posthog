@@ -138,15 +138,23 @@ def get_entity_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: in
     entity_query, entity_params = _get_entity_query(event_id, action_id, cohort.team.pk, group_idx)
 
     if count is not None:
+
+        is_negation = (
+            count_operator == "eq" or count_operator == "lte"
+        ) and count == 0  # = 0 means all people who never performed the event
+
         count_operator = _get_count_operator(count_operator)
+        pdi_query = get_team_distinct_ids_query(cohort.team_id)
         extract_person = GET_PERSON_ID_BY_ENTITY_COUNT_SQL.format(
             entity_query=entity_query,
             date_query=date_query,
-            count_operator=count_operator,
-            GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(cohort.team_id),
+            GET_TEAM_PERSON_DISTINCT_IDS=pdi_query,
+            count_condition="" if is_negation else f"HAVING count(*) {count_operator} %(count)s",
         )
+
         params: Dict[str, Union[str, int]] = {"count": int(count), **entity_params, **date_params}
-        return f"person_id IN ({extract_person})", params
+
+        return f"{'NOT' if is_negation else ''} person_id IN ({extract_person})", params
     else:
         extract_person = GET_DISTINCT_ID_BY_ENTITY_SQL.format(entity_query=entity_query, date_query=date_query,)
         return f"distinct_id IN ({extract_person})", {**entity_params, **date_params}
