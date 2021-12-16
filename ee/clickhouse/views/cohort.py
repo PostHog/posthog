@@ -58,11 +58,15 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
     elif insight_type == INSIGHT_STICKINESS:
         stickiness_filter = StickinessFilter(data=filter_data, team=cohort.team)
         entity = get_target_entity(stickiness_filter)
-        query, params = ClickhouseStickinessActors(cohort.team, entity, stickiness_filter).actor_query()
+        query, params = ClickhouseStickinessActors(
+            cohort.team, entity, stickiness_filter, no_person_limit=True
+        ).actor_query()
     elif insight_type == INSIGHT_FUNNELS:
         funnel_filter = Filter(data=filter_data)
         if funnel_filter.correlation_person_entity:
-            query, params = FunnelCorrelationActors(filter=funnel_filter, team=cohort.team).actor_query()
+            query, params = FunnelCorrelationActors(
+                filter=funnel_filter, team=cohort.team, no_person_limit=True
+            ).actor_query()
         else:
             funnel_actor_class = get_funnel_actor_class(funnel_filter)
             query, params = funnel_actor_class(
@@ -73,6 +77,11 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
         query, params = ClickhousePathsActors(
             path_filter, cohort.team, funnel_filter=None, no_person_limit=True
         ).actor_query()
+    else:
+        if settings.DEBUG:
+            raise ValueError(f"Insight type: {insight_type} not supported for cohort creation")
+        else:
+            capture_exception(Exception(f"Insight type: {insight_type} not supported for cohort creation"))
 
     insert_actors_into_cohort_by_query(cohort, substitute_params(query, params))
 

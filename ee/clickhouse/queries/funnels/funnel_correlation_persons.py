@@ -19,35 +19,48 @@ from posthog.models.team import Team
 
 
 class FunnelCorrelationActors:
-    def __init__(self, filter: Filter, team: Team, base_uri: str = "/") -> None:
+    def __init__(
+        self, filter: Filter, team: Team, base_uri: str = "/", no_person_limit: Optional[bool] = False
+    ) -> None:
         self._base_uri = base_uri
         self._filter = filter
         self._team = team
+        self._no_person_limit = no_person_limit
 
         if not self._filter.correlation_person_limit:
             self._filter = self._filter.with_data({FUNNEL_CORRELATION_PERSON_LIMIT: 100})
 
     def actor_query(self,):
         if self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
-            return _FunnelPropertyCorrelationActors(self._filter, self._team, self._base_uri).actor_query()
+            return _FunnelPropertyCorrelationActors(
+                self._filter, self._team, self._base_uri, self._no_person_limit
+            ).actor_query()
         else:
-            return _FunnelEventsCorrelationActors(self._filter, self._team, self._base_uri).actor_query()
+            return _FunnelEventsCorrelationActors(
+                self._filter, self._team, self._base_uri, self._no_person_limit
+            ).actor_query()
 
     def get_actors(
         self,
     ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]]]:
         if self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
-            return _FunnelPropertyCorrelationActors(self._filter, self._team, self._base_uri).get_actors()
+            return _FunnelPropertyCorrelationActors(
+                self._filter, self._team, self._base_uri, self._no_person_limit
+            ).get_actors()
         else:
-            return _FunnelEventsCorrelationActors(self._filter, self._team, self._base_uri).get_actors()
+            return _FunnelEventsCorrelationActors(
+                self._filter, self._team, self._base_uri, self._no_person_limit
+            ).get_actors()
 
 
 class _FunnelEventsCorrelationActors(ActorBaseQuery):
     _filter: Filter
 
-    def __init__(self, filter: Filter, team: Team, base_uri: str = "/") -> None:
+    def __init__(
+        self, filter: Filter, team: Team, base_uri: str = "/", no_person_limit: Optional[bool] = False
+    ) -> None:
         self._funnel_correlation = FunnelCorrelation(filter, team, base_uri=base_uri)
-        super().__init__(team, filter)
+        super().__init__(team, filter, no_person_limit)
 
     @cached_property
     def is_aggregating_by_groups(self) -> bool:
@@ -106,9 +119,11 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
 class _FunnelPropertyCorrelationActors(ActorBaseQuery):
     _filter: Filter
 
-    def __init__(self, filter: Filter, team: Team, base_uri: str = "/") -> None:
+    def __init__(
+        self, filter: Filter, team: Team, base_uri: str = "/", no_person_limit: Optional[bool] = False
+    ) -> None:
         self._funnel_correlation = FunnelCorrelation(filter, team, base_uri=base_uri)
-        super().__init__(team, filter)
+        super().__init__(team, filter, no_person_limit)
 
     @cached_property
     def is_aggregating_by_groups(self) -> bool:
