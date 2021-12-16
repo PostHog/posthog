@@ -390,6 +390,7 @@ class EntitiesMixin(BaseParamMixin):
         }
 
 
+# These arguments are used to specify the target entity for insight actor retrieval on trend graphs
 class EntityIdMixin(BaseParamMixin):
     @cached_property
     def target_entity_id(self) -> Optional[str]:
