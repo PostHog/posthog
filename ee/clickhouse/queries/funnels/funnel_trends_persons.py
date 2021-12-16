@@ -1,15 +1,11 @@
-from typing import cast
-
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
-from ee.clickhouse.queries.funnels.funnel_trends import TIMESTAMP_FORMAT, ClickhouseFunnelTrends
-from ee.clickhouse.queries.util import get_trunc_func_ch
+from ee.clickhouse.queries.funnels.funnel_trends import ClickhouseFunnelTrends
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_PERSONS_BY_STEP_SQL
 from posthog.constants import DROP_OFF, ENTRANCE_PERIOD_START
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.person import Person
 
 
 class ClickhouseFunnelTrendsActors(ClickhouseFunnelTrends, ActorBaseQuery):
@@ -43,8 +39,8 @@ class ClickhouseFunnelTrendsActors(ClickhouseFunnelTrends, ActorBaseQuery):
                 steps_per_person_query=step_counts_query,
                 persons_steps=did_not_reach_to_step_count_condition if drop_off else reached_to_step_count_condition,
                 extra_fields="",
-                limit="" if self._no_actor_limit else "LIMIT %(limit)s",
-                offset="" if self._no_actor_limit else "OFFSET %(offset)s",
+                limit="LIMIT %(limit)s" if self._limit_actors else "",
+                offset="OFFSET %(offset)s" if self._limit_actors else "",
             ),
             self.params,
         )

@@ -50,8 +50,8 @@ class ClickhousePathsActors(ClickhousePaths, ActorBaseQuery):  # type: ignore
             )
             WHERE {person_path_filter}
             ORDER BY person_id
-            {"" if self._no_actor_limit else "LIMIT %(limit)s"}
-            {"" if self._no_actor_limit else "OFFSET %(offset)s"}
+            {"LIMIT %(limit)s" if self._limit_actors else ""}
+            {"OFFSET %(offset)s" if self._limit_actors else ""}
         """,
             self.params,
         )

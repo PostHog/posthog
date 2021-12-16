@@ -19,11 +19,11 @@ from posthog.models.team import Team
 
 
 class FunnelCorrelationActors:
-    def __init__(self, filter: Filter, team: Team, base_uri: str = "/", no_actor_limit: Optional[bool] = False) -> None:
+    def __init__(self, filter: Filter, team: Team, base_uri: str = "/", **kwargs) -> None:
         self._base_uri = base_uri
         self._filter = filter
         self._team = team
-        self._no_actor_limit = no_actor_limit
+        self._limit_actors = kwargs.get("limit_actors", True)
 
         if not self._filter.correlation_person_limit:
             self._filter = self._filter.with_data({FUNNEL_CORRELATION_PERSON_LIMIT: 100})
@@ -31,11 +31,11 @@ class FunnelCorrelationActors:
     def actor_query(self,):
         if self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
             return _FunnelPropertyCorrelationActors(
-                self._filter, self._team, self._base_uri, self._no_actor_limit
+                self._filter, self._team, self._base_uri, limit_actors=self._limit_actors
             ).actor_query()
         else:
             return _FunnelEventsCorrelationActors(
-                self._filter, self._team, self._base_uri, self._no_actor_limit
+                self._filter, self._team, self._base_uri, limit_actors=self._limit_actors
             ).actor_query()
 
     def get_actors(
@@ -43,20 +43,20 @@ class FunnelCorrelationActors:
     ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]]]:
         if self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
             return _FunnelPropertyCorrelationActors(
-                self._filter, self._team, self._base_uri, self._no_actor_limit
+                self._filter, self._team, self._base_uri, limit_actors=self._limit_actors
             ).get_actors()
         else:
             return _FunnelEventsCorrelationActors(
-                self._filter, self._team, self._base_uri, self._no_actor_limit
+                self._filter, self._team, self._base_uri, limit_actors=self._limit_actors
             ).get_actors()
 
 
 class _FunnelEventsCorrelationActors(ActorBaseQuery):
     _filter: Filter
 
-    def __init__(self, filter: Filter, team: Team, base_uri: str = "/", no_actor_limit: Optional[bool] = False) -> None:
+    def __init__(self, filter: Filter, team: Team, base_uri: str = "/", **kwargs) -> None:
         self._funnel_correlation = FunnelCorrelation(filter, team, base_uri=base_uri)
-        super().__init__(team, filter, no_actor_limit=no_actor_limit)
+        super().__init__(team, filter, limit_actors=kwargs.get("limit_actors", True))
 
     @cached_property
     def is_aggregating_by_groups(self) -> bool:
@@ -97,8 +97,8 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
                 {conversion_filter}
                 {prop_query}
             ORDER BY actor_id
-            {"" if self._no_actor_limit else "LIMIT %(limit)s"}
-            {"" if self._no_actor_limit else "OFFSET %(offset)s"}
+            {"LIMIT %(limit)s" if self._limit_actors else ""}
+            {"OFFSET %(offset)s" if self._limit_actors else ""}
         """
 
         params = {
@@ -117,9 +117,9 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
 class _FunnelPropertyCorrelationActors(ActorBaseQuery):
     _filter: Filter
 
-    def __init__(self, filter: Filter, team: Team, base_uri: str = "/", no_actor_limit: Optional[bool] = False) -> None:
+    def __init__(self, filter: Filter, team: Team, base_uri: str = "/", **kwargs) -> None:
         self._funnel_correlation = FunnelCorrelation(filter, team, base_uri=base_uri)
-        super().__init__(team, filter, no_actor_limit=no_actor_limit)
+        super().__init__(team, filter, limit_actors=kwargs.get("limit_actors", True))
 
     @cached_property
     def is_aggregating_by_groups(self) -> bool:
@@ -151,8 +151,8 @@ class _FunnelPropertyCorrelationActors(ActorBaseQuery):
             WHERE {conversion_filter}
             {group_filters}
             ORDER BY actor_id
-            {"" if self._no_actor_limit else "LIMIT %(limit)s"}
-            {"" if self._no_actor_limit else "OFFSET %(offset)s"}
+            {"LIMIT %(limit)s" if self._limit_actors else ""}
+            {"OFFSET %(offset)s" if self._limit_actors else ""}
         """
         params = {
             **funnel_persons_params,

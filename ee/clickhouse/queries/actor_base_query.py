@@ -46,19 +46,19 @@ SerializedActor = Union[SerializedGroup, SerializedPerson]
 class ActorBaseQuery:
     aggregating_by_groups = False
     entity: Optional[Entity] = None
-    _no_actor_limit: Optional[bool]
+    _limit_actors: Optional[bool]
 
     def __init__(
         self,
         team: Team,
         filter: Union[Filter, StickinessFilter, RetentionFilter],
         entity: Optional[Entity] = None,
-        no_actor_limit: Optional[bool] = False,
+        **kwargs
     ):
         self._team = team
         self.entity = entity
         self._filter = filter
-        self._no_actor_limit = no_actor_limit
+        self._limit_actors = kwargs.get("limit_actors", True)
 
     def actor_query(self) -> Tuple[str, Dict]:
         """ Implemented by subclasses. Must provide query and params. The query must return list of uuids. Can be group uuids (group_key) or person uuids """
