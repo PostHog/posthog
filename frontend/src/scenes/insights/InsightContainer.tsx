@@ -10,12 +10,11 @@ import { Paths } from 'scenes/paths/Paths'
 import { ACTIONS_BAR_CHART_VALUE, ACTIONS_TABLE, FEATURE_FLAGS, FUNNEL_VIZ, FunnelLayout } from 'lib/constants'
 import { People } from 'scenes/funnels/FunnelPeople'
 import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepTable'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightsTable } from 'scenes/insights/InsightsTable'
 import React from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { annotationsLogic } from 'lib/components/Annotations'
 import {
     FunnelInvalidExclusionState,
     FunnelSingleStepState,
@@ -46,7 +45,6 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const {
-        insight,
         insightProps,
         lastRefresh,
         isLoading,
@@ -60,8 +58,6 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
         funnelLogic(insightProps)
     )
-    const { clearAnnotationsToCreate } = useActions(annotationsLogic({ insightId: insight.id }))
-    const { annotationsToCreate } = useValues(annotationsLogic({ insightId: insight.id }))
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -164,8 +160,6 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
                         insightMode={insightMode}
                         filters={filters}
                         disableTable={!!disableTable}
-                        annotationsToCreate={annotationsToCreate}
-                        clearAnnotationsToCreate={clearAnnotationsToCreate}
                     />
                 }
                 data-attr="insights-graph"

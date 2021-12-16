@@ -4,9 +4,9 @@ import React from 'react'
 import { IntervalType } from '~/types'
 import './InsightTooltip.scss'
 
-interface BodyLine {
+export interface BodyLine {
     id?: string | number
-    component: JSX.Element
+    component: React.ReactNode
 }
 
 interface InsightTooltipProps {

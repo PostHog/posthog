@@ -73,7 +73,7 @@ export const groupsListLogic = kea<groupsListLogicType<GroupsPaginatedResponse>>
             return urls.persons()
         },
     }),
-    urlToAction: ({ actions }) => ({
+    urlToAction: ({ actions, values }) => ({
         '/groups/:id': ({ id }) => {
             if (id) {
                 actions.setTab(id)
@@ -81,7 +81,9 @@ export const groupsListLogic = kea<groupsListLogicType<GroupsPaginatedResponse>>
             }
         },
         '/persons': () => {
-            actions.setTab('-1')
+            if (values.currentTab !== '-1') {
+                actions.setTab('-1')
+            }
         },
     }),
 })

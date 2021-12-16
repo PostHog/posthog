@@ -69,7 +69,7 @@ class EventAdmin(admin.ModelAdmin):
     )
 
     def get_queryset(self, request):
-        qs = super(EventAdmin, self).get_queryset(request)
+        qs = super().get_queryset(request)
         return qs.order_by("-timestamp")
 
 
@@ -184,7 +184,7 @@ class OrganizationAdmin(admin.ModelAdmin):
 
     def first_member(self, organization: Organization):
         user = organization.members.order_by("id").first()
-        return format_html('<a href="/admin/posthog/user/{}/change/">{}</a>', user.pk, user.email)
+        return format_html(f'<a href="/admin/posthog/user/{user.pk}/change/">{user.email}</a>')
 
     def organization_billing_link(self, organization: Organization) -> str:
         return format_html(

@@ -2,6 +2,7 @@ admin: 0003_logentry_add_action_flag_choices
 auth: 0012_alter_user_first_name_max_length
 axes: 0006_remove_accesslog_trusted
 contenttypes: 0002_remove_content_type_name
+database: 0002_auto_20190129_2304
 ee: 0005_project_based_permissioning
 posthog: 0192_event_properties
 rest_hooks: 0002_swappable_hook_model

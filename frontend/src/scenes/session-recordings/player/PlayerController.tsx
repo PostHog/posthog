@@ -17,7 +17,7 @@ export function PlayerController(): JSX.Element {
     return (
         <div className="rrweb-controller">
             <span>
-                {currentPlayerState === SessionPlayerState.PLAY || currentPlayerState === SessionPlayerState.SKIP ? (
+                {currentPlayerState === SessionPlayerState.PLAY ? (
                     <IconPause
                         onClick={togglePlayPause}
                         className="rrweb-controller-icon ph-rrweb-controller-icon-play-pause"

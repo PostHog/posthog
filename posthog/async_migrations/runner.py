@@ -65,7 +65,7 @@ def start_async_migration(migration_name: str, ignore_posthog_version=False) -> 
         process_error(migration_instance, error)
         return False
 
-    ok, error = run_migration_healthcheck(migration_instance)
+    ok, error = run_migration_precheck(migration_instance)
     if not ok:
         process_error(migration_instance, error)
         return False
@@ -136,6 +136,10 @@ def run_migration_healthcheck(migration_instance: AsyncMigration):
     return get_async_migration_definition(migration_instance.name).healthcheck()
 
 
+def run_migration_precheck(migration_instance: AsyncMigration):
+    return get_async_migration_definition(migration_instance.name).precheck()
+
+
 def update_migration_progress(migration_instance: AsyncMigration):
     """
     We don't want to interrupt a migration if the progress check fails, hence try without handling exceptions
@@ -200,7 +204,7 @@ def is_posthog_version_compatible(posthog_min_version, posthog_max_version):
     return POSTHOG_VERSION in SimpleSpec(f">={posthog_min_version},<={posthog_max_version}")
 
 
-def run_next_migration(candidate: str, after_delay: int = 0):
+def run_next_migration(candidate: str):
     migration_instance = AsyncMigration.objects.get(name=candidate)
     migration_in_range = is_posthog_version_compatible(
         migration_instance.posthog_min_version, migration_instance.posthog_max_version
@@ -209,7 +213,7 @@ def run_next_migration(candidate: str, after_delay: int = 0):
     dependency_ok, _ = is_migration_dependency_fulfilled(candidate)
 
     if dependency_ok and migration_in_range and migration_instance.status == MigrationStatus.NotStarted:
-        trigger_migration(migration_instance, countdown=after_delay)
+        trigger_migration(migration_instance)
 
 
 def is_migration_dependency_fulfilled(migration_name: str) -> Tuple[bool, Optional[str]]:

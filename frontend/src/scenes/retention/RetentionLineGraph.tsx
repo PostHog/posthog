@@ -1,13 +1,14 @@
 import React, { useState } from 'react'
 import { retentionTableLogic } from './retentionTableLogic'
-import { LineGraph } from '../insights/LineGraph'
+import { LineGraph } from '../insights/LineGraph/LineGraph'
 import { useActions, useValues } from 'kea'
 import { InsightEmptyState } from '../insights/EmptyStates'
 import { Modal, Button } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
-import { PersonType } from '~/types'
-import { RetentionTrendPayload, RetentionTrendPeoplePayload } from 'scenes/retention/types'
+import { GraphType, PersonType, GraphDataset } from '~/types'
+import { RetentionTrendPeoplePayload } from 'scenes/retention/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import './RetentionLineGraph.scss'
 
 interface RetentionLineGraphProps {
     dashboardItemId?: number | null
@@ -21,10 +22,9 @@ export function RetentionLineGraph({
     color = 'white',
     inSharedMode = false,
 }: RetentionLineGraphProps): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
     const logic = retentionTableLogic(insightProps)
-    const { filters, results: _results, people: _people, peopleLoading, loadingMore } = useValues(logic)
-    const results = _results as RetentionTrendPayload[]
+    const { filters, trendSeries, people: _people, peopleLoading, loadingMore } = useValues(logic)
     const people = _people as RetentionTrendPeoplePayload
 
     const { loadPeople, loadMorePeople } = useActions(logic)
@@ -33,27 +33,27 @@ export function RetentionLineGraph({
     function closeModal(): void {
         setModalVisible(false)
     }
-    const peopleData = people?.result as PersonType[]
+    const peopleData = people?.result ?? ([] as PersonType[])
     const peopleNext = people?.next
-    if (results.length === 0) {
+    if (trendSeries.length === 0) {
         return null
     }
 
-    return results ? (
+    return trendSeries ? (
         <>
             <LineGraph
                 data-attr="trend-line-graph"
-                type="line"
+                type={GraphType.Line}
                 color={color}
-                datasets={results}
-                labels={(results[0] && results[0].labels) || []}
+                datasets={trendSeries as GraphDataset[]}
+                labels={(trendSeries[0] && trendSeries[0].labels) || []}
                 isInProgress={!filters.date_to}
-                dashboardItemId={dashboardItemId}
-                inSharedMode={inSharedMode}
+                insightId={insight.id}
+                inSharedMode={!!inSharedMode}
                 percentage={true}
                 onClick={
                     dashboardItemId
-                        ? null
+                        ? undefined
                         : (point) => {
                               const { index } = point
                               loadPeople(index) // start from 0

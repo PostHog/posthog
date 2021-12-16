@@ -119,7 +119,7 @@ function License(): JSX.Element {
                     <div>{relevantLicense ? `${identifierToHuman(relevantLicense.plan)} plan` : 'Free plan'}</div>
                     {relevantLicense && (
                         <div className="supplement">
-                            Valid till {dayjs(relevantLicense.valid_until).format('D MMM YYYY')}
+                            Valid until {dayjs(relevantLicense.valid_until).format('D MMM YYYY')}
                         </div>
                     )}
                 </div>
