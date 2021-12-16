@@ -39,14 +39,14 @@ class ClickhouseTrendsActors(ActorBaseQuery):
     entity: Entity
     _filter: Filter
 
-    def __init__(self, team: Team, entity: Optional[Entity], filter: Filter):
+    def __init__(self, team: Team, entity: Optional[Entity], filter: Filter, no_person_limit: Optional[bool] = False):
         if not entity:
             raise ValueError("Entity is required")
 
         if filter.display != TRENDS_CUMULATIVE and not filter.display in TRENDS_DISPLAY_BY_VALUE:
             filter = _handle_date_interval(filter)
 
-        super().__init__(team, filter, entity)
+        super().__init__(team, filter, entity, no_person_limit)
 
     @cached_property
     def is_aggregating_by_groups(self) -> bool:
@@ -87,7 +87,12 @@ class ClickhouseTrendsActors(ActorBaseQuery):
         ).get_query()
 
         return (
-            GET_ACTORS_FROM_EVENT_QUERY.format(id_field=self._aggregation_actor_field, events_query=events_query),
+            GET_ACTORS_FROM_EVENT_QUERY.format(
+                id_field=self._aggregation_actor_field,
+                events_query=events_query,
+                limit="" if self._no_person_limit else "LIMIT %(limit)s",
+                offset="" if self._no_person_limit else "OFFSET %(offset)s",
+            ),
             {**params, "offset": self._filter.offset, "limit": 200},
         )
 

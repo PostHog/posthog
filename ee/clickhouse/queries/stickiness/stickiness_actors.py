@@ -1,4 +1,4 @@
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from ee.clickhouse.queries.stickiness.stickiness_event_query import StickinessEventsQuery
@@ -12,8 +12,8 @@ class ClickhouseStickinessActors(ActorBaseQuery):
     entity: Entity
     _filter: StickinessFilter
 
-    def __init__(self, team: Team, entity: Entity, filter: StickinessFilter):
-        super().__init__(team, filter, entity)
+    def __init__(self, team: Team, entity: Entity, filter: StickinessFilter, no_person_limit: Optional[bool] = False):
+        super().__init__(team, filter, entity, no_person_limit)
 
     @cached_property
     def is_aggregating_by_groups(self) -> bool:
@@ -27,8 +27,8 @@ class ClickhouseStickinessActors(ActorBaseQuery):
         return (
             f"""
         SELECT DISTINCT aggregation_target AS actor_id FROM ({events_query}) WHERE num_intervals = %(stickiness_day)s
-        {'LIMIT %(limit)s' if self._filter.limit > 0 else ''}
-        {'OFFSET %(offset)s' if self._filter.limit > 0 else ''}
+        {"" if self._no_person_limit else "LIMIT %(limit)s"}
+        {"" if self._no_person_limit else "OFFSET %(offset)s"}
         """,
             {
                 **event_params,

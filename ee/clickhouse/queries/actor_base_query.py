@@ -41,11 +41,19 @@ class SerializedGroup(SerializedActor):
 class ActorBaseQuery:
     aggregating_by_groups = False
     entity: Optional[Entity] = None
+    _no_person_limit = False
 
-    def __init__(self, team: Team, filter: Union[Filter, StickinessFilter], entity: Optional[Entity] = None):
+    def __init__(
+        self,
+        team: Team,
+        filter: Union[Filter, StickinessFilter],
+        entity: Optional[Entity] = None,
+        no_person_limit: Optional[bool] = False,
+    ):
         self._team = team
         self.entity = entity
         self._filter = filter
+        self._no_person_limit = no_person_limit
 
     def actor_query(self) -> Tuple[str, Dict]:
         """ Implemented by subclasses. Must provide query and params. The query must return list of uuids. Can be group uuids (group_key) or person uuids """
