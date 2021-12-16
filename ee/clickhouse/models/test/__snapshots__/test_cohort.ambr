@@ -186,9 +186,10 @@
                       team_id
              HAVING max(is_deleted) = 0)
           GROUP BY distinct_id)
-       WHERE person_id IN
+       WHERE NOT person_id IN
            (SELECT person_id
-            FROM
+            FROM events
+            INNER JOIN
               (SELECT distinct_id,
                       argMax(person_id, _timestamp) as person_id
                FROM
@@ -201,29 +202,12 @@
                            distinct_id,
                            team_id
                   HAVING max(is_deleted) = 0)
-               GROUP BY distinct_id)
-            WHERE person_id NOT IN
-                (SELECT person_id
-                 FROM events
-                 INNER JOIN
-                   (SELECT distinct_id,
-                           argMax(person_id, _timestamp) as person_id
-                    FROM
-                      (SELECT distinct_id,
-                              person_id,
-                              max(_timestamp) as _timestamp
-                       FROM person_distinct_id
-                       WHERE team_id = 2
-                       GROUP BY person_id,
-                                distinct_id,
-                                team_id
-                       HAVING max(is_deleted) = 0)
-                    GROUP BY distinct_id) as pdi ON events.distinct_id = pdi.distinct_id
-                 WHERE team_id = 2
-                   AND timestamp >= '2020-01-07 00:00:00'
-                   AND timestamp <= '2020-01-10 00:00:00'
-                   AND ((event = '$pageview'))
-                 GROUP BY person_id) ) )
+               GROUP BY distinct_id) as pdi ON events.distinct_id = pdi.distinct_id
+            WHERE team_id = 2
+              AND timestamp >= '2020-01-07 00:00:00'
+              AND timestamp <= '2020-01-10 00:00:00'
+              AND ((event = '$pageview'))
+            GROUP BY person_id) )
   '
 ---
 # name: TestCohort.test_cohortpeople_action_count.15

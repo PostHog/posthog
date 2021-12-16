@@ -152,14 +152,9 @@ def get_entity_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: in
             count_condition="" if is_negation else f"HAVING count(*) {count_operator} %(count)s",
         )
 
-        if is_negation:
-            extract_person = f"""
-            SELECT person_id FROM ({pdi_query}) WHERE person_id NOT IN ({extract_person})
-            """
-
         params: Dict[str, Union[str, int]] = {"count": int(count), **entity_params, **date_params}
 
-        return f"person_id IN ({extract_person})", params
+        return f"{'NOT' if is_negation else ''} person_id IN ({extract_person})", params
     else:
         extract_person = GET_DISTINCT_ID_BY_ENTITY_SQL.format(entity_query=entity_query, date_query=date_query,)
         return f"distinct_id IN ({extract_person})", {**entity_params, **date_params}
