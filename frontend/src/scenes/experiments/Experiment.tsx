@@ -17,7 +17,6 @@ import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { JSSnippet } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { IconJavascript } from 'lib/components/icons'
 import { InfoCircleOutlined } from '@ant-design/icons'
-import dayjs from 'dayjs'
 import { LemonButton } from 'lib/components/LemonButton'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 
@@ -55,7 +54,7 @@ export function Experiment(): JSX.Element {
 
     return (
         <>
-            {experimentId === 'new' || !experimentData?.start_date ? (
+            {experimentId === 'new' || (experimentData && !experimentData.start_date) ? (
                 <>
                     <Row
                         align="middle"
@@ -374,15 +373,16 @@ export function Experiment(): JSX.Element {
                         >
                             <div>
                                 <PageHeader title="Results" />
-                                <div>Probability: {experimentResults.probability}</div>
+                                <div>Probability: {experimentResults?.probability}</div>
+                                {experimentResults.funnel.length === 0 && (
+                                    <div className="l4">There were no events related to this experiment.</div>
+                                )}
                                 <InsightContainer disableTable={true} />
                             </div>
                         </BindLogic>
                     )}
-                    {!experimentData.end_date ? (
+                    {!experimentData.end_date && (
                         <LemonButton onClick={() => endExperiment()}>End experiment</LemonButton>
-                    ) : (
-                        <div>Experiment ended {dayjs(experimentData.end_date)}</div>
                     )}
                 </div>
             ) : (
