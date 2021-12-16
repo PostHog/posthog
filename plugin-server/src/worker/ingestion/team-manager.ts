@@ -15,7 +15,7 @@ export class TeamManager {
     db: DB
     teamCache: TeamCache<Team | null>
     eventDefinitionsCache: Map<TeamId, Set<string>>
-    eventPropertiesCache: Map<string, Set<string>> // key: JSON.stringify([team_id, event]), value: Set<property>
+    eventPropertiesCache: Map<TeamId, Map<string, Set<string>>> // Map<TeamId, Map<Event, Set<Property>>>
     eventLastSeenCache: Map<string, number> // key: JSON.stringify([team_id, event]); value: DateTime.valueOf()
     lastFlushAt: DateTime // time when the `eventLastSeenCache` was last flushed
     propertyDefinitionsCache: Map<TeamId, Set<string>>
@@ -172,13 +172,18 @@ export class TeamManager {
     private async syncEventProperties(team: Team, event: string, propertyKeys: string[]) {
         for (const property of propertyKeys) {
             const key = JSON.stringify([team.id, event])
-            let eventSet = this.eventPropertiesCache.get(key)
-            if (!eventSet) {
-                eventSet = new Set()
-                this.eventPropertiesCache.set(key, eventSet)
+            let eventPropertyMap = this.eventPropertiesCache.get(team.id)
+            if (!eventPropertyMap) {
+                eventPropertyMap = new Map()
+                this.eventPropertiesCache.set(team.id, eventPropertyMap)
             }
-            if (!eventSet.has(key)) {
-                eventSet.add(key)
+            let properties = eventPropertyMap.get(event)
+            if (!properties) {
+                properties = new Set()
+                eventPropertyMap.set(event, properties)
+            }
+            if (!properties.has(key)) {
+                properties.add(key)
                 await this.db.postgresQuery(
                     `INSERT INTO posthog_eventproperty (event, property, team_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
                     [event, property, team.id],
@@ -254,6 +259,25 @@ export class TeamManager {
             )
             propertyDefinitionsCache = new Set(eventProperties.rows.map((r) => r.name))
             this.propertyDefinitionsCache.set(teamId, propertyDefinitionsCache)
+        }
+
+        let eventPropertyMap = this.eventPropertiesCache.get(teamId)
+        if (!eventPropertyMap) {
+            const eventProperties = await this.db.postgresQuery(
+                'SELECT event, property FROM posthog_eventproperty WHERE team_id = $1',
+                [teamId],
+                'fetchEventProperties'
+            )
+            eventPropertyMap = new Map()
+            this.eventPropertiesCache.set(teamId, eventPropertyMap)
+            for (const { event, property } of eventProperties.rows) {
+                let properties = eventPropertyMap.get(event)
+                if (!properties) {
+                    properties = new Set()
+                    eventPropertyMap.set(event, properties)
+                }
+                properties.add(property)
+            }
         }
     }
 }
