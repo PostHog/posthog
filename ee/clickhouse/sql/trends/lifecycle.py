@@ -48,11 +48,29 @@ FROM (
         ( (neighbor(person_id, -1) = person_id) AND neighbor(subsequent_day, -1) < subsequent_day - INTERVAL {interval})
 ) e
 JOIN (
-    SELECT DISTINCT person_id, {trunc_func}(min(events.timestamp)) earliest FROM events
-    JOIN
-    ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi on events.distinct_id = pdi.distinct_id
-    WHERE team_id = %(team_id)s AND {event_query} {filters}
-    GROUP BY person_id
+    SELECT 
+        person_id, 
+        {trunc_func}(timestamp) as earliest
+    FROM (
+        SELECT pdi.person_id,
+            earliest.timestamp,
+            is_deleted
+        FROM person_distinct_id as pdi
+        JOIN (
+                SELECT distinct_id,
+                    toStartOfDay(events.timestamp) as timestamp
+                FROM events
+                WHERE
+                    team_id = %(team_id)s
+                    AND {event_query} {filters}
+                ORDER BY timestamp
+                LIMIT 1 BY distinct_id
+        ) earliest on earliest.distinct_id = pdi.distinct_id
+        WHERE team_id = %(team_id)s
+        ORDER BY _timestamp DESC
+        LIMIT 1 BY pdi.person_id
+    )
+    WHERE is_deleted = 0
 ) earliest ON e.person_id = earliest.person_id
 """
 
