@@ -2,7 +2,6 @@
 set -e
 
 
-export DATABASE_URL=postgres://localhost:5432/posthog_e2e_test
 export DEBUG=1
 export NO_RESTART_LOOP=1 
 export CYPRESS_BASE_URL=http://localhost:8080
@@ -10,8 +9,9 @@ export OPT_OUT_CAPTURE=1
 export SECURE_COOKIES=0
 export PRIMARY_DB=clickhouse
 export SKIP_SERVICE_VERSION_REQUIREMENTS=1
-export KAFKA_URL=kafka://kafka
-# export CLICKHOUSE_DATABASE=posthog_e2e_test
+export KAFKA_URL=kafka://kafka:9092
+export CLICKHOUSE_DATABASE=posthog_test
+export TEST=1
 export CLICKHOUSE_SECURE=0
 export E2E_TESTING=1
 export DATABASE_URL=postgres://localhost:5432/posthog_e2e_test
@@ -27,12 +27,15 @@ wget -nv -t1 --spider 'http://localhost:8123/' || ( echo -e "\033[0;31mClickhous
 
 dropdb --if-exists posthog_e2e_test
 createdb posthog_e2e_test
+python manage.py shell --command="from ee.clickhouse.client import sync_execute;sync_execute('drop database if exists posthog_test');sync_execute('create database posthog_test')"
 
 python manage.py migrate
 python manage.py migrate_clickhouse
 
 ## parallel block
 python manage.py setup_dev
+
+
 yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
 
 ## parallel block
