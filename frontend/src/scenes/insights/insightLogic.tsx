@@ -448,10 +448,10 @@ export const insightLogic = kea<insightLogicType>({
         fallbackDateRange: [
             (s) => [s.insight],
             (insight) => ({
-                dateFrom: insight?.result?.[0].filter?.date_from ?? insight?.result?.[0]?.days?.[0],
+                dateFrom: insight?.result?.[0]?.filter?.date_from ?? insight?.result?.[0]?.days?.[0],
                 dateTo:
                     insight?.last_refresh ??
-                    insight?.result?.[0].filter?.date_to ??
+                    insight?.result?.[0]?.filter?.date_to ??
                     insight?.result?.[0]?.days?.[insight?.result?.[0]?.days.length - 1],
                 fallback: getFormattedLastWeekDate(),
             }),
