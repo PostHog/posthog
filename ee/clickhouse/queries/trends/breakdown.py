@@ -245,6 +245,7 @@ class ClickhouseTrendsBreakdown:
                     "persons": {
                         "filter": extra_params,
                         "url": f"api/projects/{self.team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
+                        "cohort_url": f"api/cohort?{urllib.parse.urlencode(parsed_params)}",
                     },
                     **result_descriptors,
                     **additional_values,
@@ -293,6 +294,7 @@ class ClickhouseTrendsBreakdown:
             persons_url.append(
                 {
                     "filter": extra_params,
+                    "cohort_url": f"api/cohort?{urllib.parse.urlencode(parsed_params)}",
                     "url": f"api/projects/{team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
                 }
             )

@@ -96,7 +96,11 @@ class Stickiness(BaseQuery):
             }
             parsed_params: Dict[str, Union[Any, int, str]] = {**filter_params, **extra_params}
             persons_url.append(
-                {"filter": extra_params, "url": f"api/person/stickiness/?{urllib.parse.urlencode(parsed_params)}",}
+                {
+                    "filter": extra_params,
+                    "url": f"api/person/stickiness/?{urllib.parse.urlencode(parsed_params)}",
+                    "cohort_url": f"api/cohort?{urllib.parse.urlencode(parsed_params)}",
+                }
             )
         return persons_url
 

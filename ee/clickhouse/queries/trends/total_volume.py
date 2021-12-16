@@ -101,6 +101,7 @@ class ClickhouseTrendsTotalVolume:
                     "persons": {
                         "filter": extra_params,
                         "url": f"api/projects/{team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
+                        "cohort_url": f"api/cohort?{urllib.parse.urlencode(parsed_params)}",
                     },
                 }
             ]
@@ -123,6 +124,7 @@ class ClickhouseTrendsTotalVolume:
                 {
                     "filter": extra_params,
                     "url": f"api/projects/{team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
+                    "cohort_url": f"api/cohort?{urllib.parse.urlencode(parsed_params)}",
                 }
             )
         return persons_url
