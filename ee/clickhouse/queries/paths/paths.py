@@ -148,7 +148,7 @@ class ClickhousePaths:
             self._team,
             include_timestamp=bool(self._filter.funnel_paths),
             include_preceding_timestamp=self._filter.funnel_paths == FUNNEL_PATH_BETWEEN_STEPS,
-            limit_actors=self._limit_actors,
+            limit_actors=False,
         )
         funnel_persons_query, funnel_persons_param = funnel_persons_generator.actor_query()
         funnel_persons_query_new_params = funnel_persons_query.replace("%(", "%(funnel_")

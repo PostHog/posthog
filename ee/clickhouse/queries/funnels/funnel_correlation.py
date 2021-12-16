@@ -141,7 +141,7 @@ class FunnelCorrelation:
             # NOTE: we don't need these as we have all the information we need to
             # deduce if the person was successful or not
             include_preceding_timestamp=False,
-            limit_actors=True,
+            limit_actors=False,
         )
 
     def support_autocapture_elements(self) -> bool:
