@@ -139,7 +139,9 @@ def get_entity_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: in
 
     if count is not None:
 
-        is_negation = count_operator == "eq" and count == 0  # = 0 means all people who never performed the event
+        is_negation = (
+            count_operator == "eq" or count_operator == "lte"
+        ) and count == 0  # = 0 means all people who never performed the event
 
         count_operator = _get_count_operator(count_operator)
         pdi_query = get_team_distinct_ids_query(cohort.team_id)
