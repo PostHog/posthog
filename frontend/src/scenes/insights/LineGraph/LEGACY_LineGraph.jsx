@@ -279,7 +279,6 @@ export function LEGACY_LineGraph({
                                     : entityData.breakdown_value
                             }
                             seriesStatus={entityData.status}
-                            useCustomName
                         />
                     )
                 },
@@ -327,7 +326,14 @@ export function LEGACY_LineGraph({
                     ReactDOM.render(
                         <Provider store={getContext().store}>
                             {featureFlags[FEATURE_FLAGS.NEW_INSIGHT_TOOLTIPS] ? (
-                                <InsightTooltip />
+                                <InsightTooltip
+                                    referenceDate={referenceDate}
+                                    altTitle={altTitle}
+                                    bodyLines={bodyLines}
+                                    useAltTitle={tooltipPreferAltTitle}
+                                    hideHeader={type === 'horizontalBar'}
+                                    hideInspectActorsSection={!(onClick && showPersonsModal)}
+                                />
                             ) : (
                                 <LEGACY_InsightTooltip
                                     altTitle={altTitle}

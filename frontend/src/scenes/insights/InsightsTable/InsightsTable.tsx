@@ -170,13 +170,12 @@ export function InsightsTable({
                         showCountedByTag={showCountedByTag}
                         breakdownValue={item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()}
                         hideBreakdown
+                        hideCompare
                         hideIcon
-                        useCustomName
                         className={clsx({
                             editable: canEditSeriesNameInline,
                         })}
                         compareValue={filters.compare ? formatCompareLabel(item) : undefined}
-                        hideSeriesSubtitle
                         onLabelClick={canEditSeriesNameInline ? () => handleEditClick(item) : undefined}
                     />
                 </div>

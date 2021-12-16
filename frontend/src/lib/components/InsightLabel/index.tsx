@@ -26,6 +26,7 @@ interface InsightsLabelProps {
     breakdownValue?: BreakdownKeyType
     compareValue?: string
     hideBreakdown?: boolean // Whether to hide the breakdown detail in the label
+    hideCompare?: boolean // Whether to hide the compare detail in the label
     hideIcon?: boolean // Whether to hide the icon that showcases the color of the series
     iconSize?: IconSize // Size of the series color icon
     iconStyle?: Record<string, any> // style on series color icon
@@ -34,10 +35,8 @@ interface InsightsLabelProps {
     hasMultipleSeries?: boolean // Whether the graph has multiple discrete series (not breakdown values)
     showCountedByTag?: boolean // Force 'counted by' tag to show (always shown when action.math is set)
     allowWrap?: boolean // Allow wrapping to multiple lines (useful for long values like URLs)
-    useCustomName?: boolean // Whether to show new custom name. `{custom_name} ({id})`.
-    hideSeriesSubtitle?: boolean // Whether to show the base event/action name (if a custom name is set) in the insight label
+    hideCustomName?: boolean // Whether to show the base event/action name (if a custom name is set) in the insight label
     onLabelClick?: () => void // Click handler for inner label
-    swapTitleAndSubtitle?: boolean // If true, emphases on subtitle and title are switched.
     showEventName?: boolean // Override internally calculated to always show event name
 }
 
@@ -85,6 +84,7 @@ export function InsightLabel({
     breakdownValue,
     compareValue,
     hideBreakdown,
+    hideCompare,
     hideIcon,
     iconSize = IconSize.Large,
     iconStyle,
@@ -93,15 +93,16 @@ export function InsightLabel({
     hasMultipleSeries,
     showCountedByTag,
     allowWrap = false,
-    useCustomName = false,
     showEventName: _showEventName = false,
-    hideSeriesSubtitle,
+    hideCustomName = false,
     onLabelClick,
-    swapTitleAndSubtitle = false,
 }: InsightsLabelProps): JSX.Element {
     const showEventName = _showEventName || !breakdownValue || (hasMultipleSeries && !Array.isArray(breakdownValue))
     const eventName = seriesStatus ? capitalizeFirstLetter(seriesStatus) : action?.name || fallbackName || ''
     const iconSizePx = iconSize === IconSize.Large ? 14 : iconSize === IconSize.Medium ? 12 : 10
+    const pillValues = [hideCompare ? null : compareValue, ...(hideBreakdown ? [] : [breakdownValue].flat())].filter(
+        (pill) => !!pill
+    )
 
     return (
         <Row className={clsx('insights-label', className)} wrap={false}>
@@ -127,16 +128,11 @@ export function InsightLabel({
                         hasBreakdown={!!breakdownValue}
                     />
                 )}
-                <div className={allowWrap ? '' : 'protect-width'} onClick={onLabelClick}>
+                <div className={clsx('label', allowWrap && 'wrap')} onClick={onLabelClick}>
                     {showEventName && (
                         <>
-                            {useCustomName && action ? (
-                                <EntityFilterInfo
-                                    filter={action}
-                                    showSubTitle={!hideSeriesSubtitle}
-                                    subTitles={[compareValue, ...[breakdownValue].flat()]}
-                                    swapTitleAndSubtitle={swapTitleAndSubtitle}
-                                />
+                            {action ? (
+                                <EntityFilterInfo filter={action} hideCustomName={hideCustomName} />
                             ) : (
                                 <PropertyKeyInfo disableIcon disablePopover value={eventName} ellipsis={!allowWrap} />
                             )}
@@ -151,32 +147,24 @@ export function InsightLabel({
                         />
                     )}
 
-                    {breakdownValue &&
-                        !hideBreakdown &&
-                        (Array.isArray(breakdownValue) ? (
-                            <Space direction={'horizontal'} wrap={true}>
-                                {breakdownValue.map((bv) => (
-                                    <Tag className="tag-pill" key={bv} closable={false}>
-                                        <Typography.Text ellipsis={{ tooltip: bv }} style={{ maxWidth: 165 }}>
-                                            {bv}
-                                        </Typography.Text>
-                                    </Tag>
-                                ))}
-                            </Space>
-                        ) : (
-                            <Space direction={'horizontal'} wrap={true}>
-                                <Tag className="tag-pill" key={breakdownValue} closable={false}>
-                                    <Typography.Text ellipsis={{ tooltip: breakdownValue }} style={{ maxWidth: 165 }}>
-                                        {breakdownValue}
+                    {pillValues.length > 0 && (
+                        <Space direction={'horizontal'} wrap={true}>
+                            {pillValues.map((pill) => (
+                                <Tag className="tag-pill" key={pill} closable={false}>
+                                    <Typography.Text ellipsis={{ tooltip: pill }} style={{ maxWidth: 165 }}>
+                                        {pill}
                                     </Typography.Text>
                                 </Tag>
-                            </Space>
-                        ))}
+                            ))}
+                        </Space>
+                    )}
                 </div>
             </Col>
-            <Col flex="none">
-                <span className="value">{value}</span>
-            </Col>
+            {value && (
+                <Col flex="none">
+                    <span className="value">{value}</span>
+                </Col>
+            )}
         </Row>
     )
 }

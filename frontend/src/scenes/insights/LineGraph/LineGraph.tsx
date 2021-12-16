@@ -325,16 +325,23 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                             ReactDOM.render(
                                 <Provider store={getContext().store}>
                                     {featureFlags[FEATURE_FLAGS.NEW_INSIGHT_TOOLTIPS] ? (
-                                        <InsightTooltip />
+                                        <InsightTooltip
+                                            referenceDate={referenceDate}
+                                            altTitle={altTitle}
+                                            bodyLines={bodyLines}
+                                            useAltTitle={tooltipPreferAltTitle}
+                                            hideHeader={isHorizontal}
+                                            hideInspectActorsSection={!(onClick && showPersonsModal)}
+                                        />
                                     ) : (
                                         <LEGACY_InsightTooltip
-                                            altTitle={altTitle}
                                             referenceDate={referenceDate}
+                                            altTitle={altTitle}
                                             interval={interval}
                                             bodyLines={bodyLines}
-                                            inspectPersonsLabel={onClick && showPersonsModal}
                                             preferAltTitle={tooltipPreferAltTitle}
                                             hideHeader={isHorizontal}
+                                            inspectPersonsLabel={onClick && showPersonsModal}
                                         />
                                     )}
                                 </Provider>,
@@ -408,7 +415,6 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                                             : entityData.breakdown_value
                                     }
                                     seriesStatus={entityData.status}
-                                    useCustomName
                                 />
                             )
                         },
