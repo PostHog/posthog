@@ -107,7 +107,19 @@ export class TeamManager {
         })
 
         await this.cacheEventNamesAndProperties(team.id)
+        await this.syncEventDefinitions(team, event)
+        await this.syncPropertyDefinitions(properties, team)
+        await this.setTeamIngestedEvent(team, properties)
 
+        clearTimeout(timeout)
+
+        const statsDEvent = this.experimentalLastSeenAtEnabled
+            ? 'updateEventNamesAndProperties.lastSeenAtEnabled'
+            : 'updateEventNamesAndProperties'
+        this.statsd?.timing(statsDEvent, DateTime.now().diff(startTime).as('milliseconds'))
+    }
+
+    private async syncEventDefinitions(team: Team, event: string) {
         if (!this.eventDefinitionsCache.get(team.id)?.has(event)) {
             // TODO: #7422 Temporary conditional to test experimental feature
             if (this.experimentalLastSeenAtEnabled) {
@@ -145,7 +157,9 @@ export class TeamManager {
                 }
             }
         }
+    }
 
+    private async syncPropertyDefinitions(properties: Properties, team: Team) {
         for (const [key, value] of Object.entries(properties)) {
             if (!this.propertyDefinitionsCache.get(team.id)?.has(key)) {
                 await this.db.postgresQuery(
@@ -156,7 +170,9 @@ export class TeamManager {
                 this.propertyDefinitionsCache.get(team.id)?.add(key)
             }
         }
+    }
 
+    private async setTeamIngestedEvent(team: Team, properties: Properties) {
         if (team && !team.ingested_event) {
             await this.db.postgresQuery(
                 `UPDATE posthog_team SET ingested_event = $1 WHERE id = $2`,
@@ -186,12 +202,6 @@ export class TeamManager {
                 })
             }
         }
-
-        clearTimeout(timeout)
-        const statsDEvent = this.experimentalLastSeenAtEnabled
-            ? 'updateEventNamesAndProperties.lastSeenAtEnabled'
-            : 'updateEventNamesAndProperties'
-        this.statsd?.timing(statsDEvent, DateTime.now().diff(startTime).as('milliseconds'))
     }
 
     public async cacheEventNamesAndProperties(teamId: number): Promise<void> {
