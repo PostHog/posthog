@@ -112,7 +112,7 @@ export class TeamManager {
             ingested: team.ingested_event,
         })
 
-        await this.cacheEventNamesAndProperties(team.id)
+        await this.cacheEventNamesAndProperties(team.id, propertyCounterTeams)
         await this.syncEventDefinitions(team, event)
         if (propertyCounterTeams.includes(team.id)) {
             await this.syncEventProperties(team, event, Object.keys(properties))
@@ -238,7 +238,7 @@ export class TeamManager {
         }
     }
 
-    public async cacheEventNamesAndProperties(teamId: number): Promise<void> {
+    public async cacheEventNamesAndProperties(teamId: number, propertyCounterTeams: number[] = []): Promise<void> {
         let eventDefinitionsCache = this.eventDefinitionsCache.get(teamId)
         if (!eventDefinitionsCache) {
             const eventNames = await this.db.postgresQuery(
@@ -261,22 +261,24 @@ export class TeamManager {
             this.propertyDefinitionsCache.set(teamId, propertyDefinitionsCache)
         }
 
-        let eventPropertyMap = this.eventPropertiesCache.get(teamId)
-        if (!eventPropertyMap) {
-            const eventProperties = await this.db.postgresQuery(
-                'SELECT event, property FROM posthog_eventproperty WHERE team_id = $1',
-                [teamId],
-                'fetchEventProperties'
-            )
-            eventPropertyMap = new Map()
-            this.eventPropertiesCache.set(teamId, eventPropertyMap)
-            for (const { event, property } of eventProperties.rows) {
-                let properties = eventPropertyMap.get(event)
-                if (!properties) {
-                    properties = new Set()
-                    eventPropertyMap.set(event, properties)
+        if (propertyCounterTeams[teamId]) {
+            let eventPropertyMap = this.eventPropertiesCache.get(teamId)
+            if (!eventPropertyMap) {
+                const eventProperties = await this.db.postgresQuery(
+                    'SELECT event, property FROM posthog_eventproperty WHERE team_id = $1',
+                    [teamId],
+                    'fetchEventProperties'
+                )
+                eventPropertyMap = new Map()
+                this.eventPropertiesCache.set(teamId, eventPropertyMap)
+                for (const { event, property } of eventProperties.rows) {
+                    let properties = eventPropertyMap.get(event)
+                    if (!properties) {
+                        properties = new Set()
+                        eventPropertyMap.set(event, properties)
+                    }
+                    properties.add(property)
                 }
-                properties.add(property)
             }
         }
     }
