@@ -16,7 +16,7 @@ import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 
 interface ChartFilterProps {
     filters: FilterType
-    onChange: (chartFilter: ChartDisplayType | FunnelVizType) => void
+    onChange?: (chartFilter: ChartDisplayType | FunnelVizType) => void
     disabled: boolean
 }
 
@@ -130,7 +130,7 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
             value={chartFilter || defaultDisplay}
             onChange={(value: ChartDisplayType | FunnelVizType) => {
                 setChartFilter(value)
-                onChange(value)
+                onChange?.(value)
             }}
             bordered
             dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}

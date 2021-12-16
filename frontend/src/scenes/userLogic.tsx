@@ -7,9 +7,13 @@ import posthog from 'posthog-js'
 import { toast } from 'react-toastify'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { teamLogic } from './teamLogic'
+import { preflightLogic } from './PreflightCheck/logic'
 
 export const userLogic = kea<userLogicType>({
     path: ['scenes', 'userLogic'],
+    connect: {
+        values: [preflightLogic, ['preflight']],
+    },
     actions: () => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentTeam: (teamId: number, destination?: string) => ({ teamId, destination }),
@@ -138,6 +142,10 @@ export const userLogic = kea<userLogicType>({
             (user) => {
                 return (feature: AvailableFeature) => !!user?.organization?.available_features.includes(feature)
             },
+        ],
+        upgradeLink: [
+            (s) => [s.preflight],
+            (preflight): string => (preflight?.cloud ? '/organization/billing' : '/instance/licenses'),
         ],
         otherOrganizations: [
             (s) => [s.user],

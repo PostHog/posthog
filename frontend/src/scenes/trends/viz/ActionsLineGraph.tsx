@@ -1,11 +1,10 @@
 import React from 'react'
-import { LineGraph } from '../../insights/LineGraph'
+import { LineGraph } from '../../insights/LineGraph/LineGraph'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightEmptyState } from '../../insights/EmptyStates'
 import { ACTIONS_BAR_CHART } from 'lib/constants'
-import { ChartParams } from '~/types'
-import { InsightType } from '~/types'
+import { ActionFilter, ChartParams, GraphType, InsightType } from '~/types'
 import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { isMultiSeriesFormula } from 'lib/utils'
@@ -16,7 +15,7 @@ export function ActionsLineGraph({
     inSharedMode = false,
     showPersonsModal = true,
 }: ChartParams): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, isViewedOnDashboard, insight } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { filters, indexedResults, visibilityMap } = useValues(logic)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
@@ -26,13 +25,17 @@ export function ActionsLineGraph({
         indexedResults.filter((result) => result.count !== 0).length > 0 ? (
         <LineGraph
             data-attr="trend-line-graph"
-            type={filters.insight === InsightType.LIFECYCLE || filters.display === ACTIONS_BAR_CHART ? 'bar' : 'line'}
+            type={
+                filters.insight === InsightType.LIFECYCLE || filters.display === ACTIONS_BAR_CHART
+                    ? GraphType.Bar
+                    : GraphType.Line
+            }
             color={color}
             datasets={indexedResults}
             visibilityMap={visibilityMap}
             labels={(indexedResults[0] && indexedResults[0].labels) || []}
             isInProgress={!filters.date_to}
-            dashboardItemId={dashboardItemId}
+            insightId={insight.id}
             inSharedMode={inSharedMode}
             interval={filters.interval}
             showPersonsModal={showPersonsModal}
@@ -40,20 +43,31 @@ export function ActionsLineGraph({
             isCompare={!!filters.compare}
             onClick={
                 dashboardItemId || isMultiSeriesFormula(filters.formula) || !showPersonsModal
-                    ? null
-                    : (point) => {
-                          const { dataset, day, value: pointValue, index } = point
+                    ? undefined
+                    : (payload) => {
+                          const { index, points } = payload
+
+                          // For now, take first point when clicking a specific point.
+                          // TODO: Implement case when if the entire line was clicked, show people for that entire day across actions.
+                          const dataset = points.clickedPointNotLine
+                              ? points.pointsIntersectingClick[0].dataset
+                              : points.pointsIntersectingLine[0].dataset
+                          const day = dataset?.days?.[index] ?? ''
+                          const label = dataset?.label ?? dataset?.labels?.[index] ?? ''
+
+                          if (!dataset) {
+                              return
+                          }
 
                           const params = {
-                              action: dataset.action || 'session',
-                              label: dataset.label,
+                              action: (dataset.action || 'session') as ActionFilter | 'session',
+                              label,
                               date_from: day,
                               date_to: day,
-                              filters: filters,
-                              breakdown_value:
-                                  dataset.breakdown_value === undefined ? dataset.status : dataset.breakdown_value,
+                              filters,
+                              breakdown_value: points.clickedPointNotLine ? dataset.breakdown_value : undefined,
                               saveOriginal: true,
-                              pointValue,
+                              pointValue: dataset?.data?.[index] ?? undefined,
                           }
                           if (dataset.persons_urls?.[index].url) {
                               loadPeopleFromUrl({
@@ -67,6 +81,6 @@ export function ActionsLineGraph({
             }
         />
     ) : (
-        <InsightEmptyState color={color} isDashboard={!!dashboardItemId} />
+        <InsightEmptyState color={color} isDashboard={isViewedOnDashboard} />
     )
 }

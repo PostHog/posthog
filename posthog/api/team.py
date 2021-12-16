@@ -20,6 +20,7 @@ from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
     TeamMemberLightManagementPermission,
 )
+from posthog.tasks.delete_clickhouse_data import delete_clickhouse_data
 
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):
@@ -179,6 +180,10 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
             raise exceptions.ValidationError(str(error))
         self.check_object_permissions(self.request, team)
         return team
+
+    def perform_destroy(self, team: Team):
+        super().perform_destroy(team)
+        delete_clickhouse_data.delay(team_ids=[team.pk])
 
     @action(methods=["PATCH"], detail=True)
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:

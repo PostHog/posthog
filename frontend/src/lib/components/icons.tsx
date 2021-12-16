@@ -924,3 +924,14 @@ export function IconLegend({ style }: { style?: CSSProperties }): JSX.Element {
         </svg>
     )
 }
+
+export function IconExperiment({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <svg width="18" height="16" viewBox="0 0 18 16" fill="none" style={style} xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="M9.99999 7.33L15 14H2.99999L7.99999 7.33V2H9.99999V7.33ZM12.96 0H5.03999C4.61999 0 4.38999 0.48 4.64999 0.81L5.99999 2.5V6.67L0.199992 14.4C-0.290008 15.06 0.179992 16 0.999992 16H17C17.82 16 18.29 15.06 17.8 14.4L12 6.67V2.5L13.35 0.81C13.61 0.48 13.38 0 12.96 0Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
