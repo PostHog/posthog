@@ -62,10 +62,11 @@ describe('postgres parity', () => {
 
     test('createPerson', async () => {
         const uuid = new UUIDT().toString()
+        const ts = DateTime.now().toString()
         const person = await hub.db.createPerson(
             DateTime.utc(),
             { userPropOnce: 'propOnceValue', userProp: 'propValue' },
-            { userProp: DateTime.now().toString(), userPropOnce: DateTime.now().toString() },
+            { userProp: ts, userPropOnce: ts },
             { userProp: PropertyUpdateOperation.Set, userPropOnce: PropertyUpdateOperation.SetOnce },
             team.id,
             null,

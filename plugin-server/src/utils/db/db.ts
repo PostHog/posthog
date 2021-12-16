@@ -629,7 +629,7 @@ export class DB {
 
         if (updateResult.rows.length === 0) {
             // this function should always be called in a transaction with person fetch locking for update before
-            throw new RaceConditionError('Failed updating person properties, person was not locked properly')
+            throw new RaceConditionError('Failed updating person properties')
         }
         return Number(updateResult.rows[0].version)
     }
