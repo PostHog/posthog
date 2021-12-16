@@ -54,8 +54,16 @@ class ActorBaseQuery:
         self.entity = entity
         self._filter = filter
 
-    def actor_query(self) -> Tuple[str, Dict]:
-        """ Implemented by subclasses. Must provide query and params. The query must return list of uuids. Can be group uuids (group_key) or person uuids """
+    def actor_query(self) -> Tuple[str, Union[Dict, None]]:
+        """
+        Implemented by subclasses. Must provide query and params. The query must
+        return list of uuids. Can be group uuids (group_key) or person uuids
+
+        NOTE: we have the option of `None` as a params return type, which is to
+        highlight that the query should not have param substitution run on it.
+        By choose None over an empty dict as this will be caught in type
+        checking if we try to explode the params into a new param dict.
+        """
         raise NotImplementedError()
 
     @cached_property

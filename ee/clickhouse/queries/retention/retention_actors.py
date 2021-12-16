@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Union
 
 from ee.clickhouse.client import substitute_params, sync_execute
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
@@ -25,7 +25,7 @@ class ClickhouseRetentionActors(ActorBaseQuery):
     def is_aggregating_by_groups(self) -> bool:
         return self._filter.aggregation_group_type_index is not None
 
-    def actor_query(self) -> Tuple[str, Dict]:
+    def actor_query(self) -> Tuple[str, Union[Dict, None]]:
         actor_query = _build_actor_query(
             filter=self._filter,
             team=self._team,
@@ -33,7 +33,7 @@ class ClickhouseRetentionActors(ActorBaseQuery):
             selected_interval=self._filter.selected_interval,
         )
 
-        return actor_query, {}
+        return actor_query, None
 
 
 # Note: This class does not respect the entire flor from ActorBaseQuery because the result shape differs from other actor queries
@@ -139,7 +139,7 @@ def _build_actor_query(
         filter=filter, team=team, filter_by_breakdown=filter_by_breakdown, selected_interval=selected_interval,
     )
 
-    actor_query = f"""
+    actor_query_template = """
         SELECT
             actor_id,
             groupArray(actor_activity.intervals_from_base) AS appearances
@@ -155,4 +155,8 @@ def _build_actor_query(
         LIMIT 100 OFFSET %(offset)s
     """
 
-    return substitute_params(actor_query, {"offset": filter.offset})
+    actor_query = substitute_params(actor_query_template, {"offset": filter.offset}).format(
+        actor_activity_query=actor_activity_query
+    )
+
+    return actor_query
