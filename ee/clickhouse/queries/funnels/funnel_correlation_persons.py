@@ -97,8 +97,8 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
                 {conversion_filter}
                 {prop_query}
             ORDER BY actor_id
-            LIMIT {self._filter.correlation_person_limit}
-            OFFSET {self._filter.correlation_person_offset}
+            {"" if self._no_actor_limit else "LIMIT %(limit)s"}
+            {"" if self._no_actor_limit else "OFFSET %(offset)s"}
         """
 
         params = {
@@ -107,6 +107,8 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
             "target_event": self._filter.correlation_person_entity.id,
             "funnel_step_names": [entity.id for entity in self._filter.events],
             "target_step": len(self._filter.entities),
+            "limit": self._filter.correlation_person_limit,
+            "offset": self._filter.correlation_person_offset,
         }
 
         return query, params
@@ -149,14 +151,16 @@ class _FunnelPropertyCorrelationActors(ActorBaseQuery):
             WHERE {conversion_filter}
             {group_filters}
             ORDER BY actor_id
-            LIMIT {self._filter.correlation_person_limit}
-            OFFSET {self._filter.correlation_person_offset}
+            {"" if self._no_actor_limit else "LIMIT %(limit)s"}
+            {"" if self._no_actor_limit else "OFFSET %(offset)s"}
         """
         params = {
             **funnel_persons_params,
             **actor_join_subquery_params,
             **group_filters_params,
             "target_step": len(self._filter.entities),
+            "limit": self._filter.correlation_person_limit,
+            "offset": self._filter.correlation_person_offset,
         }
 
         return query, params
