@@ -11,7 +11,6 @@ env_feature_flags = os.getenv("PERSISTED_FEATURE_FLAGS", "")
 PERSISTED_FEATURE_FLAGS: List[str] = []
 default_flag_persistence = [
     # Add hard-coded feature flags for static self-hosted releases here
-    "5440-multivariate-support",
     "new-paths-ui-edge-weights",
     "new-sessions-player-events-list",
     "session-insight-removal",
