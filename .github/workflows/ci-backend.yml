@@ -267,12 +267,12 @@ jobs:
         steps:
             - name: Fetch posthog-cloud
               run: |
-                  curl -L https://github.com/posthog/posthog-cloud/tarball/settings-refactor | tar --strip-components=1 -xz --
+                  curl -L https://github.com/posthog/posthog-cloud/tarball/master | tar --strip-components=1 -xz --
                   mkdir deploy/
             - name: Checkout master
               uses: actions/checkout@v2
               with:
-                  # ref: 'master'
+                  ref: 'master'
                   path: 'deploy/'
             - name: Link posthog-cloud at master
               run: |
