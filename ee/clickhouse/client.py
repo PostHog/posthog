@@ -37,7 +37,7 @@ from posthog.settings import (
 from posthog.utils import get_safe_cache
 
 InsertParams = Union[list, tuple, types.GeneratorType]
-NonInsertParams = Union[Dict[str, Any]]
+NonInsertParams = Dict[str, Any]
 QueryArgs = Optional[Union[InsertParams, NonInsertParams]]
 
 CACHE_TTL = 60  # seconds
@@ -220,9 +220,10 @@ def _prepare_query(client: SyncClient, query: str, args: QueryArgs):
     clickhouse_driver at this moment in time decides based on the
     below predicate.
     """
+    prepared_args: Any = QueryArgs
     if isinstance(args, (list, tuple, types.GeneratorType)):
-        # If we get one of these, then let the clickhouse python client handle
-        # the args
+        # If we get one of these it means we have an insert, let the clickhouse
+        # client handle substitution here.
         rendered_sql = query
         prepared_args = args
     elif not args:
