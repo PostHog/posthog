@@ -3,9 +3,8 @@ from datetime import datetime
 from typing import List, Optional, Tuple, Type
 
 from numpy.random import default_rng
-from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.queries.funnels import ClickhouseFunnel, funnel
+from ee.clickhouse.queries.funnels import ClickhouseFunnel
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 
@@ -103,11 +102,6 @@ class ClickhouseFunnelExperimentResult:
         By default, we choose a non-informative prior. That is, both success & failure are equally likely.
         
         """
-        if len(variants) > 2:
-            raise ValidationError("Can't calculate A/B test results for more than 2 variants")
-
-        if len(variants) < 2:
-            raise ValidationError("Can't calculate A/B test results for less than 2 variants")
 
         prior_success, prior_failure = priors
 
