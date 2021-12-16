@@ -70,7 +70,6 @@ export const FEATURE_FLAGS = {
     NPS_PROMPT: '4562-nps', // owner: @paolodamico
     // Experiments / beta features
     INGESTION_GRID: 'ingestion-grid-exp-3', // owner: @kpthatsme
-    MULTIVARIATE_SUPPORT: '5440-multivariate-support', // owner: @mariusandra
     FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui', // owner: @alexkim205
     DIVE_DASHBOARDS: 'hackathon-dive-dashboards', // owner: @tiina303
     NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights', // owner: @neilkakkar
@@ -83,7 +82,9 @@ export const FEATURE_FLAGS = {
     EXPERIMENTATION: 'experimentation', // owner: @neilkakkar
     RETENTION_BREAKDOWN: 'retention-breakdown', // owner: @hazzadous
     STALE_EVENTS: 'stale-events', // owner: @paolodamico
-    INSIGHT_LEGENDS: 'insight-legends', // owner @alexkim205
+    INSIGHT_LEGENDS: 'insight-legends', // owner: @alexkim205
+    LINE_GRAPH_V2: 'line-graph-v2', // owner @alexkim205
+    DASHBOARD_REDESIGN: 'dashboard-redesign', // owner: @Twixes
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

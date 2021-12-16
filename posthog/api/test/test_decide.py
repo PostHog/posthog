@@ -498,7 +498,7 @@ class TestDecide(BaseTest):
 
     def test_invalid_payload_on_decide_endpoint(self):
 
-        invalid_payloads = [base64.b64encode("1-1".encode("utf-8")).decode("utf-8"), "1==1", "{distinct_id-1}"]
+        invalid_payloads = [base64.b64encode(b"1-1").decode("utf-8"), "1==1", "{distinct_id-1}"]
 
         for payload in invalid_payloads:
             response = self.client.post("/decide/", {"data": payload}, HTTP_ORIGIN="http://127.0.0.1:8000")

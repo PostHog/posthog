@@ -1,167 +1,58 @@
-from typing import Any, Dict, List, NamedTuple, Tuple, cast
+from typing import Any, Dict, List, NamedTuple, Tuple, Union
+from urllib.parse import urlencode
 
 from ee.clickhouse.client import substitute_params, sync_execute
-from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
-from ee.clickhouse.queries.retention.retention_actors import (
-    ClickhouseRetentionActors,
-    ClickhouseRetentionActorsByPeriod,
-)
 from ee.clickhouse.queries.retention.retention_event_query import RetentionEventsQuery
-from ee.clickhouse.queries.util import get_trunc_func_ch
-from ee.clickhouse.sql.retention.retention import (
-    INITIAL_BREAKDOWN_INTERVAL_SQL,
-    INITIAL_INTERVAL_SQL,
-    RETENTION_BREAKDOWN_SQL,
-    RETENTION_SQL,
-)
-from posthog.constants import (
-    RETENTION_FIRST_TIME,
-    TREND_FILTER_TYPE_ACTIONS,
-    TREND_FILTER_TYPE_EVENTS,
-    TRENDS_LINEAR,
-    RetentionQueryType,
-)
-from posthog.models.action import Action
-from posthog.models.entity import Entity
+from ee.clickhouse.sql.retention.retention import RETENTION_BREAKDOWN_SQL
+from posthog.constants import RETENTION_FIRST_TIME, RetentionQueryType
 from posthog.models.filters import RetentionFilter
+from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
-from posthog.queries.retention import AppearanceRow, Retention
 
-CohortKey = NamedTuple("CohortKey", (("breakdown_values", Tuple[str]), ("period", int)))
+BreakdownValues = Tuple[Union[str, int], ...]
+CohortKey = NamedTuple("CohortKey", (("breakdown_values", BreakdownValues), ("period", int)))
 
 
-class ClickhouseRetention(Retention):
-    def _get_retention_by_cohort(self, filter: RetentionFilter, team: Team,) -> Dict[Tuple[int, int], Dict[str, Any]]:
-        period = filter.period
-        is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
-        date_from = filter.date_from
-        trunc_func = get_trunc_func_ch(period)
+class ClickhouseRetention:
+    def __init__(self, base_uri="/"):
+        self._base_uri = base_uri
 
-        returning_event_query, returning_event_params = RetentionEventsQuery(
-            filter=filter, team_id=team.pk, event_query_type=RetentionQueryType.RETURNING
-        ).get_query()
-        target_event_query, target_event_params = RetentionEventsQuery(
-            filter=filter,
-            team_id=team.pk,
-            event_query_type=RetentionQueryType.TARGET_FIRST_TIME
-            if is_first_time_retention
-            else RetentionQueryType.TARGET,
-        ).get_query()
-
-        all_params = {
-            "team_id": team.pk,
-            "start_date": date_from.strftime(
-                "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
-            ),
-            **returning_event_params,
-            **target_event_params,
-            "period": period,
-        }
-
-        result = sync_execute(
-            RETENTION_SQL.format(
-                returning_event_query=returning_event_query,
-                trunc_func=trunc_func,
-                target_event_query=target_event_query,
-            ),
-            all_params,
-        )
-
-        initial_interval_result = sync_execute(
-            INITIAL_INTERVAL_SQL.format(reference_event_sql=target_event_query, trunc_func=trunc_func,), all_params,
-        )
-
-        result_dict = {}
-        for initial_res in initial_interval_result:
-            result_dict.update({(initial_res[0], 0): {"count": initial_res[1], "people": []}})
-
-        for res in result:
-            result_dict.update({(res[0], res[1]): {"count": res[2], "people": []}})
-
-        return result_dict
+    def run(self, filter: RetentionFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+        retention_by_breakdown = self._get_retention_by_breakdown_values(filter, team)
+        if filter.breakdowns:
+            return self.process_breakdown_table_result(retention_by_breakdown, filter)
+        else:
+            return self.process_table_result(retention_by_breakdown, filter)
 
     def _get_retention_by_breakdown_values(
         self, filter: RetentionFilter, team: Team,
     ) -> Dict[CohortKey, Dict[str, Any]]:
-        period = filter.period
-        is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
-        date_from = filter.date_from
-        trunc_func = get_trunc_func_ch(period)
+        from ee.clickhouse.queries.retention.retention_actors import build_actor_activity_query
 
-        returning_event_query_templated, returning_event_params = RetentionEventsQuery(
-            filter=filter.with_data({"breakdowns": []}),  # Avoid pulling in breakdown values from reterning event query
-            team_id=team.pk,
-            event_query_type=RetentionQueryType.RETURNING,
-        ).get_query()
+        actor_query = build_actor_activity_query(filter=filter, team=team)
 
-        returning_event_query = substitute_params(returning_event_query_templated, returning_event_params)
+        result = sync_execute(RETENTION_BREAKDOWN_SQL.format(actor_query=actor_query,))
 
-        target_event_query_templated, target_event_params = RetentionEventsQuery(
-            filter=filter,
-            team_id=team.pk,
-            event_query_type=(
-                RetentionQueryType.TARGET_FIRST_TIME if is_first_time_retention else RetentionQueryType.TARGET
-            ),
-        ).get_query()
-
-        target_event_query = substitute_params(target_event_query_templated, target_event_params)
-
-        all_params = {
-            "team_id": team.pk,
-            "start_date": date_from.strftime(
-                "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
-            ),
-            "total_intervals": filter.total_intervals,
-            "period": period.lower(),
-            "breakdown_by": filter.breakdown,
+        result_dict = {
+            CohortKey(tuple(breakdown_values), intervals_from_base): {
+                "count": count,
+                "people": [],
+                "people_url": self._construct_people_url_for_trend_breakdown_interval(
+                    filter=filter, breakdown_values=breakdown_values, selected_interval=intervals_from_base,
+                ),
+            }
+            for (breakdown_values, intervals_from_base, count) in result
         }
-
-        result = sync_execute(
-            substitute_params(RETENTION_BREAKDOWN_SQL, all_params).format(
-                returning_event_query=returning_event_query,
-                trunc_func=trunc_func,
-                target_event_query=target_event_query,
-                GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team.pk),
-            )
-        )
-
-        result = [(tuple(res[0]), *res[1:]) for res in result]  # make breakdown hashable, required later
-
-        initial_interval_result = sync_execute(
-            substitute_params(INITIAL_BREAKDOWN_INTERVAL_SQL, all_params).format(
-                reference_event_sql=target_event_query, trunc_func=trunc_func,
-            ),
-        )
-
-        initial_interval_result = [
-            (tuple(res[0]), *res[1:]) for res in initial_interval_result
-        ]  # make breakdown hashable, required later
-
-        result_dict = {}
-        for initial_res in initial_interval_result:
-            result_dict.update({CohortKey(initial_res[0], 0): {"count": initial_res[1], "people": []}})
-
-        for res in result:
-            result_dict.update({CohortKey(res[0], res[1]): {"count": res[2], "people": []}})
 
         return result_dict
 
-    def run(self, filter: RetentionFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
-        if filter.display == TRENDS_LINEAR:
-            # If we get a display=TRENDS_LINEAR then don't do anything special
-            # with breakdowns. This code path will be removed anyway in a future
-            # change.
-            retention_by_cohort = self._get_retention_by_cohort(filter, team)
-            return self.process_graph_result(retention_by_cohort, filter)
-        if filter.breakdowns and filter.breakdown_type:
-            retention_by_breakdown = self._get_retention_by_breakdown_values(filter, team)
-            return self.process_breakdown_table_result(retention_by_breakdown, filter)
-        else:
-            # If we're not using breakdowns, just use the non-clickhouse
-            # `process_table_result`
-            retention_by_cohort = self._get_retention_by_cohort(filter, team)
-            return self.process_table_result(retention_by_cohort, filter)
+    def _construct_people_url_for_trend_breakdown_interval(
+        self, filter: RetentionFilter, selected_interval: int, breakdown_values: BreakdownValues,
+    ):
+        params = RetentionFilter(
+            {**filter._data, "breakdown_values": breakdown_values, "selected_interval": selected_interval}
+        ).to_params()
+        return f"{self._base_uri}api/person/retention/?{urlencode(params)}"
 
     def process_breakdown_table_result(
         self, resultset: Dict[CohortKey, Dict[str, Any]], filter: RetentionFilter,
@@ -172,52 +63,105 @@ class ClickhouseRetention(Retention):
                     resultset.get(CohortKey(breakdown_values, interval), {"count": 0, "people": []})
                     for interval in range(filter.total_intervals)
                 ],
-                "label": "::".join(breakdown_values),
+                "label": "::".join(map(str, breakdown_values)),
                 "breakdown_values": breakdown_values,
+                "people_url": (
+                    "/api/person/retention/?"
+                    f"{urlencode(RetentionFilter({**filter._data, 'display': 'ActionsTable', 'breakdown_values': breakdown_values}).to_params())}"
+                ),
             }
-            for breakdown_values in set(
-                cohort_key.breakdown_values for cohort_key in cast(Dict[CohortKey, Dict[str, Any]], resultset).keys()
-            )
+            for breakdown_values in set(cohort_key.breakdown_values for cohort_key in resultset.keys())
         ]
 
         return result
 
-    def _get_condition(self, target_entity: Entity, table: str, prepend: str = "") -> Tuple[str, Dict]:
-        if target_entity.type == TREND_FILTER_TYPE_ACTIONS:
-            action = Action.objects.get(pk=target_entity.id)
-            action_query, params = format_action_filter(action, prepend=prepend, use_loop=False)
-            condition = action_query
-        elif target_entity.type == TREND_FILTER_TYPE_EVENTS:
-            condition = "{}.event = %({}_event)s".format(table, prepend)
-            params = {"{}_event".format(prepend): target_entity.id}
-        else:
-            condition = "{}.event = %({}_event)s".format(table, prepend)
-            params = {"{}_event".format(prepend): "$pageview"}
-        return condition, params
+    def process_table_result(
+        self, resultset: Dict[CohortKey, Dict[str, Any]], filter: RetentionFilter,
+    ):
+        """
+        Constructs a response for the rest api when there is no breakdown specified
 
-    def _retrieve_actors(self, filter: RetentionFilter, team: Team):
-        _, serialized_actors = ClickhouseRetentionActors(filter=filter, team=team).get_actors()
+        We process the non-breakdown case separately from the breakdown case so
+        we can easily maintain compatability from when we didn't have
+        breakdowns. The key difference is that we "zero fill" the cohorts as we
+        want to have a result for each cohort between the specified date range.
+        """
+
+        def construct_url(first_day):
+            params = RetentionFilter(
+                {**filter._data, "display": "ActionsTable", "breakdown_values": [first_day]}
+            ).to_params()
+            return "/api/person/retention/?" f"{urlencode(params)}"
+
+        result = [
+            {
+                "values": [
+                    resultset.get(CohortKey((first_day,), day), {"count": 0, "people": []})
+                    for day in range(filter.total_intervals - first_day)
+                ],
+                "label": "{} {}".format(filter.period, first_day),
+                "date": (filter.date_from + RetentionFilter.determine_time_delta(first_day, filter.period)[0]),
+                "people_url": construct_url(first_day),
+            }
+            for first_day in range(filter.total_intervals)
+        ]
+
+        return result
+
+    def actors(self, filter: RetentionFilter, team: Team):
+        from ee.clickhouse.queries.retention.retention_actors import ClickhouseRetentionActors
+
+        _, serialized_actors = ClickhouseRetentionActors(team=team, filter=filter).get_actors()
+
         return serialized_actors
 
-    def _retrieve_actors_in_period(self, filter: RetentionFilter, team: Team):
-        query_builder = ClickhouseRetentionActorsByPeriod(filter=filter, team=team)
-        query, params = query_builder.actor_query()
+    def actors_in_period(self, filter: RetentionFilter, team: Team):
+        """
+        Creates a response of the form
 
-        # NOTE: I'm using `Any` here to avoid typing issues when trying to iterate.
-        query_result: Any = sync_execute(query, params)
-
-        actor_appearances = [
-            AppearanceRow(actor_id=row[0], appearance_count=row[1], appearances=row[2]) for row in query_result
+        ```
+        [
+            {
+                "person": {"distinct_id": ..., ...},
+                "appearance_count": 3,
+                "appearances": [1, 0, 1, 1, 0, 0]
+            }
+            ...
         ]
+        ```
 
-        _, serialized_actors = query_builder.get_actors_from_result(query_result)
+        where appearances values represent if the person was active in an
+        interval, where the index of the list is the interval it refers to.
+        """
 
-        actor_dict = {str(actor["id"]): actor for actor in serialized_actors}
+        from ee.clickhouse.queries.retention.retention_actors import ClickhouseRetentionActorsByPeriod
 
-        # adjust total intervals to expected number of appearances based on selected interval
-        filter = filter.with_data({"total_intervals": filter.total_intervals - filter.selected_interval})
-        result = self.process_actors_in_period(
-            filter=filter, actor_appearances=actor_appearances, actor_dict=actor_dict
-        )
+        return ClickhouseRetentionActorsByPeriod(team=team, filter=filter).actors()
 
-        return result
+
+def build_returning_event_query(filter: RetentionFilter, team: Team):
+    returning_event_query_templated, returning_event_params = RetentionEventsQuery(
+        filter=filter.with_data({"breakdowns": []}),  # Avoid pulling in breakdown values from returning event query
+        team_id=team.pk,
+        event_query_type=RetentionQueryType.RETURNING,
+    ).get_query()
+
+    query = substitute_params(returning_event_query_templated, returning_event_params)
+
+    return query
+
+
+def build_target_event_query(filter: RetentionFilter, team: Team):
+    target_event_query_templated, target_event_params = RetentionEventsQuery(
+        filter=filter,
+        team_id=team.pk,
+        event_query_type=(
+            RetentionQueryType.TARGET_FIRST_TIME
+            if (filter.retention_type == RETENTION_FIRST_TIME)
+            else RetentionQueryType.TARGET
+        ),
+    ).get_query()
+
+    query = substitute_params(target_event_query_templated, target_event_params)
+
+    return query

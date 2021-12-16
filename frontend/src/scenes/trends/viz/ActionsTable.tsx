@@ -4,7 +4,7 @@ import { Table } from 'antd'
 import PropTypes from 'prop-types'
 import { useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { ActionFilter, TrendResultWithAggregate } from '~/types'
+import { ActionFilter } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function ActionsTable(): JSX.Element {
@@ -12,7 +12,7 @@ export function ActionsTable(): JSX.Element {
     const logic = trendsLogic(insightProps)
     const { filters, indexedResults, resultsLoading } = useValues(logic)
 
-    let data = indexedResults as any as TrendResultWithAggregate[]
+    let data = indexedResults
     if (!filters.session && data) {
         data = [...data].sort((a, b) => b.aggregated_value - a.aggregated_value)
     }

@@ -27,7 +27,7 @@ import {
     InsightLogicProps,
     InsightShortId,
 } from '~/types'
-import { ActionsBarValueGraph } from 'scenes/trends/viz'
+import { ActionsHorizontalBar } from 'scenes/trends/viz'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -100,7 +100,7 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
     },
     ActionsBarValue: {
         className: 'bar',
-        element: ActionsBarValueGraph,
+        element: ActionsHorizontalBar,
         viewText: 'View graph',
     },
     ActionsTable: {

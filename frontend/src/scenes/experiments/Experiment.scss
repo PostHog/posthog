@@ -2,6 +2,10 @@
 
 .experiment-result,
 .experiment-form {
+    .person-selection {
+        padding-top: $default_spacing;
+        border-top: 1px solid $border;
+    }
     .metrics-selection {
         border-top: 1px solid $border;
         padding-top: $default_spacing;
@@ -16,19 +20,6 @@
             .row-action-btn {
                 color: $primary_alt;
             }
-        }
-
-        &.person-selection {
-            label {
-                font-size: 16px;
-                font-weight: 600;
-            }
-        }
-    }
-
-    .confirmation {
-        div {
-            padding-bottom: $default_spacing;
         }
     }
 
@@ -101,30 +92,13 @@
         min-height: 48px;
     }
 
-    .mde-selection {
-        border-top: 1px solid $border;
-        background-color: $bg_mid;
-        padding: 12px 16px;
-        margin-bottom: 1rem;
-
-        .ant-slider-handle {
-            z-index: 3;
-        }
-
-        .ant-slider-track {
-            z-index: 2;
-        }
-
-        .ant-slider-step {
-            background: darkgray;
-        }
-
-        .estimates {
-            .estimate {
-                font-weight: 500;
-                color: $text-muted;
-                font-size: 12px;
-            }
+    .experiment-preview {
+        margin-bottom: $default_spacing;
+        border-bottom: 1px solid $border;
+        .preview-row {
+            border-bottom: 1px solid $border;
+            padding-bottom: $default_spacing;
+            margin-bottom: $default_spacing;
         }
     }
 }
