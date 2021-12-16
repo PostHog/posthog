@@ -1,4 +1,4 @@
-import { DateTime } from 'luxon'
+import { DateTime, Settings } from 'luxon'
 import { mocked } from 'ts-jest/utils'
 
 import { defaultConfig } from '../../../src/config/config'
@@ -69,6 +69,7 @@ describe('TeamManager()', () => {
             await hub.db.postgresQuery("UPDATE posthog_team SET ingested_event = 't'", undefined, 'testTag')
             await hub.db.postgresQuery('DELETE FROM posthog_eventdefinition', undefined, 'testTag')
             await hub.db.postgresQuery('DELETE FROM posthog_propertydefinition', undefined, 'testTag')
+            await hub.db.postgresQuery('DELETE FROM posthog_eventproperty', undefined, 'testTag')
             await hub.db.postgresQuery(
                 `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, created_at) VALUES ($1, $2, $3, $4, $5, NOW())`,
                 [new UUIDT().toString(), '$pageview', 3, 2, 2],
@@ -140,6 +141,27 @@ describe('TeamManager()', () => {
                     expect(parsedCreatedAt.diff(DateTime.now()).seconds).toBeCloseTo(0)
                 }
             }
+
+            expect(await hub.db.fetchEventProperties()).toEqual([
+                {
+                    id: expect.any(Number),
+                    event: 'new-event',
+                    property: 'property_name',
+                    team_id: 2,
+                },
+                {
+                    id: expect.any(Number),
+                    event: 'new-event',
+                    property: 'numeric_prop',
+                    team_id: 2,
+                },
+                {
+                    id: expect.any(Number),
+                    event: 'new-event',
+                    property: 'number',
+                    team_id: 2,
+                },
+            ])
 
             expect(await hub.db.fetchPropertyDefinitions()).toEqual([
                 {

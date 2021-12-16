@@ -20,29 +20,9 @@ class Migration(migrations.Migration):
                 ("event", models.CharField(max_length=400)),
                 ("property", models.CharField(max_length=400)),
                 (
-                    "property_type",
-                    models.CharField(
-                        choices=[
-                            ("NUMBER", "Number"),
-                            ("STRING", "String"),
-                            ("BOOLEAN", "Boolean"),
-                            ("DATETIME", "DateTime"),
-                        ],
-                        default="STRING",
-                        max_length=20,
-                        null=True,
-                    ),
-                ),
-                ("property_type_format", models.CharField(max_length=100, null=True)),
-                ("total_volume", models.BigIntegerField(default=None, null=True)),
-                ("created_at", models.DateTimeField(default=django.utils.timezone.now, null=True)),
-                ("last_seen_at", models.DateTimeField(default=None, null=True)),
-                (
                     "team",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="event_properties_model",
-                        related_query_name="team",
                         to="posthog.team",
                     ),
                 ),
@@ -58,10 +38,6 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="eventproperty",
-            index=models.Index(fields=["team", "total_volume"], name="posthog_eve_team_id_49ddab_idx"),
-        ),
-        migrations.AddIndex(
-            model_name="eventproperty",
             index=django.contrib.postgres.indexes.GinIndex(
                 fields=["event"], name="index_event_property_event", opclasses=["gin_trgm_ops"]
             ),
@@ -72,5 +48,8 @@ class Migration(migrations.Migration):
                 fields=["property"], name="index_event_property_property", opclasses=["gin_trgm_ops"]
             ),
         ),
-        migrations.AlterUniqueTogether(name="eventproperty", unique_together={("team", "event", "property")},),
+        migrations.AddConstraint(
+            model_name='eventproperty',
+            constraint=models.UniqueConstraint(fields=('team', 'event', 'property'), name='posthog_event_property_unique_team_event_property'),
+        ),
     ]

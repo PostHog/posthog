@@ -15,7 +15,8 @@ export class TeamManager {
     db: DB
     teamCache: TeamCache<Team | null>
     eventDefinitionsCache: Map<TeamId, Set<string>>
-    eventLastSeenCache: Map<string, number> // key: ${team_id}_${name}; value: DateTime.valueOf()
+    eventPropertiesCache: Map<string, Set<string>> // key: JSON.stringify([team_id, event]), value: Set<property>
+    eventLastSeenCache: Map<string, number> // key: JSON.stringify([team_id, event]); value: DateTime.valueOf()
     lastFlushAt: DateTime // time when the `eventLastSeenCache` was last flushed
     propertyDefinitionsCache: Map<TeamId, Set<string>>
     instanceSiteUrl: string
@@ -28,6 +29,7 @@ export class TeamManager {
         this.statsd = statsd
         this.teamCache = new Map()
         this.eventDefinitionsCache = new Map()
+        this.eventPropertiesCache = new Map()
         this.eventLastSeenCache = new Map()
         this.propertyDefinitionsCache = new Map()
         this.instanceSiteUrl = instanceSiteUrl || 'unknown'
@@ -93,7 +95,12 @@ export class TeamManager {
         status.info(`✅ 🚽 flushLastSeenAtCache finished successfully in ${elapsedTime} ms.`)
     }
 
-    public async updateEventNamesAndProperties(teamId: number, event: string, properties: Properties): Promise<void> {
+    public async updateEventNamesAndProperties(
+        teamId: number,
+        event: string,
+        properties: Properties,
+        propertyCounterTeams: number[] = []
+    ): Promise<void> {
         const startTime = DateTime.now()
         const team: Team | null = await this.fetchTeam(teamId)
 
@@ -108,6 +115,9 @@ export class TeamManager {
 
         await this.cacheEventNamesAndProperties(team.id)
         await this.syncEventDefinitions(team, event)
+        if (propertyCounterTeams.includes(team.id)) {
+            await this.syncEventProperties(team, event, Object.keys(properties))
+        }
         await this.syncPropertyDefinitions(properties, team)
         await this.setTeamIngestedEvent(team, properties)
 
@@ -155,6 +165,25 @@ export class TeamManager {
                     // to not run out of memory
                     await this.flushLastSeenAtCache()
                 }
+            }
+        }
+    }
+
+    private async syncEventProperties(team: Team, event: string, propertyKeys: string[]) {
+        for (const property of propertyKeys) {
+            const key = JSON.stringify([team.id, event])
+            let eventSet = this.eventPropertiesCache.get(key)
+            if (!eventSet) {
+                eventSet = new Set()
+                this.eventPropertiesCache.set(key, eventSet)
+            }
+            if (!eventSet.has(key)) {
+                eventSet.add(key)
+                await this.db.postgresQuery(
+                    `INSERT INTO posthog_eventproperty (event, property, team_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+                    [event, property, team.id],
+                    'insertEventProperty'
+                )
             }
         }
     }

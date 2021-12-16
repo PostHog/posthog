@@ -15,7 +15,6 @@ import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
 import { Hub, PluginsServerConfig } from '../../types'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
-import { EventPropertyCounter } from '../../worker/ingestion/event-property-counter'
 import { HookCommander } from '../../worker/ingestion/hooks'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
@@ -166,7 +165,6 @@ export async function createHub(
         serverConfig.SITE_URL,
         serverConfig.EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED
     )
-    const eventPropertyCounter = new EventPropertyCounter(db, statsd)
     const organizationManager = new OrganizationManager(db)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const actionManager = new ActionManager(db)
@@ -193,7 +191,6 @@ export async function createHub(
         pluginSchedulePromises: { runEveryMinute: {}, runEveryHour: {}, runEveryDay: {} },
 
         teamManager,
-        eventPropertyCounter,
         organizationManager,
         pluginsApiKeyManager,
         actionManager,

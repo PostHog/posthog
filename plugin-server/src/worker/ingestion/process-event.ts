@@ -30,7 +30,6 @@ import {
 } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, UUID, UUIDT } from '../../utils/utils'
-import { EventPropertyCounter } from './event-property-counter'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { PersonManager } from './person-manager'
@@ -77,7 +76,6 @@ export class EventsProcessor {
     kafkaProducer: KafkaProducerWrapper | undefined
     celery: Client
     teamManager: TeamManager
-    eventPropertyCounter: EventPropertyCounter
     personManager: PersonManager
     groupTypeManager: GroupTypeManager
     propertyCounterTeams: number[]
@@ -89,7 +87,6 @@ export class EventsProcessor {
         this.kafkaProducer = pluginsServer.kafkaProducer
         this.celery = new Client(pluginsServer.db, pluginsServer.CELERY_DEFAULT_QUEUE)
         this.teamManager = pluginsServer.teamManager
-        this.eventPropertyCounter = pluginsServer.eventPropertyCounter
         this.personManager = new PersonManager(pluginsServer)
         this.groupTypeManager = new GroupTypeManager(pluginsServer.db, this.teamManager, pluginsServer.SITE_URL)
         this.propertyCounterTeams =
@@ -507,10 +504,7 @@ export class EventsProcessor {
         }
 
         if (!EVENTS_WITHOUT_EVENT_DEFINITION.includes(event)) {
-            await this.teamManager.updateEventNamesAndProperties(teamId, event, properties)
-        }
-        if (this.propertyCounterTeams.length > 0 && this.propertyCounterTeams.includes(teamId)) {
-            await this.eventPropertyCounter.updateEventPropertyCounter(teamId, event, properties)
+            await this.teamManager.updateEventNamesAndProperties(teamId, event, properties, this.propertyCounterTeams)
         }
 
         properties = personInitialAndUTMProperties(properties)

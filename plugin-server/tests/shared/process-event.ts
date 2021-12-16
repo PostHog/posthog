@@ -1959,40 +1959,24 @@ export const createProcessEventTests = (
         ])
 
         // flushed every minute normally, triggering flush now, it's tested elsewhere
-        await hub.eventPropertyCounter.flush()
         expect(await hub.db.fetchEventProperties()).toEqual([
             {
-                created_at: expect.any(String),
-                event: 'purchase',
                 id: expect.any(Number),
-                last_seen_at: expect.any(String),
+                event: 'purchase',
                 property: 'price',
-                property_type: 'NUMBER',
-                property_type_format: null,
                 team_id: 2,
-                total_volume: '1', // bigint
             },
             {
-                created_at: expect.any(String),
-                event: 'purchase',
                 id: expect.any(Number),
-                last_seen_at: expect.any(String),
+                event: 'purchase',
                 property: 'name',
-                property_type: 'STRING',
-                property_type_format: null,
                 team_id: 2,
-                total_volume: '1', // bigint
             },
             {
-                created_at: expect.any(String),
-                event: 'purchase',
                 id: expect.any(Number),
-                last_seen_at: expect.any(String),
+                event: 'purchase',
                 property: '$ip',
-                property_type: 'STRING',
-                property_type_format: null,
                 team_id: 2,
-                total_volume: '1', // bigint
             },
         ])
     })
