@@ -220,11 +220,22 @@ def _prepare_query(client: SyncClient, query: str, args: QueryArgs):
     clickhouse_driver at this moment in time decides based on the
     below predicate.
     """
-    if args is None or isinstance(args, (list, tuple, types.GeneratorType)):
+    if isinstance(args, (list, tuple, types.GeneratorType)):
+        # If we get one of these, then let the clickhouse python client handle
+        # the args
         rendered_sql = query
+        prepared_args = args
+    elif not args:
+        # If `args` is not truthy then make prepared_args `None`, which the
+        # clickhouse client uses to signal no substitution is desired. Expected
+        # args balue are `None` or `{}` for instance
+        rendered_sql = query
+        prepared_args = None
     else:
+        # Else perform the substitution so we can perform operations on the raw
+        # non-templated SQL
         rendered_sql = client.substitute_params(query, args)
-        args = None
+        prepared_args = None
 
     formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)
     annotated_sql, tags = _annotate_tagged_query(formatted_sql, args)
@@ -233,7 +244,7 @@ def _prepare_query(client: SyncClient, query: str, args: QueryArgs):
         print()
         print(format_sql(formatted_sql))
 
-    return annotated_sql, args, tags
+    return annotated_sql, prepared_args, tags
 
 
 def _deserialize(result_bytes: bytes) -> List[Tuple]:

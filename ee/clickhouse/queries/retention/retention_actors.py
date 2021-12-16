@@ -25,7 +25,7 @@ class ClickhouseRetentionActors(ActorBaseQuery):
     def is_aggregating_by_groups(self) -> bool:
         return self._filter.aggregation_group_type_index is not None
 
-    def actor_query(self) -> Tuple[str, Union[Dict, None]]:
+    def actor_query(self) -> Tuple[str, Dict]:
         actor_query = _build_actor_query(
             filter=self._filter,
             team=self._team,
@@ -33,7 +33,7 @@ class ClickhouseRetentionActors(ActorBaseQuery):
             selected_interval=self._filter.selected_interval,
         )
 
-        return actor_query, None
+        return actor_query, {}
 
 
 # Note: This class does not respect the entire flor from ActorBaseQuery because the result shape differs from other actor queries
