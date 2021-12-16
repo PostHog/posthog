@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { DashboardItemType, InsightShortId } from '~/types'
+import { InsightModel, InsightShortId } from '~/types'
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -25,7 +25,7 @@ export const insightRouterLogic = kea<insightRouterLogicType>({
         loadInsight: async ({ id }) => {
             const response = await api.get(`api/projects/${teamLogic.values.currentTeamId}/insights/?short_id=${id}`)
             if (response.results.length) {
-                const item = response.results[0] as DashboardItemType
+                const item = response.results[0] as InsightModel
                 eventUsageLogic.actions.reportInsightShortUrlVisited(true, item.filters.insight || null)
                 router.actions.replace(
                     combineUrl(urls.insightView(item.short_id, item.filters), undefined, {

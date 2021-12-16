@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useValues, useActions } from 'kea'
 import { Table, Modal, Button } from 'antd'
-import { percentage } from 'lib/utils'
+import { capitalizeFirstLetter, isGroupType, percentage } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { retentionTableLogic } from './retentionTableLogic'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -17,6 +17,8 @@ import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import './RetentionTable.scss'
 import { urls } from 'scenes/urls'
+import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
+import { asDisplay } from 'scenes/persons/PersonHeader'
 
 export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: number | null }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -27,7 +29,8 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
         peopleLoading,
         people: _people,
         loadingMore,
-        filters: { period, date_to, aggregation_group_type_index, breakdowns },
+        filters: { period, date_to, breakdowns },
+        aggregationTargetLabel,
     } = useValues(logic)
     const results = _results as RetentionTablePayload[]
     const people = _people as RetentionTablePeoplePayload
@@ -107,7 +110,7 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
                 loading={resultsLoading}
                 onRow={(_, rowIndex: number | undefined) => ({
                     onClick: () => {
-                        if (!dashboardItemId && rowIndex !== undefined && aggregation_group_type_index == undefined) {
+                        if (!dashboardItemId && rowIndex !== undefined) {
                             loadPeople(rowIndex)
                             setModalVisible(true)
                             selectRow(rowIndex)
@@ -144,7 +147,7 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
                                                         .map((data, index) => <th key={index}>{data.label}</th>)}
                                             </tr>
                                             <tr>
-                                                <td>user_id</td>
+                                                <td>{capitalizeFirstLetter(aggregationTargetLabel.singular)}</td>
                                                 {results &&
                                                     results[selectedRow]?.values.map((data: any, index: number) => (
                                                         <td key={index}>
@@ -166,14 +169,31 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
                                                 people.result.map((personAppearances: RetentionTableAppearanceType) => (
                                                     <tr key={personAppearances.person.id}>
                                                         <td className="text-overflow" style={{ minWidth: 200 }}>
-                                                            <Link
-                                                                to={urls.person(
-                                                                    personAppearances.person.distinct_ids[0]
-                                                                )}
-                                                                data-attr="retention-person-link"
-                                                            >
-                                                                {personAppearances.person.name}
-                                                            </Link>
+                                                            {isGroupType(personAppearances.person) ? (
+                                                                <Link
+                                                                    to={urls.group(
+                                                                        String(
+                                                                            personAppearances.person.group_type_index
+                                                                        ),
+                                                                        personAppearances.person.group_key
+                                                                    )}
+                                                                    data-attr="retention-person-link"
+                                                                >
+                                                                    {groupDisplayId(
+                                                                        personAppearances.person.group_key,
+                                                                        personAppearances.person.properties
+                                                                    )}
+                                                                </Link>
+                                                            ) : (
+                                                                <Link
+                                                                    to={urls.person(
+                                                                        personAppearances.person.distinct_ids[0]
+                                                                    )}
+                                                                    data-attr="retention-person-link"
+                                                                >
+                                                                    {asDisplay(personAppearances.person)}
+                                                                </Link>
+                                                            )}
                                                         </td>
                                                         {personAppearances.appearances.map(
                                                             (appearance: number, index: number) => {

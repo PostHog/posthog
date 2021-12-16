@@ -6,13 +6,13 @@ import { Select, Modal } from 'antd'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { saveToDashboardModalLogic } from 'lib/components/SaveToDashboard/saveToDashboardModalLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardItemType } from '~/types'
+import { InsightModel } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface SaveToDashboardModalProps {
     visible: boolean
     closeModal: () => void
-    insight: Partial<DashboardItemType>
+    insight: Partial<InsightModel>
 }
 
 export function SaveToDashboardModal({ visible, closeModal, insight }: SaveToDashboardModalProps): JSX.Element {

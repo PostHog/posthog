@@ -8,7 +8,7 @@ from ee.clickhouse.sql.session_recording_events import (
 )
 
 operations = [
-    migrations.RunSQL(SESSION_RECORDING_EVENTS_TABLE_SQL),
+    migrations.RunSQL(SESSION_RECORDING_EVENTS_TABLE_SQL()),
     migrations.RunSQL(SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL),
     migrations.RunSQL(KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL),
     migrations.RunSQL(SESSION_RECORDING_EVENTS_TABLE_MV_SQL),

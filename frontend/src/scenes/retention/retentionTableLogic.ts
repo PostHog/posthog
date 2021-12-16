@@ -1,19 +1,21 @@
+import dayjs from 'dayjs'
 import { kea } from 'kea'
 import api from 'lib/api'
+import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import { toParams } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { retentionTableLogicType } from './retentionTableLogicType'
-import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE, RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
-import { actionsModel } from '~/models/actionsModel'
-import { ActionType, InsightLogicProps, FilterType, InsightType } from '~/types'
-import {
-    RetentionTablePayload,
-    RetentionTrendPayload,
-    RetentionTablePeoplePayload,
-    RetentionTrendPeoplePayload,
-} from 'scenes/retention/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import {
+    RetentionTablePayload,
+    RetentionTablePeoplePayload,
+    RetentionTrendPayload,
+    RetentionTrendPeoplePayload,
+} from 'scenes/retention/types'
+import { actionsModel } from '~/models/actionsModel'
+import { groupsModel } from '~/models/groupsModel'
+import { ActionType, FilterType, InsightLogicProps, InsightType } from '~/types'
+import { retentionTableLogicType } from './retentionTableLogicType'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 
@@ -35,11 +37,19 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
     key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
     path: (key) => ['scenes', 'retention', 'retentionTableLogic', key],
     connect: (props: InsightLogicProps) => ({
-        values: [insightLogic(props), ['filters', 'insight', 'insightLoading'], actionsModel, ['actions']],
+        values: [
+            insightLogic(props),
+            ['filters', 'insight', 'insightLoading'],
+            actionsModel,
+            ['actions'],
+            groupsModel,
+            ['aggregationLabel'],
+        ],
         actions: [insightLogic(props), ['loadResultsSuccess']],
     }),
     actions: () => ({
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
+        setRetentionReference: (retentionReference: FilterType['retention_reference']) => ({ retentionReference }),
         loadMorePeople: true,
         updatePeople: (people) => ({ people }),
         clearPeople: true,
@@ -73,15 +83,67 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
             ({ filters }): Partial<FilterType> => (filters?.insight === InsightType.RETENTION ? filters ?? {} : {}),
         ],
         results: [
+            // Take the insight result, and cast it to `RetentionTablePayload[]`
             (s) => [s.insight],
-            ({ filters, result }): RetentionTablePayload[] | RetentionTrendPayload[] => {
-                return filters?.insight === InsightType.RETENTION &&
-                    result &&
-                    (result.length === 0 ||
-                        (!result[0].values && filters.display === ACTIONS_LINE_GRAPH_LINEAR) ||
-                        (result[0].values && filters.display === ACTIONS_TABLE))
-                    ? result
-                    : []
+            ({ filters, result }): RetentionTablePayload[] => {
+                return filters?.insight === InsightType.RETENTION ? result ?? [] : []
+            },
+        ],
+        trendSeries: [
+            (s) => [s.results, s.filters, s.retentionReference],
+            (results, filters, retentionReference): RetentionTrendPayload[] => {
+                // If the retention reference option is specified as previous,
+                // then translate retention rates to relative to previous,
+                // otherwise, just use what the result was originally.
+                //
+                // Our input results might looks something like
+                //
+                //   Cohort 1 | 1000 | 120 | 190 | 170 | 140
+                //   Cohort 2 | 6003 | 300 | 100 | 120 | 50
+                //
+                // If `retentionReference` is not "previous" we want to calculate the percentages
+                // of the sizes compared to the first value. If we have "previous" we want to
+                // go further and translate thhese numbers into percentage of the previous value
+                // so we get some idea for the rate of convergence.
+
+                return results.map((cohortRetention) => {
+                    const retentionPercentages = cohortRetention.values
+                        .map((value) => value.count / cohortRetention.values[0].count)
+                        // Make them display in the right scale
+                        .map((value) => 100 * value)
+
+                    // To calculate relative percentages, we take for instance Cohort 1 as percentages
+                    // of the cohort size and create another series that has a 100 at prepended so we have
+                    //
+                    //   Cohort 1'  | 100  | 12  | 19 | 17 | 14
+                    //   Cohort 1'' | 100  | 100 | 12 | 19 | 17 | 14
+                    //
+                    // And from here construct a third, relative percentage series by dividing the
+                    // top numbers by the bottom numbers to get
+                    //
+                    //   Cohort 1''' | 1 | 0.12 | ...
+                    const paddedValues = [100].concat(retentionPercentages)
+
+                    return {
+                        days: retentionPercentages.map((_, index) => `${filters.period} ${index}`),
+                        labels: retentionPercentages.map((_, index) => `${filters.period} ${index}`),
+                        count: 0,
+                        label: cohortRetention.date
+                            ? filters.period === 'Hour'
+                                ? dayjs(cohortRetention.date).format('MMM D, h A')
+                                : dayjs.utc(cohortRetention.date).format('MMM D')
+                            : cohortRetention.label,
+                        data:
+                            retentionReference === 'previous'
+                                ? retentionPercentages
+                                      // Zip together the current a previous values, filling
+                                      // in with 100 for the first index
+                                      .map((value, index) => [value, paddedValues[index]])
+                                      // map values to percentage of previous
+                                      .map(([value, previous]) => (100 * value) / previous)
+                                : retentionPercentages,
+                    }
+                })
             },
         ],
         resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
@@ -91,6 +153,22 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         ],
         actionFilterTargetEntity: [(s) => [s.filters], (filters) => ({ events: [filters.target_entity] })],
         actionFilterReturningEntity: [(s) => [s.filters], (filters) => ({ events: [filters.returning_entity] })],
+        retentionReference: [
+            (selectors) => [selectors.filters],
+            ({ retention_reference }) => retention_reference ?? 'total',
+        ],
+        aggregationTargetLabel: [
+            (s) => [s.filters, s.aggregationLabel],
+            (
+                filters,
+                aggregationLabel
+            ): {
+                singular: string
+                plural: string
+            } => {
+                return aggregationLabel(filters.aggregation_group_type_index)
+            },
+        ],
     },
     listeners: ({ actions, values, props }) => ({
         setProperties: ({ properties }) => {
@@ -98,6 +176,14 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         },
         setFilters: ({ filters }) => {
             insightLogic(props).actions.setFilters(cleanFilters({ ...values.filters, ...filters }, values.filters))
+        },
+        setRetentionReference: ({ retentionReference }) => {
+            actions.setFilters({
+                ...values.filters,
+                // NOTE: we use lower case here to accommodate the expected
+                // casing of the server
+                retention_reference: retentionReference,
+            })
         },
         loadResultsSuccess: async () => {
             actions.clearPeople()

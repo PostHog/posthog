@@ -3,7 +3,9 @@ from datetime import datetime
 from typing import Any, Dict, List
 from uuid import uuid4
 
+import dateutil.parser
 from django.conf import settings
+from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework import status
 
@@ -66,6 +68,10 @@ class TestEventDefinitionAPI(APIBaseTest):
             self.assertEqual(response_item["query_usage_30_day"], item["query_usage_30_day"], item)
             self.assertEqual(
                 response_item["volume_30_day"], EventDefinition.objects.get(id=response_item["id"]).volume_30_day, item,
+            )
+
+            self.assertAlmostEqual(
+                (dateutil.parser.isoparse(response_item["created_at"]) - timezone.now()).total_seconds(), 0
             )
 
     def test_pagination_of_event_definitions(self):

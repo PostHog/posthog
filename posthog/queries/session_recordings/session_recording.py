@@ -1,167 +1,176 @@
-from collections import defaultdict
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, TypedDict, Union
+import dataclasses
+from datetime import datetime, timezone
+from typing import Dict, List, Optional, Tuple, Union, cast
 
 from django.db.models import QuerySet
-from django.utils import timezone
 from rest_framework.request import Request
 
 from posthog.helpers.session_recording import (
-    SnapshotData,
+    DecompressedRecordingData,
+    EventActivityData,
+    RecordingSegment,
+    SnapshotDataTaggedWithWindowId,
+    WindowId,
     decompress_chunked_snapshot_data,
-    is_active_event,
-    paginate_chunk_decompression,
+    generate_inactive_segments_for_range,
+    get_active_segments_from_event_list,
 )
 from posthog.models import SessionRecordingEvent, Team
-from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.utils import format_query_params_absolute_url
 
 
-class RecordingMetadata(TypedDict, total=False):
-    start_time: Optional[datetime]
-    end_time: Optional[datetime]
-    duration: Optional[timedelta]
-    session_id: Optional[str]
-    distinct_id: Optional[str]
-    active_segments_by_window_id: Optional[Dict[str, List]]
-
-
-class RecordingSnapshots(TypedDict):
-    next: Optional[str]
-    snapshots: List[SnapshotData]
-
-
-DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
-
-ACTIVITY_THRESHOLD_SECONDS = (
-    60  # Minimum time between two active events for a active recording segment to be continued vs split
-)
+@dataclasses.dataclass
+class RecordingMetadata:
+    distinct_id: str
+    segments: List[RecordingSegment]
+    start_and_end_times_by_window_id: Dict[WindowId, Dict]
 
 
 class SessionRecording:
     _request: Request
-    _filter: SessionRecordingsFilter
     _session_recording_id: str
     _team: Team
-    _limit: int
-    _offset: int
 
-    def __init__(
-        self, request: Request, filter: SessionRecordingsFilter, session_recording_id: str, team: Team
-    ) -> None:
+    def __init__(self, request: Request, session_recording_id: str, team: Team) -> None:
         self._request = request
-        self._filter = filter
         self._session_recording_id = session_recording_id
         self._team = team
-        self._limit = self._filter.limit if self._filter.limit else DEFAULT_RECORDING_CHUNK_LIMIT
-        self._offset = self._filter.offset if self._filter.offset else 0
 
     def _query_recording_snapshots(self) -> Union[QuerySet, List[SessionRecordingEvent]]:
         return SessionRecordingEvent.objects.filter(team=self._team, session_id=self._session_recording_id).order_by(
             "timestamp"
         )
 
-    def get_snapshots(self) -> RecordingSnapshots:
-        all_recording_snapshots = [event.snapshot_data for event in list(self._query_recording_snapshots())]
-        paginated_chunks = paginate_chunk_decompression(
-            self._team.pk, self._session_recording_id, all_recording_snapshots, self._limit, self._offset
-        )
+    def get_snapshots(self, limit, offset) -> DecompressedRecordingData:
+        all_snapshots = [
+            SnapshotDataTaggedWithWindowId(
+                window_id=recording_snapshot.window_id, snapshot_data=recording_snapshot.snapshot_data
+            )
+            for recording_snapshot in self._query_recording_snapshots()
+        ]
+        return decompress_chunked_snapshot_data(self._team.pk, self._session_recording_id, all_snapshots, limit, offset)
 
-        next_url = (
-            format_query_params_absolute_url(self._request, self._offset + self._limit, self._limit)
-            if paginated_chunks.has_next
-            else None
-        )
+    def get_metadata(self) -> Optional[RecordingMetadata]:
+        all_snapshots: List[SnapshotDataTaggedWithWindowId] = []
 
-        return RecordingSnapshots(next=next_url, snapshots=paginated_chunks.paginated_list)
+        distinct_id = None
+        for index, session_recording_event in enumerate(self._query_recording_snapshots()):
+            if index == 0:
+                distinct_id = session_recording_event.distinct_id
+            all_snapshots.append(
+                SnapshotDataTaggedWithWindowId(
+                    window_id=session_recording_event.window_id, snapshot_data=session_recording_event.snapshot_data
+                )
+            )
 
-    def _get_first_and_last_chunk(self, all_recording_snapshots: List[SnapshotData]):
-        paginated_list_with_first_chunk = paginate_chunk_decompression(
-            self._team.pk, self._session_recording_id, all_recording_snapshots, 1, 0
-        )
-
-        paginated_list_with_last_chunk = paginate_chunk_decompression(
-            self._team.pk, self._session_recording_id, list(reversed(all_recording_snapshots)), 1, 0
-        )
-
-        return (
-            paginated_list_with_first_chunk.paginated_list,
-            paginated_list_with_last_chunk.paginated_list,
-        )
-
-    def get_metadata(self, include_active_segments=False) -> RecordingMetadata:
-        all_snapshots = self._query_recording_snapshots()
         if len(all_snapshots) == 0:
-            return RecordingMetadata(start_time=None, end_time=None, duration=None, session_id=None, distinct_id=None,)
+            return None
 
-        snapshot_data_list = [event.snapshot_data for event in list(all_snapshots)]
-        first_chunk, last_chunk = self._get_first_and_last_chunk(snapshot_data_list)
+        segments, start_and_end_times_by_window_id = self._process_snapshots_for_metadata(all_snapshots)
 
-        first_event = first_chunk[0]
-        first_event_timestamp = datetime.fromtimestamp(first_event.get("timestamp") / 1000, timezone.utc)
-
-        last_event = last_chunk[-1]
-        last_event_timestamp = datetime.fromtimestamp(last_event.get("timestamp") / 1000, timezone.utc)
-
-        first_snapshot = all_snapshots[0]
-
-        recording_metadata = RecordingMetadata(
-            start_time=first_event_timestamp,
-            end_time=last_event_timestamp,
-            duration=last_event_timestamp - first_event_timestamp,
-            session_id=first_snapshot.session_id,
-            distinct_id=first_snapshot.distinct_id,
+        return RecordingMetadata(
+            segments=segments,
+            start_and_end_times_by_window_id=start_and_end_times_by_window_id,
+            distinct_id=cast(str, distinct_id),
         )
-        if include_active_segments:
-            recording_metadata["active_segments_by_window_id"] = self._get_active_segments_by_window_id(all_snapshots)
 
-        return recording_metadata
+    def _process_snapshots_for_metadata(self, all_snapshots) -> Tuple[List[RecordingSegment], Dict[WindowId, Dict]]:
+        """
+        This function processes the recording events into metadata. 
+        
+        A recording can be composed of events from multiple windows/tabs. Recording events are seperated by
+        `window_id`, so the playback experience is consistent (changes in one tab don't impact the recording
+        of a different tab). However, we still want to playback the recording to the end user as the user interacted
+        with their product.
 
-    def _get_active_segments(self, snapshots):
-        # Takes a list of snapshots and returns a list of active segments with start and end times
-        snapshot_data_list = [event.snapshot_data for event in list(snapshots)]
+        This function creates a "playlist" of recording segments that designates the order in which the front end
+        should flip between players of different windows/tabs. To create this playlist, this function does the following:
+        
+        (1) For each recording event, we determine if it is "active" or not. An active event designates user 
+        activity (e.g. mouse movement).
+        
+        (2) We then generate "active segments" based on these lists of events. Active segments are segments 
+        of recordings where the maximum time between events determined to be active is less than a threshold (set to 60 seconds).
+        
+        (3) Next, we merge the active segments from all of the window_ids + sort them by start time. We now have the
+        list of active segments. (note, it's very possible that active segments overlap if a user is flipping back
+        and forth between tabs)
 
-        active_event_timestamps = []
-        for data in decompress_chunked_snapshot_data(self._team.pk, self._session_recording_id, snapshot_data_list):
-            if is_active_event(data):
-                active_event_timestamps.append(datetime.fromtimestamp(data.get("timestamp", 0) / 1000, timezone.utc))
+        (4) To complete the recording, we fill in the gaps between active segments with "inactive segments". In 
+        determining which window should be used for the inactive segment, we try to minimize the switching of windows.
+        """
 
-        active_recording_segments: List[Dict[str, datetime]] = []
+        decompressed_recording_data = decompress_chunked_snapshot_data(
+            self._team.pk, self._session_recording_id, all_snapshots, return_only_activity_data=True
+        )
 
-        current_active_segment: Optional[Dict[str, datetime]] = None
+        start_and_end_times_by_window_id = {}
 
-        for current_timestamp in active_event_timestamps:
-            # If the time since the last active event is less than the threshold, continue the existing segment
-            if current_active_segment and (current_timestamp - current_active_segment["end_time"]) <= timedelta(
-                seconds=ACTIVITY_THRESHOLD_SECONDS
-            ):
-                current_active_segment["end_time"] = current_timestamp
+        # Get the active segments for each window_id
+        all_active_segments: List[RecordingSegment] = []
+        for window_id, event_list in decompressed_recording_data.snapshot_data_by_window_id.items():
+            events_with_processed_timestamps = [
+                EventActivityData(
+                    timestamp=datetime.fromtimestamp(event.get("timestamp", 0) / 1000, timezone.utc),
+                    is_active=event.get("is_active", False),
+                )
+                for event in event_list
+            ]
+            # Not sure why, but events are sometimes slightly out of order
+            events_with_processed_timestamps.sort(key=lambda x: cast(datetime, x.timestamp))
 
-            # Otherwise, start a new segment
-            else:
-                if current_active_segment:
-                    active_recording_segments.append(current_active_segment)
-                current_active_segment = {
-                    "start_time": current_timestamp,
-                    "end_time": current_timestamp,
-                }
+            active_segments_for_window_id = get_active_segments_from_event_list(
+                events_with_processed_timestamps, window_id
+            )
 
-        # Add the last segment if it hasn't already been added
-        if current_active_segment and (
-            len(active_recording_segments) == 0 or active_recording_segments[-1] != current_active_segment
-        ):
-            active_recording_segments.append(current_active_segment)
+            all_active_segments.extend(active_segments_for_window_id)
 
-        return active_recording_segments
+            start_and_end_times_by_window_id[window_id] = {
+                "start_time": events_with_processed_timestamps[0].timestamp,
+                "end_time": events_with_processed_timestamps[-1].timestamp,
+            }
 
-    def _get_active_segments_by_window_id(self, all_snapshots):
-        snapshots_by_window_id = defaultdict(list)
-        for event in all_snapshots:
-            snapshots_by_window_id[event.window_id].append(event)
+        # Sort the active segments by start time. This will interleave active segments
+        # from different windows
+        all_active_segments.sort(key=lambda segment: segment.start_time)
 
-        active_segments_by_window_id = {}
+        # These start and end times are used to make sure the segments span the entire recording
+        first_start_time = min([cast(datetime, x["start_time"]) for x in start_and_end_times_by_window_id.values()])
+        last_end_time = max([cast(datetime, x["end_time"]) for x in start_and_end_times_by_window_id.values()])
 
-        for window_id, snapshots in snapshots_by_window_id.items():
-            active_segments_by_window_id[window_id] = self._get_active_segments(snapshots)
+        # Now, we fill in the gaps between the active segments with inactive segments
+        all_segments = []
+        current_timestamp = first_start_time
+        current_window_id: WindowId = sorted(
+            start_and_end_times_by_window_id, key=lambda x: start_and_end_times_by_window_id[x]["start_time"]
+        )[0]
 
-        return active_segments_by_window_id
+        for index, segment in enumerate(all_active_segments):
+            # It's possible that segments overlap and we don't need to fill a gap
+            if segment.start_time > current_timestamp:
+                all_segments.extend(
+                    generate_inactive_segments_for_range(
+                        current_timestamp,
+                        segment.start_time,
+                        current_window_id,
+                        start_and_end_times_by_window_id,
+                        is_first_segment=index == 0,
+                    )
+                )
+            all_segments.append(segment)
+            current_window_id = segment.window_id
+            current_timestamp = max(segment.end_time, current_timestamp)
+
+        # If the last segment ends before the recording ends, we need to fill in the gap
+        if current_timestamp < last_end_time:
+            all_segments.extend(
+                generate_inactive_segments_for_range(
+                    current_timestamp,
+                    last_end_time,
+                    current_window_id,
+                    start_and_end_times_by_window_id,
+                    is_last_segment=True,
+                    is_first_segment=current_timestamp == first_start_time,
+                )
+            )
+
+        return all_segments, start_and_end_times_by_window_id

@@ -63,6 +63,12 @@ export class KafkaProducerWrapper {
         }
     }
 
+    async queueMessages(kafkaMessages: ProducerRecord[]): Promise<void> {
+        for (const message of kafkaMessages) {
+            await this.queueMessage(message)
+        }
+    }
+
     public flush(append?: ProducerRecord): Promise<void> {
         if (this.currentBatch.length === 0) {
             return Promise.resolve()

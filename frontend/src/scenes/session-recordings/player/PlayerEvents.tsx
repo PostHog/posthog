@@ -4,14 +4,14 @@ import { Col, Empty, Input, Row, Skeleton } from 'antd'
 import { ArrowDownOutlined, ArrowUpOutlined, CloseOutlined, SearchOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
-import List, { ListRowProps } from 'react-virtualized/dist/commonjs/List'
+import List, { ListRowProps } from 'react-virtualized/dist/es/List'
 import {
     defaultCellRangeRenderer,
     GridCellRangeProps,
     OverscanIndices,
     OverscanIndicesGetterParams,
-} from 'react-virtualized/dist/commonjs/Grid'
-import { AutoSizer } from 'react-virtualized/dist/commonjs/AutoSizer'
+} from 'react-virtualized/dist/es/Grid'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import {
     eventsListLogic,
     OVERSCANNED_ROW_COUNT,
@@ -21,6 +21,7 @@ import { AutocaptureIcon, EventIcon, PageleaveIcon, PageviewIcon } from 'lib/com
 import { capitalizeFirstLetter, eventToDescription, isEllipsisActive, Loading } from 'lib/utils'
 import { getKeyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { RecordingEventType } from '~/types'
+import { sessionRecordingLogic } from '../sessionRecordingLogic'
 
 function overscanIndicesGetter({
     cellCount,
@@ -84,8 +85,8 @@ export function PlayerEvents(): JSX.Element {
         isEventCurrent,
         isDirectionUp,
         renderedRows,
-        isEventListLoading,
     } = useValues(eventsListLogic)
+    const { sessionEventsDataLoading } = useValues(sessionRecordingLogic)
     const { setLocalFilters, setRenderedRows, setList, scrollTo, disablePositionFinder, handleEventClick } =
         useActions(eventsListLogic)
 
@@ -108,7 +109,7 @@ export function PlayerEvents(): JSX.Element {
                     align="top"
                     style={{ ...style, zIndex: listEvents.length - index }}
                     onClick={() => {
-                        handleEventClick(event.timestamp)
+                        handleEventClick(event.playerPosition)
                     }}
                 >
                     <Col className="event-item-icon">
@@ -166,7 +167,7 @@ export function PlayerEvents(): JSX.Element {
         [
             currentEventsBoxSizeAndPosition.top,
             currentEventsBoxSizeAndPosition.height,
-            isEventListLoading,
+            sessionEventsDataLoading,
             listEvents.length,
         ]
     )
@@ -180,7 +181,7 @@ export function PlayerEvents(): JSX.Element {
                 onChange={(e) => setLocalFilters({ query: e.target.value })}
             />
             <Col className="event-list">
-                {isEventListLoading ? (
+                {sessionEventsDataLoading ? (
                     <Loading />
                 ) : (
                     <>

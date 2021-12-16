@@ -38,7 +38,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
         KAFKA_PRODUCER_MAX_QUEUE_SIZE: isTestEnv ? 0 : 1000,
         KAFKA_MAX_MESSAGE_BATCH_SIZE: 900_000,
-        KAFKA_FLUSH_FREQUENCY_MS: 500,
+        KAFKA_FLUSH_FREQUENCY_MS: isTestEnv ? 5 : 500,
         PLUGINS_CELERY_QUEUE: 'posthog-plugins',
         REDIS_URL: 'redis://127.0.0.1',
         POSTHOG_REDIS_PASSWORD: '',
@@ -77,6 +77,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         PISCINA_ATOMICS_TIMEOUT: 5000,
         SITE_URL: null,
         NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS: '',
+        EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: true,
     }
 }
 
@@ -134,6 +135,7 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
             '(advanced) corresponds to the length of time a piscina worker should block for when looking for tasks',
         NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS:
             '(advanced) teams for which to run the new person properties update flow on',
+        EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: 'enable experimental feature to track lastSeenAt',
     }
 }
 

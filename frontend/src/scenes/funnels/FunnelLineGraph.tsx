@@ -5,6 +5,7 @@ import { useActions, useValues } from 'kea'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { ChartParams } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 export function FunnelLineGraph({
     dashboardItemId,
@@ -13,7 +14,7 @@ export function FunnelLineGraph({
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
-    const { steps, filters } = useValues(logic)
+    const { steps, filters, aggregationTargetLabel, incompletenessOffsetFromEnd } = useValues(logic)
     const { loadPeople } = useActions(personsModalLogic)
 
     return (
@@ -23,17 +24,20 @@ export function FunnelLineGraph({
             color={color}
             datasets={steps}
             labels={steps?.[0]?.labels ?? ([] as string[])}
-            isInProgress={!filters.date_to}
+            isInProgress={incompletenessOffsetFromEnd < 0}
             dashboardItemId={dashboardItemId}
             inSharedMode={inSharedMode}
             percentage={true}
+            incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             onClick={
                 dashboardItemId
                     ? null
                     : (point) => {
                           loadPeople({
                               action: { id: point.index, name: point.label, properties: [], type: 'actions' },
-                              label: `Persons converted on ${point.label}`,
+                              label: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} converted on ${
+                                  point.label
+                              }`,
                               date_from: point.day,
                               date_to: point.day,
                               filters: filters,

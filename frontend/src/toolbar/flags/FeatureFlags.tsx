@@ -7,7 +7,7 @@ import { Radio, Switch, Row, Typography, List, Button, Input } from 'antd'
 import { AnimatedCollapsible } from './AnimatedCollapsible'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { urls } from 'scenes/urls'
-import { IconExternalLinkBold } from 'lib/components/icons'
+import { IconOpenInNew } from 'lib/components/icons'
 
 export function FeatureFlags(): JSX.Element {
     const { showLocalFeatureFlagWarning, searchTerm, filteredFlags } = useValues(featureFlagsLogic)
@@ -77,7 +77,7 @@ export function FeatureFlags(): JSX.Element {
                                             target="_blank"
                                             rel="noopener noreferrer"
                                         >
-                                            <IconExternalLinkBold />
+                                            <IconOpenInNew />
                                         </a>
                                         <Switch
                                             checked={!!currentValue}

@@ -10,9 +10,9 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.person import get_persons_by_uuids
 from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
 from ee.clickhouse.queries.trends.util import parse_response
 from ee.clickhouse.queries.util import get_earliest_timestamp, get_time_diff, get_trunc_func_ch, parse_timestamps
-from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.sql.trends.lifecycle import LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.entity import Entity
@@ -70,7 +70,7 @@ class ClickhouseLifecycle(LifecycleTrend):
                 event_query=event_query,
                 filters=prop_filters,
                 sub_interval=sub_interval_string,
-                GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
+                GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
             ),
             {
                 "team_id": team_id,
@@ -147,7 +147,7 @@ class ClickhouseLifecycle(LifecycleTrend):
                 event_query=event_query,
                 filters=prop_filters,
                 sub_interval=sub_interval_string,
-                GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
+                GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
             ),
             {
                 "team_id": team_id,

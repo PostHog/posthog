@@ -1,18 +1,18 @@
 import { Card, Input } from 'antd'
 import React, { Ref, useState } from 'react'
 import { EditOutlined } from '@ant-design/icons'
-import { DashboardItemType, DashboardMode, ItemMode } from '~/types'
+import { InsightModel, DashboardMode, ItemMode } from '~/types'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import './Description.scss'
 import { TextAreaRef } from 'antd/lib/input/TextArea'
 
 interface DescriptionInterface {
-    item: Partial<DashboardItemType>
+    item: Partial<InsightModel>
     itemMode: ItemMode | DashboardMode | null
     setItemMode:
         | ((mode: ItemMode | null, eventSource: DashboardEventSource) => void)
         | ((mode: DashboardMode | null, eventSource: DashboardEventSource) => void)
-    triggerItemUpdate: (description: Partial<DashboardItemType>) => void
+    triggerItemUpdate: (description: Partial<InsightModel>) => void
     descriptionInputRef: Ref<TextAreaRef> | undefined
 }
 

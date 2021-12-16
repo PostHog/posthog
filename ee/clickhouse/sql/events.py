@@ -33,11 +33,12 @@ EVENTS_TABLE_MATERIALIZED_COLUMNS = """
     , $group_4 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_4')) COMMENT 'column_materializer::$group_4'
 """
 
-EVENTS_TABLE_SQL = (
+# :KLUDGE: This is not in sync with reality on cloud! Instead a distributed table engine is used with a sharded_events table.
+EVENTS_TABLE_SQL = lambda: (
     EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMM(timestamp)
-ORDER BY (team_id, toDate(timestamp), distinct_id, uuid)
-{sample_by_uuid}
+ORDER BY (team_id, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))
+{sample_by}
 {storage_policy}
 """
 ).format(
@@ -46,8 +47,10 @@ ORDER BY (team_id, toDate(timestamp), distinct_id, uuid)
     engine=table_engine(EVENTS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
-    sample_by_uuid="SAMPLE BY uuid" if not DEBUG else "",  # https://github.com/PostHog/posthog/issues/5684
-    storage_policy=STORAGE_POLICY,
+    sample_by="SAMPLE BY cityHash64(distinct_id)"
+    if not DEBUG
+    else "",  # https://github.com/PostHog/posthog/issues/5684
+    storage_policy=STORAGE_POLICY(),
 )
 
 KAFKA_EVENTS_TABLE_SQL = EVENTS_TABLE_BASE_SQL.format(
@@ -200,7 +203,7 @@ UNION ALL
 SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_from)s))
 """
 
-EVENT_JOIN_PERSON_SQL = f"""
+EVENT_JOIN_PERSON_SQL = """
 INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) as pdi ON events.distinct_id = pdi.distinct_id
 """
 

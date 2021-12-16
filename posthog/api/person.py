@@ -15,7 +15,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_target_entity
 from posthog.constants import LIMIT, TRENDS_TABLE
 from posthog.models import Cohort, Event, Filter, Person, User
-from posthog.models.filters import RetentionFilter
+from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.base import filter_persons
@@ -215,9 +215,9 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         base_uri = request.build_absolute_uri("/")
 
         if display == TRENDS_TABLE:
-            people = self.retention_class(base_uri=base_uri).people_in_period(filter, team)
+            people = self.retention_class(base_uri=base_uri).actors_in_period(filter, team)
         else:
-            people = self.retention_class(base_uri=base_uri).people(filter, team)
+            people = self.retention_class(base_uri=base_uri).actors(filter, team)
 
         next_url = paginated_result(people, request, filter.offset)
 

@@ -7,9 +7,9 @@ from ee.clickhouse.models.session_recording_event import create_session_recordin
 
 def bulk_create_events(events: List[Dict], **kw):
     for event_data in events:
-        create_event(**event_data, **kw, event_uuid=uuid4())  # type: ignore
+        create_event(**event_data, **kw, event_uuid=uuid4())
 
 
 def bulk_create_session_recording_events(events: List[Dict], **kw):
     for data in events:
-        create_session_recording_event(**data, **kw, uuid=uuid4())  # type: ignore
+        create_session_recording_event(**data, **kw, uuid=uuid4())

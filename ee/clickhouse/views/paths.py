@@ -4,7 +4,6 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.queries import ClickhousePaths
 from ee.clickhouse.sql.events import ELEMENT_TAG_COUNT
 from posthog.api.paths import PathsViewSet
 from posthog.models import Event, Filter

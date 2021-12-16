@@ -27,7 +27,7 @@ export function FunnelDisplayLayoutPicker(): JSX.Element {
             defaultValue={FunnelLayout.vertical}
             value={barGraphLayout || FunnelLayout.vertical}
             onChange={(layout: FunnelLayout) => setFilters({ layout })}
-            bordered={false}
+            bordered
             dropdownMatchSelectWidth={false}
             data-attr="funnel-bar-layout-selector"
             optionLabelProp="label"

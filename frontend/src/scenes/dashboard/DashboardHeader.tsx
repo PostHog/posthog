@@ -129,7 +129,7 @@ export function DashboardHeader(): JSX.Element {
                 hotkey="n"
                 className="hide-lte-md"
             >
-                Add graph
+                New insight
             </HotkeyButton>
             <HotkeyButton
                 type="primary"
