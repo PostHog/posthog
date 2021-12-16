@@ -17,7 +17,7 @@ export enum SplotchColor {
 export function Splotch({ color }: { color: SplotchColor }): JSX.Element {
     return (
         <div className="Splotch">
-            <div className={clsx('Splotch__paint', color)} />
+            <div className={clsx('paint', color)} />
         </div>
     )
 }
