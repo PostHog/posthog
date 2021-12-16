@@ -46,7 +46,7 @@ describe('experimentLogic', () => {
             logic.actions.setNewExperimentData({ parameters: { minimum_detectable_effect: 10 } })
 
             await expectLogic(logic).toMatchValues({
-                minimimumDetectableChange: 10,
+                minimumDetectableChange: 10,
             })
 
             expect(logic.values.recommendedSampleSize(20)).toEqual(512)
