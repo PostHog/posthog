@@ -33,7 +33,7 @@
         "prepublishOnly": "yarn build",
         "setup:dev:clickhouse": "cd .. && export DEBUG=1 PRIMARY_DB=clickhouse && python manage.py migrate_clickhouse",
         "setup:test:ee": "yarn setup:test:postgres && yarn setup:test:clickhouse",
-        "setup:test:postgres": "cd .. && (PGPASSWORD=posthog dropdb -h localhost -U posthog test_posthog || echo 'no db to drop') && PGPASSWORD=posthog createdb -h localhost -U posthog test_posthog && DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog DEBUG=1 python manage.py migrate",
+        "setup:test:postgres": "cd .. && python manage.py setup_test_environment",
         "setup:test:clickhouse": "cd .. && unset KAFKA_URL && export TEST=1 PRIMARY_DB=clickhouse CLICKHOUSE_DATABASE=posthog_test && python manage.py migrate_clickhouse",
         "services:start": "cd .. && docker-compose -f ee/docker-compose.ch.yml up zookeeper kafka clickhouse",
         "services:stop": "cd .. && docker-compose -f ee/docker-compose.ch.yml down",
