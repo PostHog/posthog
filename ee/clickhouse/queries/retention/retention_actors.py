@@ -1,6 +1,6 @@
 from typing import Dict, Optional, Tuple, Union
 
-from ee.clickhouse.client import substitute_params, sync_execute
+from ee.clickhouse.client import render_query, sync_execute
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from ee.clickhouse.queries.retention.clickhouse_retention import (
     BreakdownValues,
@@ -116,14 +116,16 @@ def build_actor_activity_query(
 
     target_event_query = build_target_event_query(filter=filter, team=team)
 
-    all_params = {
+    params = {
         "period": filter.period.lower(),
         "breakdown_values": list(filter_by_breakdown) if filter_by_breakdown else None,
         "selected_interval": selected_interval,
     }
 
-    query = substitute_params(RETENTION_BREAKDOWN_ACTOR_SQL, all_params).format(
-        returning_event_query=returning_event_query, target_event_query=target_event_query,
+    query = render_query(
+        RETENTION_BREAKDOWN_ACTOR_SQL,
+        params=params,
+        fragments=dict(returning_event_query=returning_event_query, target_event_query=target_event_query),
     )
 
     return query
@@ -155,8 +157,10 @@ def _build_actor_query(
         LIMIT 100 OFFSET %(offset)s
     """
 
-    actor_query = substitute_params(actor_query_template, {"offset": filter.offset}).format(
-        actor_activity_query=actor_activity_query
+    actor_query = render_query(
+        actor_query_template,
+        params={"offset": filter.offset},
+        fragments=dict(actor_activity_query=actor_activity_query),
     )
 
     return actor_query

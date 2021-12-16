@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, NamedTuple, Tuple, Union
 from urllib.parse import urlencode
 
-from ee.clickhouse.client import substitute_params, sync_execute
+from ee.clickhouse.client import render_query, sync_execute
 from ee.clickhouse.queries.retention.retention_event_query import RetentionEventsQuery
 from ee.clickhouse.sql.retention.retention import RETENTION_BREAKDOWN_SQL
 from posthog.constants import RETENTION_FIRST_TIME, RetentionQueryType
@@ -146,7 +146,7 @@ def build_returning_event_query(filter: RetentionFilter, team: Team):
         event_query_type=RetentionQueryType.RETURNING,
     ).get_query()
 
-    query = substitute_params(returning_event_query_templated, returning_event_params)
+    query = render_query(returning_event_query_templated, params=returning_event_params)
 
     return query
 
@@ -162,6 +162,6 @@ def build_target_event_query(filter: RetentionFilter, team: Team):
         ),
     ).get_query()
 
-    query = substitute_params(target_event_query_templated, target_event_params)
+    query = render_query(target_event_query_templated, params=target_event_params)
 
     return query

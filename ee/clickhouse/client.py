@@ -180,7 +180,7 @@ else:
                     save_query(prepared_sql, execution_time)
         return result
 
-    def substitute_params(query, params):
+    def _substitute_params(query, params):
         """
         Helper method to ease rendering of sql clickhouse queries progressively.
         For example, there are many places where we construct queries to be used
@@ -196,6 +196,27 @@ else:
         avoid any potential param collisions.
         """
         return cast(SyncClient, ch_client).substitute_params(query, params)
+
+    def render_query(
+        query_template: str,
+        params: Optional[Dict[str, Union[int, float, str, List, Tuple]]] = None,
+        fragments: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """
+        Given a SQL template that can use both printf style interpolation
+        (%-formatting) and format string syntax. These serve separate purposes:
+
+         1. printf interpolation is used to defining sql parameters e.g. values
+            that need to be escaped
+         2. format string syntax is used for SQL fragment substitution
+
+        Importantly, we substitute params before fragments, as we want to avoid
+        param substitution applying to raw SQL fragments.
+
+        The returned string is a raw SQL fragment e.g. it should be without any
+        further substitution requirements.
+        """
+        return _substitute_params(query_template, params=params or {}).format(**fragments or {})
 
 
 def _prepare_query(client: SyncClient, query: str, args: QueryArgs):
