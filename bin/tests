@@ -23,5 +23,10 @@ if [ $# -eq 0 ]; then
 fi
 
 export REDIS_URL='redis:///'
-psql posthog -d postgres://posthog:posthog@localhost:5432 -c "drop database if exists test_posthog"
+
+PG_HOST="${PGHOST:=localhost}"
+PG_USER="${PGUSER:=posthog}"
+PG_PASSWORD="${PGPASSWORD:=posthog}"
+PG_PORT="${PGPORT:=5432}"
+psql posthog -d "postgres://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}" -c "drop database if exists test_posthog"
 nodemon -w ./posthog -w ./ee --ext py --exec "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES pytest --reuse-db -s $* --snapshot-update; mypy posthog ee"
