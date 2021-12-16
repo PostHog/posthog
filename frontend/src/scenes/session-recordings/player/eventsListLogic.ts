@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { RecordingEventsFilters, RecordingEventType } from '~/types'
+import { PlayerPosition, RecordingEventsFilters, RecordingEventType } from '~/types'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { eventsListLogicType } from './eventsListLogicType'
 import { clamp, colonDelimitedDuration, findLastIndex, floorMsToClosestSecond, ceilMsToClosestSecond } from 'lib/utils'
@@ -18,9 +18,9 @@ export const eventsListLogic = kea<eventsListLogicType>({
         actions: [sessionRecordingLogic, ['setFilters', 'loadEventsSuccess'], sessionRecordingPlayerLogic, ['seek']],
         values: [
             sessionRecordingLogic,
-            ['eventsToShow', 'sessionEventsDataLoading', 'firstChunkLoaded'],
+            ['eventsToShow', 'sessionEventsDataLoading'],
             sessionRecordingPlayerLogic,
-            ['zeroOffsetTime'],
+            ['currentPlayerTime'],
         ],
     },
     actions: {
@@ -30,7 +30,7 @@ export const eventsListLogic = kea<eventsListLogicType>({
         enablePositionFinder: true,
         disablePositionFinder: true,
         scrollTo: (rowIndex?: number) => ({ rowIndex }),
-        handleEventClick: (time: number) => ({ time }),
+        handleEventClick: (playerPosition: PlayerPosition) => ({ playerPosition }),
     },
     reducers: {
         localFilters: [
@@ -81,9 +81,9 @@ export const eventsListLogic = kea<eventsListLogicType>({
             await breakpoint(DEFAULT_SCROLLING_RESET_TIME_INTERVAL)
             actions.enablePositionFinder()
         },
-        handleEventClick: ({ time }) => {
-            if (!!time && !isNaN(time)) {
-                actions.seek(time)
+        handleEventClick: ({ playerPosition }) => {
+            if (playerPosition) {
+                actions.seek(playerPosition)
             }
         },
     }),
@@ -93,23 +93,23 @@ export const eventsListLogic = kea<eventsListLogicType>({
             (events: RecordingEventType[]): RecordingEventType[] => {
                 return events.map((e) => ({
                     ...e,
-                    colonTimestamp: colonDelimitedDuration(Math.floor((e.zeroOffsetTime ?? 0) / 1000)),
+                    colonTimestamp: colonDelimitedDuration(Math.floor((e.playerTime ?? 0) / 1000)),
                 }))
             },
         ],
         currentEventsTimeRange: [
-            (selectors) => [selectors.listEvents, selectors.zeroOffsetTime],
-            (events, time) => {
+            (selectors) => [selectors.listEvents, selectors.currentPlayerTime],
+            (events, currentPlayerTime) => {
                 if (events.length < 1) {
                     return { start: 0, end: 0 }
                 }
                 const startIndex = events.findIndex(
-                    (e) => (e.zeroOffsetTime ?? 0) >= ceilMsToClosestSecond(time.current)
+                    (e) => (e.playerTime ?? 0) >= ceilMsToClosestSecond(currentPlayerTime ?? 0)
                 )
-                const end = Math.max(ceilMsToClosestSecond(time.current), 1000)
+                const end = Math.max(ceilMsToClosestSecond(currentPlayerTime ?? 0), 1000)
                 const start = floorMsToClosestSecond(
                     events[clamp(startIndex === -1 ? events.length - 1 : startIndex - 1, 0, events.length - 1)]
-                        .zeroOffsetTime ?? 0
+                        .playerTime ?? 0
                 )
 
                 return { start, end }
@@ -118,8 +118,7 @@ export const eventsListLogic = kea<eventsListLogicType>({
         isEventCurrent: [
             (selectors) => [selectors.currentEventsTimeRange, selectors.listEvents],
             (indices, events) => (index: number) =>
-                (events?.[index]?.zeroOffsetTime ?? 0) >= indices.start &&
-                (events?.[index]?.zeroOffsetTime ?? 0) < indices.end,
+                (events?.[index]?.playerTime ?? 0) >= indices.start && (events?.[index]?.playerTime ?? 0) < indices.end,
         ],
         currentEventsIndices: [
             (selectors) => [selectors.listEvents, selectors.isEventCurrent],
@@ -188,10 +187,6 @@ export const eventsListLogic = kea<eventsListLogicType>({
                 // Where are we relative to the current event
                 return visibleRange.startIndex > currentEventsRange.stopIndex
             },
-        ],
-        isEventListLoading: [
-            (selectors) => [selectors.sessionEventsDataLoading, selectors.firstChunkLoaded],
-            (eventsLoading, firstChunkLoaded) => !firstChunkLoaded || eventsLoading,
         ],
     }),
 })

@@ -185,6 +185,14 @@ body strong {
     background: none;
 }
 
+.card-secondary {
+    font-size: 11px;
+    color: $text_muted;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
 mark {
     background-color: $mark_color !important;
     border-radius: $radius;
@@ -768,6 +776,21 @@ code.code {
 
 // AntD overrrides, placed inside `body` to increase specifity (nicely avoiding the need for !important)
 body {
+    h1,
+    h2,
+    h3,
+    h4 {
+        color: var(--text-default);
+    }
+    h5 {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--muted-alt);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 0.25rem;
+        line-height: 2;
+    }
     // AntD uses its own border color for the bottom of tab lists, but we want to use `var(--border)`
     .ant-tabs-top,
     .ant-tabs-bottom {
