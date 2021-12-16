@@ -33,7 +33,7 @@ export function FunnelStepsPicker(): JSX.Element | null {
                 <Select.Option key={stepIndex} value={stepIndex} label={`Step ${stepIndex + 1}`}>
                     <div style={{ display: 'flex', flexDirection: 'row' }}>
                         Step {stepIndex + 1} (
-                        <EntityFilterInfo filter={stepFilter as EntityFilter} />)
+                        <EntityFilterInfo filter={stepFilter as EntityFilter} hideCustomName />)
                     </div>
                 </Select.Option>
             ) : null

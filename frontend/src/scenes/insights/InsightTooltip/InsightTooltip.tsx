@@ -2,7 +2,7 @@ import './InsightTooltip.scss'
 import React from 'react'
 import { dayjs } from 'lib/dayjs'
 
-interface BodyLine {
+interface SeriesDatum {
     id?: string | number
     component: React.ReactNode
 }
@@ -13,7 +13,7 @@ interface InsightTooltipProps {
     useAltTitle?: boolean
     hideHeader?: boolean
     hideInspectActorsSection?: boolean
-    bodyLines?: BodyLine[]
+    seriesData?: SeriesDatum[]
     children?: React.ReactNode
 }
 
@@ -29,7 +29,7 @@ export function InsightTooltip({
     referenceDate,
     altTitle,
     children,
-    bodyLines = [],
+    seriesData = [],
     useAltTitle = false,
     hideHeader: _hideHeader = false,
     hideInspectActorsSection = true,
@@ -40,7 +40,7 @@ export function InsightTooltip({
     return (
         <div>
             {!hideHeader && <div>{title}</div>}
-            {bodyLines.map(({ id, component }) => (
+            {seriesData.map(({ id, component }) => (
                 <ul key={id}>{component}</ul>
             ))}
             {children}

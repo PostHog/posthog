@@ -315,7 +315,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                             const referenceDate = !dataset.compare
                                 ? dataset.days?.[referenceDataPoint.dataIndex]
                                 : undefined
-                            const bodyLines = tooltip.body
+                            const seriesData = tooltip.body
                                 .flatMap(({ lines }) => lines)
                                 .map((component, idx) => ({
                                     id: idx,
@@ -328,7 +328,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                                         <InsightTooltip
                                             referenceDate={referenceDate}
                                             altTitle={altTitle}
-                                            bodyLines={bodyLines}
+                                            seriesData={seriesData}
                                             useAltTitle={tooltipPreferAltTitle}
                                             hideHeader={isHorizontal}
                                             hideInspectActorsSection={!(onClick && showPersonsModal)}
@@ -338,7 +338,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                                             referenceDate={referenceDate}
                                             altTitle={altTitle}
                                             interval={interval}
-                                            bodyLines={bodyLines}
+                                            bodyLines={seriesData}
                                             preferAltTitle={tooltipPreferAltTitle}
                                             hideHeader={isHorizontal}
                                             inspectPersonsLabel={onClick && showPersonsModal}

@@ -35,7 +35,6 @@ interface InsightsLabelProps {
     hasMultipleSeries?: boolean // Whether the graph has multiple discrete series (not breakdown values)
     showCountedByTag?: boolean // Force 'counted by' tag to show (always shown when action.math is set)
     allowWrap?: boolean // Allow wrapping to multiple lines (useful for long values like URLs)
-    hideCustomName?: boolean // Whether to show the base event/action name (if a custom name is set) in the insight label
     onLabelClick?: () => void // Click handler for inner label
     showEventName?: boolean // Override internally calculated to always show event name
 }
@@ -94,7 +93,6 @@ export function InsightLabel({
     showCountedByTag,
     allowWrap = false,
     showEventName: _showEventName = false,
-    hideCustomName = false,
     onLabelClick,
 }: InsightsLabelProps): JSX.Element {
     const showEventName = _showEventName || !breakdownValue || (hasMultipleSeries && !Array.isArray(breakdownValue))
@@ -132,7 +130,7 @@ export function InsightLabel({
                     {showEventName && (
                         <>
                             {action ? (
-                                <EntityFilterInfo filter={action} hideCustomName={hideCustomName} />
+                                <EntityFilterInfo filter={action} />
                             ) : (
                                 <PropertyKeyInfo disableIcon disablePopover value={eventName} ellipsis={!allowWrap} />
                             )}
