@@ -18,13 +18,7 @@ class Migration(migrations.Migration):
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("event", models.CharField(max_length=400)),
                 ("property", models.CharField(max_length=400)),
-                (
-                    "team",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE,
-                        to="posthog.team",
-                    ),
-                ),
+                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team",),),
             ],
         ),
         migrations.AddIndex(
@@ -36,7 +30,9 @@ class Migration(migrations.Migration):
             index=models.Index(fields=["team", "property"], name="posthog_eve_team_id_26dbfb_idx"),
         ),
         migrations.AddConstraint(
-            model_name='eventproperty',
-            constraint=models.UniqueConstraint(fields=('team', 'event', 'property'), name='posthog_event_property_unique_team_event_property'),
+            model_name="eventproperty",
+            constraint=models.UniqueConstraint(
+                fields=("team", "event", "property"), name="posthog_event_property_unique_team_event_property"
+            ),
         ),
     ]

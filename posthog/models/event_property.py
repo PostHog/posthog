@@ -10,7 +10,9 @@ class EventProperty(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=['team', 'event', 'property'], name='posthog_event_property_unique_team_event_property'),
+            models.UniqueConstraint(
+                fields=["team", "event", "property"], name="posthog_event_property_unique_team_event_property"
+            ),
         ]
         indexes = [
             models.Index(fields=["team", "event"]),
