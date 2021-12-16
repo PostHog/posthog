@@ -12,17 +12,10 @@ class EventProperty(models.Model):
         BOOLEAN = "BOOLEAN", "Boolean"
         DATETIME = "DATETIME", "DateTime"
 
-    team: models.ForeignKey = models.ForeignKey(
-        # "event_properties" is a field on Team, so have to call this "event_properties_model"
-        Team,
-        on_delete=models.CASCADE,
-        related_name="event_properties_model",
-        related_query_name="team",
-    )
+    team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     event: models.CharField = models.CharField(max_length=400, null=False)
     property: models.CharField = models.CharField(max_length=400, null=False)
 
-    # contains e.g. the date format
     property_type: models.CharField = models.CharField(
         max_length=20, choices=PropertyType.choices, default=PropertyType.STRING, null=True
     )
@@ -34,7 +27,9 @@ class EventProperty(models.Model):
     last_seen_at: models.DateTimeField = models.DateTimeField(default=None, null=True)
 
     class Meta:
-        unique_together = ("team", "event", "property")
+        constraints = [
+            models.UniqueConstraint(fields=['team', 'event', 'property'], name='posthog_event_property_unique_team_event_property'),
+        ]
         indexes = [
             # To speed up direct lookups
             models.Index(fields=["team", "event"]),

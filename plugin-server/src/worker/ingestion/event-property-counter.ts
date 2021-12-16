@@ -141,7 +141,7 @@ export class EventPropertyCounter {
             await this.db.postgresQuery(
                 `INSERT INTO posthog_eventproperty(team_id, event, property, property_type, property_type_format, total_volume, created_at, last_seen_at)
                 SELECT * FROM UNNEST ($1::int[], $2::text[], $3::text[], $4::text[], $5::text[], $6::bigint[], $7::timestamp with time zone[], $8::timestamp with time zone[])
-                ON CONFLICT ON CONSTRAINT posthog_eventproperty_team_id_event_property_10910b3b_uniq DO UPDATE SET
+                ON CONFLICT ON CONSTRAINT posthog_event_property_unique_team_event_property DO UPDATE SET
                     total_volume = posthog_eventproperty.total_volume + excluded.total_volume,
                     created_at = LEAST(posthog_eventproperty.created_at, excluded.created_at),
                     last_seen_at = GREATEST(posthog_eventproperty.last_seen_at, excluded.last_seen_at),
