@@ -90,6 +90,11 @@ describe('TeamManager()', () => {
                 [new UUIDT().toString(), 'numeric_prop', true, null, null, 2],
                 'testTag'
             )
+            await hub.db.postgresQuery(
+                `INSERT INTO posthog_eventproperty (event, property, team_id) VALUES ($1, $2, $3)`,
+                ['new-event', 'numeric_prop', 2],
+                'testTag'
+            )
         })
 
         it('updates event properties', async () => {
@@ -153,6 +158,12 @@ describe('TeamManager()', () => {
                 {
                     id: expect.any(Number),
                     event: 'new-event',
+                    property: 'numeric_prop',
+                    team_id: 2,
+                },
+                {
+                    id: expect.any(Number),
+                    event: 'new-event',
                     property: 'property_name',
                     team_id: 2,
                 },
@@ -160,12 +171,6 @@ describe('TeamManager()', () => {
                     id: expect.any(Number),
                     event: 'new-event',
                     property: 'number',
-                    team_id: 2,
-                },
-                {
-                    id: expect.any(Number),
-                    event: 'new-event',
-                    property: 'numeric_prop',
                     team_id: 2,
                 },
             ])
