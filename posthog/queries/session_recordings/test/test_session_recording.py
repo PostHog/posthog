@@ -1,6 +1,7 @@
+import math
 from datetime import timedelta
 from typing import Tuple
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import urlencode
 
 from dateutil.relativedelta import relativedelta
 from django.http import HttpRequest
@@ -8,15 +9,16 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework.request import Request
 
-from posthog.helpers.session_recording import compress_and_chunk_snapshots
+from posthog.helpers.session_recording import (
+    ACTIVITY_THRESHOLD_SECONDS,
+    DecompressedRecordingData,
+    RecordingSegment,
+    compress_and_chunk_snapshots,
+)
 from posthog.models import Filter
 from posthog.models.session_recording_event import SessionRecordingEvent
 from posthog.models.team import Team
-from posthog.queries.session_recordings.session_recording import (
-    ACTIVITY_THRESHOLD_SECONDS,
-    DEFAULT_RECORDING_CHUNK_LIMIT,
-    SessionRecording,
-)
+from posthog.queries.session_recordings.session_recording import RecordingMetadata, SessionRecording
 from posthog.test.base import BaseTest
 
 
@@ -45,19 +47,21 @@ def factory_session_recording_test(session_recording: SessionRecording, session_
                 self.create_snapshot("user2", "2", now() + relativedelta(seconds=20))
                 self.create_snapshot("user", "1", now() + relativedelta(seconds=30))
 
-                req, filt = create_recording_request_and_filter("1")
-                recording = session_recording(
-                    team=self.team, session_recording_id="1", request=req, filter=filt
-                ).get_snapshots()  # type: ignore
+                req, filter = create_recording_request_and_filter("1")
+                recording: DecompressedRecordingData = session_recording(  # type: ignore
+                    team=self.team, session_recording_id="1", request=req
+                ).get_snapshots(filter.limit, filter.offset)
                 self.assertEqual(
-                    recording["snapshots"],
-                    [
-                        {"timestamp": 1_600_000_000_000, "type": 2, "data": {"source": 0}},
-                        {"timestamp": 1_600_000_010_000, "type": 2, "data": {"source": 0}},
-                        {"timestamp": 1_600_000_030_000, "type": 2, "data": {"source": 0}},
-                    ],
+                    recording.snapshot_data_by_window_id,
+                    {
+                        "": [
+                            {"timestamp": 1_600_000_000_000, "type": 2, "data": {"source": 0}},
+                            {"timestamp": 1_600_000_010_000, "type": 2, "data": {"source": 0}},
+                            {"timestamp": 1_600_000_030_000, "type": 2, "data": {"source": 0}},
+                        ]
+                    },
                 )
-                self.assertEqual(recording["next"], None)
+                self.assertEqual(recording.has_next, False)
 
         def test_get_snapshots_does_not_leak_teams(self):
             with freeze_time("2020-09-13T12:26:40.000Z"):
@@ -65,37 +69,36 @@ def factory_session_recording_test(session_recording: SessionRecording, session_
                 self.create_snapshot("user1", "1", now() + relativedelta(seconds=10), team_id=another_team.pk)
                 self.create_snapshot("user2", "1", now())
 
-                req, filt = create_recording_request_and_filter("1")
-                recording = session_recording(
-                    team=self.team, session_recording_id="1", request=req, filter=filt
-                ).get_snapshots()  # type: ignore
+                req, filter = create_recording_request_and_filter("1")
+                recording: DecompressedRecordingData = session_recording(  # type: ignore
+                    team=self.team, session_recording_id="1", request=req
+                ).get_snapshots(filter.limit, filter.offset)
                 self.assertEqual(
-                    recording["snapshots"], [{"timestamp": 1_600_000_000_000, "type": 2, "data": {"source": 0}},],
+                    recording.snapshot_data_by_window_id,
+                    {"": [{"timestamp": 1_600_000_000_000, "type": 2, "data": {"source": 0}},]},
                 )
 
         def test_get_snapshots_with_no_such_session(self):
-            req, filt = create_recording_request_and_filter("xxx")
-            recording = session_recording(
-                team=self.team, session_recording_id="xxx", request=req, filter=filt
-            ).get_snapshots()  # type: ignore
-            self.assertEqual(recording, {"snapshots": [], "next": None})
+            req, filter = create_recording_request_and_filter("xxx")
+            recording: DecompressedRecordingData = session_recording(  # type: ignore
+                team=self.team, session_recording_id="xxx", request=req
+            ).get_snapshots(filter.limit, filter.offset)
+            self.assertEqual(recording, DecompressedRecordingData(has_next=False, snapshot_data_by_window_id={}))
 
         def test_get_chunked_snapshots(self):
             with freeze_time("2020-09-13T12:26:40.000Z"):
                 chunked_session_id = "7"
                 snapshots_per_chunk = 2
+                chunk_limit = 20
                 for _ in range(30):
                     self.create_chunked_snapshots(snapshots_per_chunk, "user", chunked_session_id, now())
 
-                req, filt = create_recording_request_and_filter(chunked_session_id)
-                recording = session_recording(
-                    team=self.team, session_recording_id=chunked_session_id, request=req, filter=filt
-                ).get_snapshots()  # type: ignore
-                self.assertEqual(len(recording["snapshots"]), DEFAULT_RECORDING_CHUNK_LIMIT * snapshots_per_chunk)
-                self.assertIsNotNone(recording["next"])
-                parsed_params = parse_qs(urlparse(recording["next"]).query)
-                self.assertEqual(int(parsed_params["offset"][0]), DEFAULT_RECORDING_CHUNK_LIMIT)
-                self.assertEqual(int(parsed_params["limit"][0]), DEFAULT_RECORDING_CHUNK_LIMIT)
+                req, filter = create_recording_request_and_filter(chunked_session_id)
+                recording: DecompressedRecordingData = session_recording(  # type: ignore
+                    team=self.team, session_recording_id=chunked_session_id, request=req,
+                ).get_snapshots(chunk_limit, filter.offset)
+                self.assertEqual(len(recording.snapshot_data_by_window_id[""]), chunk_limit * snapshots_per_chunk)
+                self.assertTrue(recording.has_next)
 
         def test_get_chunked_snapshots_with_specific_limit_and_offset(self):
             with freeze_time("2020-09-13T12:26:40.000Z"):
@@ -108,109 +111,132 @@ def factory_session_recording_test(session_recording: SessionRecording, session_
                         snapshots_per_chunk, "user", chunked_session_id, now() + relativedelta(minutes=index)
                     )
 
-                req, filt = create_recording_request_and_filter(chunked_session_id, chunk_limit, chunk_offset)
-                recording = session_recording(
-                    team=self.team, session_recording_id=chunked_session_id, request=req, filter=filt
-                ).get_snapshots()  # type: ignore
-                self.assertEqual(len(recording["snapshots"]), chunk_limit * snapshots_per_chunk)
-                self.assertEqual(recording["snapshots"][0]["timestamp"], 1_600_000_300_000)
-                self.assertIsNotNone(recording["next"])
-                parsed_params = parse_qs(urlparse(recording["next"]).query)
-                self.assertEqual(int(parsed_params["offset"][0]), chunk_limit + chunk_offset)
-                self.assertEqual(int(parsed_params["limit"][0]), chunk_limit)
+                req, filter = create_recording_request_and_filter(chunked_session_id, chunk_limit, chunk_offset)
+                recording: DecompressedRecordingData = session_recording(  # type: ignore
+                    team=self.team, session_recording_id=chunked_session_id, request=req,
+                ).get_snapshots(chunk_limit, filter.offset)
+
+                self.assertEqual(len(recording.snapshot_data_by_window_id[""]), chunk_limit * snapshots_per_chunk)
+                self.assertEqual(recording.snapshot_data_by_window_id[""][0]["timestamp"], 1_600_000_300_000)
+                self.assertTrue(recording.has_next)
 
         def test_get_metadata(self):
             with freeze_time("2020-09-13T12:26:40.000Z"):
-                self.create_snapshot("user", "1", now())
-                self.create_snapshot("user", "1", now() + relativedelta(seconds=10))
-                self.create_snapshot("user2", "2", now() + relativedelta(seconds=20))
-                self.create_snapshot("user", "1", now() + relativedelta(seconds=30))
-
-                req, filt = create_recording_request_and_filter("1")
-                recording = session_recording(
-                    team=self.team, session_recording_id="1", request=req, filter=filt
-                ).get_metadata()  # type: ignore
-                self.assertEqual(
-                    recording,
-                    {
-                        "distinct_id": "user",
-                        "session_id": "1",
-                        "start_time": now(),
-                        "end_time": now() + relativedelta(seconds=30),
-                        "duration": timedelta(seconds=30),
-                    },
+                timestamp = now()
+                self.create_chunked_snapshots(1, "u", "1", timestamp, window_id="1")
+                timestamp += relativedelta(seconds=1)
+                self.create_chunked_snapshots(
+                    1, "u", "1", timestamp, window_id="1", has_full_snapshot=False, source=3
+                )  # active
+                timestamp += relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS)
+                self.create_chunked_snapshots(
+                    1, "u", "1", timestamp, window_id="1", has_full_snapshot=False, source=3
+                )  # active
+                timestamp += relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS * 2)
+                self.create_chunked_snapshots(1, "u", "1", timestamp, window_id="1")
+                timestamp += relativedelta(seconds=1)
+                self.create_chunked_snapshots(
+                    1, "u", "1", timestamp, window_id="1", has_full_snapshot=False, source=3
+                )  # active
+                timestamp += relativedelta(seconds=math.floor(ACTIVITY_THRESHOLD_SECONDS / 2))
+                self.create_chunked_snapshots(1, "u", "1", timestamp, window_id="1")
+                timestamp += relativedelta(seconds=math.floor(ACTIVITY_THRESHOLD_SECONDS / 2)) - relativedelta(
+                    seconds=4
                 )
-
-        def test_get_metadata_with_active_segments(self):
-            with freeze_time("2020-09-13T12:26:40.000Z"):
-                timestamp = now()
-                self.create_snapshot("u", "1", timestamp, window_id="1")
-                timestamp += relativedelta(seconds=1)
-                self.create_snapshot("u", "1", timestamp, window_id="1", type=3, source=3)  # active
-                timestamp += relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS)
-                self.create_snapshot("u", "1", timestamp, window_id="1", type=3, source=3)  # active
-                timestamp += relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS * 2)
-                self.create_snapshot("u", "1", timestamp, window_id="1")
-                timestamp += relativedelta(seconds=1)
-                self.create_snapshot("u", "1", timestamp, window_id="1", type=3, source=3)  # active
-                timestamp += relativedelta(seconds=int(ACTIVITY_THRESHOLD_SECONDS / 2))
-                self.create_snapshot("u", "1", timestamp, window_id="1")
-                timestamp += relativedelta(seconds=int(ACTIVITY_THRESHOLD_SECONDS / 2))
-                self.create_snapshot("u", "1", timestamp, window_id="1", type=3, source=3)  # active
+                self.create_chunked_snapshots(
+                    1, "u", "1", timestamp, window_id="1", has_full_snapshot=False, source=3
+                )  # active
 
                 timestamp = now()
-                self.create_snapshot("u", "1", timestamp, window_id="2", type=3, source=3)  # active
+                self.create_chunked_snapshots(
+                    1, "u", "1", timestamp, window_id="2", has_full_snapshot=False, source=3
+                )  # active
                 timestamp += relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS * 2)
-                self.create_snapshot("u", "1", timestamp, window_id="2", type=3, source=3)  # active
+                self.create_chunked_snapshots(
+                    1, "u", "1", timestamp, window_id="2", has_full_snapshot=False, source=3
+                )  # active
                 timestamp += relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS)
-                self.create_snapshot("u", "1", timestamp, window_id="2", type=3, source=3)  # active
-                timestamp += relativedelta(seconds=int(ACTIVITY_THRESHOLD_SECONDS / 2))
-                self.create_snapshot("u", "1", timestamp, window_id="2")
+                self.create_chunked_snapshots(
+                    1, "u", "1", timestamp, window_id="2", has_full_snapshot=False, source=3
+                )  # active
+                timestamp += relativedelta(seconds=math.floor(ACTIVITY_THRESHOLD_SECONDS / 2))
+                self.create_chunked_snapshots(
+                    1, "u", "1", timestamp, window_id="2", has_full_snapshot=False, source=3
+                )  # active
+                timestamp += relativedelta(seconds=math.floor(ACTIVITY_THRESHOLD_SECONDS / 2))
+                self.create_chunked_snapshots(1, "u", "1", timestamp, window_id="2")
 
-                req, filt = create_recording_request_and_filter("1")
-                recording = session_recording(
-                    team=self.team, session_recording_id="1", request=req, filter=filt  # type: ignore
-                ).get_metadata(include_active_segments=True)
+                req = create_recording_request_and_filter("1")
+                recording: RecordingMetadata = session_recording(  # type: ignore
+                    team=self.team, session_recording_id="1", request=req
+                ).get_metadata()
+
+                millisecond = relativedelta(microseconds=1000)
+
                 self.assertEqual(
                     recording,
-                    {
-                        "distinct_id": "u",
-                        "session_id": "1",
-                        "start_time": now(),
-                        "end_time": now() + relativedelta(seconds=2 + (4 * ACTIVITY_THRESHOLD_SECONDS)),
-                        "duration": timedelta(seconds=2 + (4 * ACTIVITY_THRESHOLD_SECONDS)),
-                        "active_segments_by_window_id": {
-                            "1": [
-                                {
-                                    "start_time": now() + relativedelta(seconds=1),
-                                    "end_time": now() + relativedelta(seconds=1 + ACTIVITY_THRESHOLD_SECONDS),
-                                },
-                                {
-                                    "start_time": now() + relativedelta(seconds=2 + (3 * ACTIVITY_THRESHOLD_SECONDS)),
-                                    "end_time": now() + relativedelta(seconds=2 + (4 * ACTIVITY_THRESHOLD_SECONDS)),
-                                },
-                            ],
-                            "2": [
-                                {"start_time": now(), "end_time": now()},
-                                {
-                                    "start_time": now() + relativedelta(seconds=2 * ACTIVITY_THRESHOLD_SECONDS),
-                                    "end_time": now() + relativedelta(seconds=3 * ACTIVITY_THRESHOLD_SECONDS),
-                                },
-                            ],
+                    RecordingMetadata(
+                        distinct_id="u",
+                        segments=[
+                            RecordingSegment(is_active=True, window_id="2", start_time=now(), end_time=now()),
+                            RecordingSegment(
+                                is_active=False,
+                                window_id="2",
+                                start_time=now() + millisecond,
+                                end_time=now() + relativedelta(seconds=1) - millisecond,
+                            ),
+                            RecordingSegment(
+                                is_active=True,
+                                window_id="1",
+                                start_time=now() + relativedelta(seconds=1),
+                                end_time=now() + relativedelta(seconds=1 + ACTIVITY_THRESHOLD_SECONDS),
+                            ),
+                            RecordingSegment(
+                                is_active=False,
+                                window_id="1",
+                                start_time=now() + relativedelta(seconds=1 + ACTIVITY_THRESHOLD_SECONDS) + millisecond,
+                                end_time=now() + relativedelta(seconds=2 * ACTIVITY_THRESHOLD_SECONDS) - millisecond,
+                            ),
+                            RecordingSegment(
+                                is_active=True,
+                                window_id="2",
+                                start_time=now() + relativedelta(seconds=2 * ACTIVITY_THRESHOLD_SECONDS),
+                                end_time=now() + relativedelta(seconds=math.floor(3.5 * ACTIVITY_THRESHOLD_SECONDS)),
+                            ),
+                            RecordingSegment(
+                                is_active=True,
+                                window_id="1",
+                                start_time=now() + relativedelta(seconds=(3 * ACTIVITY_THRESHOLD_SECONDS) + 2),
+                                end_time=now() + relativedelta(seconds=(4 * ACTIVITY_THRESHOLD_SECONDS) - 2),
+                            ),
+                            RecordingSegment(
+                                is_active=False,
+                                window_id="2",
+                                start_time=now()
+                                + relativedelta(seconds=(4 * ACTIVITY_THRESHOLD_SECONDS) - 2)
+                                + millisecond,
+                                end_time=now() + relativedelta(seconds=4 * ACTIVITY_THRESHOLD_SECONDS),
+                            ),
+                        ],
+                        start_and_end_times_by_window_id={
+                            "1": {
+                                "start_time": now(),
+                                "end_time": now() + relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS * 4 - 2),
+                            },
+                            "2": {
+                                "start_time": now(),
+                                "end_time": now() + relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS * 4),
+                            },
                         },
-                    },
+                    ),
                 )
 
         def test_get_metadata_for_non_existant_session_id(self):
             with freeze_time("2020-09-13T12:26:40.000Z"):
-
-                req, filt = create_recording_request_and_filter("99")
-                recording = session_recording(
-                    team=self.team, session_recording_id="1", request=req, filter=filt
-                ).get_metadata()  # type: ignore
+                req, _ = create_recording_request_and_filter("99")
+                recording = session_recording(team=self.team, session_recording_id="1", request=req).get_metadata()  # type: ignore
                 self.assertEqual(
-                    recording,
-                    {"distinct_id": None, "session_id": None, "start_time": None, "end_time": None, "duration": None,},
+                    recording, None,
                 )
 
         def test_get_metadata_does_not_leak_teams(self):
@@ -221,31 +247,11 @@ def factory_session_recording_test(session_recording: SessionRecording, session_
                 self.create_snapshot("user", "1", now() + relativedelta(seconds=20))
                 self.create_snapshot("user", "1", now() + relativedelta(seconds=30))
 
-                req, filt = create_recording_request_and_filter("1")
-                recording = session_recording(
-                    team=self.team, session_recording_id="1", request=req, filter=filt
-                ).get_metadata()  # type: ignore
-                self.assertEqual(recording["start_time"], now() + relativedelta(seconds=10))
-
-        def test_get_metadata_for_chunked_snapshots(self):
-            with freeze_time("2020-09-13T12:26:40.000Z"):
-                chunked_session_id = "7"
-                for index in range(16):
-                    self.create_chunked_snapshots(5, "user", chunked_session_id, now() + relativedelta(minutes=index))
-                req, filt = create_recording_request_and_filter("xxx")
-                recording = session_recording(
-                    team=self.team, session_recording_id=chunked_session_id, request=req, filter=filt
-                ).get_metadata()  # type: ignore
-                self.assertEqual(
-                    recording,
-                    {
-                        "distinct_id": "user",
-                        "session_id": chunked_session_id,
-                        "start_time": now(),
-                        "end_time": now() + relativedelta(seconds=4, minutes=15),
-                        "duration": timedelta(seconds=4, minutes=15),
-                    },
-                )
+                req, _ = create_recording_request_and_filter("1")
+                recording: RecordingMetadata = session_recording(  # type: ignore
+                    team=self.team, session_recording_id="1", request=req,
+                ).get_metadata()
+                self.assertNotEqual(recording.segments[0].start_time, now())
 
         def create_snapshot(self, distinct_id, session_id, timestamp, window_id="", type=2, source=0, team_id=None):
             if team_id == None:

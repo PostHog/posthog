@@ -608,7 +608,7 @@ export function colonDelimitedDuration(d: string | number | null | undefined, nu
         m = Math.floor(s / 60)
         s -= m * 60
     }
-    s = Math.round(s)
+    s = Math.floor(s)
 
     const units = [zeroPad(weeks, 2), zeroPad(days, 2), zeroPad(h, 2), zeroPad(m, 2), zeroPad(s, 2)]
 

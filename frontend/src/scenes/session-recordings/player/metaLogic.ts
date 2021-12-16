@@ -5,6 +5,7 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 import { eventWithTime } from 'rrweb/typings/types'
 import { PersonType } from '~/types'
 import { findLastIndex } from 'lib/utils'
+import { getEpochTimeFromPlayerPosition } from './playerUtils'
 
 const getPersonProperties = (person: Partial<PersonType>, keys: string[]): string | null => {
     if (keys.some((k) => !person?.properties?.[k])) {
@@ -20,7 +21,7 @@ export const metaLogic = kea<metaLogicType>({
             sessionRecordingLogic,
             ['sessionPlayerData'],
             sessionRecordingPlayerLogic,
-            ['snapshots', 'time', 'scale', 'meta'],
+            ['currentPlayerPosition', 'scale'],
         ],
         actions: [sessionRecordingLogic, ['loadRecordingMetaSuccess']],
     },
@@ -48,21 +49,38 @@ export const metaLogic = kea<metaLogicType>({
             },
         ],
         resolution: [
-            (selectors) => [selectors.snapshots, selectors.time],
-            (snapshots, time) => {
+            (selectors) => [selectors.sessionPlayerData, selectors.currentPlayerPosition],
+            (sessionPlayerData, currentPlayerPosition) => {
                 // Find snapshot to pull resolution from
-                const lastIndex = findLastIndex(snapshots, (s: eventWithTime) => 'width' in s.data)
-                if (lastIndex === -1) {
+                if (!currentPlayerPosition) {
                     return null
                 }
-                const currIndex = snapshots.findIndex(
-                    (s: eventWithTime) => s.timestamp > time.current && 'width' in s.data
+                const snapshots = sessionPlayerData.snapshotsByWindowId[currentPlayerPosition.windowId] ?? []
+
+                const currentEpochTime =
+                    getEpochTimeFromPlayerPosition(
+                        currentPlayerPosition,
+                        sessionPlayerData.metadata.startAndEndTimesByWindowId
+                    ) ?? 0
+
+                const currIndex = findLastIndex(
+                    snapshots,
+                    (s: eventWithTime) => s.timestamp < currentEpochTime && 'width' in s.data
                 )
-                const snapshot = snapshots[currIndex === -1 ? lastIndex : currIndex]
+                if (currIndex === -1) {
+                    return null
+                }
+                const snapshot = snapshots[currIndex]
                 return {
                     width: snapshot.data.width,
                     height: snapshot.data.height,
                 }
+            },
+        ],
+        recordingStartTime: [
+            (selectors) => [selectors.sessionPlayerData],
+            (sessionPlayerData) => {
+                return sessionPlayerData?.metadata?.segments[0]?.startTimeEpochMs
             },
         ],
     },
