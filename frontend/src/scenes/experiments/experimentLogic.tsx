@@ -132,7 +132,8 @@ export const experimentLogic = kea<experimentLogicType>({
                 return
             }
 
-            if (response && response.id) {
+            if (response?.id) {
+                const experimentId = response.id
                 toast.success(
                     <div data-attr="success-toast">
                         <h1>Experiment {isUpdate ? 'updated' : 'created'} successfully!</h1>
@@ -140,11 +141,11 @@ export const experimentLogic = kea<experimentLogicType>({
                     </div>,
                     {
                         onClick: () => {
-                            router.actions.push(urls.experiment(response.id))
+                            router.actions.push(urls.experiment(experimentId))
                         },
                         closeOnClick: true,
                         onClose: () => {
-                            router.actions.push(urls.experiment(response.id))
+                            router.actions.push(urls.experiment(experimentId))
                         },
                     }
                 )
@@ -209,13 +210,14 @@ export const experimentLogic = kea<experimentLogicType>({
             }
         },
         launchExperiment: async () => {
-            const response: Experiment = api.update(
+            const response: Experiment = await api.update(
                 `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
                 {
                     start_date: dayjs(),
                 }
             )
-            actions.loadExperimentSuccess(response)
+            actions.setExperimentId(response.id || 'new')
+            actions.loadExperiment()
         },
         endExperiment: async () => {
             await api.update(`api/projects/${values.currentTeamId}/experiments/${values.experimentId}`, {
