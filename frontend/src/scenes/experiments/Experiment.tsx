@@ -38,8 +38,7 @@ export function Experiment(): JSX.Element {
         newExperimentCurrentPage,
         experimentResults,
     } = useValues(experimentLogic)
-    const { setNewExperimentData, createExperiment, setFilters, nextPage, prevPage, endExperiment } =
-        useActions(experimentLogic)
+    const { setNewExperimentData, createExperiment, setFilters, endExperiment } = useActions(experimentLogic)
 
     const [form] = Form.useForm()
 
@@ -82,10 +81,7 @@ export function Experiment(): JSX.Element {
                             feature_flag_key: newExperimentData?.feature_flag_key,
                             description: newExperimentData?.description,
                         }}
-                        onFinish={(values) => {
-                            setNewExperimentData(values)
-                            nextPage()
-                        }}
+                        onFinish={() => createExperiment()}
                         scrollToFirstError
                     >
                         {newExperimentCurrentPage === 0 && (
@@ -123,6 +119,43 @@ export function Experiment(): JSX.Element {
                                                 className="ph-ignore-input"
                                                 placeholder="Adding a helpful description can ensure others know what this experiment is about."
                                             />
+                                        </Form.Item>
+                                        <Form.Item
+                                            label="Select participants"
+                                            name="person-selection"
+                                            className="person-selection"
+                                        >
+                                            <Col>
+                                                <div className="text-muted">
+                                                    Select the entities who will participate in this experiment. We'll
+                                                    split all participants evenly into a <b>control</b> and{' '}
+                                                    <b>experiment</b> group.{' '}
+                                                </div>
+                                                <div style={{ flex: 3, marginRight: 5 }}>
+                                                    <PropertyFilters
+                                                        endpoint="person"
+                                                        pageKey={'EditFunnel-property'}
+                                                        propertyFilters={filters.properties || []}
+                                                        onChange={(anyProperties) => {
+                                                            setNewExperimentData({
+                                                                filters: {
+                                                                    properties: anyProperties as PropertyFilter[],
+                                                                },
+                                                            })
+                                                            setFilters({
+                                                                properties: anyProperties.filter(isValidPropertyFilter),
+                                                            })
+                                                        }}
+                                                        style={{ margin: '1rem 0 0' }}
+                                                        taxonomicGroupTypes={[
+                                                            TaxonomicFilterGroupType.PersonProperties,
+                                                            TaxonomicFilterGroupType.CohortsWithAllUsers,
+                                                        ]}
+                                                        popoverPlacement="top"
+                                                        taxonomicPopoverPlacement="auto"
+                                                    />
+                                                </div>
+                                            </Col>
                                         </Form.Item>
                                     </Col>
                                     <Col span={12}>
@@ -253,37 +286,6 @@ export function Experiment(): JSX.Element {
                                 </Row>
 
                                 <div>
-                                    <Row className="person-selection">
-                                        <Col>
-                                            <div className="l3 mb">Person selection</div>
-                                            <div className="text-muted">
-                                                Select the persons who will participate in this experiment. We'll split
-                                                all persons evenly in a control and experiment group.
-                                            </div>
-                                            <div style={{ flex: 3, marginRight: 5 }}>
-                                                <PropertyFilters
-                                                    endpoint="person"
-                                                    pageKey={'EditFunnel-property'}
-                                                    propertyFilters={filters.properties || []}
-                                                    onChange={(anyProperties) => {
-                                                        setNewExperimentData({
-                                                            filters: { properties: anyProperties as PropertyFilter[] },
-                                                        })
-                                                        setFilters({
-                                                            properties: anyProperties.filter(isValidPropertyFilter),
-                                                        })
-                                                    }}
-                                                    style={{ margin: '1rem 0 0' }}
-                                                    taxonomicGroupTypes={[
-                                                        TaxonomicFilterGroupType.PersonProperties,
-                                                        TaxonomicFilterGroupType.CohortsWithAllUsers,
-                                                    ]}
-                                                    popoverPlacement="top"
-                                                    taxonomicPopoverPlacement="auto"
-                                                />
-                                            </div>
-                                        </Col>
-                                    </Row>
                                     <Row className="metrics-selection">
                                         <BindLogic logic={insightLogic} props={insightProps}>
                                             <Row style={{ width: '100%' }}>
@@ -331,91 +333,15 @@ export function Experiment(): JSX.Element {
                                             </Row>
                                         </BindLogic>
                                     </Row>
-                                    <Row justify="space-between">
-                                        <Button onClick={prevPage}>Go back</Button>
-                                        <Button icon={<SaveOutlined />} type="primary" htmlType="submit">
-                                            Save and preview
-                                        </Button>
-                                    </Row>
-                                </div>
-                            </div>
-                        )}
-
-                        {newExperimentCurrentPage === 1 && (
-                            <div className="confirmation">
-                                {newExperimentData?.description && (
-                                    <Row>Description: {newExperimentData?.description}</Row>
-                                )}
-                                <Row className="mt">
-                                    <Col span={12}>
-                                        <div>Feature flag key: {newExperimentData?.feature_flag_key}</div>
-                                        <div>Variants: 'control' and 'test'</div>
-                                    </Col>
-                                    <Col span={12}>
-                                        <Collapse>
-                                            <Collapse.Panel
-                                                header={
-                                                    <div
-                                                        style={{
-                                                            display: 'flex',
-                                                            fontWeight: 'bold',
-                                                            alignItems: 'center',
-                                                        }}
-                                                    >
-                                                        <IconJavascript style={{ marginRight: 6 }} /> Javascript
-                                                        integration instructions
-                                                    </div>
-                                                }
-                                                key="js"
-                                            >
-                                                <JSSnippet
-                                                    variants={['control', 'test']}
-                                                    flagKey={newExperimentData?.feature_flag_key || ''}
-                                                />
-                                            </Collapse.Panel>
-                                        </Collapse>
-                                    </Col>
-                                </Row>
-                                <Row className="mt">
-                                    <Col>
-                                        <Row>Person allocation:</Row>
-                                        <Row>The following users will participate in the experiment</Row>
-                                        <ul>
-                                            {newExperimentData?.filters?.properties?.length ? (
-                                                newExperimentData.filters.properties.map(
-                                                    (property: PropertyFilter, idx: number) => (
-                                                        <li key={idx}>
-                                                            Users with {property.key} {property.operator}{' '}
-                                                            {Array.isArray(property.value)
-                                                                ? property.value.map((val) => `${val}, `)
-                                                                : property.value}
-                                                        </li>
-                                                    )
-                                                )
-                                            ) : (
-                                                <li key={'all users'}>All users</li>
-                                            )}
-                                        </ul>
-                                    </Col>
-                                </Row>
-                                <Row>
-                                    <Col>
-                                        <Row>Experiment parameters:</Row>
-                                        <Row>
-                                            <ul>
-                                                <li>Target confidence level: </li>
-                                                <li>Approx. run time: </li>
-                                                <li>Approx. sample size: </li>
-                                            </ul>
-                                        </Row>
-                                    </Col>
-                                </Row>
-                                <Row justify="space-between">
-                                    <Button onClick={prevPage}>Go back</Button>
-                                    <Button type="primary" onClick={() => createExperiment()}>
-                                        Save and launch
+                                    <Button
+                                        icon={<SaveOutlined />}
+                                        className="float-right"
+                                        type="primary"
+                                        htmlType="submit"
+                                    >
+                                        Save
                                     </Button>
-                                </Row>
+                                </div>
                             </div>
                         )}
                     </Form>
