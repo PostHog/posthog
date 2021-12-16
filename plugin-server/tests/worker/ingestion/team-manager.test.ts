@@ -93,11 +93,18 @@ describe('TeamManager()', () => {
         })
 
         it('updates event properties', async () => {
-            await teamManager.updateEventNamesAndProperties(2, 'new-event', {
-                property_name: 'efg',
-                number: 4,
-                numeric_prop: 5,
-            })
+            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:00:36.000Z').getTime())
+
+            await teamManager.updateEventNamesAndProperties(
+                2,
+                'new-event',
+                {
+                    property_name: 'efg',
+                    number: 4,
+                    numeric_prop: 5,
+                },
+                [2]
+            )
             teamManager.teamCache.clear()
 
             const eventDefinitions = await hub.db.fetchEventDefinitions()
@@ -152,13 +159,13 @@ describe('TeamManager()', () => {
                 {
                     id: expect.any(Number),
                     event: 'new-event',
-                    property: 'numeric_prop',
+                    property: 'number',
                     team_id: 2,
                 },
                 {
                     id: expect.any(Number),
                     event: 'new-event',
-                    property: 'number',
+                    property: 'numeric_prop',
                     team_id: 2,
                 },
             ])
@@ -253,16 +260,17 @@ describe('TeamManager()', () => {
 
         it('flushes lastSeenCache properly', async () => {
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-01-01T00:00:00.000Z').getTime())
+
             await teamManager.updateEventNamesAndProperties(2, 'new-event', {})
             await hub.db.postgresQuery(
                 "UPDATE posthog_eventdefinition SET last_seen_at = to_timestamp(1497307499) WHERE team_id = 2 AND name = '$pageview'",
                 undefined,
                 'test'
             )
-            teamManager.eventLastSeenCache.set(JSON.stringify([2, '$pageview']), 1497307450) // older than currently last_seen_at
-            teamManager.eventLastSeenCache.set(JSON.stringify([2, 'new-event']), 1626129850) // regular
-            teamManager.eventLastSeenCache.set(JSON.stringify([2, 'another_test_event']), 1623537850)
-            teamManager.eventLastSeenCache.set(JSON.stringify([3, '$pageview']), 1528843450) // inexistent team
+            teamManager.eventLastSeenCache.set(JSON.stringify([2, '$pageview']), 1497307450000) // older than currently last_seen_at
+            teamManager.eventLastSeenCache.set(JSON.stringify([2, 'new-event']), 1626129850000) // regular
+            teamManager.eventLastSeenCache.set(JSON.stringify([2, 'another_test_event']), 1623537850000)
+            teamManager.eventLastSeenCache.set(JSON.stringify([3, '$pageview']), 1528843450000) // inexistent team
 
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-03-03T03:03:03Z').getTime())
             jest.spyOn(hub.db, 'postgresQuery')
@@ -271,8 +279,8 @@ describe('TeamManager()', () => {
             expect(teamManager.lastFlushAt.valueOf()).toBe(DateTime.fromISO('2020-03-03T03:03:03Z').valueOf())
             expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1) // only a single query is fired
             expect(hub.db.postgresQuery).toHaveBeenCalledWith(
-                `UPDATE posthog_eventdefinition AS t1 SET last_seen_at = GREATEST(t1.last_seen_at, to_timestamp(t2.last_seen_at::integer))
-                FROM (VALUES ($1, $2, $3),($4, $5, $6),($7, $8, $9),($10, $11, $12)) AS t2(team_id, name, last_seen_at)
+                `UPDATE posthog_eventdefinition AS t1 SET last_seen_at = GREATEST(t1.last_seen_at, to_timestamp(t2.last_seen_at::numeric))
+                FROM (VALUES ($1,$2,$3),($4,$5,$6),($7,$8,$9),($10,$11,$12)) AS t2(team_id, name, last_seen_at)
                 WHERE t1.name = t2.name AND t1.team_id = t2.team_id::integer`,
                 [
                     2,

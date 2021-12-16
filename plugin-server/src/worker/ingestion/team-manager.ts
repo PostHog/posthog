@@ -16,7 +16,7 @@ export class TeamManager {
     teamCache: TeamCache<Team | null>
     eventDefinitionsCache: Map<TeamId, Set<string>>
     eventPropertiesCache: Map<TeamId, Map<string, Set<string>>> // Map<TeamId, Map<Event, Set<Property>>>
-    eventLastSeenCache: Map<string, number> // key: JSON.stringify([team_id, event]); value: DateTime.valueOf()
+    eventLastSeenCache: Map<string, number> // key: JSON.stringify([team_id, event]); value: timestamp (in ms)
     lastFlushAt: DateTime // time when the `eventLastSeenCache` was last flushed
     propertyDefinitionsCache: Map<TeamId, Set<string>>
     instanceSiteUrl: string
@@ -68,12 +68,11 @@ export class TeamManager {
         const events = this.eventLastSeenCache
         this.eventLastSeenCache = new Map()
 
-        for (const event of events) {
-            const [key, value] = event
+        for (const [key, timestamp] of events) {
             const [teamId, eventName] = JSON.parse(key)
-            if (teamId && eventName && value) {
+            if (teamId && eventName && timestamp) {
                 valuesStatements.push(`($${params.length + 1},$${params.length + 2},$${params.length + 3})`)
-                params.push(teamId, eventName, value / 1000)
+                params.push(teamId, eventName, timestamp / 1000)
             }
         }
 
@@ -136,10 +135,10 @@ export class TeamManager {
                 status.info('Inserting new event definition with last_seen_at')
                 await this.db.postgresQuery(
                     `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, last_seen_at, created_at)` +
-                        ` VALUES ($1, $2, NULL, NULL, $3, NOW(), NOW())` +
+                        ` VALUES ($1, $2, NULL, NULL, $3, $4, NOW())` +
                         ` ON CONFLICT ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq` +
-                        ` DO UPDATE SET last_seen_at=NOW()`,
-                    [new UUIDT().toString(), event, team.id],
+                        ` DO UPDATE SET last_seen_at=$4`,
+                    [new UUIDT().toString(), event, team.id, DateTime.now()],
                     'insertEventDefinition'
                 )
             } else {
@@ -156,8 +155,9 @@ export class TeamManager {
             // TODO: #7422 Temporary conditional to test experimental feature
             if (this.experimentalLastSeenAtEnabled) {
                 const eventCacheKey = JSON.stringify([team.id, event])
-                if ((this.eventLastSeenCache.get(eventCacheKey) ?? 0) < DateTime.now().valueOf()) {
-                    this.eventLastSeenCache.set(eventCacheKey, DateTime.now().valueOf())
+                const timestamp = DateTime.now().valueOf()
+                if ((this.eventLastSeenCache.get(eventCacheKey) ?? 0) < timestamp) {
+                    this.eventLastSeenCache.set(eventCacheKey, timestamp)
                 }
                 // TODO: Allow configuring this via env vars
                 // We flush here every 2 mins (as a failsafe) because the main thread flushes every minute
@@ -182,8 +182,8 @@ export class TeamManager {
                 properties = new Set()
                 eventPropertyMap.set(event, properties)
             }
-            if (!properties.has(key)) {
-                properties.add(key)
+            if (!properties.has(property)) {
+                properties.add(property)
                 await this.db.postgresQuery(
                     `INSERT INTO posthog_eventproperty (event, property, team_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
                     [event, property, team.id],
