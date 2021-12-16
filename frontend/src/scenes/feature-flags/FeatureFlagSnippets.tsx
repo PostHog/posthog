@@ -10,11 +10,13 @@ export function JSSnippet({ flagKey, variants }: { flagKey: string; variants?: s
     return (
         <>
             {!!variants?.length ? (
-                <CodeSnippet language={Language.JavaScript} wrap>
-                    {`if (posthog.getFeatureFlag('${flagKey ?? ''}') === '${variants[0]}') {
-    // where '${variants[0]}' is the variant, run your code here
+                variants.map((variant, index) => (
+                    <CodeSnippet key={index} language={Language.JavaScript} wrap>
+                        {`if (posthog.getFeatureFlag('${flagKey ?? ''}') === '${variant}') {
+    // where '${variant}' is the variant, run your code here
 }`}
-                </CodeSnippet>
+                    </CodeSnippet>
+                ))
             ) : (
                 <CodeSnippet language={Language.JavaScript} wrap>
                     {`if (posthog.isFeatureEnabled('${flagKey ?? ''}')) {
