@@ -218,7 +218,7 @@ describe('sessionRecordingLogic', () => {
                 time: 39000,
                 windowId: events[2].properties.$window_id as string,
             },
-            percentageOfRecordingDuration: 1.46755585429964,
+            percentageOfRecordingDuration: 1.4308651234056042,
         })
 
         it('load events after metadata with 1min buffer', async () => {
