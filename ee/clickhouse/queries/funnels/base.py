@@ -18,7 +18,13 @@ from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.breakdown_props import format_breakdown_cohort_join_query, get_breakdown_prop_values
 from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
-from posthog.constants import FUNNEL_WINDOW_INTERVAL, FUNNEL_WINDOW_INTERVAL_UNIT, LIMIT, TREND_FILTER_TYPE_ACTIONS
+from posthog.constants import (
+    FUNNEL_WINDOW_INTERVAL,
+    FUNNEL_WINDOW_INTERVAL_UNIT,
+    LIMIT,
+    OFFSET,
+    TREND_FILTER_TYPE_ACTIONS,
+)
 from posthog.models import Entity, Filter, Team
 from posthog.queries.funnel import Funnel
 from posthog.utils import relative_date_parse
@@ -65,6 +71,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
             self.params.update(new_limit)
         else:
             self.params.update({LIMIT: self._filter.limit})
+
+        self.params.update({OFFSET: self._filter.offset})
 
         self._update_filters()
 
