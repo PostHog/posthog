@@ -1,4 +1,4 @@
-from typing import Dict, Tuple, cast
+from typing import Dict, Optional, Tuple, cast
 
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from ee.clickhouse.queries.paths.paths import ClickhousePaths
@@ -50,8 +50,8 @@ class ClickhousePathsActors(ClickhousePaths, ActorBaseQuery):  # type: ignore
             )
             WHERE {person_path_filter}
             ORDER BY person_id
-            {"" if self._no_person_limit else "LIMIT %(limit)s"}
-            {"" if self._no_person_limit else "OFFSET %(offset)s"}
+            {"" if self._no_actor_limit else "LIMIT %(limit)s"}
+            {"" if self._no_actor_limit else "OFFSET %(offset)s"}
         """,
             self.params,
         )

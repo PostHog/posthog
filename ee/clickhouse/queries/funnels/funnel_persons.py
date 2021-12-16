@@ -22,8 +22,8 @@ class ClickhouseFunnelActors(ClickhouseFunnel, ActorBaseQuery):
                 steps_per_person_query=self.get_step_counts_query(),
                 persons_steps=self._get_funnel_person_step_condition(),
                 extra_fields=extra_fields_string,
-                limit="" if self._no_person_limit else "LIMIT %(limit)s",
-                offset="" if self._no_person_limit else "OFFSET %(offset)s",
+                limit="" if self._no_actor_limit else "LIMIT %(limit)s",
+                offset="" if self._no_actor_limit else "OFFSET %(offset)s",
             ),
             self.params,
         )
