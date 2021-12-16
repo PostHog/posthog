@@ -36,18 +36,6 @@ class Migration(migrations.Migration):
             model_name="eventproperty",
             index=models.Index(fields=["team", "property"], name="posthog_eve_team_id_26dbfb_idx"),
         ),
-        migrations.AddIndex(
-            model_name="eventproperty",
-            index=django.contrib.postgres.indexes.GinIndex(
-                fields=["event"], name="index_event_property_event", opclasses=["gin_trgm_ops"]
-            ),
-        ),
-        migrations.AddIndex(
-            model_name="eventproperty",
-            index=django.contrib.postgres.indexes.GinIndex(
-                fields=["property"], name="index_event_property_property", opclasses=["gin_trgm_ops"]
-            ),
-        ),
         migrations.AddConstraint(
             model_name='eventproperty',
             constraint=models.UniqueConstraint(fields=('team', 'event', 'property'), name='posthog_event_property_unique_team_event_property'),

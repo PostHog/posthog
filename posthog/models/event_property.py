@@ -15,12 +15,8 @@ class EventProperty(models.Model):
             models.UniqueConstraint(fields=['team', 'event', 'property'], name='posthog_event_property_unique_team_event_property'),
         ]
         indexes = [
-            # To speed up direct lookups
             models.Index(fields=["team", "event"]),
             models.Index(fields=["team", "property"]),
-            # To speed up DB-based fuzzy searching
-            GinIndex(name="index_event_property_event", fields=["event"], opclasses=["gin_trgm_ops"]),
-            GinIndex(name="index_event_property_property", fields=["property"], opclasses=["gin_trgm_ops"]),
         ]
 
     def __str__(self) -> str:
