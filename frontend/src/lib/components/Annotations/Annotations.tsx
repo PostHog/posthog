@@ -14,7 +14,7 @@ interface AnnotationsProps {
     color: string | null
     graphColor: string
     accessoryColor: string | null
-    currentDateMarker: string
+    currentDateMarker?: string | null
     onClick: () => void
     onClose: () => void
 }
@@ -31,31 +31,34 @@ export function Annotations({
     onClose,
     graphColor,
     currentDateMarker,
-}: AnnotationsProps): JSX.Element[] {
-    const { diffType, groupedAnnotations } = useValues(annotationsLogic({ insightId }))
+}: AnnotationsProps): JSX.Element {
+    const logic = annotationsLogic({ insightId })
+    const { diffType, groupedAnnotations } = useValues(logic)
+    const { createAnnotation, deleteAnnotation, deleteGlobalAnnotation, createGlobalAnnotation } = useActions(logic)
 
-    const { createAnnotation, createAnnotationNow, deleteAnnotation, deleteGlobalAnnotation, createGlobalAnnotation } =
-        useActions(annotationsLogic({ insightId }))
+    const onCreate =
+        (date: string) =>
+        (input: string, applyAll: boolean): void => {
+            if (applyAll) {
+                createGlobalAnnotation(input, date, insightId)
+            } else {
+                createAnnotation(input, date)
+            }
+        }
 
     const markers: JSX.Element[] = []
 
     const makeAnnotationMarker = (index: number, date: string, annotationsToMark: AnnotationType[]): JSX.Element => (
         <AnnotationMarker
+            insightId={insightId}
             elementId={date}
             label={dayjs(date).format('MMMM Do YYYY')}
             key={index}
             left={index * interval + leftExtent - 12.5}
             top={topExtent}
             annotations={annotationsToMark}
-            onCreate={(input: string, applyAll: boolean) => {
-                if (applyAll) {
-                    createGlobalAnnotation(input, date, insightId)
-                } else if (insightId) {
-                    createAnnotationNow(input, date)
-                } else {
-                    createAnnotation(input, date)
-                }
-            }}
+            onCreate={onCreate(date)}
+            onCreateAnnotation={onCreate(date)}
             onDelete={(data: AnnotationType) => {
                 annotationsToMark.length === 1 && onClose?.()
                 if (data.scope !== AnnotationScope.Insight) {
@@ -98,5 +101,5 @@ export function Annotations({
                 markers.push(makeAnnotationMarker(index, dates[index], annotations))
             }
         })
-    return markers
+    return <>{markers}</>
 }

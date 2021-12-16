@@ -22,6 +22,7 @@ import { PostHog } from 'posthog-js'
 import React from 'react'
 import { PopupProps } from 'lib/components/Popup/Popup'
 import { dayjs } from 'lib/dayjs'
+import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -992,6 +993,7 @@ export interface ActionFilter extends EntityFilter {
 
 export interface TrendResult {
     action: ActionFilter
+    actions?: ActionFilter[]
     count: number
     data: number[]
     days: string[]
@@ -1002,14 +1004,14 @@ export interface TrendResult {
     aggregated_value: number
     status?: string
     compare_label?: string
+    compare?: boolean
+    persons_urls?: { url: string }[]
+    persons?: Person
 }
 
-export interface TrendResultWithAggregate extends TrendResult {
-    aggregated_value: number
-    persons: {
-        url: string
-        filter: Partial<FilterType>
-    }
+interface Person {
+    url: string
+    filter: Partial<FilterType>
 }
 
 export interface FunnelStep {
@@ -1493,4 +1495,50 @@ export interface Breadcrumb {
     path?: string
     /** Whether to show a custom popup */
     popup?: Pick<PopupProps, 'overlay' | 'sameWidth' | 'actionable'>
+}
+
+export enum GraphType {
+    Bar = 'bar',
+    HorizontalBar = 'horizontalBar',
+    Line = 'line',
+    Histogram = 'histogram',
+    Pie = 'doughnut',
+}
+
+export type GraphDataset = ChartDataset<ChartType> &
+    Partial<
+        Pick<
+            TrendResult,
+            | 'count'
+            | 'label'
+            | 'days'
+            | 'labels'
+            | 'data'
+            | 'compare'
+            | 'status'
+            | 'action'
+            | 'actions'
+            | 'breakdown_value'
+            | 'persons_urls'
+            | 'persons'
+        >
+    > & {
+        id: number // used in filtering out visibility of datasets. Set internally by chart.js
+        dotted?: boolean // toggled on to draw incompleteness lines in LineGraph.tsx
+        breakdownValues?: (string | number | undefined)[] // array of breakdown values used only in ActionsHorizontalBar.tsx data
+        personsValues?: (Person | undefined)[] // array of persons ussed only in (ActionsHorizontalBar|ActionsPie).tsx
+    }
+
+interface PointsPayload {
+    pointsIntersectingLine: (InteractionItem & { dataset: GraphDataset })[]
+    pointsIntersectingClick: (InteractionItem & { dataset: GraphDataset })[]
+    clickedPointNotLine: boolean
+}
+
+export interface GraphPointPayload {
+    points: PointsPayload
+    index: number
+    label?: string // Soon to be deprecated with LEGACY_LineGraph
+    day?: string // Soon to be deprecated with LEGACY_LineGraph
+    value?: number
 }
