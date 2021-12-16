@@ -5,7 +5,7 @@ import { intervalFilterLogic } from 'lib/components/IntervalFilter/intervalFilte
 import { urls } from 'scenes/urls'
 import { InsightShortId } from '~/types'
 
-describe('the intervalFilterLogic', () => {
+describe('intervalFilterLogic', () => {
     let logic: ReturnType<typeof intervalFilterLogic.build>
 
     initKeaTestLogic({
@@ -15,26 +15,24 @@ describe('the intervalFilterLogic', () => {
     })
 
     it('defaults to null', () => {
-        expectLogic(logic).toMatchValues({ dateFrom: null, interval: null })
+        expectLogic(logic).toMatchValues({ interval: null })
     })
 
-    it('reads "date from" and "interval" from URL when editing', () => {
+    it('reads "interval" from URL when editing', () => {
         const url = urls.insightEdit('12345' as InsightShortId, {
-            date_from: '-90d',
             interval: 'hour',
         })
         expectLogic(logic, () => {
             router.actions.push(url)
-        }).toMatchValues({ dateFrom: '-90d', interval: 'hour' })
+        }).toMatchValues({ interval: 'hour' })
     })
 
-    it('reads "date from" and "interval" from URL when viewing', () => {
+    it('reads "interval" from URL when viewing', () => {
         const url = urls.insightView('12345' as InsightShortId, {
-            date_from: '-14d',
             interval: 'week',
         })
         expectLogic(logic, () => {
             router.actions.push(url)
-        }).toMatchValues({ dateFrom: '-14d', interval: 'week' })
+        }).toMatchValues({ interval: 'week' })
     })
 })
