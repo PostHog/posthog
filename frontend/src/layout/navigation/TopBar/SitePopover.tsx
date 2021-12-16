@@ -223,11 +223,9 @@ export function SitePopover(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { isSitePopoverOpen, systemStatus } = useValues(navigationLogic)
     const { toggleSitePopover, closeSitePopover } = useActions(navigationLogic)
-    const { licenses } = useValues(licenseLogic)
+    const { relevantLicense } = useValues(licenseLogic)
     useMountedLogic(licenseLogic)
 
-    /** Most relevant license. */
-    const relevantLicense = licenses[licenses.length - 1] as LicenseType | undefined
     const expired = relevantLicense && isLicenseExpired(relevantLicense)
 
     return (
