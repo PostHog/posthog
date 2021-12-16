@@ -21,7 +21,7 @@ export function ActionsPie({
     const [total, setTotal] = useState(0)
     const { insightProps } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
-    const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
+    const { loadPeople, loadPeopleFromUrl, setCohortUrl } = useActions(personsModalLogic)
     const { results } = useValues(logic)
 
     function updateData(): void {
@@ -93,6 +93,8 @@ export function ActionsPie({
                                               ...params,
                                               url: dataset.persons_urls?.[index].url,
                                           })
+                                          dataset.persons_urls[index].cohort_url &&
+                                              setCohortUrl(dataset.persons_urls[index].cohort_url)
                                       } else {
                                           loadPeople(params)
                                       }

@@ -120,9 +120,11 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         setCohortModalVisible: (visible: boolean) => ({ visible }),
         loadPeople: (peopleParams: PersonsModalParams) => ({ peopleParams }),
         loadPeopleFromUrl: (props: LoadPeopleFromUrlProps) => props,
+        setCohortUrl: (url: string) => ({ url }),
         loadMorePeople: true,
         hidePeople: true,
         saveCohortWithFilters: (cohortName: string, filters: Partial<FilterType>) => ({ cohortName, filters }),
+        saveCohortFromUrl: (cohortName: string) => ({ cohortName }),
         setPersonsModalFilters: (searchTerm: string, people: TrendActors, filters: Partial<FilterType>) => ({
             searchTerm,
             people,
@@ -197,6 +199,12 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             null as PersonsModalParams | null,
             {
                 loadPeople: (_, { peopleParams }) => peopleParams,
+            },
+        ],
+        cohortUrl: [
+            null as string | null,
+            {
+                setCohortUrl: (_, { url }) => url,
             },
         ],
     }),
@@ -401,6 +409,29 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                 )
             } else {
                 errorToast(undefined, "We couldn't create your cohort:")
+            }
+        },
+        saveCohortFromUrl: async ({ cohortName }) => {
+            if (values.cohortUrl) {
+                const cohortParams = {
+                    is_static: true,
+                    name: cohortName,
+                }
+                const cohort = await api.create(values.cohortUrl, cohortParams)
+                cohortsModel.actions.cohortCreated(cohort)
+                toast.success(
+                    <div data-attr="success-toast">
+                        <h1>Cohort saved successfully!</h1>
+                        <p>
+                            <Link to={'/cohorts/' + cohort.id}>Click here to see the cohort.</Link>
+                        </p>
+                    </div>,
+                    {
+                        toastId: `cohort-saved-${cohort.id}`,
+                    }
+                )
+            } else {
+                errorToast(undefined, 'Could not find parameters to create cohort')
             }
         },
         setPersonsModalFilters: async ({ searchTerm, people, filters }) => {

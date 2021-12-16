@@ -19,7 +19,7 @@ export function ActionsLineGraph({
     const { insightProps } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { filters, indexedResults, visibilityMap } = useValues(logic)
-    const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
+    const { loadPeople, loadPeopleFromUrl, setCohortUrl } = useActions(personsModalLogic)
 
     return indexedResults &&
         indexedResults[0]?.data &&
@@ -59,6 +59,8 @@ export function ActionsLineGraph({
                                   ...params,
                                   url: dataset.persons_urls[index].url,
                               })
+                              dataset.persons_urls[index].cohort_url &&
+                                  setCohortUrl(dataset.persons_urls[index].cohort_url)
                           } else {
                               loadPeople(params)
                           }
