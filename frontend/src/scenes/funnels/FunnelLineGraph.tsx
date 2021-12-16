@@ -26,7 +26,6 @@ export function FunnelLineGraph({
             datasets={steps as unknown as GraphDataset[] /* TODO: better typing */}
             labels={steps?.[0]?.labels ?? ([] as string[])}
             isInProgress={incompletenessOffsetFromEnd < 0}
-            insightShortId={insight.short_id}
             insightId={insight.id}
             inSharedMode={!!inSharedMode}
             percentage={true}

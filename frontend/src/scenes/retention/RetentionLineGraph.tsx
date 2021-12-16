@@ -33,7 +33,7 @@ export function RetentionLineGraph({
     function closeModal(): void {
         setModalVisible(false)
     }
-    const peopleData = people?.result as PersonType[]
+    const peopleData = people?.result ?? ([] as PersonType[])
     const peopleNext = people?.next
     if (trendSeries.length === 0) {
         return null
@@ -48,7 +48,6 @@ export function RetentionLineGraph({
                 datasets={trendSeries as GraphDataset[]}
                 labels={(trendSeries[0] && trendSeries[0].labels) || []}
                 isInProgress={!filters.date_to}
-                insightShortId={insight.short_id}
                 insightId={insight.id}
                 inSharedMode={!!inSharedMode}
                 percentage={true}

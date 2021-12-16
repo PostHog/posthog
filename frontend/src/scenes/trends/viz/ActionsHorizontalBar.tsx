@@ -73,7 +73,6 @@ export function ActionsHorizontalBar({
             color={color}
             datasets={data}
             labels={data[0].labels}
-            insightShortId={insight.short_id}
             insightId={insight.id}
             totalValue={total}
             interval={filtersParam?.interval}

@@ -35,7 +35,6 @@ export function ActionsLineGraph({
             visibilityMap={visibilityMap}
             labels={(indexedResults[0] && indexedResults[0].labels) || []}
             isInProgress={!filters.date_to}
-            insightShortId={insight.short_id}
             insightId={insight.id}
             inSharedMode={inSharedMode}
             interval={filters.interval}

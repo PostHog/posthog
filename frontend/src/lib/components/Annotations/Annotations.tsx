@@ -2,7 +2,7 @@ import React from 'react'
 import { annotationsLogic } from './annotationsLogic'
 import { useValues, useActions } from 'kea'
 import { AnnotationMarker } from './AnnotationMarker'
-import { AnnotationType, AnnotationScope, InsightShortId } from '~/types'
+import { AnnotationType, AnnotationScope } from '~/types'
 import { dayjs } from 'lib/dayjs'
 
 interface AnnotationsProps {
@@ -10,8 +10,7 @@ interface AnnotationsProps {
     leftExtent: number
     interval: number
     topExtent: number
-    insightShortId?: InsightShortId
-    insightId?: number // only used for annotations
+    insightId?: number
     color: string | null
     graphColor: string
     accessoryColor: string | null
@@ -25,7 +24,6 @@ export function Annotations({
     leftExtent,
     interval,
     topExtent,
-    insightShortId,
     insightId,
     onClick,
     color,
@@ -42,7 +40,7 @@ export function Annotations({
         (date: string) =>
         (input: string, applyAll: boolean): void => {
             if (applyAll) {
-                createGlobalAnnotation(input, date, insightShortId)
+                createGlobalAnnotation(input, date, insightId)
             } else {
                 createAnnotation(input, date)
             }

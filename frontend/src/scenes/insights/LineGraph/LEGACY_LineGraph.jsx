@@ -32,8 +32,7 @@ export function LEGACY_LineGraph({
     isInProgress = false,
     onClick,
     ['data-attr']: dataAttr,
-    insightId /* used only for annotations, not to init any other logic */,
-    insightShortId,
+    insightId,
     inSharedMode,
     percentage = false,
     interval = undefined,
@@ -551,7 +550,6 @@ export function LEGACY_LineGraph({
                     interval={boundaryInterval}
                     topExtent={topExtent}
                     insightId={insightId}
-                    insightShortId={insightShortId}
                     currentDateMarker={
                         focused || annotationsFocused ? selectedDayLabel : enabled ? datasets[0].days[labelIndex] : null
                     }
@@ -582,7 +580,7 @@ export function LEGACY_LineGraph({
                         const date = datasets?.[0]?.days?.[holdLabelIndex]
                         if (date) {
                             if (applyAll) {
-                                createGlobalAnnotation(textInput, date, insightShortId)
+                                createGlobalAnnotation(textInput, date, insightId)
                             } else {
                                 createAnnotation(textInput, date)
                             }

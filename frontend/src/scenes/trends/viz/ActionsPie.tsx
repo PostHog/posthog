@@ -67,7 +67,6 @@ export function ActionsPie({
                         datasets={data}
                         labels={data[0].labels}
                         inSharedMode={!!inSharedMode}
-                        insightShortId={insight.short_id}
                         insightId={insight.id}
                         onClick={
                             dashboardItemId || filtersParam.formula || !showPersonsModal

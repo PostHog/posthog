@@ -4,15 +4,14 @@ import { toParams, deleteWithUndo } from 'lib/utils'
 import dayjs, { Dayjs } from 'dayjs'
 import { getNextKey } from 'lib/components/Annotations/utils'
 import { annotationsModelType } from './annotationsModelType'
-import { AnnotationScope, AnnotationType, InsightShortId } from '~/types'
+import { AnnotationScope, AnnotationType } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
-import { getInsightId } from 'scenes/insights/utils'
 
 export const annotationsModel = kea<annotationsModelType>({
     path: ['models', 'annotationsModel'],
     actions: {
-        createGlobalAnnotation: (content: string, date_marker: string, insightId?: InsightShortId) => ({
+        createGlobalAnnotation: (content: string, date_marker: string, insightId?: number) => ({
             content,
             date_marker,
             created_at: dayjs() as Dayjs,
@@ -33,9 +32,7 @@ export const annotationsModel = kea<annotationsModelType>({
                 )
                 return response.results
             },
-            createGlobalAnnotation: async ({ insightId: shortId, content, date_marker, created_at }) => {
-                const insightId = shortId ? await getInsightId(shortId) : undefined
-
+            createGlobalAnnotation: async ({ insightId, content, date_marker, created_at }) => {
                 await api.create(`api/projects/${teamLogic.values.currentTeamId}/annotations`, {
                     content,
                     date_marker: (dayjs.isDayjs(date_marker) ? date_marker : dayjs(date_marker)).toISOString(),

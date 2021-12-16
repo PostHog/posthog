@@ -28,7 +28,7 @@ import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import './LineGraph.scss'
 import { InsightTooltip } from '../InsightTooltip/InsightTooltip'
 import { dayjs } from 'lib/dayjs'
-import { AnnotationType, GraphDataset, GraphPointPayload, GraphType, InsightShortId, IntervalType } from '~/types'
+import { AnnotationType, GraphDataset, GraphPointPayload, GraphType, IntervalType } from '~/types'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { LEGACY_LineGraph } from './LEGACY_LineGraph.jsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -48,8 +48,7 @@ interface LineGraphProps {
     isInProgress?: boolean
     onClick?: (payload: GraphPointPayload) => void
     ['data-attr']: string
-    insightShortId?: InsightShortId
-    insightId?: number // Used only for annotations, not to init any other logic
+    insightId?: number
     inSharedMode?: boolean
     percentage?: boolean
     interval?: IntervalType
@@ -78,7 +77,6 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
         isInProgress = false,
         onClick,
         ['data-attr']: dataAttr,
-        insightShortId,
         insightId,
         inSharedMode = false,
         percentage = false,
@@ -665,7 +663,6 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                     interval={boundaryInterval}
                     topExtent={topExtent}
                     insightId={insightId}
-                    insightShortId={insightShortId}
                     currentDateMarker={
                         focused || annotationsFocused
                             ? selectedDayLabel
@@ -702,7 +699,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                         const date = holdLabelIndex ? datasets[0].days?.[holdLabelIndex] : null
                         if (date) {
                             if (applyAll) {
-                                createGlobalAnnotation(textInput, date, insightShortId)
+                                createGlobalAnnotation(textInput, date, insightId)
                             } else {
                                 createAnnotation(textInput, date)
                             }
