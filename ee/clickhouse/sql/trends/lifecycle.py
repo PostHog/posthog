@@ -2,7 +2,7 @@ _LIFECYCLE_EVENTS_QUERY = """
 WITH person_activity_including_previous_period AS (
     SELECT DISTINCT 
         person_id, 
-        {trunc_func}(events.timestamp) day 
+        {trunc_func}(events.timestamp) start_of_period 
 
     FROM events
         JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi 
@@ -12,16 +12,16 @@ WITH person_activity_including_previous_period AS (
 
     GROUP BY 
         person_id, 
-        day
+        start_of_period
         
     HAVING 
-        day <= toDateTime(%(date_to)s) 
-        AND day >= toDateTime(%(prev_date_from)s)
+        start_of_period <= toDateTime(%(date_to)s) 
+        AND start_of_period >= toDateTime(%(prev_date_from)s)
 
 ), person_activity_as_array AS (
     SELECT DISTINCT 
         person_id, 
-        groupArray({trunc_func}(events.timestamp)) day 
+        groupArray({trunc_func}(events.timestamp)) start_of_period 
 
     FROM events
         JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi 
@@ -34,25 +34,25 @@ WITH person_activity_including_previous_period AS (
         AND {trunc_func}(events.timestamp) >= toDateTime(%(date_from)s)
         
     GROUP BY person_id
-), period_starts AS (
+), periods AS (
     SELECT 
-        {trunc_func}(toDateTime(%(date_to)s) - number * %(seconds_in_interval)s) AS day_start 
+        {trunc_func}(toDateTime(%(date_to)s) - number * %(seconds_in_interval)s) AS start_of_period 
         
     FROM numbers(%(num_intervals)s)
 )
 
 SELECT 
     activity_pairs.person_id AS person_id,
-    activity_pairs.base_day AS base_day,
-    activity_pairs.subsequent_day AS subsequent_day, 
+    activity_pairs.initial_period AS initial_period,
+    activity_pairs.next_period AS next_period, 
     if(
-        base_day = toDateTime('0000-00-00 00:00:00'), 
+        initial_period = toDateTime('0000-00-00 00:00:00'), 
         'dormant', 
         if(
-            subsequent_day = base_day + INTERVAL {interval}, 
+            next_period = initial_period + INTERVAL {interval}, 
             'returning', 
             if(
-                subsequent_day > earliest + INTERVAL {interval}, 
+                next_period > earliest + INTERVAL {interval}, 
                 'resurrecting', 
                 'new'
             )
@@ -65,25 +65,25 @@ FROM (
     */
     SELECT 
         person_id, 
-        base_day, 
-        min(subsequent_day) as subsequent_day 
+        initial_period, 
+        min(next_period) as next_period 
 
     FROM (
         SELECT 
             person_id, 
-            base.day as base_day, 
-            subsequent.day as subsequent_day
+            base.start_of_period as initial_period, 
+            subsequent.start_of_period as next_period
 
         FROM person_activity_including_previous_period base
             JOIN person_activity_including_previous_period subsequent 
                 ON base.person_id = subsequent.person_id
 
-        WHERE subsequent.day > base.day
+        WHERE subsequent.start_of_period > base.start_of_period
     )
 
     GROUP BY 
         person_id, 
-        base_day
+        initial_period
 
     UNION ALL
 
@@ -91,12 +91,12 @@ FROM (
         Get the first active period for each user within the extended range 
         i.e. including the previous period
         
-        NOTE: base_day and subsequent_day are the same
+        NOTE: initial_period and next_period are the same
     */ 
     SELECT
         base.person_id, 
-        min(base.day) as base_day, 
-        min(base.day) as subsequent_day 
+        min(base.start_of_period) as initial_period, 
+        min(base.start_of_period) as next_period 
         
     FROM person_activity_including_previous_period base
     GROUP BY person_id
@@ -108,37 +108,37 @@ FROM (
     */
     SELECT 
         person_id, 
-        base_day, 
-        subsequent_day 
+        initial_period, 
+        next_period 
 
     FROM (
         SELECT 
             person_activity.person_id AS person_id, 
 
             -- Use datetime null value as marker that this refers to dormant
-            toDateTime('0000-00-00 00:00:00') as base_day, 
-            period_starts.day_start as subsequent_day
+            toDateTime('0000-00-00 00:00:00') as initial_period, 
+            periods.start_of_period as next_period
 
         FROM person_activity_as_array as person_activity
-            CROSS JOIN period_starts
+            CROSS JOIN periods
 
-        WHERE has(person_activity.day, period_starts.day_start) = 0
+        WHERE has(person_activity.start_of_period, periods.start_of_period) = 0
 
         ORDER BY 
             person_id, 
-            period_starts.day_start ASC
+            periods.start_of_period ASC
     ) 
     
     WHERE
-        -- exclude first period ofr dormant
+        -- exclude first period of dormant
         ( 
             (empty(toString(neighbor(person_id, -1))) 
             OR neighbor(person_id, -1) != person_id
         ) 
-        AND subsequent_day != {trunc_func}(toDateTime(%(date_from)s) + INTERVAL {interval} - INTERVAL {sub_interval}))
+        AND next_period != {trunc_func}(toDateTime(%(date_from)s) + INTERVAL {interval} - INTERVAL {sub_interval}))
         OR (
             (neighbor(person_id, -1) = person_id) 
-            AND neighbor(subsequent_day, -1) < subsequent_day - INTERVAL {interval}
+            AND neighbor(next_period, -1) < next_period - INTERVAL {interval}
         )
 ) activity_pairs
 
@@ -147,6 +147,7 @@ FROM (
         SELECT DISTINCT 
             person_id, 
             {trunc_func}(min(events.timestamp)) earliest 
+
         FROM events
 
             JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi 
@@ -159,10 +160,10 @@ FROM (
 """
 
 LIFECYCLE_SQL = f"""
-SELECT groupArray(day_start) as date, groupArray(counts) as data, status FROM (
-    SELECT if(status = 'dormant', toInt64(SUM(counts)) * toInt16(-1), toInt64(SUM(counts))) as counts, day_start, status
+SELECT groupArray(start_of_period) as date, groupArray(counts) as data, status FROM (
+    SELECT if(status = 'dormant', toInt64(SUM(counts)) * toInt16(-1), toInt64(SUM(counts))) as counts, start_of_period, status
     FROM (
-        SELECT ticks.day_start as day_start, toUInt16(0) AS counts, status
+        SELECT ticks.start_of_period as start_of_period, toUInt16(0) AS counts, status
 
         FROM (
             -- Generates all the intervals/ticks in the date range
@@ -172,10 +173,10 @@ SELECT groupArray(day_start) as date, groupArray(counts) as data, status FROM (
             SELECT
                 {{trunc_func}}(
                     toDateTime(%(date_to)s) - number * %(seconds_in_interval)s
-                ) as day_start
+                ) as start_of_period
             FROM numbers(%(num_intervals)s)
             UNION ALL
-            SELECT {{trunc_func}}(toDateTime(%(date_from)s)) as day_start
+            SELECT {{trunc_func}}(toDateTime(%(date_from)s)) as start_of_period
         ) as ticks
 
         CROSS JOIN (
@@ -184,17 +185,17 @@ SELECT groupArray(day_start) as date, groupArray(counts) as data, status FROM (
                 SELECT ['new', 'returning', 'resurrecting', 'dormant'] as status
             ) ARRAY JOIN status
         ) as sec
-        ORDER BY status, day_start
+        ORDER BY status, start_of_period
 
         UNION ALL
 
-        SELECT subsequent_day, count(DISTINCT person_id) counts, status
+        SELECT next_period, count(DISTINCT person_id) counts, status
         FROM ({_LIFECYCLE_EVENTS_QUERY})
-        WHERE subsequent_day <= toDateTime(%(date_to)s) AND subsequent_day >= toDateTime(%(date_from)s)
-        GROUP BY subsequent_day, status
+        WHERE next_period <= toDateTime(%(date_to)s) AND next_period >= toDateTime(%(date_from)s)
+        GROUP BY next_period, status
     )
-    GROUP BY day_start, status
-    ORDER BY day_start ASC
+    GROUP BY start_of_period, status
+    ORDER BY start_of_period ASC
 )
 GROUP BY status
 """
@@ -203,6 +204,6 @@ LIFECYCLE_PEOPLE_SQL = f"""
 SELECT person_id
 FROM ({_LIFECYCLE_EVENTS_QUERY}) e
 WHERE status = %(status)s
-AND {{trunc_func}}(toDateTime(%(target_date)s)) = subsequent_day
+AND {{trunc_func}}(toDateTime(%(target_date)s)) = next_period
 LIMIT %(limit)s OFFSET %(offset)s
 """
