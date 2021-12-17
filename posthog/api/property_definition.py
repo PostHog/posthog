@@ -78,13 +78,9 @@ class PropertyDefinitionViewSet(
                     event_names = json.loads(event_names)
 
                 if event_names and len(event_names) > 0:
-                    event_property_field = "(SELECT count(*) > 0 FROM posthog_eventproperty WHERE posthog_eventproperty.team_id=posthog_propertydefinition.team_id AND posthog_eventproperty.event IN %(event_names)s AND posthog_eventproperty.property = posthog_propertydefinition.name)"
-                    total_volume_field = "(SELECT SUM(posthog_eventproperty.total_volume) FROM posthog_eventproperty WHERE posthog_eventproperty.team_id=posthog_propertydefinition.team_id AND posthog_eventproperty.event IN %(event_names)s AND posthog_eventproperty.property = posthog_propertydefinition.name)"
+                    event_property_field = "(SELECT count(1) > 0 FROM posthog_eventproperty WHERE posthog_eventproperty.team_id=posthog_propertydefinition.team_id AND posthog_eventproperty.event IN %(event_names)s AND posthog_eventproperty.property = posthog_propertydefinition.name)"
                 else:
                     event_property_field = "true"
-                    total_volume_field = "query_usage_30_day"
-
-                custom_first = "(left(name, 1) = '$') ASC"
 
                 search = self.request.GET.get("search", None)
                 search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
@@ -97,7 +93,7 @@ class PropertyDefinitionViewSet(
                     LEFT JOIN ee_enterprisepropertydefinition ON ee_enterprisepropertydefinition.propertydefinition_ptr_id=posthog_propertydefinition.id
                     WHERE posthog_propertydefinition.team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {search_query}
                     GROUP BY posthog_propertydefinition.id, ee_enterprisepropertydefinition.propertydefinition_ptr_id
-                    ORDER BY is_event_property DESC, {custom_first}, {total_volume_field} DESC NULLS LAST, name ASC
+                    ORDER BY is_event_property DESC, name ASC
                     """,
                     params={
                         "event_names": tuple(event_names or []),
