@@ -91,7 +91,8 @@ class Test0001EventsSampleBy(BaseTest):
 
         self.assertTrue(migration_successful)
         self.assertTrue(
-            "ORDER BY (team_id, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))" in create_table_res[0][0]
+            "ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))"
+            in create_table_res[0][0]
         )
 
         self.assertEqual(events_count_res[0][0], 5)
