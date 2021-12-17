@@ -42,12 +42,10 @@ export const experimentLogic = kea<experimentLogicType>({
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
         setExperimentId: (experimentId: number | 'new') => ({ experimentId }),
         setNewExperimentData: (experimentData: Partial<Experiment>) => ({ experimentData }),
-        nextPage: true,
-        prevPage: true,
-        setPage: (page: number) => ({ page }),
         emptyData: true,
         launchExperiment: true,
         endExperiment: true,
+        editExperiment: true,
     },
     reducers: {
         experimentId: [
@@ -81,12 +79,11 @@ export const experimentLogic = kea<experimentLogicType>({
                 setExperimentFunnelId: (_, { shortId }) => shortId,
             },
         ],
-        newExperimentCurrentPage: [
-            0,
+        editingExistingExperiment: [
+            false,
             {
-                nextPage: (page) => page + 1,
-                prevPage: (page) => page - 1,
-                setPage: (_, { page }) => page,
+                editExperiment: () => true,
+                createExperiment: () => false,
             },
         ],
     },
@@ -94,7 +91,6 @@ export const experimentLogic = kea<experimentLogicType>({
         createExperiment: async ({ draft, runningTime, sampleSize }) => {
             let response: Experiment | null = null
             const isUpdate = !!values.newExperimentData?.id
-
             try {
                 if (values.newExperimentData?.id) {
                     response = await api.update(
@@ -220,9 +216,14 @@ export const experimentLogic = kea<experimentLogicType>({
             actions.loadExperiment()
         },
         endExperiment: async () => {
-            await api.update(`api/projects/${values.currentTeamId}/experiments/${values.experimentId}`, {
-                end_date: dayjs(),
-            })
+            const response: Experiment = await api.update(
+                `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
+                {
+                    end_date: dayjs(),
+                }
+            )
+            actions.setExperimentId(response.id || 'new')
+            actions.loadExperiment()
         },
     }),
     loaders: ({ values }) => ({
@@ -284,15 +285,15 @@ export const experimentLogic = kea<experimentLogicType>({
             (s) => [s.experimentResults],
             (experimentResults) =>
                 (variant: string): string => {
-                    const error_result = "Can't find variant"
+                    const errorResult = "Can't find variant"
                     if (!experimentResults) {
-                        return error_result
+                        return errorResult
                     }
                     const variantResults = experimentResults.funnel.find(
                         (variantFunnel) => variantFunnel[0].breakdown_value?.[0] === variant
                     )
                     if (!variantResults) {
-                        return error_result
+                        return errorResult
                     }
                     return `${(
                         (variantResults[variantResults.length - 1].count / variantResults[0].count) *
@@ -310,7 +311,6 @@ export const experimentLogic = kea<experimentLogicType>({
                 if (parsedId === 'new') {
                     actions.createNewExperimentFunnel()
                     actions.emptyData()
-                    actions.setPage(0)
                 }
                 if (parsedId !== values.experimentId) {
                     actions.setExperimentId(parsedId)

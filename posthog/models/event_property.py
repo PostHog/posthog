@@ -1,6 +1,7 @@
 from django.db import models
 
 from posthog.models.team import Team
+from posthog.models.utils import sane_repr
 
 
 class EventProperty(models.Model):
@@ -19,5 +20,4 @@ class EventProperty(models.Model):
             models.Index(fields=["team", "property"]),
         ]
 
-    def __str__(self) -> str:
-        return f"{self.event} / {self.property} / {self.team.name}"
+    __repr__ = sane_repr("event", "property", "team_id")
