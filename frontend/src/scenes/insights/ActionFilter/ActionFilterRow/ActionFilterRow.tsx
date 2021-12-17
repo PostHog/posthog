@@ -438,8 +438,8 @@ export function ActionFilterRow({
                         showNestedArrow={showNestedArrow}
                         taxonomicGroupTypes={propertiesTaxonomicGroupTypes}
                         eventNames={
-                            filter.type === TaxonomicFilterGroupType.Events && filter.name
-                                ? [filter.name]
+                            filter.type === TaxonomicFilterGroupType.Events && filter.id
+                                ? [String(filter.id)]
                                 : filter.type === TaxonomicFilterGroupType.Actions && filter.id
                                 ? getEventNamesForAction(parseInt(String(filter.id)), actions)
                                 : []

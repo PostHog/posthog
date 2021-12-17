@@ -473,7 +473,7 @@ export const insightLogic = kea<insightLogicType>({
             (s) => [s.filters, actionsModel.selectors.actions],
             (filters, actions: ActionType[]) => {
                 const allEvents = [
-                    ...(filters.events || []).map((e) => e.name),
+                    ...(filters.events || []).map((e) => String(e.id)),
                     ...(filters.actions || []).flatMap((action) => getEventNamesForAction(action.id, actions)),
                 ]
                 // remove duplicates and empty events
