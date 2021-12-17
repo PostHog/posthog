@@ -1,6 +1,6 @@
 import Piscina from '@posthog/piscina'
 
-import { ONE_HOUR } from '../../src/config/contants'
+import { ONE_HOUR } from '../../src/config/constants'
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
 import { startPluginsServer } from '../../src/main/pluginsServer'
 import { LogLevel, PluginsServerConfig } from '../../src/types'

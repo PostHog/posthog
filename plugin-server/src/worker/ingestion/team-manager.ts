@@ -3,7 +3,7 @@ import { StatsD } from 'hot-shots'
 import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 
-import { ONE_HOUR } from '../../config/contants'
+import { ONE_HOUR } from '../../config/constants'
 import { PluginsServerConfig, Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'

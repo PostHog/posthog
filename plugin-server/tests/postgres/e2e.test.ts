@@ -1,7 +1,7 @@
 import Piscina from '@posthog/piscina'
 import * as IORedis from 'ioredis'
 
-import { ONE_HOUR } from '../../src/config/contants'
+import { ONE_HOUR } from '../../src/config/constants'
 import { startPluginsServer } from '../../src/main/pluginsServer'
 import { LogLevel } from '../../src/types'
 import { Hub } from '../../src/types'
