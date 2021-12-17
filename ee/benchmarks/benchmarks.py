@@ -5,6 +5,7 @@ from .helpers import *
 from datetime import timedelta
 from typing import List, Tuple
 
+from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from ee.clickhouse.materialized_columns import backfill_materialized_columns, get_materialized_columns, materialize
 from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
@@ -457,6 +458,26 @@ class QuerySuite:
         )
 
         ClickhouseRetention().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_lifecycle(self):
+        filter = Filter(
+            data={
+                "insight": "LIFECYCLE",
+                "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0, "math": "total"}],
+                "display": "ActionsLineGraph",
+                "interval": "week",
+                "shown_as": "Lifecycle",
+                "date_from": "-14d",
+                "properties": [],
+                "compare": False,
+                "filter_test_accounts": True,
+                **DATE_RANGE,
+            },
+            team=self.team,
+        )
+
+        ClickhouseTrends().run(filter, self.team)
 
     def setup(self):
         for table, property in MATERIALIZED_PROPERTIES:

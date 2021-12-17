@@ -21,10 +21,10 @@ An action will then run and comment on the benchmarks on your PR.
 ## Installation (local)
 
 These benchmarks are run using *airspeed velocity* so, you need to have
-``asv`` installed,
+``asv`` installed which in turn needs virtualenv (or an anaconda dist),
 
 ```bash
-pip install asv
+pip install asv virtualenv
 ```
 
 ## Running the benchmarks locally
@@ -41,6 +41,14 @@ asv machine --machine ci-benchmarks --config ee/benchmarks/asv.conf.json
 # Replace X with appropriate credentials
 CLICKHOUSE_HOST=X CLICKHOUSE_USER=X CLICKHOUSE_PASSWORD=X CLICKHOUSE_DATABASE=posthog asv run --config ee/benchmarks/asv.conf.json
 ```
+
+You'll probably want to be running one test, with quick iteration. Running e.g.:
+
+```
+asv run --config ee/benchmarks/asv.conf.json --bench track_lifecycle --quick
+```
+
+will run any benchmark regex-matching `track_lifecycle` only once.
 
 See [asv documentation](https://asv.readthedocs.io/en/stable/commands.html#asv-run) for additional information.
 
