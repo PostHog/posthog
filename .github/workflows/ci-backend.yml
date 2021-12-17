@@ -157,7 +157,7 @@ jobs:
             - name: Start stack with Docker Compose
               run: |
                   docker-compose -f ee/docker-compose.ch.yml down
-                  docker-compose -f ee/docker-compose.ch.yml up -d ${{ matrix.foss && 'db' || 'db clickhouse zookeeper kafka' }}
+                  docker-compose -f ee/docker-compose.ch.yml up -d ${{ matrix.foss && 'db' || 'db clickhouse zookeeper kafka' }} &
 
             - name: Set up Python
               uses: actions/setup-python@v2
@@ -207,6 +207,10 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
+
+            - name: Wait for Clickhouse & Kafka
+              if: ${{ !matrix.foss }}
+              run: bin/check_kafka_clickhouse_up
 
             - name: Run FOSS tests
               if: ${{ matrix.foss }}
@@ -274,12 +278,12 @@ jobs:
               run: |
                   cp -r multi_tenancy deploy/
                   cp -r messaging deploy/
-                  cat multi_tenancy_settings.py >> deploy/posthog/settings.py
+                  cat multi_tenancy_settings.py > deploy/posthog/settings/cloud.py
                   cat requirements.txt >> deploy/requirements.txt
             - name: Start stack with Docker Compose
               run: |
                   docker-compose -f deploy/ee/docker-compose.ch.yml down
-                  docker-compose -f deploy/ee/docker-compose.ch.yml up -d db clickhouse zookeeper kafka
+                  docker-compose -f deploy/ee/docker-compose.ch.yml up -d db clickhouse zookeeper kafka &
             - name: Set up Python 3.8
               uses: actions/setup-python@v2
               with:
@@ -296,6 +300,9 @@ jobs:
               run: |
                   python -m pip install -r deploy/requirements-dev.txt
                   python -m pip install -r deploy/requirements.txt
+
+            - name: Wait for Clickhouse & Kafka
+              run: deploy/bin/check_kafka_clickhouse_up
 
             # The 2-step migration process (first master, then current branch) verifies that it'll always
             # be possible to migrate to the new version without problems in production
@@ -322,7 +329,7 @@ jobs:
                   cp deploy/ee/conftest.py messaging/conftest.py
                   cp -r multi_tenancy deploy/
                   cp -r messaging deploy/
-                  cat multi_tenancy_settings.py >> deploy/posthog/settings.py
+                  cat multi_tenancy_settings.py > deploy/posthog/settings/cloud.py
                   cat requirements.txt >> deploy/requirements.txt
 
             - name: Check migrations

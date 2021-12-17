@@ -200,7 +200,7 @@ class Retention(BaseQuery):
             result = self.process_table_result(resultset, filter)
         return result
 
-    def people(self, filter: RetentionFilter, team: Team, *args, **kwargs):
+    def actors(self, filter: RetentionFilter, team: Team, *args, **kwargs):
         results = self._retrieve_actors(filter, team)
         return results
 
@@ -256,7 +256,7 @@ class Retention(BaseQuery):
 
         return PersonSerializer(people, many=True).data
 
-    def people_in_period(self, filter: RetentionFilter, team: Team, *args, **kwargs):
+    def actors_in_period(self, filter: RetentionFilter, team: Team, *args, **kwargs):
         results = self._retrieve_actors_in_period(filter, team)
         return results
 

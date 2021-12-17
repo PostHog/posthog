@@ -81,7 +81,7 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
         return ElementSerializer(elements, many=True).data
 
     def to_representation(self, instance):
-        representation = super(EventSerializer, self).to_representation(instance)
+        representation = super().to_representation(instance)
         if self.context.get("format") == "csv":
             representation.pop("elements")
         return representation
@@ -180,7 +180,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             params["after"] = timestamp
         else:
             params["before"] = timestamp
-        return request.build_absolute_uri("{}?{}".format(request.path, urllib.parse.urlencode(params)))
+        return request.build_absolute_uri(f"{request.path}?{urllib.parse.urlencode(params)}")
 
     def _parse_order_by(self, request: request.Request) -> List[str]:
         order_by_param = request.GET.get("orderBy")

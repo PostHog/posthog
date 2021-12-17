@@ -1,7 +1,9 @@
-import React from 'react'
+import { CalendarOutlined } from '@ant-design/icons'
+import { useValues } from 'kea'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
+import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
 import {
     ACTIONS_BAR_CHART_VALUE,
     ACTIONS_LINE_GRAPH_LINEAR,
@@ -9,26 +11,23 @@ import {
     ACTIONS_TABLE,
     FEATURE_FLAGS,
 } from 'lib/constants'
-import { ChartDisplayType, FilterType, FunnelVizType, ItemMode, InsightType } from '~/types'
-import { CalendarOutlined } from '@ant-design/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import React from 'react'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { FunnelBinsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBinsPicker'
+import { FilterType, FunnelVizType, InsightType, ItemMode } from '~/types'
 import { InsightDateFilter } from '../InsightDateFilter'
 import { RetentionDatePicker } from '../RetentionDatePicker'
-import { FunnelStepReferencePicker } from './FunnelTab/FunnelStepReferencePicker'
 import { FunnelDisplayLayoutPicker } from './FunnelTab/FunnelDisplayLayoutPicker'
-import { FunnelBinsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBinsPicker'
+import { FunnelStepReferencePicker } from './FunnelTab/FunnelStepReferencePicker'
 import { PathStepPicker } from './PathTab/PathStepPicker'
-import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
-import { useValues } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { ReferencePicker as RetentionReferencePicker } from './RetentionTab/ReferencePicker'
 
 interface InsightDisplayConfigProps {
-    clearAnnotationsToCreate: () => void
     filters: FilterType
     activeView: InsightType
     insightMode: ItemMode
     disableTable: boolean
-    annotationsToCreate: Record<string, any>[] // TODO: Annotate properly
 }
 
 const showIntervalFilter = function (activeView: InsightType, filter: FilterType): boolean {
@@ -52,8 +51,8 @@ const showChartFilter = function (activeView: InsightType): boolean {
         case InsightType.TRENDS:
         case InsightType.STICKINESS:
         case InsightType.SESSIONS:
-        case InsightType.RETENTION:
             return true
+        case InsightType.RETENTION:
         case InsightType.FUNNELS:
             return false
         case InsightType.LIFECYCLE:
@@ -88,12 +87,7 @@ const isFunnelEmpty = (filters: FilterType): boolean => {
     return (!filters.actions && !filters.events) || (filters.actions?.length === 0 && filters.events?.length === 0)
 }
 
-export function InsightDisplayConfig({
-    filters,
-    activeView,
-    clearAnnotationsToCreate,
-    disableTable,
-}: InsightDisplayConfigProps): JSX.Element {
+export function InsightDisplayConfig({ filters, activeView, disableTable }: InsightDisplayConfigProps): JSX.Element {
     const showFunnelBarOptions = activeView === InsightType.FUNNELS
     const showPathOptions = activeView === InsightType.PATHS
     const dateFilterDisabled = showFunnelBarOptions && isFunnelEmpty(filters)
@@ -120,15 +114,6 @@ export function InsightDisplayConfig({
                     </span>
                 )}
 
-                {activeView === InsightType.RETENTION && <RetentionDatePicker />}
-
-                {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.Steps && (
-                    <>
-                        <FunnelDisplayLayoutPicker />
-                        {!featureFlags[FEATURE_FLAGS.FUNNEL_SIMPLE_MODE] && <FunnelStepReferencePicker />}
-                    </>
-                )}
-
                 {showIntervalFilter(activeView, filters) && (
                     <span className="filter">
                         <span className="head-title-item">
@@ -145,7 +130,12 @@ export function InsightDisplayConfig({
                     <SmoothingFilter />
                 ) : null}
 
-                {activeView === InsightType.RETENTION && <RetentionDatePicker />}
+                {activeView === InsightType.RETENTION && (
+                    <>
+                        <RetentionDatePicker />
+                        <RetentionReferencePicker />
+                    </>
+                )}
 
                 {showPathOptions && (
                     <span className="filter">
@@ -163,15 +153,7 @@ export function InsightDisplayConfig({
                 {showChartFilter(activeView) && (
                     <span className="filter">
                         <span className="head-title-item">Chart type</span>
-                        <ChartFilter
-                            onChange={(display: ChartDisplayType | FunnelVizType) => {
-                                if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART) {
-                                    clearAnnotationsToCreate()
-                                }
-                            }}
-                            filters={filters}
-                            disabled={filters.insight === InsightType.LIFECYCLE}
-                        />
+                        <ChartFilter filters={filters} disabled={filters.insight === InsightType.LIFECYCLE} />
                     </span>
                 )}
                 {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.Steps && (

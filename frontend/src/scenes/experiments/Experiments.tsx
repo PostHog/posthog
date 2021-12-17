@@ -11,8 +11,9 @@ import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { Link } from 'lib/components/Link'
-import { TZLabel } from 'lib/components/TimezoneAware'
 import { LinkButton } from 'lib/components/LinkButton'
+import dayjs from 'dayjs'
+import { Tag } from 'antd'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -40,37 +41,60 @@ export function Experiments(): JSX.Element {
                 )
             },
         },
-        {
-            title: 'Start Date',
-            dataIndex: 'start_date',
-            render: function RenderStartDate(_, experiment: Experiment) {
-                return experiment.start_date ? (
-                    <div style={{ whiteSpace: 'nowrap' }}>
-                        <TZLabel time={experiment.start_date} />
-                    </div>
-                ) : (
-                    <span style={{ color: 'var(--muted)' }}>Draft</span>
-                )
-            },
-            sorter: (a, b) => (new Date(a.start_date || 0) > new Date(b.start_date || 0) ? 1 : -1),
-        },
         createdByColumn<Experiment>() as LemonTableColumn<Experiment, keyof Experiment | undefined>,
         createdAtColumn<Experiment>() as LemonTableColumn<Experiment, keyof Experiment | undefined>,
+        {
+            title: 'Duration',
+            render: function Render(_, experiment: Experiment) {
+                return (
+                    <div>
+                        {`${
+                            experiment.end_date
+                                ? dayjs(experiment.start_date).diff(dayjs(experiment.end_date), 'day')
+                                : 0
+                        }`}{' '}
+                        days
+                    </div>
+                )
+            },
+        },
+        {
+            title: 'Status',
+            render: function Render(_, experiment: Experiment) {
+                const statusColors = { active: 'green', draft: 'default', complete: 'purple' }
+                const status = (): string => {
+                    if (!experiment.start_date) {
+                        return 'draft'
+                    } else if (!experiment.end_date) {
+                        return 'active'
+                    }
+                    return 'complete'
+                }
+                return (
+                    <Tag color={statusColors[status()]} style={{ fontWeight: 600 }}>
+                        {status().toUpperCase()}
+                    </Tag>
+                )
+            },
+        },
     ]
 
     return (
         <div>
-            <PageHeader title="Experiments" caption="Experiments" />
-            <div className="mb float-right">
-                <LinkButton
-                    type="primary"
-                    data-attr="create-experiment"
-                    to={urls.experiment('new')}
-                    icon={<PlusOutlined />}
-                >
-                    New Experiment
-                </LinkButton>
-            </div>
+            <PageHeader
+                title="Experiments"
+                style={{ borderBottom: '1px solid var(--border)', marginBottom: '1rem' }}
+                buttons={
+                    <LinkButton
+                        type="primary"
+                        data-attr="create-experiment"
+                        to={urls.experiment('new')}
+                        icon={<PlusOutlined />}
+                    >
+                        New Experiment
+                    </LinkButton>
+                }
+            />
             <LemonTable
                 dataSource={experiments}
                 columns={columns}

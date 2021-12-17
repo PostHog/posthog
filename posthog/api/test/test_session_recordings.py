@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import timedelta, timezone
 
 from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
@@ -6,11 +6,11 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog.api.session_recording import DEFAULT_RECORDING_CHUNK_LIMIT
 from posthog.helpers.session_recording import Event, compress_and_chunk_snapshots
 from posthog.models import Organization, Person, SessionRecordingEvent
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team import Team
-from posthog.queries.session_recordings.session_recording import DEFAULT_RECORDING_CHUNK_LIMIT
 from posthog.test.base import APIBaseTest
 
 
@@ -218,55 +218,28 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}")
             response_data = response.json()
             self.assertEqual(response_data["result"]["person"]["id"], p.pk)
-            self.assertEqual(parse(response_data["result"]["session_recording"]["start_time"]), base_time)
             self.assertEqual(
-                parse(response_data["result"]["session_recording"]["end_time"]), base_time + relativedelta(seconds=30)
+                response_data["result"]["session_recording"]["start_and_end_times_by_window_id"],
+                {
+                    "": {
+                        "start_time": base_time.replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                        "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                    }
+                },
             )
-            self.assertEqual(response_data["result"]["session_recording"]["recording_duration"], "30.0")
+            self.assertEqual(
+                response_data["result"]["session_recording"]["segments"],
+                [
+                    {
+                        "start_time": base_time.replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                        "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                        "is_active": False,
+                        "window_id": "",
+                    }
+                ],
+            )
             self.assertEqual(response_data["result"]["session_recording"]["viewed"], False)
-            self.assertEqual(response_data["result"]["session_recording"]["distinct_id"], "d1")
-
-        def test_get_single_session_recording_metadata_with_active_segments(self):
-            p = Person.objects.create(
-                team=self.team, distinct_ids=["d1"], properties={"$some_prop": "something", "email": "bob@bob.com"},
-            )
-            session_recording_id = "session_1"
-            base_time = now() - relativedelta(days=1)
-            self.create_snapshot(
-                "d1", session_recording_id, base_time, window_id="1", has_full_snapshot=False, source=3, type=3
-            )
-            self.create_snapshot(
-                "d1",
-                session_recording_id,
-                base_time + relativedelta(seconds=30),
-                window_id="1",
-                has_full_snapshot=False,
-                type=3,
-                source=3,
-            )
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}?include_active_segments=true"
-            )
-            response_data = response.json()
-            self.assertEqual(response_data["result"]["person"]["id"], p.pk)
-            self.assertEqual(parse(response_data["result"]["session_recording"]["start_time"]), base_time)
-            self.assertEqual(
-                parse(response_data["result"]["session_recording"]["end_time"]), base_time + relativedelta(seconds=30)
-            )
-            self.assertEqual(response_data["result"]["session_recording"]["recording_duration"], "30.0")
-            self.assertEqual(response_data["result"]["session_recording"]["viewed"], False)
-            self.assertEqual(response_data["result"]["session_recording"]["distinct_id"], "d1")
-            self.assertEqual(response_data["result"]["session_recording"]["distinct_id"], "d1")
-            self.assertEqual(
-                parse(
-                    response_data["result"]["session_recording"]["active_segments_by_window_id"]["1"][0]["start_time"]
-                ),
-                base_time,
-            )
-            self.assertEqual(
-                parse(response_data["result"]["session_recording"]["active_segments_by_window_id"]["1"][0]["end_time"]),
-                base_time + relativedelta(seconds=30),
-            )
+            self.assertEqual(response_data["result"]["session_recording"]["session_id"], session_recording_id)
 
         def test_get_default_limit_of_chunks(self):
             base_time = now()
@@ -277,7 +250,9 @@ def factory_test_session_recordings_api(session_recording_event_factory):
 
             response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1/snapshots")
             response_data = response.json()
-            self.assertEqual(len(response_data["result"]["snapshots"]), DEFAULT_RECORDING_CHUNK_LIMIT)
+            self.assertEqual(
+                len(response_data["result"]["snapshot_data_by_window_id"][""]), DEFAULT_RECORDING_CHUNK_LIMIT
+            )
 
         def test_get_snapshots_for_chunked_session_recording(self):
             chunked_session_id = "chunk_id"
@@ -287,9 +262,13 @@ def factory_test_session_recordings_api(session_recording_event_factory):
 
             with freeze_time("2020-09-13T12:26:40.000Z"):
                 start_time = now()
-                for s in range(num_chunks):
+                for index, s in enumerate(range(num_chunks)):
                     self.create_chunked_snapshots(
-                        snapshots_per_chunk, "user", chunked_session_id, start_time + relativedelta(minutes=s),
+                        snapshots_per_chunk,
+                        "user",
+                        chunked_session_id,
+                        start_time + relativedelta(minutes=s),
+                        window_id="1" if index % 2 == 0 else "2",
                     )
 
                 next_url = f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}/snapshots"
@@ -299,7 +278,12 @@ def factory_test_session_recordings_api(session_recording_event_factory):
                     response_data = response.json()
 
                     self.assertEqual(
-                        len(response_data["result"]["snapshots"]), snapshots_per_chunk * DEFAULT_RECORDING_CHUNK_LIMIT
+                        len(response_data["result"]["snapshot_data_by_window_id"]["1"]),
+                        snapshots_per_chunk * DEFAULT_RECORDING_CHUNK_LIMIT / 2,
+                    )
+                    self.assertEqual(
+                        len(response_data["result"]["snapshot_data_by_window_id"]["2"]),
+                        snapshots_per_chunk * DEFAULT_RECORDING_CHUNK_LIMIT / 2,
                     )
                     if i == expected_num_requests - 1:
                         self.assertIsNone(response_data["result"]["next"])
@@ -314,7 +298,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
                 p = Person.objects.create(
                     team=self.team, distinct_ids=["d1"], properties={"$some_prop": "something", "email": "bob@bob.com"},
                 )
-                chunked_session_id = "chunk_id"
+                chunked_session_id = "chunked_session_id"
                 num_chunks = 60
                 snapshots_per_chunk = 2
                 for index in range(num_chunks):
@@ -324,17 +308,32 @@ def factory_test_session_recordings_api(session_recording_event_factory):
                 response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}")
                 response_data = response.json()
                 self.assertEqual(response_data["result"]["person"]["id"], p.pk)
-                self.assertEqual(parse(response_data["result"]["session_recording"]["start_time"]), now())
                 self.assertEqual(
-                    parse(response_data["result"]["session_recording"]["end_time"]),
-                    now() + relativedelta(minutes=num_chunks - 1, seconds=snapshots_per_chunk - 1),
+                    response_data["result"]["session_recording"]["start_and_end_times_by_window_id"],
+                    {
+                        "": {
+                            "start_time": now().replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            "end_time": (
+                                now() + relativedelta(minutes=num_chunks - 1, seconds=snapshots_per_chunk - 1)
+                            ).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        }
+                    },
                 )
                 self.assertEqual(
-                    response_data["result"]["session_recording"]["recording_duration"],
-                    str(timedelta(seconds=snapshots_per_chunk - 1, minutes=num_chunks - 1).total_seconds()),
+                    response_data["result"]["session_recording"]["segments"],
+                    [
+                        {
+                            "start_time": now().replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            "end_time": (
+                                now() + relativedelta(minutes=num_chunks - 1, seconds=snapshots_per_chunk - 1)
+                            ).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            "is_active": False,
+                            "window_id": "",
+                        }
+                    ],
                 )
                 self.assertEqual(response_data["result"]["session_recording"]["viewed"], False)
-                self.assertEqual(response_data["result"]["session_recording"]["distinct_id"], "d1")
+                self.assertEqual(response_data["result"]["session_recording"]["session_id"], chunked_session_id)
 
         def test_single_session_recording_doesnt_leak_teams(self):
             another_team = Team.objects.create(organization=self.organization)

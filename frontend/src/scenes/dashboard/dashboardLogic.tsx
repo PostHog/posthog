@@ -76,7 +76,8 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         updateLayouts: (layouts: Layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         saveLayouts: true,
-        updateItemColor: (insightId: number, color: string) => ({ insightId, color }),
+        updateItemColor: (insightId: number, color: string | null) => ({ insightId, color }),
+        removeItem: (insightId: number) => ({ insightId }),
         setDiveDashboard: (insightId: number, dive_dashboard: number | null) => ({ insightId, dive_dashboard }),
         refreshAllDashboardItems: (items?: InsightModel[]) => ({ items }),
         refreshAllDashboardItemsManual: true,
@@ -212,6 +213,12 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     return {
                         ...state,
                         items: state?.items.map((i) => (i.id === insightId ? { ...i, color } : i)),
+                    } as DashboardType
+                },
+                removeItem: (state, { insightId }) => {
+                    return {
+                        ...state,
+                        items: state?.items.filter((i) => i.id !== insightId),
                     } as DashboardType
                 },
                 setDiveDashboard: (state, { insightId, dive_dashboard }) => {
@@ -531,6 +538,11 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         },
         updateItemColor: async ({ insightId, color }) => {
             return api.update(`api/projects/${values.currentTeamId}/insights/${insightId}`, { color })
+        },
+        removeItem: async ({ insightId }) => {
+            return api.update(`api/projects/${values.currentTeamId}/insights/${insightId}`, {
+                dashboard: null,
+            } as Partial<InsightModel>)
         },
         setDiveDashboard: async ({ insightId, dive_dashboard }) => {
             return api.update(`api/projects/${values.currentTeamId}/insights/${insightId}`, { dive_dashboard })

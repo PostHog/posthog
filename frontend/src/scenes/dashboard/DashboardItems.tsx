@@ -11,6 +11,9 @@ import { insightsModel } from '~/models/insightsModel'
 import { dashboardLogic, BREAKPOINT_COLUMN_COUNTS, BREAKPOINTS } from 'scenes/dashboard/dashboardLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import clsx from 'clsx'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { InsightCard } from 'lib/components/InsightCard'
 
 const ReactGridLayout = WidthProvider(Responsive)
 
@@ -30,11 +33,13 @@ export function DashboardItems(): JSX.Element {
         updateLayouts,
         updateContainerWidth,
         updateItemColor,
+        removeItem,
         setDashboardMode,
         setDiveDashboard,
         refreshAllDashboardItems,
     } = useActions(dashboardLogic)
     const { duplicateInsight } = useActions(insightsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     // make sure the dashboard takes up the right size
     useEffect(() => triggerResizeAfterADelay(), [])
@@ -100,35 +105,49 @@ export function DashboardItems(): JSX.Element {
                     isDragging.current = false
                 }, 250)
             }}
-            draggableCancel=".anticon,.ant-dropdown,table,.ant-popover-content"
+            draggableCancel=".anticon,.ant-dropdown,table,.ant-popover-content,button,.Popup"
         >
-            {items?.map((item: InsightModel, index: number) => (
-                <div key={item.short_id} className="dashboard-item-wrapper">
-                    <DashboardItem
+            {items?.map((item: InsightModel, index: number) =>
+                featureFlags[FEATURE_FLAGS.DASHBOARD_REDESIGN] ? (
+                    <InsightCard
                         key={item.short_id}
-                        doNotLoad
-                        receivedErrorFromAPI={refreshStatus[item.short_id]?.error || false}
-                        dashboardId={dashboard?.id}
-                        item={item}
-                        layout={resizingItem?.i === item.short_id ? resizingItem : layoutForItem[item.short_id]}
-                        isReloading={isRefreshing(item.short_id)}
-                        reload={() => refreshAllDashboardItems([item])}
-                        loadDashboardItems={loadDashboardItems}
-                        setDiveDashboard={setDiveDashboard}
-                        duplicateDashboardItem={duplicateInsight}
-                        moveDashboardItem={(it: InsightModel, dashboardId: number) =>
-                            duplicateInsight(it, dashboardId, true)
-                        }
-                        updateItemColor={updateItemColor}
-                        isDraggingRef={isDragging}
-                        dashboardMode={dashboardMode}
-                        isHighlighted={highlightedInsightId && item.short_id === highlightedInsightId}
-                        isOnEditMode={dashboardMode === DashboardMode.Edit}
-                        setEditMode={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.LongPress)}
+                        insight={item}
                         index={index}
+                        loading={isRefreshing(item.short_id)}
+                        apiError={refreshStatus[item.short_id]?.error || false}
+                        highlighted={highlightedInsightId && item.short_id === highlightedInsightId}
+                        updateColor={(color) => updateItemColor(item.id, color)}
+                        removeItem={() => removeItem(item.id)}
+                        refresh={() => refreshAllDashboardItems([item])}
                     />
-                </div>
-            ))}
+                ) : (
+                    <div key={item.short_id} className="dashboard-item-wrapper">
+                        <DashboardItem
+                            key={item.short_id}
+                            doNotLoad
+                            receivedErrorFromAPI={refreshStatus[item.short_id]?.error || false}
+                            dashboardId={dashboard?.id}
+                            item={item}
+                            layout={resizingItem?.i === item.short_id ? resizingItem : layoutForItem[item.short_id]}
+                            isReloading={isRefreshing(item.short_id)}
+                            reload={() => refreshAllDashboardItems([item])}
+                            loadDashboardItems={loadDashboardItems}
+                            setDiveDashboard={setDiveDashboard}
+                            duplicateDashboardItem={duplicateInsight}
+                            moveDashboardItem={(it: InsightModel, dashboardId: number) =>
+                                duplicateInsight(it, dashboardId, true)
+                            }
+                            updateItemColor={updateItemColor}
+                            isDraggingRef={isDragging}
+                            dashboardMode={dashboardMode}
+                            isHighlighted={highlightedInsightId && item.short_id === highlightedInsightId}
+                            isOnEditMode={dashboardMode === DashboardMode.Edit}
+                            setEditMode={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.LongPress)}
+                            index={index}
+                        />
+                    </div>
+                )
+            )}
         </ReactGridLayout>
     )
 }
