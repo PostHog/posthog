@@ -1,5 +1,8 @@
 # Changelog
 
+### 1.31.1 - Friday 17 December 2021
+- Iterate on async events migration to improve primary key on events table which will improve performance of queries that filter on event type 🎉
+
 ### 1.31.0 - Wednesday 15 December 2021
 - **POSTGRES-based deployment no longer supported in this version.**
 - Introducing Group Analytics! Group Analytics enable you to analyze groups, which aggregate events within PostHog.
