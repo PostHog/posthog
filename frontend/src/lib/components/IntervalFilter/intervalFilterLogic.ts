@@ -18,7 +18,7 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
     listeners: ({ values, actions }) => ({
         setInterval: ({ interval }) => {
             if (!objectsEqual(interval, values.filters.interval)) {
-                actions.setFilters({ interval })
+                actions.setFilters({ ...values.filters, interval })
             }
         },
     }),

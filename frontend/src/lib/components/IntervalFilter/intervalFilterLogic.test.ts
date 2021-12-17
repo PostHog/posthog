@@ -1,38 +1,42 @@
-import { initKeaTestLogic } from '~/test/init'
-import { router } from 'kea-router'
+import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
-import { intervalFilterLogic } from 'lib/components/IntervalFilter/intervalFilterLogic'
-import { urls } from 'scenes/urls'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightShortId } from '~/types'
+import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
+import { intervalFilterLogic } from 'lib/components/IntervalFilter/intervalFilterLogic'
+
+jest.mock('lib/api')
 
 describe('intervalFilterLogic', () => {
     let logic: ReturnType<typeof intervalFilterLogic.build>
+    const props = { dashboardItemId: 'test' as InsightShortId }
 
-    initKeaTestLogic({
-        logic: intervalFilterLogic,
-        props: {},
-        onLogic: (l) => (logic = l),
+    mockAPI(async (url) => {
+        return defaultAPIMocks(url)
     })
 
-    it('defaults to null', () => {
-        expectLogic(logic).toMatchValues({ interval: null })
+    beforeEach(() => {
+        initKeaTests()
+        insightLogic(props).mount()
+        logic = intervalFilterLogic(props)
+        logic.mount()
     })
 
-    it('reads "interval" from URL when editing', () => {
-        const url = urls.insightEdit('12345' as InsightShortId, {
-            interval: 'hour',
+    describe('core assumptions', () => {
+        it('mounts all sorts of logics', async () => {
+            await expectLogic(logic).toMount([insightLogic(logic.props)])
         })
-        expectLogic(logic, () => {
-            router.actions.push(url)
-        }).toMatchValues({ interval: 'hour' })
     })
 
-    it('reads "interval" from URL when viewing', () => {
-        const url = urls.insightView('12345' as InsightShortId, {
-            interval: 'week',
+    describe('syncs with insightLogic', () => {
+        it('setInterval updates insightLogic filters', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setInterval('month')
+            })
+                .toDispatchActions([insightLogic(logic.props).actionCreators.setFilters({ interval: 'month' })])
+                .toMatchValues({
+                    interval: 'month',
+                })
         })
-        expectLogic(logic, () => {
-            router.actions.push(url)
-        }).toMatchValues({ interval: 'week' })
     })
 })
