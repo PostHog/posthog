@@ -343,15 +343,12 @@ export function Experiment(): JSX.Element {
                         </div>
                     </Form>
                 </>
-            ) : (
+            ) : experimentData ? (
                 <div className="confirmation">
                     <Row className="draft-header">
                         <Row justify="space-between" align="middle" className="full-width">
                             <Row>
-                                <PageHeader
-                                    style={{ margin: 0, paddingRight: 8 }}
-                                    title={`${newExperimentData?.name || experimentData?.name}`}
-                                />
+                                <PageHeader style={{ margin: 0, paddingRight: 8 }} title={`${experimentData?.name}`} />
                                 <Tag style={{ alignSelf: 'center' }} color={statusColors[status()]}>
                                     <b className="uppercase">{status()}</b>
                                 </Tag>
@@ -372,27 +369,25 @@ export function Experiment(): JSX.Element {
                                 </Button>
                             )}
                         </Row>
-                        {newExperimentData?.description && <Row>Description: {newExperimentData?.description}</Row>}
+                        {experimentData.description && <Row>Description: {experimentData.description}</Row>}
                     </Row>
                     <Row>
                         <Col span={10}>
                             <div className="mb-05">
-                                <span>Feature flag key:</span> <b>{newExperimentData?.feature_flag_key}</b>
+                                <span>Feature flag key:</span> <b>{experimentData.feature_flag_key}</b>
                             </div>
                             <div className="mb-05">Variants: 'control' and 'test'</div>
                             <div className="mb-05">The following users will participate in the experiment</div>
                             <ul>
-                                {newExperimentData?.filters?.properties?.length ? (
-                                    newExperimentData.filters.properties.map(
-                                        (property: PropertyFilter, idx: number) => (
-                                            <li key={idx}>
-                                                Users with {property.key} {property.operator}{' '}
-                                                {Array.isArray(property.value)
-                                                    ? property.value.map((val) => `${val}, `)
-                                                    : property.value}
-                                            </li>
-                                        )
-                                    )
+                                {experimentData.filters?.properties?.length ? (
+                                    experimentData.filters.properties.map((property: PropertyFilter, idx: number) => (
+                                        <li key={idx}>
+                                            Users with {property.key} {property.operator}{' '}
+                                            {Array.isArray(property.value)
+                                                ? property.value.map((val) => `${val}, `)
+                                                : property.value}
+                                        </li>
+                                    ))
                                 ) : (
                                     <li key={'all users'}>All users</li>
                                 )}
@@ -401,12 +396,12 @@ export function Experiment(): JSX.Element {
                             <Row>
                                 <ul>
                                     <li>
-                                        Recommended running time: ~
-                                        {newExperimentData?.parameters?.recommended_running_time} days
+                                        Recommended running time: ~{experimentData.parameters?.recommended_running_time}{' '}
+                                        days
                                     </li>
                                     <li>
-                                        Recommended sample size: ~
-                                        {newExperimentData?.parameters?.recommended_sample_size} people
+                                        Recommended sample size: ~{experimentData.parameters?.recommended_sample_size}{' '}
+                                        people
                                     </li>
                                 </ul>
                             </Row>
@@ -429,7 +424,7 @@ export function Experiment(): JSX.Element {
                                             {' '}
                                             {variant}:
                                             <CodeSnippet language={Language.JavaScript}>
-                                                {`posthog.feature_flags.override({'${newExperimentData?.feature_flag_key}': '${variant}'})`}
+                                                {`posthog.feature_flags.override({'${experimentData.feature_flag_key}': '${variant}'})`}
                                             </CodeSnippet>
                                         </div>
                                     ))}
@@ -438,7 +433,7 @@ export function Experiment(): JSX.Element {
                             <div>Warning: Remember to not change this code until the experiment ends</div>
                         </Col>
                     </Row>
-                    {experimentData && experimentData.start_date && (
+                    {experimentData.start_date && (
                         <div className="experiment-result">
                             {experimentData.end_date && <Alert type="info" message="This experiment has ended" />}
                             <div>Experiment start date: {dayjs(experimentData.start_date).format('D MMM YYYY')}</div>
@@ -483,6 +478,8 @@ export function Experiment(): JSX.Element {
                         </div>
                     )}
                 </div>
+            ) : (
+                <div>Loading Data...</div>
             )}
         </>
     )
