@@ -79,7 +79,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SITE_URL: null,
         NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS: '',
         EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: true,
-        EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED_TEAMS: '',
+        EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: true,
     }
 }
 
@@ -139,8 +139,7 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS:
             '(advanced) teams for which to run the new person properties update flow on',
         EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: '(advanced) enable experimental feature to track lastSeenAt',
-        EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED_TEAMS:
-            '(advanced) teams for which to enable experimental feature to track event properties',
+        EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: '(advanced) enable experimental feature to track event properties',
     }
 }
 

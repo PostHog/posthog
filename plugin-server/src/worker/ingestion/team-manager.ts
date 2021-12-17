@@ -23,7 +23,7 @@ export class TeamManager {
     propertyDefinitionsCache: Map<TeamId, Set<string>>
     instanceSiteUrl: string
     experimentalLastSeenAtEnabled: boolean
-    propertyCounterTeams: Set<number>
+    experimentalEventPropertyTrackerEnabled: boolean
     statsd?: StatsD
 
     constructor(db: DB, serverConfig: PluginsServerConfig, statsd?: StatsD) {
@@ -42,11 +42,10 @@ export class TeamManager {
         this.lastFlushAt = DateTime.now()
 
         // TODO: #7422 Remove temporary EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED
-        // TODO: #7500 Remove temporary EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED_TEAMS
         this.experimentalLastSeenAtEnabled = serverConfig.EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED ?? false
-        this.propertyCounterTeams = new Set(
-            (serverConfig.EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED_TEAMS || '').split(',').map(parseInt)
-        )
+
+        // TODO: #7500 Remove temporary EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED
+        this.experimentalEventPropertyTrackerEnabled = serverConfig.EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED ?? false
     }
 
     public async fetchTeam(teamId: number): Promise<Team | null> {
@@ -175,7 +174,7 @@ export class TeamManager {
     }
 
     private async syncEventProperties(team: Team, event: string, propertyKeys: string[]) {
-        if (!this.propertyCounterTeams.has(team.id)) {
+        if (!this.experimentalEventPropertyTrackerEnabled) {
             return
         }
         const key = JSON.stringify([team.id, event])
@@ -265,7 +264,7 @@ export class TeamManager {
         }
 
         // Run only if the feature is enabled for this team
-        if (this.propertyCounterTeams.has(teamId)) {
+        if (this.experimentalEventPropertyTrackerEnabled) {
             const cacheKey = JSON.stringify([teamId, event])
             let properties = this.eventPropertiesCache.get(cacheKey)
             if (!properties) {
