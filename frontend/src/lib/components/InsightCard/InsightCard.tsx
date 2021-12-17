@@ -124,7 +124,6 @@ function InsightMeta({
                             {name || <i>{UNNAMED_INSIGHT_NAME}</i>}
                         </h4>
                     </Link>
-
                     <div className="InsightMeta__description">{description || <i>No description</i>}</div>
                     {tags.length > 0 && <ObjectTags tags={tags} staticOnly />}
                 </div>
