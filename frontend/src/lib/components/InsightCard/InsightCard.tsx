@@ -180,10 +180,8 @@ function InsightCardInternal(
                 <InsightViz insight={insight} loading={loading} apiError={apiError} />
             </BindLogic>
             <InsightMeta insight={insight} updateColor={updateColor} removeItem={removeItem} refresh={refresh} />
+            {children /* Extras, such as resize handles */}
         </div>
     )
 }
 export const InsightCard = React.forwardRef(InsightCardInternal) as typeof InsightCardInternal
-{
-    children /* Extras, such as resize handles */
-}
