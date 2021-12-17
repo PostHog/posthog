@@ -618,6 +618,48 @@ class TestInviteSignup(APIBaseTest):
         # Assert that the password was correctly saved
         self.assertTrue(user.check_password("test_password"))
 
+    @patch("posthog.api.organization.settings.EE_AVAILABLE", True)
+    def test_api_invite_sign_up_where_there_are_no_default_non_private_projects(self):
+        self.client.logout()
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="test+private@posthog.com", organization=self.organization,
+        )
+
+        self.team.access_control = True
+        self.team.save()
+
+        response = self.client.post(
+            f"/api/signup/{invite.id}/", {"first_name": "Alice", "password": "test_password", "email_opt_in": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        user = cast(User, User.objects.order_by("-pk")[0])
+        self.assertEqual(user.organization_memberships.count(), 1)
+        self.assertEqual(user.organization, self.organization)
+        # here
+        self.assertEqual(
+            user.current_team, None
+        )  # User is not assigned to a project, as there are no non-private projects
+        self.assertEqual(user.team, None)
+
+    @patch("posthog.api.organization.settings.EE_AVAILABLE", True)
+    def test_api_invite_sign_up_where_default_project_is_private(self):
+        self.client.logout()
+        self.team.access_control = True
+        self.team.save()
+        team = Team.objects.create(name="Public project", organization=self.organization, access_control=False)
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="test+privatepublic@posthog.com", organization=self.organization,
+        )
+        response = self.client.post(
+            f"/api/signup/{invite.id}/", {"first_name": "Charlie", "password": "test_password"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        user = cast(User, User.objects.order_by("-pk")[0])
+        self.assertEqual(user.organization_memberships.count(), 1)
+        self.assertEqual(user.organization, self.organization)
+        self.assertEqual(user.current_team, team)
+        self.assertEqual(user.team, team)
+
     @patch("posthog.api.organization.settings.EE_AVAILABLE", False)
     def test_api_invite_sign_up_member_joined_email_is_not_sent_for_initial_member(self):
         invite: OrganizationInvite = OrganizationInvite.objects.create(

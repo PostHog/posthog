@@ -145,7 +145,29 @@ class User(AbstractUser, UUIDClassicModel):
     @property
     def team(self) -> Optional[Team]:
         if self.current_team is None and self.organization is not None:
-            self.current_team = self.organization.teams.order_by("access_control", "id").first()  # Prefer open projects
+            if (
+                not settings.EE_AVAILABLE
+                or self.organization.memberships.get(user=self).level >= OrganizationMembership.Level.ADMIN
+            ):
+                self.current_team = self.organization.teams.order_by(
+                    "access_control", "id"
+                ).first()  # Prefer open projects
+            else:
+                # User has private porjects and is a regular member in this org,
+                # current project should not be assigned to a private project to which the member doesn't have access
+                from ee.models import ExplicitTeamMembership
+
+                available_private_project_ids = ExplicitTeamMembership.objects.filter(
+                    parent_membership__user=self
+                ).values_list("team_id", flat=True)
+                self.current_team = (
+                    self.organization.teams.filter(
+                        models.Q(access_control=False)
+                        | models.Q(access_control=True, pk__in=available_private_project_ids)
+                    )
+                    .order_by("access_control", "id")
+                    .first()
+                )
             self.save()
         return self.current_team
 
