@@ -93,7 +93,7 @@
                     "value": "2,2635"
                 },
                 {
-                    "name": "EXPERIMENTAL_EVENT_PROPERTY_COUNTER_ENABLED_TEAMS",
+                    "name": "EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED_TEAMS",
                     "value": "2"
                 }
             ],
