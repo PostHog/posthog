@@ -1,3 +1,5 @@
+from typing import Optional
+
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
@@ -15,7 +17,7 @@ class ClickhouseFunnelTrendsActors(ClickhouseFunnelTrends, ActorBaseQuery):
     def is_aggregating_by_groups(self) -> bool:
         return self._filter.aggregation_group_type_index is not None
 
-    def actor_query(self):
+    def actor_query(self, limit_actors: Optional[bool] = True):
         drop_off = self._filter.drop_off
         if drop_off is None:
             raise ValidationError(f"Filter parameter {DROP_OFF} must be provided and a bool for funnel trends persons!")
@@ -39,8 +41,8 @@ class ClickhouseFunnelTrendsActors(ClickhouseFunnelTrends, ActorBaseQuery):
                 steps_per_person_query=step_counts_query,
                 persons_steps=did_not_reach_to_step_count_condition if drop_off else reached_to_step_count_condition,
                 extra_fields="",
-                limit="LIMIT %(limit)s" if self._limit_actors else "",
-                offset="OFFSET %(offset)s" if self._limit_actors else "",
+                limit="LIMIT %(limit)s" if limit_actors else "",
+                offset="OFFSET %(offset)s" if limit_actors else "",
             ),
             self.params,
         )

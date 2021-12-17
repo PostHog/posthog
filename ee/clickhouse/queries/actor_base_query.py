@@ -46,7 +46,6 @@ SerializedActor = Union[SerializedGroup, SerializedPerson]
 class ActorBaseQuery:
     aggregating_by_groups = False
     entity: Optional[Entity] = None
-    _limit_actors: Optional[bool]
 
     def __init__(
         self,
@@ -58,9 +57,8 @@ class ActorBaseQuery:
         self._team = team
         self.entity = entity
         self._filter = filter
-        self._limit_actors = kwargs.get("limit_actors", True)
 
-    def actor_query(self) -> Tuple[str, Dict]:
+    def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
         """ Implemented by subclasses. Must provide query and params. The query must return list of uuids. Can be group uuids (group_key) or person uuids """
         raise NotImplementedError()
 

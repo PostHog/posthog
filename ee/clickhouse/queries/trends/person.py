@@ -52,7 +52,7 @@ class ClickhouseTrendsActors(ActorBaseQuery):
     def is_aggregating_by_groups(self) -> bool:
         return self.entity.math == "unique_group"
 
-    def actor_query(self) -> Tuple[str, Dict]:
+    def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
         if self._filter.breakdown_type == "cohort" and self._filter.breakdown_value != "all":
             cohort = Cohort.objects.get(pk=self._filter.breakdown_value, team_id=self._team.pk)
             self._filter = self._filter.with_data(
@@ -90,8 +90,8 @@ class ClickhouseTrendsActors(ActorBaseQuery):
             GET_ACTORS_FROM_EVENT_QUERY.format(
                 id_field=self._aggregation_actor_field,
                 events_query=events_query,
-                limit="LIMIT %(limit)s" if self._limit_actors else "",
-                offset="OFFSET %(offset)s" if self._limit_actors else "",
+                limit="LIMIT %(limit)s" if limit_actors else "",
+                offset="OFFSET %(offset)s" if limit_actors else "",
             ),
             {**params, "offset": self._filter.offset, "limit": 200},
         )

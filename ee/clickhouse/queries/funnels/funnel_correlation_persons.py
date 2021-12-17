@@ -23,46 +23,40 @@ class FunnelCorrelationActors:
         self._base_uri = base_uri
         self._filter = filter
         self._team = team
-        self._limit_actors = kwargs.get("limit_actors", True)
 
         if not self._filter.correlation_person_limit:
             self._filter = self._filter.with_data({FUNNEL_CORRELATION_PERSON_LIMIT: 100})
 
-    def actor_query(self,):
+    def actor_query(self, limit_actors: Optional[bool] = True):
         if self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
-            return _FunnelPropertyCorrelationActors(
-                self._filter, self._team, self._base_uri, limit_actors=self._limit_actors
-            ).actor_query()
+            return _FunnelPropertyCorrelationActors(self._filter, self._team, self._base_uri).actor_query(
+                limit_actors=limit_actors
+            )
         else:
-            return _FunnelEventsCorrelationActors(
-                self._filter, self._team, self._base_uri, limit_actors=self._limit_actors
-            ).actor_query()
+            return _FunnelEventsCorrelationActors(self._filter, self._team, self._base_uri).actor_query(
+                limit_actors=limit_actors
+            )
 
     def get_actors(
         self,
     ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]]]:
         if self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
-            return _FunnelPropertyCorrelationActors(
-                self._filter, self._team, self._base_uri, limit_actors=self._limit_actors
-            ).get_actors()
+            return _FunnelPropertyCorrelationActors(self._filter, self._team, self._base_uri).get_actors()
         else:
-            return _FunnelEventsCorrelationActors(
-                self._filter, self._team, self._base_uri, limit_actors=self._limit_actors
-            ).get_actors()
+            return _FunnelEventsCorrelationActors(self._filter, self._team, self._base_uri).get_actors()
 
 
 class _FunnelEventsCorrelationActors(ActorBaseQuery):
     _filter: Filter
 
-    def __init__(self, filter: Filter, team: Team, base_uri: str = "/", **kwargs) -> None:
+    def __init__(self, filter: Filter, team: Team, base_uri: str = "/") -> None:
         self._funnel_correlation = FunnelCorrelation(filter, team, base_uri=base_uri)
-        super().__init__(team, filter, limit_actors=kwargs.get("limit_actors", True))
 
     @cached_property
     def is_aggregating_by_groups(self) -> bool:
         return self._filter.aggregation_group_type_index is not None
 
-    def actor_query(self, extra_fields: Optional[List[str]] = None):
+    def actor_query(self, limit_actors: Optional[bool] = True):
 
         if not self._filter.correlation_person_entity:
             raise ValidationError("No entity for persons specified")
@@ -97,8 +91,8 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
                 {conversion_filter}
                 {prop_query}
             ORDER BY actor_id
-            {"LIMIT %(limit)s" if self._limit_actors else ""}
-            {"OFFSET %(offset)s" if self._limit_actors else ""}
+            {"LIMIT %(limit)s" if limit_actors else ""}
+            {"OFFSET %(offset)s" if limit_actors else ""}
         """
 
         params = {
@@ -117,15 +111,15 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
 class _FunnelPropertyCorrelationActors(ActorBaseQuery):
     _filter: Filter
 
-    def __init__(self, filter: Filter, team: Team, base_uri: str = "/", **kwargs) -> None:
+    def __init__(self, filter: Filter, team: Team, base_uri: str = "/") -> None:
         self._funnel_correlation = FunnelCorrelation(filter, team, base_uri=base_uri)
-        super().__init__(team, filter, limit_actors=kwargs.get("limit_actors", True))
+        super().__init__(team, filter)
 
     @cached_property
     def is_aggregating_by_groups(self) -> bool:
         return self._filter.aggregation_group_type_index is not None
 
-    def actor_query(self, extra_fields: Optional[List[str]] = None):
+    def actor_query(self, limit_actors: Optional[bool] = True, extra_fields: Optional[List[str]] = None):
         if not self._filter.correlation_property_values:
             raise ValidationError("Property Correlation expects atleast one Property to get persons for")
 
@@ -151,8 +145,8 @@ class _FunnelPropertyCorrelationActors(ActorBaseQuery):
             WHERE {conversion_filter}
             {group_filters}
             ORDER BY actor_id
-            {"LIMIT %(limit)s" if self._limit_actors else ""}
-            {"OFFSET %(offset)s" if self._limit_actors else ""}
+            {"LIMIT %(limit)s" if limit_actors else ""}
+            {"OFFSET %(offset)s" if limit_actors else ""}
         """
         params = {
             **funnel_persons_params,

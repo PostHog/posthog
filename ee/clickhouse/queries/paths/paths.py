@@ -21,9 +21,8 @@ class ClickhousePaths:
     _filter: PathFilter
     _funnel_filter: Optional[Filter]
     _team: Team
-    _limit_actors: Optional[bool]
 
-    def __init__(self, filter: PathFilter, team: Team, funnel_filter: Optional[Filter] = None, **kwargs) -> None:
+    def __init__(self, filter: PathFilter, team: Team, funnel_filter: Optional[Filter] = None) -> None:
         self._filter = filter
         self._team = team
         self.params = {
@@ -34,7 +33,6 @@ class ClickhousePaths:
             "regex_groupings": None,
         }
         self._funnel_filter = funnel_filter
-        self._limit_actors = kwargs.get("limit_actors", True)
 
         if self._filter.include_all_custom_events and self._filter.custom_events:
             raise ValidationError("Cannot include all custom events and specific custom events in the same query")
@@ -148,9 +146,8 @@ class ClickhousePaths:
             self._team,
             include_timestamp=bool(self._filter.funnel_paths),
             include_preceding_timestamp=self._filter.funnel_paths == FUNNEL_PATH_BETWEEN_STEPS,
-            limit_actors=False,
         )
-        funnel_persons_query, funnel_persons_param = funnel_persons_generator.actor_query()
+        funnel_persons_query, funnel_persons_param = funnel_persons_generator.actor_query(limit_actors=False)
         funnel_persons_query_new_params = funnel_persons_query.replace("%(", "%(funnel_")
         new_funnel_params = {"funnel_" + str(key): val for key, val in funnel_persons_param.items()}
         self.params.update(new_funnel_params)

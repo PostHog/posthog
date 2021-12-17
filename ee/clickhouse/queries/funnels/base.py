@@ -35,7 +35,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
     _team: Team
     _include_timestamp: Optional[bool]
     _include_preceding_timestamp: Optional[bool]
-    _limit_actors: Optional[bool]  # used when paths are querying for filter people
 
     def __init__(
         self,
@@ -44,7 +43,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
         include_timestamp: Optional[bool] = None,
         include_preceding_timestamp: Optional[bool] = None,
         base_uri: str = "/",
-        **kwargs,
     ) -> None:
         self._filter = filter
         self._team = team
@@ -75,8 +73,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
         self.params.update({OFFSET: self._filter.offset})
 
         self._update_filters()
-
-        self._limit_actors = kwargs.get("limit_actors", True)
 
     def run(self, *args, **kwargs):
         if len(self._filter.entities) == 0:
