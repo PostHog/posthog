@@ -357,7 +357,7 @@ export function Experiment(): JSX.Element {
                                     <b className="uppercase">{status()}</b>
                                 </Tag>
                             </Row>
-                            {!experimentData?.start_date && (
+                            {experimentData && !experimentData.start_date && (
                                 <div>
                                     <Button className="mr-05" onClick={() => editExperiment()}>
                                         Edit
@@ -366,6 +366,15 @@ export function Experiment(): JSX.Element {
                                         Launch
                                     </Button>
                                 </div>
+                            )}
+                            {experimentData && experimentData.start_date && !experimentData.end_date && (
+                                <LemonButton
+                                    className="stop-experiment"
+                                    type="highlighted"
+                                    onClick={() => endExperiment()}
+                                >
+                                    Stop experiment
+                                </LemonButton>
                             )}
                         </Row>
                         {newExperimentData?.description && <Row>Description: {newExperimentData?.description}</Row>}
@@ -475,9 +484,6 @@ export function Experiment(): JSX.Element {
                                         <InsightContainer disableTable={true} />
                                     </div>
                                 </BindLogic>
-                            )}
-                            {!experimentData.end_date && (
-                                <LemonButton onClick={() => endExperiment()}>End experiment</LemonButton>
                             )}
                         </div>
                     )}
