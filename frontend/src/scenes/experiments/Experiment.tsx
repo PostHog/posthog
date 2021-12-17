@@ -17,7 +17,6 @@ import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { JSSnippet } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { IconJavascript } from 'lib/components/icons'
 import { InfoCircleOutlined } from '@ant-design/icons'
-import { LemonButton } from 'lib/components/LemonButton'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
@@ -368,13 +367,9 @@ export function Experiment(): JSX.Element {
                                 </div>
                             )}
                             {experimentData && experimentData.start_date && !experimentData.end_date && (
-                                <LemonButton
-                                    className="stop-experiment"
-                                    type="highlighted"
-                                    onClick={() => endExperiment()}
-                                >
+                                <Button className="stop-experiment" onClick={() => endExperiment()}>
                                     Stop experiment
-                                </LemonButton>
+                                </Button>
                             )}
                         </Row>
                         {newExperimentData?.description && <Row>Description: {newExperimentData?.description}</Row>}
