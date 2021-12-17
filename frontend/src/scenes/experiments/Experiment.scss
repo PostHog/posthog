@@ -102,3 +102,15 @@
         }
     }
 }
+
+.confirmation {
+    .draft-header {
+        margin-bottom: $default_spacing;
+        border-bottom: 1px solid $border;
+    }
+
+    .stop-experiment {
+        background-color: $danger;
+        color: white;
+    }
+}
