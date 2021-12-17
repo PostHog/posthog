@@ -2,12 +2,13 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { StatsD } from 'hot-shots'
 import { DateTime } from 'luxon'
 
-import { Team, TeamId } from '../../types'
+import { PluginsServerConfig, Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
 import { posthog } from '../../utils/posthog'
 import { status } from '../../utils/status'
 import { getByAge, UUIDT } from '../../utils/utils'
+import LRU from 'lru-cache'
 
 type TeamCache<T> = Map<TeamId, [T, number]>
 
@@ -15,26 +16,36 @@ export class TeamManager {
     db: DB
     teamCache: TeamCache<Team | null>
     eventDefinitionsCache: Map<TeamId, Set<string>>
-    eventPropertiesCache: Map<TeamId, Map<string, Set<string>>> // Map<TeamId, Map<Event, Set<Property>>>
+    eventPropertiesCache: LRU<string, Set<string>> // Map<JSON.stringify([TeamId, Event], Set<Property>>
     eventLastSeenCache: Map<string, number> // key: JSON.stringify([team_id, event]); value: timestamp (in ms)
     lastFlushAt: DateTime // time when the `eventLastSeenCache` was last flushed
     propertyDefinitionsCache: Map<TeamId, Set<string>>
     instanceSiteUrl: string
     experimentalLastSeenAtEnabled: boolean
+    propertyCounterTeams: Set<number>
     statsd?: StatsD
 
-    // TODO: #7422 Remove temporary parameter
-    constructor(db: DB, statsd?: StatsD, instanceSiteUrl?: string | null, experimentalLastSeenAtEnabled?: boolean) {
+    constructor(db: DB, serverConfig: PluginsServerConfig, statsd?: StatsD) {
         this.db = db
         this.statsd = statsd
         this.teamCache = new Map()
         this.eventDefinitionsCache = new Map()
-        this.eventPropertiesCache = new Map()
+        this.eventPropertiesCache = new LRU({
+            max: serverConfig.EVENT_PROPERTY_LRU_SIZE, // keep in memory the last 10k team+event combos we have seen
+            maxAge: 60 * 60 * 1000, // and each for up to 1 hour
+            updateAgeOnGet: true,
+        })
         this.eventLastSeenCache = new Map()
         this.propertyDefinitionsCache = new Map()
-        this.instanceSiteUrl = instanceSiteUrl || 'unknown'
+        this.instanceSiteUrl = serverConfig.SITE_URL || 'unknown'
         this.lastFlushAt = DateTime.now()
-        this.experimentalLastSeenAtEnabled = experimentalLastSeenAtEnabled ?? false
+
+        // TODO: #7422 Remove temporary EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED
+        // TODO: #7500 Remove temporary EXPERIMENTAL_EVENT_PROPERTY_COUNTER_ENABLED_TEAMS
+        this.experimentalLastSeenAtEnabled = serverConfig.EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED ?? false
+        this.propertyCounterTeams = new Set(
+            (serverConfig.EXPERIMENTAL_EVENT_PROPERTY_COUNTER_ENABLED_TEAMS || '').split(',').map(parseInt)
+        )
     }
 
     public async fetchTeam(teamId: number): Promise<Team | null> {
@@ -94,12 +105,7 @@ export class TeamManager {
         status.info(`✅ 🚽 flushLastSeenAtCache finished successfully in ${elapsedTime} ms.`)
     }
 
-    public async updateEventNamesAndProperties(
-        teamId: number,
-        event: string,
-        properties: Properties,
-        propertyCounterTeams: number[] = []
-    ): Promise<void> {
+    public async updateEventNamesAndProperties(teamId: number, event: string, properties: Properties): Promise<void> {
         const startTime = DateTime.now()
         const team: Team | null = await this.fetchTeam(teamId)
 
@@ -112,11 +118,9 @@ export class TeamManager {
             ingested: team.ingested_event,
         })
 
-        await this.cacheEventNamesAndProperties(team.id, propertyCounterTeams)
+        await this.cacheEventNamesAndProperties(team.id, event)
         await this.syncEventDefinitions(team, event)
-        if (propertyCounterTeams.includes(team.id)) {
-            await this.syncEventProperties(team, event, Object.keys(properties))
-        }
+        await this.syncEventProperties(team, event, Object.keys(properties))
         await this.syncPropertyDefinitions(properties, team)
         await this.setTeamIngestedEvent(team, properties)
 
@@ -170,17 +174,15 @@ export class TeamManager {
     }
 
     private async syncEventProperties(team: Team, event: string, propertyKeys: string[]) {
+        if (!this.propertyCounterTeams.has(team.id)) {
+            return
+        }
         for (const property of propertyKeys) {
             const key = JSON.stringify([team.id, event])
-            let eventPropertyMap = this.eventPropertiesCache.get(team.id)
-            if (!eventPropertyMap) {
-                eventPropertyMap = new Map()
-                this.eventPropertiesCache.set(team.id, eventPropertyMap)
-            }
-            let properties = eventPropertyMap.get(event)
+            let properties = this.eventPropertiesCache.get(key)
             if (!properties) {
                 properties = new Set()
-                eventPropertyMap.set(event, properties)
+                this.eventPropertiesCache.set(key, properties)
             }
             if (!properties.has(property)) {
                 properties.add(property)
@@ -238,7 +240,7 @@ export class TeamManager {
         }
     }
 
-    public async cacheEventNamesAndProperties(teamId: number, propertyCounterTeams: number[] = []): Promise<void> {
+    public async cacheEventNamesAndProperties(teamId: number, event: string): Promise<void> {
         let eventDefinitionsCache = this.eventDefinitionsCache.get(teamId)
         if (!eventDefinitionsCache) {
             const eventNames = await this.db.postgresQuery(
@@ -261,22 +263,27 @@ export class TeamManager {
             this.propertyDefinitionsCache.set(teamId, propertyDefinitionsCache)
         }
 
-        if (propertyCounterTeams[teamId]) {
-            let eventPropertyMap = this.eventPropertiesCache.get(teamId)
-            if (!eventPropertyMap) {
+        // Run only if the feature is enabled for this team
+        if (this.propertyCounterTeams.has(teamId)) {
+            const cacheKey = JSON.stringify([teamId, event])
+            let properties = this.eventPropertiesCache.get(cacheKey)
+            if (!properties) {
+                properties = new Set()
+                this.eventPropertiesCache.set(cacheKey, properties)
+
+                // The code above and below introduces a race condition. At this point we have an empty set in the cache,
+                // and will be waiting for the query below to return. If at the same time, asynchronously, we start to
+                // process another event with the same name for this team, `syncEventProperties` above will see the empty
+                // cache and will start to insert (on conflict do nothing) all the properties for the event. This will
+                // continue until either 1) the inserts will fill up the cache, or 2) the query below returns.
+                // All-in-all, not the end of the world, but a slight nuisance.
+
                 const eventProperties = await this.db.postgresQuery(
-                    'SELECT event, property FROM posthog_eventproperty WHERE team_id = $1',
-                    [teamId],
+                    'SELECT property FROM posthog_eventproperty WHERE team_id = $1 and event = $2',
+                    [teamId, event],
                     'fetchEventProperties'
                 )
-                eventPropertyMap = new Map()
-                this.eventPropertiesCache.set(teamId, eventPropertyMap)
-                for (const { event, property } of eventProperties.rows) {
-                    let properties = eventPropertyMap.get(event)
-                    if (!properties) {
-                        properties = new Set()
-                        eventPropertyMap.set(event, properties)
-                    }
+                for (const { property } of eventProperties.rows) {
                     properties.add(property)
                 }
             }

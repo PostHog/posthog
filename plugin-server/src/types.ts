@@ -85,6 +85,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     REDIS_POOL_MAX_SIZE: number
     DISABLE_MMDB: boolean
     DISTINCT_ID_LRU_SIZE: number
+    EVENT_PROPERTY_LRU_SIZE: number
     INTERNAL_MMDB_SERVER_PORT: number
     PLUGIN_SERVER_IDLE: boolean
     JOB_QUEUES: string

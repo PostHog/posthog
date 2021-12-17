@@ -22,7 +22,9 @@ describe('TeamManager()', () => {
     let teamManager: TeamManager
 
     beforeEach(async () => {
-        ;[hub, closeHub] = await createHub()
+        ;[hub, closeHub] = await createHub({
+            EXPERIMENTAL_EVENT_PROPERTY_COUNTER_ENABLED_TEAMS: '2',
+        })
         await resetTestDatabase()
         teamManager = hub.teamManager
     })
@@ -100,16 +102,11 @@ describe('TeamManager()', () => {
         it('updates event properties', async () => {
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:00:36.000Z').getTime())
 
-            await teamManager.updateEventNamesAndProperties(
-                2,
-                'new-event',
-                {
-                    property_name: 'efg',
-                    number: 4,
-                    numeric_prop: 5,
-                },
-                [2]
-            )
+            await teamManager.updateEventNamesAndProperties(2, 'new-event', {
+                property_name: 'efg',
+                number: 4,
+                numeric_prop: 5,
+            })
             teamManager.teamCache.clear()
 
             const eventDefinitions = await hub.db.fetchEventDefinitions()
@@ -356,7 +353,7 @@ describe('TeamManager()', () => {
 
         it('handles cache invalidation properly', async () => {
             await teamManager.fetchTeam(2)
-            await teamManager.cacheEventNamesAndProperties(2)
+            await teamManager.cacheEventNamesAndProperties(2, '$foobar')
             await hub.db.postgresQuery(
                 `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id) VALUES ($1, $2, NULL, NULL, $3) ON CONFLICT DO NOTHING`,
                 [new UUIDT().toString(), '$foobar', 2],
@@ -377,7 +374,8 @@ describe('TeamManager()', () => {
 
             await teamManager.updateEventNamesAndProperties(2, '$newevent', {})
             expect(teamManager.fetchTeam).toHaveBeenCalledTimes(1)
-            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1)
+            // extra query for `cacheEventNamesAndProperties` that we did manually before
+            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(2)
         })
 
         describe('first event has not yet been ingested', () => {
