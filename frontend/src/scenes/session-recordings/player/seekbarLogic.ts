@@ -210,12 +210,15 @@ export const seekbarLogic = kea<seekbarLogicType>({
             }
         },
     }),
-    events: ({ actions, values }) => ({
+    events: ({ actions, values, cache }) => ({
         afterMount: () => {
-            window.addEventListener('resize', () => actions.setCurrentPlayerPosition(values.currentPlayerPosition))
+            cache.setCurrentPlayerPosition = () => {
+                actions.setCurrentPlayerPosition(values.currentPlayerPosition)
+            }
+            window.addEventListener('resize', cache.setCurrentPlayerPosition)
         },
         beforeUnmount: () => {
-            window.removeEventListener('resize', () => actions.setCurrentPlayerPosition(values.currentPlayerPosition))
+            window.removeEventListener('resize', cache.setCurrentPlayerPosition)
         },
     }),
 })
