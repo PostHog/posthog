@@ -254,14 +254,10 @@ INSERT_PERSON_STATIC_COHORT = (
 
 GET_TEAM_PERSON_DISTINCT_IDS = """
 SELECT distinct_id, argMax(person_id, _timestamp) as person_id
-FROM (
-    SELECT distinct_id, person_id, max(_timestamp) as _timestamp
-    FROM person_distinct_id
-    WHERE team_id = %(team_id)s
-    GROUP BY person_id, distinct_id, team_id
-    HAVING max(is_deleted) = 0
-)
-GROUP BY distinct_id
+FROM person_distinct_id
+WHERE team_id = %(team_id)s
+GROUP BY person_id, distinct_id, team_id
+HAVING argMax(is_deleted, _timestamp) = 0
 """
 
 # Query to query distinct ids using the new table, will be used if PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS applies
