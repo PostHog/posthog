@@ -7,7 +7,6 @@ import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 
 interface EntityFilterInfoProps {
     filter: EntityFilter | ActionFilter | FunnelStepRangeEntityFilter
-    hideCustomName?: boolean
 }
 
 function TextWrapper(props: TextProps): JSX.Element {
@@ -18,7 +17,7 @@ function TextWrapper(props: TextProps): JSX.Element {
     )
 }
 
-export function EntityFilterInfo({ filter, hideCustomName = false }: EntityFilterInfoProps): JSX.Element {
+export function EntityFilterInfo({ filter }: EntityFilterInfoProps): JSX.Element {
     const title = getDisplayNameFromEntityFilter(filter, false)
 
     // No filter
@@ -29,7 +28,7 @@ export function EntityFilterInfo({ filter, hideCustomName = false }: EntityFilte
     const titleToDisplay = getKeyMapping(title, 'event')?.label?.trim() ?? title ?? undefined
 
     // No custom name
-    if (hideCustomName || !filter?.custom_name) {
+    if (!filter?.custom_name) {
         return (
             <span style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
                 <TextWrapper ellipsis={false} title={titleToDisplay}>
