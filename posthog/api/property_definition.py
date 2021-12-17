@@ -86,6 +86,14 @@ class PropertyDefinitionViewSet(
         search = self.request.GET.get("search", None)
         search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
 
+        params = {
+            "event_names": tuple(event_names or []),
+            "names": names,
+            "team_id": self.team_id,
+            "excluded_properties": tuple(HIDDEN_PROPERTY_DEFINITIONS),
+            **search_kwargs,
+        }
+
         if use_entreprise_taxonomy:
             return EnterprisePropertyDefinition.objects.raw(
                 f"""
@@ -98,13 +106,7 @@ class PropertyDefinitionViewSet(
                 GROUP BY posthog_propertydefinition.id, ee_enterprisepropertydefinition.propertydefinition_ptr_id
                 ORDER BY is_event_property DESC, name ASC
                 """,
-                params={
-                    "event_names": tuple(event_names or []),
-                    "names": names,
-                    "team_id": self.team_id,
-                    "excluded_properties": tuple(HIDDEN_PROPERTY_DEFINITIONS),
-                    **search_kwargs,
-                },
+                params=params,
             )
         else:
             return PropertyDefinition.objects.raw(
@@ -114,13 +116,7 @@ class PropertyDefinitionViewSet(
                 WHERE posthog_propertydefinition.team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {search_query}
                 ORDER BY is_event_property DESC, name ASC
                 """,
-                params={
-                    "event_names": tuple(event_names or []),
-                    "names": names,
-                    "team_id": self.team_id,
-                    "excluded_properties": tuple(HIDDEN_PROPERTY_DEFINITIONS),
-                    **search_kwargs,
-                },
+                params=params,
             )
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
