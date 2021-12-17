@@ -9,7 +9,7 @@ from posthog.models.async_migration import AsyncMigration, MigrationStatus
 from posthog.settings import CLICKHOUSE_DATABASE
 from posthog.test.base import BaseTest
 
-MIGRATION_NAME = "0001_events_sample_by"
+MIGRATION_NAME = "0002_events_sample_by"
 
 
 def execute_query(query: str) -> Any:
@@ -91,7 +91,8 @@ class Test0001EventsSampleBy(BaseTest):
 
         self.assertTrue(migration_successful)
         self.assertTrue(
-            "ORDER BY (team_id, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))" in create_table_res[0][0]
+            "ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))"
+            in create_table_res[0][0]
         )
 
         self.assertEqual(events_count_res[0][0], 5)
