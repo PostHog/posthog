@@ -1,4 +1,6 @@
-from posthog.async_migrations.definition import AsyncMigrationDefinition
+from typing import List
+
+from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
 
 """
 Nooping this migration for future compatibility. Superseded by 0002_events_sample_by.
@@ -11,7 +13,7 @@ class Migration(AsyncMigrationDefinition):
 
     description = "Test migration"
 
-    operations = []
+    operations: List[AsyncMigrationOperation] = []
 
     def is_required(self):
         return False
