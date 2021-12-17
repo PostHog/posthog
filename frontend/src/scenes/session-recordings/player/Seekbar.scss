@@ -64,6 +64,23 @@ $tick_hover_size: 5px;
             left: 1px;
             width: 0; // starting point
         }
+
+        .inactivity-bar {
+            z-index: 4;
+            position: absolute;
+            height: 2px;
+            top: ($slider-height - 2px) / 2;
+            left: 1px;
+            width: 100%;
+            .activity-section {
+                float: left;
+                height: 100%;
+            }
+            .inactive-section {
+                border-bottom: 1px solid $border;
+                background: repeating-linear-gradient(325deg, transparent, transparent 3px, #fff 3px, #fff 6px);
+            }
+        }
     }
 
     .ticks {

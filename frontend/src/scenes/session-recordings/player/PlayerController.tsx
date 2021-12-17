@@ -4,7 +4,7 @@ import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { Select } from 'antd'
+import { Select, Switch } from 'antd'
 import { SessionPlayerState } from '~/types'
 import { IconPause, IconPlay } from 'scenes/session-recordings/player/icons'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
@@ -49,6 +49,10 @@ export function PlayerController(): JSX.Element {
                     ))}
                 </Select.OptGroup>
             </Select>
+            <div className="rrweb-inactivity-toggle">
+                <span className="inactivity-label">Skip inactivity</span>
+                <Switch disabled size="small" />
+            </div>
         </div>
     )
 }
