@@ -85,6 +85,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     REDIS_POOL_MAX_SIZE: number
     DISABLE_MMDB: boolean
     DISTINCT_ID_LRU_SIZE: number
+    EVENT_PROPERTY_LRU_SIZE: number
     INTERNAL_MMDB_SERVER_PORT: number
     PLUGIN_SERVER_IDLE: boolean
     JOB_QUEUES: string
@@ -104,6 +105,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     SITE_URL: string | null
     NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS: string
     EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: boolean
+    EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED_TEAMS: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -758,6 +760,13 @@ export interface PropertyDefinitionType {
     is_numerical: boolean
     volume_30_day: number | null
     query_usage_30_day: number | null
+    team_id: number
+}
+
+export interface EventPropertyType {
+    id: string
+    event: string
+    property: string
     team_id: number
 }
 
