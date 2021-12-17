@@ -180,7 +180,7 @@ else:
                     save_query(prepared_sql, execution_time)
         return result
 
-    def _substitute_params(query, params):
+    def _substitute_params(query: str, params: QueryArgs):
         """
         Helper method to ease rendering of sql clickhouse queries progressively.
         For example, there are many places where we construct queries to be used
@@ -197,11 +197,7 @@ else:
         """
         return cast(SyncClient, ch_client).substitute_params(query, params)
 
-    def render_query(
-        query_template: str,
-        params: Optional[Dict[str, Union[int, float, str, List, Tuple]]] = None,
-        fragments: Optional[Dict[str, str]] = None,
-    ) -> str:
+    def render_query(query_template: str, params: QueryArgs = None, fragments: Optional[Dict[str, str]] = None,) -> str:
         """
         Given a SQL template that can use both printf style interpolation
         (%-formatting) and format string syntax. These serve separate purposes:
