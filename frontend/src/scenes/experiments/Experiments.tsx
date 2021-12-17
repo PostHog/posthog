@@ -52,8 +52,6 @@ export function Experiments(): JSX.Element {
                     ? dayjs().diff(dayjs(experiment.start_date), 'day')
                     : undefined
 
-                console.log(duration)
-
                 return <div>{duration !== undefined ? `${duration} day${duration > 1 ? 's' : ''}` : 'N.A'}</div>
             },
         },
