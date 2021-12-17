@@ -322,7 +322,7 @@ export function ToolbarButton(): JSX.Element {
                         y={toolbarListVerticalPadding + n++ * 60}
                         extensionPercentage={featureFlagsExtensionPercentage}
                         rotationFixer={(r) => (side === 'right' && r < 0 ? 360 : 0)}
-                        label="Feature Flags"
+                        label="Feature flags"
                         labelPosition={side === 'left' ? 'right' : 'left'}
                         labelStyle={{
                             opacity:

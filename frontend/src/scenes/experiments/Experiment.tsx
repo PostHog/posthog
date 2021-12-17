@@ -418,7 +418,7 @@ export function Experiment(): JSX.Element {
                                     Follow this guide.{' '}
                                 </a>
                                 <div>
-                                    For your Feature Flag, the override code looks like:
+                                    For your feature flag, the override code looks like:
                                     {['control', 'test'].map((variant) => (
                                         <div key={variant}>
                                             {' '}
