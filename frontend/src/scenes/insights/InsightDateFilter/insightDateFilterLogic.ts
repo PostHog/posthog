@@ -1,6 +1,4 @@
 import { kea } from 'kea'
-import { router } from 'kea-router'
-import { objectsEqual } from 'lib/utils'
 import { insightDateFilterLogicType } from './insightDateFilterLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightLogicProps } from '~/types'
@@ -10,11 +8,10 @@ export const insightDateFilterLogic = kea<insightDateFilterLogicType>({
     path: ['scenes', 'insights', 'InsightDateFilter', 'insightDateFilterLogic'],
     connect: (props: InsightLogicProps) => ({
         values: [insightLogic(props), ['filters', 'fallbackDateRange']],
+        actions: [insightLogic(props), ['setFilters']],
     }),
     actions: () => ({
-        dateAutomaticallyChanged: true,
-        endHighlightChange: true,
-        setInitialLoad: true,
+        setDates: (date_from: string, date_to: string) => ({ date_from, date_to }),
     }),
     selectors: {
         dates: [
@@ -27,39 +24,11 @@ export const insightDateFilterLogic = kea<insightDateFilterLogicType>({
             },
         ],
     },
-    reducers: () => ({
-        highlightDateChange: [
-            false,
-            {
-                dateAutomaticallyChanged: () => true,
-                endHighlightChange: () => false,
-            },
-        ],
-        initialLoad: [
-            true,
-            {
-                setInitialLoad: () => false,
-            },
-        ],
-    }),
     listeners: ({ values, actions }) => ({
-        setDates: () => {
-            const { date_from, date_to, ...searchParams } = router.values.searchParams // eslint-disable-line
-            const { pathname } = router.values.location
-
-            searchParams.date_from = values.dates.dateFrom
-            searchParams.date_to = values.dates.dateTo
-
-            if (
-                (pathname.startsWith('/insights/') && !objectsEqual(date_from, values.dates.dateFrom)) ||
-                !objectsEqual(date_to, values.dates.dateTo)
-            ) {
-                router.actions.replace(pathname, searchParams, router.values.hashParams)
+        setDates: (dateFilter) => {
+            if (dateFilter.date_from !== values.filters?.date_from || dateFilter.date_to !== values.filters?.date_to) {
+                actions.setFilters({ ...values.filters, ...dateFilter })
             }
-        },
-        dateAutomaticallyChanged: async (_, breakpoint) => {
-            await breakpoint(2000)
-            actions.endHighlightChange()
         },
     }),
 })

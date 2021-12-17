@@ -28,6 +28,16 @@ describe('the insightDateFilterLogic', () => {
         })
     })
 
+    describe('syncs with insightLogic', () => {
+        it('setDates updates insightLogic filters', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setDates('2020-02-01', '2020-02-11')
+            }).toDispatchActions([
+                insightLogic(logic.props).actionCreators.setFilters({ date_from: '2020-02-01', date_to: '2020-02-11' }),
+            ])
+        })
+    })
+
     describe('date from and date to', () => {
         describe('use fallback date range', () => {
             it('use fallback date range when insight is set but filter is empty', async () => {
