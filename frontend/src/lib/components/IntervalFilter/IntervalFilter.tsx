@@ -2,9 +2,8 @@ import React from 'react'
 import { Select } from 'antd'
 import { intervalFilterLogic } from './intervalFilterLogic'
 import { useValues, useActions } from 'kea'
-import { disableHourFor, disableMinuteFor } from 'lib/utils'
 import { CalendarOutlined } from '@ant-design/icons'
-import { defaultInterval, IntervalKeyType, intervals } from 'lib/components/IntervalFilter/intervals'
+import { intervals } from 'lib/components/IntervalFilter/intervals'
 import { InsightType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -15,10 +14,8 @@ interface InvertalFilterProps {
 
 export function IntervalFilter({ view, disabled }: InvertalFilterProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const {
-        filters: { interval },
-    } = useValues(intervalFilterLogic(insightProps))
-    const { setIntervalFilter, setDateFrom } = useActions(intervalFilterLogic(insightProps))
+    const { interval } = useValues(intervalFilterLogic(insightProps))
+    const { setInterval } = useActions(intervalFilterLogic(insightProps))
     const options = Object.entries(intervals).map(([key, { label }]) => ({
         key,
         value: key,
@@ -39,20 +36,7 @@ export function IntervalFilter({ view, disabled }: InvertalFilterProps): JSX.Ele
             defaultValue={interval || 'day'}
             value={interval || undefined}
             dropdownMatchSelectWidth={false}
-            onChange={(key) => {
-                const { newDateFrom } = intervals[key as IntervalKeyType] || defaultInterval
-                const minuteDisabled = key === 'minute' && newDateFrom && disableMinuteFor[newDateFrom]
-                const hourDisabled = key === 'hour' && newDateFrom && disableHourFor[newDateFrom]
-                if (minuteDisabled || hourDisabled) {
-                    return false
-                }
-
-                if (newDateFrom) {
-                    setDateFrom(newDateFrom)
-                }
-
-                setIntervalFilter(key)
-            }}
+            onChange={setInterval}
             data-attr="interval-filter"
             options={options}
         />

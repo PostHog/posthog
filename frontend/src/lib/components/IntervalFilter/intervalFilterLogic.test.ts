@@ -1,51 +1,42 @@
-import { initKeaTestLogic } from '~/test/init'
-import { router } from 'kea-router'
+import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { InsightShortId } from '~/types'
+import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
 import { intervalFilterLogic } from 'lib/components/IntervalFilter/intervalFilterLogic'
-import { urls } from 'scenes/urls'
-import { InsightShortId, InsightType } from '~/types'
 
-describe('the intervalFilterLogic', () => {
+jest.mock('lib/api')
+
+describe('intervalFilterLogic', () => {
     let logic: ReturnType<typeof intervalFilterLogic.build>
+    const props = { dashboardItemId: 'test' as InsightShortId }
 
-    initKeaTestLogic({
-        logic: intervalFilterLogic,
-        props: {
-            dashboardItemId: undefined,
-            syncWithUrl: true,
-            filters: {
-                insight: InsightType.TRENDS,
-            },
-        },
-        onLogic: (l) => (logic = l),
+    mockAPI(async (url) => {
+        return defaultAPIMocks(url)
     })
 
-    it('sets a default for interval, and excludes date_from', () => {
-        const url = urls.insightEdit('12345' as InsightShortId, {})
-
-        expectLogic(logic, () => {
-            router.actions.push(url)
-        }).toMatchValues({ filters: expect.objectContaining({ interval: 'day' }) })
+    beforeEach(() => {
+        initKeaTests()
+        insightLogic(props).mount()
+        logic = intervalFilterLogic(props)
+        logic.mount()
     })
 
-    it('reads "date from" and "interval" from URL when editing', () => {
-        const url = urls.insightEdit('12345' as InsightShortId, {
-            date_from: '-30d',
-            interval: 'hour',
+    describe('core assumptions', () => {
+        it('mounts all sorts of logics', async () => {
+            await expectLogic(logic).toMount([insightLogic(logic.props)])
         })
-        expectLogic(logic, () => {
-            router.actions.push(url)
-        }).toMatchValues({ filters: expect.objectContaining({ date_from: '-30d', interval: 'hour' }) })
     })
 
-    it('reads "date from" and "interval" from URL when viewing', () => {
-        const url = urls.insightView('12345' as InsightShortId, {
-            date_from: '-14d',
-            interval: 'week',
+    describe('syncs with insightLogic', () => {
+        it('setInterval updates insightLogic filters', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setInterval('month')
+            })
+                .toDispatchActions([insightLogic(logic.props).actionCreators.setFilters({ interval: 'month' })])
+                .toMatchValues({
+                    interval: 'month',
+                })
         })
-
-        expectLogic(logic, () => {
-            router.actions.push(url)
-        }).toMatchValues({ filters: expect.objectContaining({ date_from: '-14d', interval: 'week' }) })
     })
 })

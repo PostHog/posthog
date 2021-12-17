@@ -171,12 +171,7 @@ export async function createHub(
     status.info('👍', `Redis`)
 
     const db = new DB(postgres, redisPool, kafkaProducer, clickhouse, statsd)
-    const teamManager = new TeamManager(
-        db,
-        statsd,
-        serverConfig.SITE_URL,
-        serverConfig.EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED
-    )
+    const teamManager = new TeamManager(db, serverConfig, statsd)
     const organizationManager = new OrganizationManager(db)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const actionManager = new ActionManager(db)

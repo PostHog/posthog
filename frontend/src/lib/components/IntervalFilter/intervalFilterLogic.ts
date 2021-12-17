@@ -1,32 +1,33 @@
 import { kea } from 'kea'
+import { objectsEqual } from 'lib/utils'
 import { intervalFilterLogicType } from './intervalFilterLogicType'
 import { IntervalKeyType } from 'lib/components/IntervalFilter/intervals'
-import { InsightLogicProps } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { InsightLogicProps } from '~/types'
 
 export const intervalFilterLogic = kea<intervalFilterLogicType>({
-    path: ['lib', 'components', 'IntervalFilter', 'intervalFilterLogic'],
     props: {} as InsightLogicProps,
-    connect: (props: InsightLogicProps) => ({
-        values: [insightLogic(props), ['filters']],
-        actions: [insightLogic(props), ['setFilters']],
-    }),
+    path: ['lib', 'components', 'IntervalFilter', 'intervalFilterLogic'],
     actions: () => ({
-        setIntervalFilter: (interval: IntervalKeyType) => ({ interval }),
-        setDateFrom: (dateFrom: string) => ({ dateFrom }),
+        setInterval: (interval: IntervalKeyType) => ({ interval }),
     }),
-    listeners: ({ actions, values }) => ({
-        setIntervalFilter: ({ interval }) => {
-            actions.setFilters({
-                ...values.filters,
-                interval: interval,
-            })
-        },
-        setDateFrom: ({ dateFrom }) => {
-            actions.setFilters({
-                ...values.filters,
-                date_from: dateFrom,
-            })
+    connect: (props: InsightLogicProps) => ({
+        actions: [insightLogic(props), ['setFilters']],
+        values: [insightLogic(props), ['filters']],
+    }),
+    listeners: ({ values, actions }) => ({
+        setInterval: ({ interval }) => {
+            if (!objectsEqual(interval, values.filters.interval)) {
+                actions.setFilters({ ...values.filters, interval })
+            }
         },
     }),
+    selectors: {
+        interval: [
+            (s) => [s.filters],
+            (filters) => {
+                return filters?.interval
+            },
+        ],
+    },
 })
