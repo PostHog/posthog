@@ -1,9 +1,8 @@
 import LRU from 'lru-cache'
 
+import { ONE_HOUR } from '../../config/contants'
 import { PluginsServerConfig } from '../../types'
 import { DB } from '../../utils/db/db'
-
-const ONE_HOUR = 60 * 60 * 1000
 
 export class PersonManager {
     personSeen: LRU<string, boolean>

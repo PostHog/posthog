@@ -3,6 +3,7 @@ import { StatsD } from 'hot-shots'
 import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 
+import { ONE_HOUR } from '../../config/contants'
 import { PluginsServerConfig, Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
@@ -32,7 +33,7 @@ export class TeamManager {
         this.eventDefinitionsCache = new Map()
         this.eventPropertiesCache = new LRU({
             max: serverConfig.EVENT_PROPERTY_LRU_SIZE, // keep in memory the last 10k team+event combos we have seen
-            maxAge: 60 * 60 * 1000, // and each for up to 1 hour
+            maxAge: ONE_HOUR, // and each for up to 1 hour
             updateAgeOnGet: true,
         })
         this.eventLastSeenCache = new Map()
