@@ -20,7 +20,7 @@ Migration Summary
     1. Start backfilling the new table (online) with data from partitions that are unlikely to be getting inserts (previous month and under)
     2. Detach the events_mv materialized view so we stop ingestion
     3. Insert the remaining events into the new table
-    4. Rename the current table to `events_backup_0001_events_sample_by` and rename the new table to `events` (the table we use for querying)
+    4. Rename the current table to `events_backup_0002_events_sample_by` and rename the new table to `events` (the table we use for querying)
     5. Attach the materialized view so we start ingestion again
     6. Optimize the table to remove duplicates
 - Checks:
