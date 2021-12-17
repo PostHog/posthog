@@ -50,7 +50,7 @@ class Migration(AsyncMigrationDefinition):
             CREATE TABLE IF NOT EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER} AS {EVENTS_TABLE_NAME}
             ENGINE = ReplacingMergeTree(_timestamp)
             PARTITION BY toYYYYMM(timestamp)
-            ORDER BY (team_id, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))
+            ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
             SAMPLE BY cityHash64(distinct_id) 
             """,
             rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
