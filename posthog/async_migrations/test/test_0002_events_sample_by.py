@@ -86,7 +86,7 @@ class Test0001EventsSampleBy(BaseTest):
         create_table_res = sync_execute(f"SHOW CREATE TABLE {CLICKHOUSE_DATABASE}.events")
         events_count_res = sync_execute(f"SELECT COUNT(*) FROM {CLICKHOUSE_DATABASE}.events")
         backup_events_count_res = sync_execute(
-            f"SELECT COUNT(*) FROM {CLICKHOUSE_DATABASE}.events_backup_0001_events_sample_by"
+            f"SELECT COUNT(*) FROM {CLICKHOUSE_DATABASE}.events_backup_0002_events_sample_by"
         )
 
         self.assertTrue(migration_successful)
