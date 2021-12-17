@@ -102,3 +102,10 @@
         }
     }
 }
+
+.confirmation {
+    .draft-header {
+        margin-bottom: $default_spacing;
+        border-bottom: 1px solid $border;
+    }
+}

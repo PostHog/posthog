@@ -1,5 +1,5 @@
 import SaveOutlined from '@ant-design/icons/lib/icons/SaveOutlined'
-import { Alert, Button, Card, Col, Collapse, Form, Input, Row, Slider, Tooltip } from 'antd'
+import { Alert, Button, Card, Col, Collapse, Form, Input, Row, Slider, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
@@ -38,8 +38,9 @@ export function Experiment(): JSX.Element {
         expectedRunningTime,
         experimentResults,
         conversionRateForVariant,
+        editingExistingExperiment,
     } = useValues(experimentLogic)
-    const { setNewExperimentData, createExperiment, launchExperiment, setFilters, endExperiment } =
+    const { setNewExperimentData, createExperiment, launchExperiment, setFilters, editExperiment, endExperiment } =
         useActions(experimentLogic)
 
     const [form] = Form.useForm()
@@ -59,7 +60,7 @@ export function Experiment(): JSX.Element {
 
     return (
         <>
-            {experimentId === 'new' ? (
+            {experimentId === 'new' || editingExistingExperiment ? (
                 <>
                     <Row
                         align="middle"
@@ -336,14 +337,35 @@ export function Experiment(): JSX.Element {
                 </>
             ) : !experimentData?.start_date ? (
                 <div className="confirmation">
-                    {newExperimentData?.description && <Row>Description: {newExperimentData?.description}</Row>}
-                    <Row className="mt">
-                        <Col span={10}>
+                    <Row className="draft-header">
+                        <Row justify="space-between" align="middle" className="full-width">
                             <Row>
-                                Feature flag key: <b>{newExperimentData?.feature_flag_key}</b>
+                                <PageHeader
+                                    style={{ margin: 0, paddingRight: 8 }}
+                                    title={`${newExperimentData?.name}`}
+                                />
+                                <Tag style={{ alignSelf: 'center' }} color="default">
+                                    <b className="uppercase">Draft</b>
+                                </Tag>
                             </Row>
-                            <Row>Variants: 'control' and 'test'</Row>
-                            <Row>The following users will participate in the experiment</Row>
+                            <div>
+                                <Button className="mr-05" onClick={() => editExperiment()}>
+                                    Edit
+                                </Button>
+                                <Button type="primary" onClick={() => launchExperiment()}>
+                                    Launch
+                                </Button>
+                            </div>
+                        </Row>
+                        {newExperimentData?.description && <Row>Description: {newExperimentData?.description}</Row>}
+                    </Row>
+                    <Row>
+                        <Col span={10}>
+                            <div className="mb-05">
+                                <span>Feature flag key:</span> <b>{newExperimentData?.feature_flag_key}</b>
+                            </div>
+                            <div className="mb-05">Variants: 'control' and 'test'</div>
+                            <div className="mb-05">The following users will participate in the experiment</div>
                             <ul>
                                 {newExperimentData?.filters?.properties?.length ? (
                                     newExperimentData.filters.properties.map(
@@ -377,7 +399,11 @@ export function Experiment(): JSX.Element {
                         <Col span={14}>
                             <div>
                                 Test that your code works properly for each variant:{' '}
-                                <a href="https://posthog.com/docs/user-guides/feature-flags#develop-locally">
+                                <a
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    href="https://posthog.com/docs/user-guides/feature-flags#develop-locally"
+                                >
                                     {' '}
                                     Follow this guide.{' '}
                                 </a>
@@ -396,11 +422,6 @@ export function Experiment(): JSX.Element {
                             </div>
                             <div>Warning: Remember to not change this code until the experiment ends</div>
                         </Col>
-                    </Row>
-                    <Row justify="space-between">
-                        <Button type="primary" onClick={() => launchExperiment()}>
-                            Launch
-                        </Button>
                     </Row>
                 </div>
             ) : experimentData ? (
