@@ -81,6 +81,7 @@ export async function startPluginsServer(
         statusReport.stopStatusReportSchedule()
         piscinaStatsJob && schedule.cancelJob(piscinaStatsJob)
         internalMetricsStatsJob && schedule.cancelJob(internalMetricsStatsJob)
+        flushLastSeenAtCacheJob && schedule.cancelJob(flushLastSeenAtCacheJob)
         await jobQueueConsumer?.stop()
         await scheduleControl?.stopSchedule()
         await new Promise<void>((resolve, reject) =>
@@ -198,10 +199,10 @@ export async function startPluginsServer(
             })
         }
 
-        // every minute flush lastSeenAt cache
+        // every 10 seconds past the minute flush lastSeenAt cache
         if (serverConfig.EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED) {
-            flushLastSeenAtCacheJob = schedule.scheduleJob('0 * * * * *', async () => {
-                await hub!.teamManager.flushLastSeenAtCache()
+            flushLastSeenAtCacheJob = schedule.scheduleJob('10 * * * * *', async () => {
+                await piscina!.broadcastTask({ task: 'flushLastSeenAtCache' })
             })
         }
 

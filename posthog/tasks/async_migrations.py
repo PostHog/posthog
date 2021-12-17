@@ -34,8 +34,9 @@ def run_async_migration(migration_name: str, fresh_start: bool = True) -> None:
 def check_async_migration_health() -> None:
     from posthog.models.async_migration import AsyncMigration, MigrationStatus
 
-    migration_instance: AsyncMigration = AsyncMigration.objects.get(status=MigrationStatus.Running)
-    if not migration_instance:
+    try:
+        migration_instance: AsyncMigration = AsyncMigration.objects.get(status=MigrationStatus.Running)
+    except AsyncMigration.DoesNotExist:
         return
 
     migration_task_celery_state = AsyncResult(migration_instance.celery_task_id).state

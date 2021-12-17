@@ -21,6 +21,4 @@ export const intervals = {
     },
 }
 
-export const defaultInterval = intervals.day
-
 export type IntervalKeyType = keyof typeof intervals
