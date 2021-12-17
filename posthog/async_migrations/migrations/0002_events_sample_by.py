@@ -68,7 +68,7 @@ class Migration(AsyncMigrationDefinition):
             AND timestamp >= (SELECT max(timestamp) FROM {TEMPORARY_TABLE_NAME})""",
             rollback=f"TRUNCATE TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
             resumable=True,
-            timeout=7 * 24 * 60 * 60,  # one week
+            timeout_seconds=7 * 24 * 60 * 60,  # one week
         ),
         AsyncMigrationOperation(
             database=AnalyticsDBMS.CLICKHOUSE,
@@ -86,7 +86,7 @@ class Migration(AsyncMigrationDefinition):
             WHERE timestamp >= (SELECT max(timestamp) FROM {TEMPORARY_TABLE_NAME})""",
             rollback=f"TRUNCATE TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
             resumable=True,
-            timeout=3 * 24 * 60 * 60,  # three days
+            timeout_seconds=3 * 24 * 60 * 60,  # three days
         ),
         AsyncMigrationOperation(
             database=AnalyticsDBMS.CLICKHOUSE,

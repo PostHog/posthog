@@ -9,7 +9,7 @@ from posthog.models.async_migration import AsyncMigration, MigrationStatus
 from posthog.settings import CLICKHOUSE_DATABASE
 from posthog.test.base import BaseTest
 
-MIGRATION_NAME = "0001_events_sample_by"
+MIGRATION_NAME = "0002_events_sample_by"
 
 
 def execute_query(query: str) -> Any:
