@@ -156,6 +156,7 @@ function InsightCardInternal(
         removeItem,
         refresh,
         className,
+        children,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -184,3 +185,6 @@ function InsightCardInternal(
     )
 }
 export const InsightCard = React.forwardRef(InsightCardInternal) as typeof InsightCardInternal
+{
+    children /* Extras, such as resize handles */
+}
