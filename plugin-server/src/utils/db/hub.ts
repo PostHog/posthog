@@ -34,6 +34,8 @@ export async function createHub(
     config: Partial<PluginsServerConfig> = {},
     threadId: number | null = null
 ): Promise<[Hub, () => Promise<void>]> {
+    status.info('ℹ️', `Connecting to all services:`)
+
     const serverConfig: PluginsServerConfig = {
         ...defaultConfig,
         ...config,
@@ -44,6 +46,7 @@ export async function createHub(
     let statsd: StatsD | undefined
     let eventLoopLagInterval: NodeJS.Timeout | undefined
     if (serverConfig.STATSD_HOST) {
+        status.info('🤔', `StatsD`)
         statsd = new StatsD({
             port: serverConfig.STATSD_PORT,
             host: serverConfig.STATSD_HOST,
@@ -69,6 +72,7 @@ export async function createHub(
                 `Sending metrics to StatsD at ${serverConfig.STATSD_HOST}:${serverConfig.STATSD_PORT}, prefix: "${serverConfig.STATSD_PREFIX}"`
             )
         }
+        status.info('👍', `StatsD`)
     }
 
     let kafkaSsl: ConnectionOptions | undefined
@@ -94,6 +98,7 @@ export async function createHub(
     let kafka: Kafka | undefined
     let kafkaProducer: KafkaProducerWrapper | undefined
     if (serverConfig.KAFKA_ENABLED) {
+        status.info('🤔', `ClickHouse`)
         if (!serverConfig.KAFKA_HOSTS) {
             throw new Error('You must set KAFKA_HOSTS to process events from Kafka!')
         }
@@ -114,7 +119,9 @@ export async function createHub(
             rejectUnauthorized: serverConfig.CLICKHOUSE_CA ? false : undefined,
         })
         await clickhouse.querying('SELECT 1') // test that the connection works
+        status.info('👍', `ClickHouse`)
 
+        status.info('🤔', `Kafka`)
         kafka = new Kafka({
             clientId: `plugin-server-v${version}-${instanceId}`,
             brokers: serverConfig.KAFKA_HOSTS.split(','),
@@ -127,6 +134,7 @@ export async function createHub(
         await producer?.connect()
 
         kafkaProducer = new KafkaProducerWrapper(producer, statsd, serverConfig)
+        status.info('👍', `Kafka`)
     }
 
     // `node-postgres` will return dates as plain JS Date objects, which will use the local timezone.
@@ -142,8 +150,11 @@ export async function createHub(
         timeStr ? DateTime.fromSQL(timeStr, { zone: 'utc' }).toISO() : null
     )
 
+    status.info('🤔', `Postgresql`)
     const postgres = createPostgresPool(serverConfig)
+    status.info('👍', `Postgresql`)
 
+    status.info('🤔', `Redis`)
     const redisPool = createPool<Redis.Redis>(
         {
             create: () => createRedis(serverConfig),
@@ -157,6 +168,7 @@ export async function createHub(
             autostart: true,
         }
     )
+    status.info('👍', `Redis`)
 
     const db = new DB(postgres, redisPool, kafkaProducer, clickhouse, statsd)
     const teamManager = new TeamManager(
