@@ -1,6 +1,14 @@
 import { kea } from 'kea'
 import { prompt } from 'lib/logic/prompt'
-import { dateFilterToText, errorToast, getFormattedLastWeekDate, objectsEqual, toParams, uuid } from 'lib/utils'
+import {
+    dateFilterToText,
+    errorToast,
+    getEventNamesForAction,
+    getFormattedLastWeekDate,
+    objectsEqual,
+    toParams,
+    uuid,
+} from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
@@ -464,14 +472,12 @@ export const insightLogic = kea<insightLogicType>({
         allEventNames: [
             (s) => [s.filters, actionsModel.selectors.actions],
             (filters, actions: ActionType[]) => {
-                return [
-                    ...(filters.events?.map((e) => e.name) || []),
-                    ...(filters.actions?.flatMap((action) =>
-                        actions
-                            ?.filter(({ id }) => id === parseInt(String(action.id)))
-                            ?.flatMap(({ steps }) => steps?.map((step) => step.event).filter((e) => !!e) as string[])
-                    ) || []),
-                ].filter((a): a is string => !!a)
+                const allEvents = [
+                    ...(filters.events || []).map((e) => e.name),
+                    ...(filters.actions || []).flatMap((action) => getEventNamesForAction(action.id, actions)),
+                ]
+                // remove duplicates and empty events
+                return Array.from(new Set(allEvents.filter((a): a is string => !!a)))
             },
         ],
     },

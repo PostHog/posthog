@@ -25,7 +25,7 @@ import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { pluralize } from 'lib/utils'
+import { getEventNamesForAction, pluralize } from 'lib/utils'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import './index.scss'
 import { Popup } from 'lib/components/Popup/Popup'
@@ -441,14 +441,7 @@ export function ActionFilterRow({
                             filter.type === TaxonomicFilterGroupType.Events && filter.name
                                 ? [filter.name]
                                 : filter.type === TaxonomicFilterGroupType.Actions && filter.id
-                                ? actions
-                                      .filter((a) => a.id === parseInt(String(filter.id)))
-                                      .flatMap(
-                                          (a) =>
-                                              a.steps
-                                                  ?.filter((step) => step.event)
-                                                  .map((step) => String(step.event)) as string[]
-                                      )
+                                ? getEventNamesForAction(parseInt(String(filter.id)), actions)
                                 : []
                         }
                     />
