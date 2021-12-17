@@ -19,8 +19,6 @@ import './InsightCard.scss'
 export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     /** Insight to display. */
     insight: InsightModel
-    /** Card index, for data-attr instrumentation. */
-    index: number
     /** Whether the insight is loading. */
     loading: boolean
     /** Whether loading the insight resulted in an error. */
@@ -42,7 +40,7 @@ function InsightMeta({
     updateColor,
     removeItem,
     refresh,
-}: Pick<InsightCardProps, 'insight' | 'index' | 'updateColor' | 'removeItem' | 'refresh'>): JSX.Element {
+}: Pick<InsightCardProps, 'insight' | 'updateColor' | 'removeItem' | 'refresh'>): JSX.Element {
     const { short_id, name, description, tags, color, filters } = insight
 
     return (
@@ -122,8 +120,11 @@ function InsightMeta({
                         </div>
                     </div>
                     <Link to={urls.insightView(short_id)}>
-                        <h4 title={name}>{name || <i>{UNNAMED_INSIGHT_NAME}</i>}</h4>
+                        <h4 title={name} data-attr="insight-card-title">
+                            {name || <i>{UNNAMED_INSIGHT_NAME}</i>}
+                        </h4>
                     </Link>
+
                     <div className="InsightMeta__description">{description || <i>No description</i>}</div>
                     {tags.length > 0 && <ObjectTags tags={tags} staticOnly />}
                 </div>
@@ -132,10 +133,7 @@ function InsightMeta({
     )
 }
 
-function InsightViz({
-    insight,
-    loading,
-}: Pick<InsightCardProps, 'insight' | 'index' | 'loading' | 'apiError'>): JSX.Element {
+function InsightViz({ insight, loading }: Pick<InsightCardProps, 'insight' | 'loading' | 'apiError'>): JSX.Element {
     const { short_id, filters, result: cachedResults } = insight
 
     return (
@@ -151,7 +149,6 @@ function InsightViz({
 function InsightCardInternal(
     {
         insight,
-        index,
         loading,
         apiError,
         highlighted,
@@ -175,19 +172,14 @@ function InsightCardInternal(
     return (
         <div
             className={clsx('InsightCard', highlighted && 'InsightCard--highlighted', className)}
+            data-attr="insight-card"
             {...divProps}
             ref={ref}
         >
             <BindLogic logic={insightLogic} props={insightLogicProps}>
-                <InsightViz insight={insight} index={index} loading={loading} apiError={apiError} />
+                <InsightViz insight={insight} loading={loading} apiError={apiError} />
             </BindLogic>
-            <InsightMeta
-                insight={insight}
-                index={index}
-                updateColor={updateColor}
-                removeItem={removeItem}
-                refresh={refresh}
-            />
+            <InsightMeta insight={insight} updateColor={updateColor} removeItem={removeItem} refresh={refresh} />
         </div>
     )
 }
