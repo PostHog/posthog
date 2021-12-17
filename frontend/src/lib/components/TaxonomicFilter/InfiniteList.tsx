@@ -25,7 +25,7 @@ import { dayjs } from 'lib/dayjs'
 import { FEATURE_FLAGS, STALE_EVENT_SECONDS } from 'lib/constants'
 import { Tooltip } from '../Tooltip'
 import clsx from 'clsx'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 enum ListTooltip {
     None = 0,
@@ -91,21 +91,25 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
 const renderItemContents = ({
     item,
     listGroupType,
-    featureFlagEnabled,
+    featureFlags,
     eventNames,
 }: {
     item: EventDefinition | PropertyDefinition | CohortType
     listGroupType: TaxonomicFilterGroupType
-    featureFlagEnabled: boolean
+    featureFlags: FeatureFlagsSet
     eventNames: string[]
 }): JSX.Element | string => {
     const parsedLastSeen = (item as EventDefinition).last_seen_at ? dayjs((item as EventDefinition).last_seen_at) : null
     const isStale =
-        (featureFlagEnabled && listGroupType === TaxonomicFilterGroupType.Events && !parsedLastSeen) ||
+        (featureFlags[FEATURE_FLAGS.STALE_EVENTS] &&
+            listGroupType === TaxonomicFilterGroupType.Events &&
+            !parsedLastSeen) ||
         dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS
 
-    const isUnused =
-        listGroupType === TaxonomicFilterGroupType.EventProperties && !(item as PropertyDefinition).is_event_property
+    const isUnusedEventProperty =
+        featureFlags[FEATURE_FLAGS.EVENT_PROPERTY_FILTER] &&
+        listGroupType === TaxonomicFilterGroupType.EventProperties &&
+        !(item as PropertyDefinition).is_event_property
 
     return listGroupType === TaxonomicFilterGroupType.EventProperties ||
         listGroupType === TaxonomicFilterGroupType.PersonProperties ||
@@ -113,11 +117,11 @@ const renderItemContents = ({
         listGroupType === TaxonomicFilterGroupType.CustomEvents ||
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <>
-            <div className={clsx((isStale || isUnused) && 'text-muted')}>
+            <div className={clsx((isStale || isUnusedEventProperty) && 'text-muted')}>
                 <PropertyKeyInfo value={item.name ?? ''} disablePopover />
             </div>
             {isStale && staleIndicator(parsedLastSeen)}
-            {isUnused && unusedIndicator(eventNames)}
+            {isUnusedEventProperty && unusedIndicator(eventNames)}
         </>
     ) : listGroupType === TaxonomicFilterGroupType.Elements ? (
         <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover />
@@ -256,7 +260,7 @@ export function InfiniteList(): JSX.Element {
                 {renderItemContents({
                     item,
                     listGroupType,
-                    featureFlagEnabled: !!featureFlags[FEATURE_FLAGS.STALE_EVENTS],
+                    featureFlags,
                     eventNames,
                 })}
             </div>
