@@ -13,12 +13,13 @@ logger = structlog.get_logger(__name__)
 def get_necessary_migrations():
     necessary_migrations = []
     for migration_name, definition in ALL_ASYNC_MIGRATIONS.items():
-        sm = AsyncMigration.objects.get_or_create(
-            name=migration_name,
-            description=definition.description,
-            posthog_min_version=definition.posthog_min_version,
-            posthog_max_version=definition.posthog_max_version,
-        )[0]
+        sm = AsyncMigration.objects.get_or_create(name=migration_name)[0]
+
+        sm.description = definition.description
+        sm.posthog_max_version = definition.posthog_max_version
+        sm.posthog_min_version = definition.posthog_min_version
+
+        sm.save()
         if POSTHOG_VERSION > Version(sm.posthog_max_version) and ALL_ASYNC_MIGRATIONS[migration_name].is_required():
             necessary_migrations.append(sm)
 
