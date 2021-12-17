@@ -77,6 +77,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
         ],
         speed: [
             1,
+            { persist: true },
             {
                 setSpeed: (_, { speed }) => speed,
             },
