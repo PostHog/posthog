@@ -23,7 +23,7 @@ describe('TeamManager()', () => {
 
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub({
-            EXPERIMENTAL_EVENT_PROPERTY_COUNTER_ENABLED_TEAMS: '2',
+            EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED_TEAMS: '2',
         })
         await resetTestDatabase()
         teamManager = hub.teamManager

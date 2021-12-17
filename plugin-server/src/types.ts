@@ -105,7 +105,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     SITE_URL: string | null
     NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS: string
     EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: boolean
-    EXPERIMENTAL_EVENT_PROPERTY_COUNTER_ENABLED_TEAMS: string
+    EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED_TEAMS: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -767,11 +767,6 @@ export interface EventPropertyType {
     id: string
     event: string
     property: string
-    property_type: string | null
-    property_type_format: string | null
-    total_volume: number | null
-    created_at: string // DateTime
-    last_seen_at: string // DateTime
     team_id: number
 }
 

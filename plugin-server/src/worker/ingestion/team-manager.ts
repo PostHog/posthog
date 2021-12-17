@@ -41,10 +41,10 @@ export class TeamManager {
         this.lastFlushAt = DateTime.now()
 
         // TODO: #7422 Remove temporary EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED
-        // TODO: #7500 Remove temporary EXPERIMENTAL_EVENT_PROPERTY_COUNTER_ENABLED_TEAMS
+        // TODO: #7500 Remove temporary EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED_TEAMS
         this.experimentalLastSeenAtEnabled = serverConfig.EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED ?? false
         this.propertyCounterTeams = new Set(
-            (serverConfig.EXPERIMENTAL_EVENT_PROPERTY_COUNTER_ENABLED_TEAMS || '').split(',').map(parseInt)
+            (serverConfig.EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED_TEAMS || '').split(',').map(parseInt)
         )
     }
 
@@ -177,13 +177,13 @@ export class TeamManager {
         if (!this.propertyCounterTeams.has(team.id)) {
             return
         }
+        const key = JSON.stringify([team.id, event])
+        let properties = this.eventPropertiesCache.get(key)
+        if (!properties) {
+            properties = new Set()
+            this.eventPropertiesCache.set(key, properties)
+        }
         for (const property of propertyKeys) {
-            const key = JSON.stringify([team.id, event])
-            let properties = this.eventPropertiesCache.get(key)
-            if (!properties) {
-                properties = new Set()
-                this.eventPropertiesCache.set(key, properties)
-            }
             if (!properties.has(property)) {
                 properties.add(property)
                 await this.db.postgresQuery(

@@ -121,7 +121,7 @@ export const createProcessEventTests = (
             PLUGINS_CELERY_QUEUE: 'test-plugins-celery-queue',
             CELERY_DEFAULT_QUEUE: 'test-celery-default-queue',
             LOG_LEVEL: LogLevel.Log,
-            EXPERIMENTAL_EVENT_PROPERTY_COUNTER_ENABLED_TEAMS: '2',
+            EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED_TEAMS: '2',
             ...(extraServerConfig ?? {}),
             ...(additionalProps ?? {}),
         })

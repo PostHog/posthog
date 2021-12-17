@@ -78,7 +78,6 @@ export class EventsProcessor {
     teamManager: TeamManager
     personManager: PersonManager
     groupTypeManager: GroupTypeManager
-    propertyCounterTeams: number[]
 
     constructor(pluginsServer: Hub) {
         this.pluginsServer = pluginsServer
@@ -89,8 +88,6 @@ export class EventsProcessor {
         this.teamManager = pluginsServer.teamManager
         this.personManager = new PersonManager(pluginsServer)
         this.groupTypeManager = new GroupTypeManager(pluginsServer.db, this.teamManager, pluginsServer.SITE_URL)
-        this.propertyCounterTeams =
-            pluginsServer.EXPERIMENTAL_EVENT_PROPERTY_COUNTER_ENABLED_TEAMS.split(',').map(parseInt)
     }
 
     public async processEvent(
