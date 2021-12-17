@@ -16,7 +16,7 @@ BACKUP_TABLE_NAME = f"{EVENTS_TABLE_NAME}_backup_0001_events_sample_by"
 Migration Summary
 - Context: https://github.com/PostHog/posthog/issues/5684
 - Operations:
-    0. Create a new table with the updated schema: `SAMPLE BY cityHash64(distinct_id)` + `ORDER BY (team_id, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))`
+    0. Create a new table with the updated schema: `SAMPLE BY cityHash64(distinct_id)` + `ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))`
     1. Start backfilling the new table (online) with data from partitions that are unlikely to be getting inserts (previous month and under)
     2. Detach the events_mv materialized view so we stop ingestion
     3. Insert the remaining events into the new table
