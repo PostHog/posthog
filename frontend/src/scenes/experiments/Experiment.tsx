@@ -57,6 +57,15 @@ export function Experiment(): JSX.Element {
     const entrants = results?.[0]?.count
     const sampleSize = recommendedSampleSize(conversionRate)
     const runningTime = expectedRunningTime(entrants, sampleSize)
+    const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
+    const status = (): string => {
+        if (!experimentData?.start_date) {
+            return 'draft'
+        } else if (!experimentData?.end_date) {
+            return 'running'
+        }
+        return 'complete'
+    }
 
     return (
         <>
@@ -335,27 +344,29 @@ export function Experiment(): JSX.Element {
                         </div>
                     </Form>
                 </>
-            ) : !experimentData?.start_date ? (
+            ) : (
                 <div className="confirmation">
                     <Row className="draft-header">
                         <Row justify="space-between" align="middle" className="full-width">
                             <Row>
                                 <PageHeader
                                     style={{ margin: 0, paddingRight: 8 }}
-                                    title={`${newExperimentData?.name}`}
+                                    title={`${newExperimentData?.name || experimentData?.name}`}
                                 />
-                                <Tag style={{ alignSelf: 'center' }} color="default">
-                                    <b className="uppercase">Draft</b>
+                                <Tag style={{ alignSelf: 'center' }} color={statusColors[status()]}>
+                                    <b className="uppercase">{status()}</b>
                                 </Tag>
                             </Row>
-                            <div>
-                                <Button className="mr-05" onClick={() => editExperiment()}>
-                                    Edit
-                                </Button>
-                                <Button type="primary" onClick={() => launchExperiment()}>
-                                    Launch
-                                </Button>
-                            </div>
+                            {!experimentData?.start_date && (
+                                <div>
+                                    <Button className="mr-05" onClick={() => editExperiment()}>
+                                        Edit
+                                    </Button>
+                                    <Button type="primary" onClick={() => launchExperiment()}>
+                                        Launch
+                                    </Button>
+                                </div>
+                            )}
                         </Row>
                         {newExperimentData?.description && <Row>Description: {newExperimentData?.description}</Row>}
                     </Row>
@@ -423,60 +434,54 @@ export function Experiment(): JSX.Element {
                             <div>Warning: Remember to not change this code until the experiment ends</div>
                         </Col>
                     </Row>
-                </div>
-            ) : experimentData ? (
-                <div className="experiment-result">
-                    {experimentData.end_date && <Alert type="info" message="This experiment has ended" />}
-                    <div>
-                        <PageHeader title={experimentData.name} />
-                        <div>{experimentData?.description}</div>
-                        <div>Owner: {experimentData.created_by?.first_name}</div>
-                        <div>Feature flag key: {experimentData?.feature_flag_key}</div>
-                        <div>Experiment start date: {dayjs(experimentData.start_date).format('D MMM YYYY')}</div>
-                    </div>
+                    {experimentData && experimentData.start_date && (
+                        <div className="experiment-result">
+                            {experimentData.end_date && <Alert type="info" message="This experiment has ended" />}
+                            <div>Experiment start date: {dayjs(experimentData.start_date).format('D MMM YYYY')}</div>
 
-                    {experimentResults && (
-                        <BindLogic
-                            logic={insightLogic}
-                            props={{
-                                dashboardItemId: experimentResults.itemID,
-                                filters: {
-                                    ...experimentResults.filters,
-                                    insight: 'FUNNELS',
-                                    funnel_viz_type: FunnelVizType.Steps,
-                                    display: 'FunnelViz',
-                                },
-                                cachedResults: experimentResults.funnel,
-                                syncWithUrl: false,
-                                doNotLoad: true,
-                            }}
-                        >
-                            <div>
-                                <PageHeader title="Results" />
-                                <div>
-                                    Probability that test has higher conversion than control:{' '}
-                                    <b>{(experimentResults?.probability * 100).toFixed(1)}%</b>
-                                </div>
-                                {experimentResults.funnel.length === 0 && (
-                                    <div className="l4">There were no events related to this experiment.</div>
-                                )}
+                            {experimentResults && (
+                                <BindLogic
+                                    logic={insightLogic}
+                                    props={{
+                                        dashboardItemId: experimentResults.itemID,
+                                        filters: {
+                                            ...experimentResults.filters,
+                                            insight: 'FUNNELS',
+                                            funnel_viz_type: FunnelVizType.Steps,
+                                            display: 'FunnelViz',
+                                        },
+                                        cachedResults: experimentResults.funnel,
+                                        syncWithUrl: false,
+                                        doNotLoad: true,
+                                    }}
+                                >
+                                    <div>
+                                        <PageHeader title="Results" />
+                                        <div>
+                                            Probability that test has higher conversion than control:{' '}
+                                            <b>{(experimentResults?.probability * 100).toFixed(1)}%</b>
+                                        </div>
+                                        {experimentResults.funnel.length === 0 && (
+                                            <div className="l4">There were no events related to this experiment.</div>
+                                        )}
 
-                                <div>
-                                    Test variant conversion rate: <b>{conversionRateForVariant('test')}</b>
-                                </div>
-                                <div>
-                                    Control variant conversion rate: <b>{conversionRateForVariant('control')}</b>
-                                </div>
-                                <InsightContainer disableTable={true} />
-                            </div>
-                        </BindLogic>
-                    )}
-                    {!experimentData.end_date && (
-                        <LemonButton onClick={() => endExperiment()}>End experiment</LemonButton>
+                                        <div>
+                                            Test variant conversion rate: <b>{conversionRateForVariant('test')}</b>
+                                        </div>
+                                        <div>
+                                            Control variant conversion rate:{' '}
+                                            <b>{conversionRateForVariant('control')}</b>
+                                        </div>
+                                        <InsightContainer disableTable={true} />
+                                    </div>
+                                </BindLogic>
+                            )}
+                            {!experimentData.end_date && (
+                                <LemonButton onClick={() => endExperiment()}>End experiment</LemonButton>
+                            )}
+                        </div>
                     )}
                 </div>
-            ) : (
-                <div>Loading...</div>
             )}
         </>
     )

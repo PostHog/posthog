@@ -61,12 +61,12 @@ export function Experiments(): JSX.Element {
         {
             title: 'Status',
             render: function Render(_, experiment: Experiment) {
-                const statusColors = { active: 'green', draft: 'default', complete: 'purple' }
+                const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
                 const status = (): string => {
                     if (!experiment.start_date) {
                         return 'draft'
                     } else if (!experiment.end_date) {
-                        return 'active'
+                        return 'running'
                     }
                     return 'complete'
                 }
