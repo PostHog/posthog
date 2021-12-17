@@ -46,16 +46,15 @@ export function Experiments(): JSX.Element {
         {
             title: 'Duration',
             render: function Render(_, experiment: Experiment) {
-                return (
-                    <div>
-                        {`${
-                            experiment.end_date
-                                ? dayjs(experiment.start_date).diff(dayjs(experiment.end_date), 'day')
-                                : 0
-                        }`}{' '}
-                        days
-                    </div>
-                )
+                const duration = experiment.end_date
+                    ? dayjs(experiment.end_date).diff(dayjs(experiment.start_date), 'day')
+                    : experiment.start_date
+                    ? dayjs().diff(dayjs(experiment.start_date), 'day')
+                    : undefined
+
+                console.log(duration)
+
+                return <div>{duration !== undefined ? `${duration} day${duration > 1 ? 's' : ''}` : 'N.A'}</div>
             },
         },
         {

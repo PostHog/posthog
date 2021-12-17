@@ -83,6 +83,7 @@ export const experimentLogic = kea<experimentLogicType>({
             false,
             {
                 editExperiment: () => true,
+                createExperiment: () => false,
             },
         ],
     },
@@ -215,9 +216,14 @@ export const experimentLogic = kea<experimentLogicType>({
             actions.loadExperiment()
         },
         endExperiment: async () => {
-            await api.update(`api/projects/${values.currentTeamId}/experiments/${values.experimentId}`, {
-                end_date: dayjs(),
-            })
+            const response: Experiment = await api.update(
+                `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
+                {
+                    end_date: dayjs(),
+                }
+            )
+            actions.setExperimentId(response.id || 'new')
+            actions.loadExperiment()
         },
     }),
     loaders: ({ values }) => ({
