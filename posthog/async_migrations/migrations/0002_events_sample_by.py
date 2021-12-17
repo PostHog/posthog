@@ -8,9 +8,9 @@ from posthog.constants import AnalyticsDBMS
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 from posthog.version_requirement import ServiceVersionRequirement
 
-TEMPORARY_TABLE_NAME = f"{CLICKHOUSE_DATABASE}.temp_events_0001_events_sample_by"
+TEMPORARY_TABLE_NAME = f"{CLICKHOUSE_DATABASE}.temp_events_0002_events_sample_by"
 EVENTS_TABLE_NAME = f"{CLICKHOUSE_DATABASE}.{EVENTS_TABLE}"
-BACKUP_TABLE_NAME = f"{EVENTS_TABLE_NAME}_backup_0001_events_sample_by"
+BACKUP_TABLE_NAME = f"{EVENTS_TABLE_NAME}_backup_0002_events_sample_by"
 
 """
 Migration Summary
