@@ -1,5 +1,6 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { StatsD } from 'hot-shots'
+import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 
 import { PluginsServerConfig, Team, TeamId } from '../../types'
@@ -8,7 +9,6 @@ import { timeoutGuard } from '../../utils/db/utils'
 import { posthog } from '../../utils/posthog'
 import { status } from '../../utils/status'
 import { getByAge, UUIDT } from '../../utils/utils'
-import LRU from 'lru-cache'
 
 type TeamCache<T> = Map<TeamId, [T, number]>
 
