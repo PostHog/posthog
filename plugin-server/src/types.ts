@@ -17,7 +17,6 @@ import { PluginMetricsManager } from './utils/plugin-metrics'
 import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
-import { EventPropertyCounter } from './worker/ingestion/event-property-counter'
 import { HookCommander } from './worker/ingestion/hooks'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
@@ -86,6 +85,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     REDIS_POOL_MAX_SIZE: number
     DISABLE_MMDB: boolean
     DISTINCT_ID_LRU_SIZE: number
+    EVENT_PROPERTY_LRU_SIZE: number
     INTERNAL_MMDB_SERVER_PORT: number
     PLUGIN_SERVER_IDLE: boolean
     JOB_QUEUES: string
@@ -105,7 +105,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     SITE_URL: string | null
     NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS: string
     EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: boolean
-    EXPERIMENTAL_EVENT_PROPERTY_COUNTER_ENABLED_TEAMS: string
+    EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED_TEAMS: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -133,7 +133,6 @@ export interface Hub extends PluginsServerConfig {
     pluginConfigSecretLookup: Map<string, PluginConfigId>
     // tools
     teamManager: TeamManager
-    eventPropertyCounter: EventPropertyCounter
     organizationManager: OrganizationManager
     pluginsApiKeyManager: PluginsApiKeyManager
     actionManager: ActionManager
@@ -768,11 +767,6 @@ export interface EventPropertyType {
     id: string
     event: string
     property: string
-    property_type: string | null
-    property_type_format: string | null
-    total_volume: number | null
-    created_at: string // DateTime
-    last_seen_at: string // DateTime
     team_id: number
 }
 

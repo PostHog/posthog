@@ -38,7 +38,7 @@ def split_selector_into_parts(selector: str):
 
 
 # Freeze this version of the eventmanager
-class EventManager(object):
+class EventManager:
     def filter_by_element(self, action_step, apps):
         ElementGroup = apps.get_model("posthog", "ElementGroup")
         Element = apps.get_model("posthog", "Element")

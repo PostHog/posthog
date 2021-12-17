@@ -6,7 +6,8 @@ from semantic_version.base import Version
 
 from posthog.async_migrations.definition import AsyncMigrationDefinition
 from posthog.models.async_migration import AsyncMigration, get_all_completed_async_migrations
-from posthog.settings import AUTO_START_ASYNC_MIGRATIONS, DEBUG, TEST
+from posthog.settings import AUTO_START_ASYNC_MIGRATIONS, TEST
+from posthog.utils import is_clickhouse_enabled
 from posthog.version import VERSION
 
 ALL_ASYNC_MIGRATIONS: Dict[str, AsyncMigrationDefinition] = {}
@@ -22,13 +23,11 @@ POSTHOG_VERSION = Version(VERSION)
 ASYNC_MIGRATIONS_MODULE_PATH = "posthog.async_migrations.migrations"
 ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH = "posthog.async_migrations.examples"
 
-all_migrations = import_submodules(ASYNC_MIGRATIONS_MODULE_PATH)
+if is_clickhouse_enabled():
+    all_migrations = import_submodules(ASYNC_MIGRATIONS_MODULE_PATH)
 
-if DEBUG and not TEST:
-    all_migrations["example"] = import_submodules(ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH)["example"]
-
-for name, module in all_migrations.items():
-    ALL_ASYNC_MIGRATIONS[name] = module.Migration()
+    for name, module in all_migrations.items():
+        ALL_ASYNC_MIGRATIONS[name] = module.Migration()
 
 
 def setup_async_migrations(ignore_posthog_version: bool = False):
@@ -92,12 +91,14 @@ def kickstart_migration_if_possible(migration_name: str, applied_migrations: set
     from posthog.async_migrations.runner import run_next_migration
 
     # start running 30 minutes from now
-    run_next_migration(migration_name, after_delay=60 * 30)
+    run_next_migration(migration_name)
 
 
 def get_async_migration_definition(migration_name: str) -> AsyncMigrationDefinition:
     if TEST:
-        return import_submodules(ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH)[migration_name].Migration()
+        test_migrations = import_submodules(ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH)
+        if migration_name in test_migrations:
+            return test_migrations[migration_name].Migration()
 
     return ALL_ASYNC_MIGRATIONS[migration_name]
 

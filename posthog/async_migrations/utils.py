@@ -52,10 +52,10 @@ def process_error(migration_instance: AsyncMigration, error: Optional[str]):
     attempt_migration_rollback(migration_instance)
 
 
-def trigger_migration(migration_instance: AsyncMigration, fresh_start: bool = True, countdown: int = 0):
+def trigger_migration(migration_instance: AsyncMigration, fresh_start: bool = True):
     from posthog.tasks.async_migrations import run_async_migration
 
-    task = run_async_migration.delay(migration_instance.name, fresh_start, countdown=countdown)
+    task = run_async_migration.delay(migration_instance.name, fresh_start)
 
     update_async_migration(
         migration_instance=migration_instance, celery_task_id=str(task.id),

@@ -602,7 +602,7 @@ export function colonDelimitedDuration(d: string | number | null | undefined, nu
         m = Math.floor(s / 60)
         s -= m * 60
     }
-    s = Math.round(s)
+    s = Math.floor(s)
 
     const units = [zeroPad(weeks, 2), zeroPad(days, 2), zeroPad(h, 2), zeroPad(m, 2), zeroPad(s, 2)]
 
@@ -1275,4 +1275,8 @@ export function isEllipsisActive(e: HTMLElement | null): boolean {
 
 export function isGroupType(actor: ActorType): actor is GroupActorType {
     return actor.type === 'group'
+}
+
+export function mapRange(value: number, x1: number, y1: number, x2: number, y2: number): number {
+    return Math.floor(((value - x1) * (y2 - x2)) / (y1 - x1) + x2)
 }

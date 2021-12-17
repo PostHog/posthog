@@ -10,6 +10,7 @@ import {
     IconBarChart,
     IconCohort,
     IconComment,
+    IconExperiment,
     IconExtension,
     IconFlag,
     IconGauge,
@@ -201,7 +202,7 @@ function Pages(): JSX.Element {
             <PageButton icon={<IconRecording />} identifier={Scene.SessionRecordings} to={urls.sessionRecordings()} />
             <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
             {featureFlags[FEATURE_FLAGS.EXPERIMENTATION] && (
-                <PageButton icon={<IconFlag />} identifier={Scene.Experiments} to={urls.experiments()} />
+                <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
             )}
             <LemonSpacer />
             <PageButton icon={<IconGroupedEvents />} identifier={Scene.Events} to={urls.events()} />

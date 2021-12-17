@@ -63,9 +63,6 @@ export const workerTasks: Record<string, TaskRunner> = {
     flushLastSeenAtCache: async (hub) => {
         await hub.teamManager.flushLastSeenAtCache()
     },
-    flushEventPropertyCounter: async (hub) => {
-        await hub.eventPropertyCounter.flush()
-    },
     sendPluginMetrics: async (hub) => {
         await hub.pluginMetricsManager.sendPluginMetrics(hub)
     },

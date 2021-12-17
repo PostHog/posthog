@@ -688,8 +688,8 @@ export const eventUsageLogic = kea<
             const payload: Partial<RecordingViewedProps> = {
                 load_time: loadTime,
                 duration: eventIndex.getDuration(),
-                start_time: recordingData?.session_recording?.start_time,
-                end_time: recordingData?.session_recording?.end_time,
+                start_time: recordingData?.session_recording?.segments[0]?.startTimeEpochMs,
+                end_time: recordingData?.session_recording?.segments.slice(-1)[0]?.endTimeEpochMs,
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingMetadata(0)[0]?.width,
                 source: source,
@@ -700,7 +700,7 @@ export const eventUsageLogic = kea<
             posthog.capture(`recording events fetched`, { num_events: numEvents, load_time: loadTime })
         },
         reportRecordingScrollTo: ({ rowIndex }) => {
-            posthog.capture(`recording event list scrolled to row index ${rowIndex ?? -1}`)
+            posthog.capture(`recording event list scrolled`, { rowIndex })
         },
         reportPayGateShown: (props) => {
             posthog.capture('pay gate shown', props)
