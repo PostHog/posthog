@@ -384,6 +384,7 @@ export enum SessionPlayerState {
     PLAY = 'play',
     PAUSE = 'pause',
     SCRUB = 'scrub',
+    SKIP = 'skip',
 }
 
 /** Sync with plugin-server/src/types.ts */

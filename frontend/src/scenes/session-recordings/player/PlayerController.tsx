@@ -11,8 +11,8 @@ import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { Timestamp } from 'scenes/session-recordings/player/Timestamp'
 
 export function PlayerController(): JSX.Element {
-    const { togglePlayPause, setSpeed } = useActions(sessionRecordingPlayerLogic)
-    const { currentPlayerState, speed, isSmallScreen } = useValues(sessionRecordingPlayerLogic)
+    const { togglePlayPause, setSpeed, setSkipInactivitySetting } = useActions(sessionRecordingPlayerLogic)
+    const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting } = useValues(sessionRecordingPlayerLogic)
 
     return (
         <div className="rrweb-controller">
@@ -51,7 +51,7 @@ export function PlayerController(): JSX.Element {
             </Select>
             <div className="rrweb-inactivity-toggle">
                 <span className="inactivity-label">Skip inactivity</span>
-                <Switch disabled size="small" />
+                <Switch checked={skipInactivitySetting} onChange={setSkipInactivitySetting} size="small" />
             </div>
         </div>
     )

@@ -27,6 +27,7 @@ $tick_hover_size: 5px;
             background-color: $brand_red;
             transform-origin: center;
             transform: translateX(-$thumb_size / 2);
+            transition: transform 50ms;
         }
 
         .slider-bar,
@@ -77,8 +78,7 @@ $tick_hover_size: 5px;
                 height: 100%;
             }
             .inactive-section {
-                border-bottom: 1px solid $border;
-                background: repeating-linear-gradient(325deg, transparent, transparent 3px, #fff 3px, #fff 6px);
+                background: repeating-linear-gradient(325deg, transparent, transparent 2px, #fff 2px, #fff 4px);
             }
         }
     }
