@@ -15,6 +15,7 @@ RETENTION_BREAKDOWN_SQL = """
     ORDER BY 
         breakdown_values, 
         intervals_from_base
+    SETTINGS timeout_before_checking_execution_speed = 60
 """
 
 RETENTION_BREAKDOWN_ACTOR_SQL = """
