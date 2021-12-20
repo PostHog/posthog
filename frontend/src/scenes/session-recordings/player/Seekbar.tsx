@@ -64,7 +64,7 @@ export function Seekbar(): JSX.Element {
                                     (100 * segment.durationMs) / sessionPlayerData.metadata.recordingDurationMs
                                 }%`,
                             }}
-                         />
+                        />
                     ))}
                 </div>
                 <div className="slider-bar" />
