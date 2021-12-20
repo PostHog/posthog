@@ -3,26 +3,6 @@
 .toolbar-launch-page {
     margin-bottom: 48px;
 
-    .authorized-urls-table {
-        .authorized-url-col {
-            .lemon-tag {
-                margin-left: 4px;
-            }
-
-            &.suggestion {
-                color: $text_muted_alt;
-            }
-            &.authorized {
-                color: var(--success);
-            }
-        }
-        .actions-col {
-            display: flex;
-            align-items: center;
-            justify-content: flex-end;
-        }
-    }
-
     .footer-caption {
         text-align: center;
         color: var(--muted);
