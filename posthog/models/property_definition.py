@@ -17,6 +17,18 @@ class PropertyDefinition(UUIDModel):
         default=None, null=True,
     )  # Number of times the event has been used in a query in the last 30 rolling days (computed asynchronously)
 
+    class PropertyType(models.TextChoices):
+        Datetime = "DateTime", "DateTime"
+
+    property_type = models.CharField(max_length=50, choices=PropertyType.choices, blank=True, null=True)
+
+    class PropertyFormat(models.TextChoices):
+        UnixTimestamp = "unix_timestamp", "Unix Timestamp"
+        FullDate = "YYYY-MM-DD hh:mm:ss", "YYYY-MM-DD hh:mm:ss"
+        Date = "YYYY-MM-DD", "YYYY-MM-DD"
+
+    property_type_format = models.CharField(max_length=50, choices=PropertyFormat.choices, blank=True, null=True)
+
     # DEPRECATED
     volume_30_day: models.IntegerField = models.IntegerField(
         default=None, null=True,
