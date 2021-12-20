@@ -7,10 +7,21 @@ import { PageHeader } from 'lib/components/PageHeader'
 import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import './ToolbarLaunch.scss'
-import { PlusOutlined, EllipsisOutlined, DeleteOutlined, EditOutlined, CheckCircleFilled } from '@ant-design/icons'
+import {
+    PlusOutlined,
+    EllipsisOutlined,
+    DeleteOutlined,
+    EditOutlined,
+    CheckCircleFilled,
+    SearchOutlined,
+} from '@ant-design/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Popup } from 'lib/components/Popup/Popup'
 import { appEditorUrl } from 'lib/components/AppEditorLink/utils'
+import { Link } from 'lib/components/Link'
+import { urls } from 'scenes/urls'
+import { IconFlag, IconGroupedEvents, IconHeatmap } from 'lib/components/icons'
+import { Col, Row } from 'antd'
 
 export const scene: SceneExport = {
     component: ToolbarLaunch,
@@ -19,6 +30,29 @@ export const scene: SceneExport = {
 function ToolbarLaunch(): JSX.Element {
     const { appUrlsKeyed, popoverOpen, suggestionsLoading } = useValues(appUrlsLogic)
     const { addUrl, setPopoverOpen, removeUrl } = useActions(appUrlsLogic)
+
+    const features: FeatureHighlightProps[] = [
+        {
+            title: 'Heatmaps',
+            caption: 'Understand where your users interact the most.',
+            icon: <IconHeatmap />,
+        },
+        {
+            title: 'Actions',
+            caption: 'Create actions visually from elements in your website.',
+            icon: <IconGroupedEvents />,
+        },
+        {
+            title: 'Feature Flags',
+            caption: 'Toggle feature flags on/off right on your app.',
+            icon: <IconFlag />,
+        },
+        {
+            title: 'Inspect',
+            caption: 'Inspect clickable elements on your website.',
+            icon: <SearchOutlined />,
+        },
+    ]
 
     const columns: LemonTableColumns<KeyedAppUrl> = [
         {
@@ -101,6 +135,35 @@ function ToolbarLaunch(): JSX.Element {
                 emptyState="There are no authorized URLs or domains. Add one to get started."
                 loading={suggestionsLoading}
             />
+
+            <div className="footer-caption">
+                Make sure you're using the <Link to={`${urls.projectSettings()}#snippet`}>snippet</Link> or the latest{' '}
+                <code>posthog-js</code> version.
+            </div>
+
+            <Row className="feature-highlight-list">
+                {features.map((feature) => (
+                    <FeatureHighlight key={feature.title} {...feature} />
+                ))}
+            </Row>
         </div>
+    )
+}
+
+interface FeatureHighlightProps {
+    title: string
+    caption: string
+    icon: JSX.Element
+}
+
+function FeatureHighlight({ title, caption, icon }: FeatureHighlightProps): JSX.Element {
+    return (
+        <Col sm={12} className="fh-item">
+            <div className="fh-icon">{icon}</div>
+            <div>
+                <h4>{title}</h4>
+                <div className="caption">{caption}</div>
+            </div>
+        </Col>
     )
 }

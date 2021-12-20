@@ -1,6 +1,8 @@
 @import '~/vars';
 
 .toolbar-launch-page {
+    margin-bottom: 48px;
+
     .authorized-urls-table {
         .authorized-url-col {
             .lemon-tag {
@@ -18,6 +20,36 @@
             display: flex;
             align-items: center;
             justify-content: flex-end;
+        }
+    }
+
+    .footer-caption {
+        text-align: center;
+        color: var(--muted);
+        margin-top: $default_spacing;
+    }
+
+    .feature-highlight-list {
+        max-width: 800px;
+        margin: 0 auto;
+        margin-top: $default_spacing * 2;
+
+        .fh-item {
+            display: flex;
+            align-items: center;
+            margin-top: $default_spacing;
+
+            .fh-icon {
+                color: $text_muted_alt;
+                margin-right: 8px;
+                font-size: 1.6em;
+            }
+
+            h4 {
+                color: $text_muted_alt;
+                margin-bottom: 0;
+                font-size: 1.2em;
+            }
         }
     }
 }
