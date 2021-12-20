@@ -65,7 +65,9 @@ export function ActionsLineGraph({
                               date_from: day,
                               date_to: day,
                               filters,
-                              breakdown_value: points.clickedPointNotLine ? dataset.breakdown_value : undefined,
+                              breakdown_value: points.clickedPointNotLine
+                                  ? dataset.breakdown_value || dataset.status
+                                  : undefined,
                               saveOriginal: true,
                               pointValue: dataset?.data?.[index] ?? undefined,
                           }
