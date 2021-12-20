@@ -208,6 +208,10 @@ mark {
     overflow: hidden;
     color: var(--muted-alt);
     font-size: 0.8125rem;
+    &--danger {
+        color: var(--danger);
+        font-weight: 600;
+    }
 }
 
 code.code {
