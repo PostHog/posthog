@@ -19,7 +19,7 @@ class ClickhouseStickinessActors(ActorBaseQuery):
     def is_aggregating_by_groups(self) -> bool:
         return self.entity.math == "unique_group"
 
-    def actor_query(self) -> Tuple[str, Dict]:
+    def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
         events_query, event_params = StickinessEventsQuery(
             entity=self.entity, filter=self._filter, team_id=self._team.pk
         ).get_query()
@@ -27,8 +27,8 @@ class ClickhouseStickinessActors(ActorBaseQuery):
         return (
             f"""
         SELECT DISTINCT aggregation_target AS actor_id FROM ({events_query}) WHERE num_intervals = %(stickiness_day)s
-        {"LIMIT %(limit)s" if self._limit_actors else ""}
-        {"OFFSET %(offset)s" if self._limit_actors else ""}
+        {"LIMIT %(limit)s" if limit_actors else ""}
+        {"OFFSET %(offset)s" if limit_actors else ""}
         """,
             {
                 **event_params,

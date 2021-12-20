@@ -51,6 +51,7 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
 
     def __init__(self, filter: Filter, team: Team, base_uri: str = "/") -> None:
         self._funnel_correlation = FunnelCorrelation(filter, team, base_uri=base_uri)
+        super().__init__(team, filter)
 
     @cached_property
     def is_aggregating_by_groups(self) -> bool:
