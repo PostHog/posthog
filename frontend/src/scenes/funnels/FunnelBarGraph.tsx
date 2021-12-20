@@ -10,7 +10,7 @@ import { funnelLogic } from './funnelLogic'
 import { useThrottledCallback } from 'use-debounce'
 import './FunnelBarGraph.scss'
 import { useActions, useValues } from 'kea'
-import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
+import { LEGACY_InsightTooltip } from 'scenes/insights/InsightTooltip/LEGACY_InsightTooltip'
 import { FunnelLayout } from 'lib/constants'
 import {
     formatDisplayPercentage,
@@ -130,11 +130,11 @@ function Bar({
             trigger="hover"
             placement="right"
             content={
-                <InsightTooltip altTitle={popoverTitle}>
+                <LEGACY_InsightTooltip altTitle={popoverTitle}>
                     {popoverMetrics.map(({ title, value, visible }, index) =>
                         visible !== false ? <MetricRow key={index} title={title} value={value} /> : null
                     )}
-                </InsightTooltip>
+                </LEGACY_InsightTooltip>
             }
         >
             <div

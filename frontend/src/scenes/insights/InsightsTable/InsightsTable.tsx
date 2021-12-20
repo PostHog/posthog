@@ -1,5 +1,5 @@
 import React from 'react'
-import { Dropdown, Menu, Skeleton, Table, Typography } from 'antd'
+import { Dropdown, Menu, Skeleton, Table } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
@@ -131,27 +131,6 @@ export function InsightsTable({
         })
     }
 
-    if (filters.compare) {
-        columns.push({
-            title: <PropertyKeyInfo disableIcon disablePopover value="Compare Value" />,
-            render: function RenderCompareValue({}, item: IndexedTrendResult) {
-                const compareLabel = formatCompareLabel(item)
-                return (
-                    <SeriesToggleWrapper id={item.id} toggleVisibility={toggleVisibility}>
-                        {compareLabel && <Typography.Text title={compareLabel}>{compareLabel}</Typography.Text>}
-                    </SeriesToggleWrapper>
-                )
-            },
-            fixed: 'left',
-            width: 150,
-            sorter: (a, b) => {
-                const labelA = formatCompareLabel(a)
-                const labelB = formatCompareLabel(b)
-                return labelA.localeCompare(labelB)
-            },
-        })
-    }
-
     columns.push({
         title: 'Event or Action',
         render: function RenderLabel({}, item: IndexedTrendResult): JSX.Element {
@@ -171,12 +150,10 @@ export function InsightsTable({
                         breakdownValue={item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()}
                         hideBreakdown
                         hideIcon
-                        useCustomName
                         className={clsx({
                             editable: canEditSeriesNameInline,
                         })}
                         compareValue={filters.compare ? formatCompareLabel(item) : undefined}
-                        hideSeriesSubtitle
                         onLabelClick={canEditSeriesNameInline ? () => handleEditClick(item) : undefined}
                     />
                 </div>

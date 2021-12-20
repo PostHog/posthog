@@ -38,7 +38,7 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
             INSIGHT: INSIGHT_TRENDS,
         },
         last_refresh=now(),
-        description="Shows the number of unique users that use your app everyday.",
+        description="Shows the number of unique users that use your app every day.",
     )
 
     Insight.objects.create(

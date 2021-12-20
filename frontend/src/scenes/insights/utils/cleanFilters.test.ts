@@ -1,17 +1,8 @@
 import { cleanFilters } from './cleanFilters'
-import { ChartDisplayType, FilterType, InsightType } from '~/types'
+import { FilterType, InsightType } from '~/types'
 import { FEATURE_FLAGS, ShownAsValue } from 'lib/constants'
 
 describe('cleanFilters', () => {
-    it('switches display to table if moving from TRENDS to RETENTION', () => {
-        expect(
-            cleanFilters(
-                { insight: InsightType.RETENTION, display: ChartDisplayType.ActionsLineGraphLinear },
-                { insight: InsightType.TRENDS, display: ChartDisplayType.ActionsLineGraphLinear }
-            )
-        ).toEqual(expect.objectContaining({ insight: InsightType.RETENTION, display: ChartDisplayType.ActionsTable }))
-    })
-
     it('removes shownas if moving from stickiness to trends', () => {
         expect(
             cleanFilters(

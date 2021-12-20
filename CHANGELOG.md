@@ -1,5 +1,23 @@
 # Changelog
 
+### 1.31.1 - Friday 17 December 2021
+- Iterate on async events migration to improve primary key on events table which will improve performance of queries that filter on event type 🎉
+
+### 1.31.0 - Wednesday 15 December 2021
+- **Postgres-based deployment no longer supported in this version.**
+- Introducing Group Analytics! Group Analytics enable you to analyze groups, which aggregate events within PostHog.
+- Correlation Analysis just got better! Aside from significantly improving the UI & UX, we've introduced a details option for advanced users.
+- Creating and navigating insights will now be a lot faster and smoother.
+- Improved breakdown in funnels. We have a new vertical layout to display funnels broken down by a property (e.g. conversion by browser) that will make it even easier to compare conversion across multiple dimensions.
+- Searching events & properties is now significantly faster. We've changed the way these properties are shown and we now list them by popularity within your team. Create those insights faster!
+- Following our [lemonade redesign](https://posthog.com/blog/the-posthog-array-1-30-0#fresh-new-look-and-feel) we now have a ton more UI improvements. In particular tables got a pretty sleek facelift.
+- We've improved the layout configuration for dashboards so they'll be more responsive and look better on very small or very large screens.
+- Pushed significant improvements to the recordings list load time.
+- Introducing a new funnel query builder! We now group advanced options separately, so funnel definition is clearer.
+- Fixed a bug in Feature Flags when a 0% release was sometimes considered as a 100% release.
+- Fixed a bug where private project names were shown to members who shouldn't have access.
+- Plus 350+ improvements & fixes.
+
 ### 1.30.0 - Wednesday 17 November 2021
 
 -   **Fresh new look-and-feel**. PostHog just got a lot fresher! We have a brand new UI and layout that had been in the works, codenamed `lemonade` (because it's fresh). It's not only a new coat of paint - we've also pushed a lot of improvements to overall navigation and performance too. We call it turbo mode.

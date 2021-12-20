@@ -278,7 +278,7 @@ jobs:
               run: |
                   cp -r multi_tenancy deploy/
                   cp -r messaging deploy/
-                  cat multi_tenancy_settings.py >> deploy/posthog/settings.py
+                  cat multi_tenancy_settings.py > deploy/posthog/settings/cloud.py
                   cat requirements.txt >> deploy/requirements.txt
             - name: Start stack with Docker Compose
               run: |
@@ -302,7 +302,7 @@ jobs:
                   python -m pip install -r deploy/requirements.txt
 
             - name: Wait for Clickhouse & Kafka
-              run: bin/check_kafka_clickhouse_up
+              run: deploy/bin/check_kafka_clickhouse_up
 
             # The 2-step migration process (first master, then current branch) verifies that it'll always
             # be possible to migrate to the new version without problems in production
@@ -329,7 +329,7 @@ jobs:
                   cp deploy/ee/conftest.py messaging/conftest.py
                   cp -r multi_tenancy deploy/
                   cp -r messaging deploy/
-                  cat multi_tenancy_settings.py >> deploy/posthog/settings.py
+                  cat multi_tenancy_settings.py > deploy/posthog/settings/cloud.py
                   cat requirements.txt >> deploy/requirements.txt
 
             - name: Check migrations
