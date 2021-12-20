@@ -1,3 +1,4 @@
+import logging
 import random
 from typing import Dict
 
@@ -34,13 +35,17 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         cls.user.save()
 
     def test_property_formats(self):
-        PropertyDefinition.objects.create(
+        property = PropertyDefinition.objects.create(
             team=self.team, name="timestamp_property", property_type="DateTime", property_type_format="unix_timestamp"
         )
-
-        response = self.client.get("/api/projects/@current/property_definitions/")
+        response = self.client.get(f"/api/projects/@current/property_definitions/{property.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        matches = [p["name"] for p in response.json()["results"] if p["name"] == "timestamp_property"]
+        assert response.json()["property_type"] == "DateTime"
+        assert response.json()["property_type_format"] == "unix_timestamp"
+
+        query_list_response = self.client.get("/api/projects/@current/property_definitions/")
+        self.assertEqual(query_list_response.status_code, status.HTTP_200_OK)
+        matches = [p["name"] for p in query_list_response.json()["results"] if p["name"] == "timestamp_property"]
         assert len(matches) == 1
 
     def test_list_property_definitions(self):
