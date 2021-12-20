@@ -33,6 +33,16 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         cls.user.current_team = cls.demo_team
         cls.user.save()
 
+    def test_property_formats(self):
+        PropertyDefinition.objects.create(
+            team=self.team, name="timestamp_property", property_type="DateTime", property_type_format="unix_timestamp"
+        )
+
+        response = self.client.get("/api/projects/@current/property_definitions/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        matches = [p["name"] for p in response.json()["results"] if p["name"] == "timestamp_property"]
+        assert len(matches) == 1
+
     def test_list_property_definitions(self):
 
         response = self.client.get("/api/projects/@current/property_definitions/")

@@ -30,12 +30,7 @@ HIDDEN_PROPERTY_DEFINITIONS = set(
 class PropertyDefinitionSerializer(serializers.ModelSerializer):
     class Meta:
         model = PropertyDefinition
-        fields = (
-            "id",
-            "name",
-            "is_numerical",
-            "query_usage_30_day",
-        )
+        fields = ("id", "name", "is_numerical", "query_usage_30_day", "property_type", "property_type_format")
 
     def update(self, property_definition: PropertyDefinition, validated_data):
         raise EnterpriseFeatureException()
