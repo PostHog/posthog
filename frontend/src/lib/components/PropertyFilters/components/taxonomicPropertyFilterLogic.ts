@@ -36,32 +36,19 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         }),
         openDropdown: true,
         closeDropdown: true,
-        holdDropdownOpen: (holdOpen: boolean) => ({ holdOpen }),
     },
 
     reducers: {
-        dropdownMightOpen: [
+        dropdownOpen: [
             false,
             {
                 openDropdown: () => true,
                 closeDropdown: () => false,
             },
         ],
-        dropdownHeldOpen: [
-            false,
-            {
-                holdDropdownOpen: (_, { holdOpen }) => holdOpen,
-            },
-        ],
     },
 
     selectors: {
-        dropdownOpen: [
-            (s) => [s.dropdownMightOpen, s.dropdownHeldOpen],
-            (dropdownMightOpen, dropdownHeldOpen) => {
-                return dropdownHeldOpen ? true : dropdownMightOpen
-            },
-        ],
         filter: [
             (s) => [s.filters, (_, props) => props.filterIndex],
             (filters, filterIndex): AnyPropertyFilter | null => filters[filterIndex] || null,

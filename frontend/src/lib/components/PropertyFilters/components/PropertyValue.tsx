@@ -36,7 +36,6 @@ interface PropertyValueProps {
     outerOptions?: Option[] // If no endpoint provided, options are given here
     autoFocus?: boolean
     allowCustom?: boolean
-    holdDropdownOpen?: (holdOpen: boolean) => void
 }
 
 function matchesLowerCase(needle?: string, haystack?: string): boolean {
@@ -70,7 +69,6 @@ export function PropertyValue({
     outerOptions = undefined,
     autoFocus = false,
     allowCustom = true,
-    holdDropdownOpen = () => {},
 }: PropertyValueProps): JSX.Element {
     const isMultiSelect = operator && isOperatorMulti(operator)
     const [input, setInput] = useState(isMultiSelect ? '' : toString(value))
@@ -234,13 +232,17 @@ export function PropertyValue({
                     <DatePicker
                         {...commonInputProps}
                         inputReadOnly={true}
-                        onOpenChange={(isOpen) => isOpen && holdDropdownOpen(true)}
+                        className={'filter-date-picker'}
+                        dropdownClassName={'filter-date-picker-dropdown'}
                         format="YYYY-MM-DD HH:mm:ss"
                         showTime={true}
                         value={dayJSMightParse(value) ? dayjs(value) : null}
                         onOk={(selectedDate) => {
                             setValue(selectedDate.format('YYYY-MM-DD HH:MM:ss'))
-                            holdDropdownOpen(false)
+                        }}
+                        getPopupContainer={(trigger: Element | null) => {
+                            const container = trigger?.parentElement?.parentElement?.parentElement
+                            return container ?? document.body
                         }}
                     />
                 </>

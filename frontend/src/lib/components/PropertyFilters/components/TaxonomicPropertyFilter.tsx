@@ -19,6 +19,7 @@ import {
 import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import clsx from 'clsx'
 
 let uniqueMemoizedIndex = 0
 
@@ -54,8 +55,8 @@ export function TaxonomicPropertyFilter({
         taxonomicGroupTypes: groupTypes,
         taxonomicOnChange,
     })
-    const { filter, dropdownOpen, selectedCohortName, activeTaxonomicGroup, dropdownHeldOpen } = useValues(logic)
-    const { openDropdown, closeDropdown, selectItem, holdDropdownOpen } = useActions(logic)
+    const { filter, dropdownOpen, selectedCohortName, activeTaxonomicGroup } = useValues(logic)
+    const { openDropdown, closeDropdown, selectItem } = useActions(logic)
     const showInitialSearchInline = !disablePopover && ((!filter?.type && !filter?.key) || filter?.type === 'cohort')
     const showOperatorValueSelect = filter?.type && filter?.key && filter?.type !== 'cohort'
 
@@ -74,7 +75,13 @@ export function TaxonomicPropertyFilter({
     )
 
     return (
-        <div className={`taxonomic-property-filter${!disablePopover ? ' in-dropdown large' : ' row-on-page'}`}>
+        <div
+            className={clsx(
+                'taxonomic-property-filter',
+                disablePopover && 'row-on-page',
+                !disablePopover && ' in-dropdown large'
+            )}
+        >
             {showInitialSearchInline ? (
                 taxonomicFilter
             ) : (
@@ -93,7 +100,7 @@ export function TaxonomicPropertyFilter({
                     </Col>
 
                     <Popup
-                        overlay={dropdownOpen && !dropdownHeldOpen ? taxonomicFilter : null}
+                        overlay={dropdownOpen ? taxonomicFilter : null}
                         placement={'bottom-start'}
                         fallbackPlacements={['bottom-end']}
                         visible={dropdownOpen}
@@ -118,7 +125,6 @@ export function TaxonomicPropertyFilter({
                     {showOperatorValueSelect && (
                         <OperatorValueSelect
                             allowQueryingEventsByDateTime={featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME]}
-                            holdDropdownOpen={holdDropdownOpen}
                             type={filter?.type}
                             propkey={filter?.key}
                             operator={filter?.operator}

@@ -52,28 +52,4 @@ describe('the taxonomic property filter', () => {
             dropdownOpen: true,
         })
     })
-    it('does not close the dropdown onCloseDropdown when locked open', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.openDropdown()
-            logic.actions.holdDropdownOpen(true)
-            logic.actions.closeDropdown()
-        }).toMatchValues({
-            dropdownHeldOpen: true,
-            dropdownMightOpen: false,
-            dropdownOpen: true,
-        })
-    })
-
-    it('can release a hold when locked open', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.openDropdown()
-            logic.actions.holdDropdownOpen(true)
-            logic.actions.holdDropdownOpen(false)
-            logic.actions.closeDropdown()
-        }).toMatchValues({
-            dropdownHeldOpen: false,
-            dropdownMightOpen: false,
-            dropdownOpen: false,
-        })
-    })
 })

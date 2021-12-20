@@ -16,7 +16,6 @@ interface OperatorValueSelectProps {
     onChange: (operator: PropertyOperator, value: PropertyFilterValue) => void
     operatorSelectProps?: Omit<SelectProps<any>, 'onChange'>
     allowQueryingEventsByDateTime?: string | boolean
-    holdDropdownOpen?: (holdOpen: boolean) => void
 }
 
 interface OperatorSelectProps extends SelectProps<any> {
@@ -36,7 +35,6 @@ export function OperatorValueSelect({
     onChange,
     operatorSelectProps,
     allowQueryingEventsByDateTime,
-    holdDropdownOpen,
 }: OperatorValueSelectProps): JSX.Element {
     const [currentOperator, setCurrentOperator] = useState(operator)
 
@@ -74,7 +72,6 @@ export function OperatorValueSelect({
             {!isOperatorFlag(currentOperator || PropertyOperator.Exact) && type && propkey && (
                 <Col {...(Array.isArray(columnOptions) ? columnOptions[1] : columnOptions)}>
                     <PropertyValue
-                        holdDropdownOpen={holdDropdownOpen}
                         type={type}
                         key={propkey}
                         propertyKey={propkey}
