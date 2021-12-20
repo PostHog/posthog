@@ -47,6 +47,7 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType<KeyedAppUrl>>({
         launchAtUrl: (url: string) => ({ url }),
         setPopoverOpen: (indexedUrl: string | null) => ({ indexedUrl }),
         setSearchTerm: (term: string) => ({ term }),
+        setEditUrlIndex: (originalIndex: number | null) => ({ originalIndex }),
     }),
 
     loaders: ({ values }) => ({
@@ -131,6 +132,12 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType<KeyedAppUrl>>({
                 setSearchTerm: (_, { term }) => term,
             },
         ],
+        editUrlIndex: [
+            null as number | null,
+            {
+                setEditUrlIndex: (_, { originalIndex }) => originalIndex,
+            },
+        ],
     }),
     listeners: ({ sharedListeners, values, actions }) => ({
         addUrl: [
@@ -142,7 +149,7 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType<KeyedAppUrl>>({
             },
         ],
         removeUrl: sharedListeners.saveAppUrls,
-        updateUrl: sharedListeners.saveAppUrls,
+        updateUrl: [sharedListeners.saveAppUrls, () => actions.setEditUrlIndex(null)],
         [teamLogic.actionTypes.loadCurrentTeamSuccess]: async ({ currentTeam }) => {
             if (currentTeam) {
                 actions.setAppUrls(currentTeam.app_urls)

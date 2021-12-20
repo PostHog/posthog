@@ -18,8 +18,9 @@ interface AuthorizedUrlsTableInterface {
 
 export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableInterface): JSX.Element {
     const logic = authorizedUrlsLogic({ actionId })
-    const { appUrlsKeyed, popoverOpen, suggestionsLoading, searchTerm, launchUrl, appUrls } = useValues(logic)
-    const { addUrl, setPopoverOpen, removeUrl, setSearchTerm, updateUrl, newUrl } = useActions(logic)
+    const { appUrlsKeyed, popoverOpen, suggestionsLoading, searchTerm, launchUrl, appUrls, editUrlIndex } =
+        useValues(logic)
+    const { addUrl, setPopoverOpen, removeUrl, setSearchTerm, updateUrl, newUrl, setEditUrlIndex } = useActions(logic)
 
     const columns: LemonTableColumns<KeyedAppUrl> = [
         {
@@ -30,7 +31,7 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                 const [urlUpdatingState, setUrlUpdatingState] = useState(record.url)
                 const [errorState, setErrorState] = useState('')
                 useEffect(() => setUrlUpdatingState(record.url), [record])
-                return url !== NEW_URL ? (
+                return record.type === 'suggestion' || (url !== NEW_URL && editUrlIndex !== record.originalIndex) ? (
                     <div className={clsx('authorized-url-col', record.type)}>
                         {record.type === 'authorized' && <CheckCircleFilled style={{ marginRight: 4 }} />}
                         {url}
@@ -63,9 +64,8 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
 
                                 if (
                                     appUrls.indexOf(urlUpdatingState) > -1 &&
-                                    (appUrls.indexOf(urlUpdatingState, record.originalIndex) !== record.originalIndex ||
-                                        appUrls.indexOf(urlUpdatingState, record.originalIndex + 1) !==
-                                            record.originalIndex)
+                                    appUrls.indexOf(urlUpdatingState, record.originalIndex) !== record.originalIndex &&
+                                    appUrls.indexOf(urlUpdatingState, record.originalIndex + 1) !== record.originalIndex
                                 ) {
                                     setErrorState('This URL is already registered.')
                                     return
@@ -103,8 +103,13 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                                     onClickInside={() => setPopoverOpen(null)}
                                     overlay={
                                         <>
-                                            <LemonButton fullWidth type="stealth">
-                                                <EditOutlined style={{ marginRight: 4 }} /> Edit authorized URL
+                                            <LemonButton
+                                                fullWidth
+                                                type="stealth"
+                                                onClick={() => setEditUrlIndex(record.originalIndex)}
+                                            >
+                                                <EditOutlined style={{ marginRight: 4 }} />
+                                                Edit authorized URL
                                             </LemonButton>
                                             <LemonButton
                                                 fullWidth
