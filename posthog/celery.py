@@ -252,7 +252,12 @@ def clickhouse_mutation_count():
 
 
 def materialized_columns_enabled() -> bool:
-    if is_clickhouse_enabled() and settings.EE_AVAILABLE and getattr(config, "MATERIALIZED_COLUMNS_ENABLED"):
+    if (
+        is_clickhouse_enabled()
+        and settings.EE_AVAILABLE
+        and getattr(config, "MATERIALIZED_COLUMNS_ENABLED")
+        and getattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED")
+    ):
         return True
     return False
 
