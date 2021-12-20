@@ -627,6 +627,7 @@ describe('insightLogic', () => {
         logic = insightLogic({
             dashboardItemId: Insight42,
             filters: { insight: InsightType.FUNNELS },
+            cachedResults: {},
         })
         logic.mount()
 
