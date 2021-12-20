@@ -8,7 +8,7 @@ import { PlusOutlined, EllipsisOutlined, DeleteOutlined, EditOutlined, CheckCirc
 import { LemonButton } from 'lib/components/LemonButton'
 import { Popup } from 'lib/components/Popup/Popup'
 import { appEditorUrl } from 'lib/components/AppEditorLink/utils'
-import { Input } from 'antd'
+import { Button, Input } from 'antd'
 import { authorizedUrlsLogic, KeyedAppUrl } from './authorizedUrlsLogic'
 
 interface AuthorizedUrlsTableInterface {
@@ -91,18 +91,23 @@ export function AuthorizedUrlsTable({ pageKey }: AuthorizedUrlsTableInterface): 
 
     return (
         <div>
-            <div>
-                <Input.Search
-                    allowClear
-                    enterButton
-                    placeholder="Search for authorized URLs"
-                    style={{ width: 480, maxWidth: '100%', marginBottom: 16 }}
-                    value={searchTerm}
-                    onChange={(e) => {
-                        setSearchTerm(e.target.value)
-                    }}
-                    autoFocus={pageKey === 'toolbar-launch'}
-                />
+            <div className="flex-center mb">
+                <div style={{ flexGrow: 1 }}>
+                    <Input.Search
+                        allowClear
+                        enterButton
+                        placeholder="Search for authorized URLs"
+                        style={{ width: 480, maxWidth: '100%' }}
+                        value={searchTerm}
+                        onChange={(e) => {
+                            setSearchTerm(e.target.value)
+                        }}
+                        autoFocus={pageKey === 'toolbar-launch'}
+                    />
+                </div>
+                <Button type="primary" icon={<PlusOutlined />}>
+                    Add authorized domain
+                </Button>
             </div>
             <LemonTable
                 className="authorized-urls-table"
