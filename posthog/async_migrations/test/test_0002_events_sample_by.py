@@ -9,7 +9,7 @@ from posthog.models.async_migration import AsyncMigration, MigrationStatus
 from posthog.settings import CLICKHOUSE_DATABASE
 from posthog.test.base import BaseTest
 
-MIGRATION_NAME = "0001_events_sample_by"
+MIGRATION_NAME = "0002_events_sample_by"
 
 
 def execute_query(query: str) -> Any:
@@ -28,7 +28,7 @@ class Test0001EventsSampleBy(BaseTest):
         self.create_events_table_query = execute_query(f"SHOW CREATE TABLE {CLICKHOUSE_DATABASE}.events")[0][0]
 
         # execute_query(f"ATTACH TABLE {CLICKHOUSE_DATABASE}.events_mv")
-        execute_query(f"DROP TABLE IF EXISTS {CLICKHOUSE_DATABASE}.events_backup_0001_events_sample_by")
+        execute_query(f"DROP TABLE IF EXISTS {CLICKHOUSE_DATABASE}.events_backup_0002_events_sample_by")
         execute_query(f"DROP TABLE IF EXISTS {CLICKHOUSE_DATABASE}.events_mv")
         execute_query(f"DROP TABLE IF EXISTS {CLICKHOUSE_DATABASE}.kafka_events")
         execute_query(f"DROP TABLE {CLICKHOUSE_DATABASE}.events")
@@ -86,12 +86,13 @@ class Test0001EventsSampleBy(BaseTest):
         create_table_res = sync_execute(f"SHOW CREATE TABLE {CLICKHOUSE_DATABASE}.events")
         events_count_res = sync_execute(f"SELECT COUNT(*) FROM {CLICKHOUSE_DATABASE}.events")
         backup_events_count_res = sync_execute(
-            f"SELECT COUNT(*) FROM {CLICKHOUSE_DATABASE}.events_backup_0001_events_sample_by"
+            f"SELECT COUNT(*) FROM {CLICKHOUSE_DATABASE}.events_backup_0002_events_sample_by"
         )
 
         self.assertTrue(migration_successful)
         self.assertTrue(
-            "ORDER BY (team_id, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))" in create_table_res[0][0]
+            "ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))"
+            in create_table_res[0][0]
         )
 
         self.assertEqual(events_count_res[0][0], 5)

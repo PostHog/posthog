@@ -37,7 +37,7 @@ EVENTS_TABLE_MATERIALIZED_COLUMNS = """
 EVENTS_TABLE_SQL = lambda: (
     EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMM(timestamp)
-ORDER BY (team_id, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))
+ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
 {sample_by}
 {storage_policy}
 """
