@@ -25,9 +25,15 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    min-height: 0;
     padding: 1rem;
+    overflow: auto;
     .graph-container {
         padding: 1rem;
+    }
+    .insight-empty-state {
+        padding-top: 0;
+        padding-bottom: 0;
     }
 }
 

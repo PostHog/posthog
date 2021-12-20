@@ -72,15 +72,13 @@ interface DashboardItemProps {
     doNotLoad?: boolean
 }
 
-export type DisplayedType = ChartDisplayType | 'RetentionContainer'
-
 interface DisplayProps {
     className: string
     element: (props: any) => JSX.Element | null
     viewText: string
 }
 
-// const insightLink = ({ filters, short_id, dashboard, name }: InsightModel): string =>
+export type DisplayedType = ChartDisplayType | 'RetentionContainer'
 
 export const displayMap: Record<DisplayedType, DisplayProps> = {
     ActionsLineGraph: {
