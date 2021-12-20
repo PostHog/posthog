@@ -177,7 +177,7 @@ class User(AbstractUser, UUIDClassicModel):
             self.current_organization = organization
             if (
                 not settings.EE_AVAILABLE
-                or AvailableFeature.PROJECT_BASED_PERMISSIONING not in self.organization.available_features
+                or AvailableFeature.PROJECT_BASED_PERMISSIONING not in organization.available_features
                 or level >= OrganizationMembership.Level.ADMIN
             ):
                 # If project access control is NOT applicable, simply prefer open projects just in case
