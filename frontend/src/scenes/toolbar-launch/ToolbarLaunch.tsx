@@ -41,7 +41,7 @@ function ToolbarLaunch(): JSX.Element {
         <div className="toolbar-launch-page">
             <PageHeader title="Toolbar" caption="The toolbar launches PostHog right in your app or website." />
 
-            <AuthorizedUrlsTable />
+            <AuthorizedUrlsTable pageKey="toolbar-launch" />
 
             <div className="footer-caption">
                 Make sure you're using the <Link to={`${urls.projectSettings()}#snippet`}>snippet</Link> or the latest{' '}

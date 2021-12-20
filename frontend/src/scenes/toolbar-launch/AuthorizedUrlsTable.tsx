@@ -9,10 +9,15 @@ import { PlusOutlined, EllipsisOutlined, DeleteOutlined, EditOutlined, CheckCirc
 import { LemonButton } from 'lib/components/LemonButton'
 import { Popup } from 'lib/components/Popup/Popup'
 import { appEditorUrl } from 'lib/components/AppEditorLink/utils'
+import { Input } from 'antd'
 
-export function AuthorizedUrlsTable(): JSX.Element {
-    const { appUrlsKeyed, popoverOpen, suggestionsLoading } = useValues(appUrlsLogic)
-    const { addUrl, setPopoverOpen, removeUrl } = useActions(appUrlsLogic)
+interface AuthorizedUrlsTableInterface {
+    pageKey?: string
+}
+
+export function AuthorizedUrlsTable({ pageKey }: AuthorizedUrlsTableInterface): JSX.Element {
+    const { appUrlsKeyed, popoverOpen, suggestionsLoading, searchTerm } = useValues(appUrlsLogic)
+    const { addUrl, setPopoverOpen, removeUrl, setSearchTerm } = useActions(appUrlsLogic)
 
     const columns: LemonTableColumns<KeyedAppUrl> = [
         {
@@ -86,11 +91,28 @@ export function AuthorizedUrlsTable(): JSX.Element {
 
     return (
         <div>
+            <div>
+                <Input.Search
+                    allowClear
+                    enterButton
+                    placeholder="Search for authorized URLs"
+                    style={{ width: 480, maxWidth: '100%', marginBottom: 16 }}
+                    value={searchTerm}
+                    onChange={(e) => {
+                        setSearchTerm(e.target.value)
+                    }}
+                    autoFocus={pageKey === 'toolbar-launch'}
+                />
+            </div>
             <LemonTable
                 className="authorized-urls-table"
                 columns={columns}
                 dataSource={appUrlsKeyed}
-                emptyState="There are no authorized URLs or domains. Add one to get started."
+                emptyState={
+                    searchTerm
+                        ? 'There are no authorized URLs that match your search.'
+                        : 'There are no authorized URLs or domains. Add one to get started.'
+                }
                 loading={suggestionsLoading}
             />
         </div>

@@ -6,6 +6,7 @@ import { appUrlsLogicType } from './appUrlsLogicType'
 import { TrendResult } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { dayjs } from 'lib/dayjs'
+import Fuse from 'fuse.js'
 
 export interface KeyedAppUrl {
     url: string
@@ -30,6 +31,7 @@ export const appUrlsLogic = kea<appUrlsLogicType<KeyedAppUrl>>({
         updateUrl: (index: number, url: string) => ({ index, url }),
         launchAtUrl: (url: string) => ({ url }),
         setPopoverOpen: (indexedUrl: string | null) => ({ indexedUrl }),
+        setSearchTerm: (term: string) => ({ term }),
     }),
 
     loaders: ({ values }) => ({
@@ -107,6 +109,12 @@ export const appUrlsLogic = kea<appUrlsLogicType<KeyedAppUrl>>({
                 setPopoverOpen: (_, { indexedUrl }) => indexedUrl,
             },
         ],
+        searchTerm: [
+            '',
+            {
+                setSearchTerm: (_, { term }) => term,
+            },
+        ],
     }),
     listeners: ({ sharedListeners, props, actions }) => ({
         addUrl: [
@@ -135,9 +143,9 @@ export const appUrlsLogic = kea<appUrlsLogicType<KeyedAppUrl>>({
     }),
     selectors: {
         appUrlsKeyed: [
-            (s) => [s.appUrls, s.suggestions],
-            (appUrls, suggestions): KeyedAppUrl[] =>
-                appUrls
+            (s) => [s.appUrls, s.suggestions, s.searchTerm],
+            (appUrls, suggestions, searchTerm): KeyedAppUrl[] => {
+                const urls = appUrls
                     .map((url) => ({
                         url,
                         type: 'authorized',
@@ -147,7 +155,19 @@ export const appUrlsLogic = kea<appUrlsLogicType<KeyedAppUrl>>({
                             url,
                             type: 'suggestion',
                         }))
-                    ) as KeyedAppUrl[],
+                    ) as KeyedAppUrl[]
+
+                if (!searchTerm) {
+                    return urls
+                }
+
+                return new Fuse(urls, {
+                    keys: ['url'],
+                    threshold: 0.3,
+                })
+                    .search(searchTerm)
+                    .map((result) => result.item)
+            },
         ],
     },
 })
