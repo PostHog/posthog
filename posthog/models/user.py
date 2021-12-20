@@ -175,7 +175,17 @@ class User(AbstractUser, UUIDClassicModel):
         with transaction.atomic():
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
             self.current_organization = organization
-            self.current_team = organization.teams.order_by("access_control", "id").first()
+            if (
+                not settings.EE_AVAILABLE
+                or AvailableFeature.PROJECT_BASED_PERMISSIONING not in self.organization.available_features
+                or level >= OrganizationMembership.Level.ADMIN
+            ):
+                # If project access control is NOT applicable, simply prefer open projects just in case
+                self.current_team = organization.teams.order_by("access_control", "id").first()
+            else:
+                # If project access control IS applicable, make sure the user is assigned a project they have access to
+                # We don't need to check for ExplicitTeamMembership as none can exist for a completely new member
+                self.current_team = organization.teams.order_by("id").filter(access_control=False).first()
             self.save()
             return membership
 

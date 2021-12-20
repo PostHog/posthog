@@ -12,6 +12,7 @@ from django.urls.base import reverse
 from django.utils import timezone
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, Organization, Team, User, organization
 from posthog.models.organization import OrganizationInvite, OrganizationMembership
 from posthog.test.base import APIBaseTest
@@ -626,6 +627,8 @@ class TestInviteSignup(APIBaseTest):
             target_email="test+private@posthog.com", organization=self.organization,
         )
 
+        self.organization.available_features = [AvailableFeature.PROJECT_BASED_PERMISSIONING]
+        self.organization.save()
         self.team.access_control = True
         self.team.save()
 
