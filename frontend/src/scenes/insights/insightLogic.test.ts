@@ -9,8 +9,10 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
+import * as Sentry from '@sentry/browser'
 
 jest.mock('lib/api')
+jest.mock('@sentry/browser')
 
 const API_FILTERS = {
     insight: InsightType.TRENDS as InsightType,
@@ -643,7 +645,6 @@ describe('insightLogic', () => {
         logic = insightLogic({
             dashboardItemId: Insight42,
             filters: { insight: InsightType.FUNNELS },
-            savedFilters: { insight: InsightType.FUNNELS },
             syncWithUrl: true,
         })
         logic.mount()
@@ -665,5 +666,17 @@ describe('insightLogic', () => {
             .toMatchValues({
                 location: partial({ pathname: '/insights/12/edit' }),
             })
+    })
+
+    test('will not save with empty filters', async () => {
+        logic = insightLogic({
+            dashboardItemId: Insight42,
+            filters: { insight: InsightType.FUNNELS },
+        })
+        logic.mount()
+
+        logic.actions.setInsight({ id: 42, short_id: Insight42, filters: {} }, {})
+        logic.actions.saveInsight()
+        expect(Sentry.captureException).toHaveBeenCalledWith(new Error('Tried to override filters'), expect.any(Object))
     })
 })
