@@ -47,8 +47,6 @@ describe('the taxonomic property filter', () => {
         await expectLogic(logic, () => {
             logic.actions.openDropdown()
         }).toMatchValues({
-            dropdownHeldOpen: false,
-            dropdownMightOpen: true,
             dropdownOpen: true,
         })
     })
