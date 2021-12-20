@@ -138,6 +138,21 @@ export const insightLogic = kea<insightLogicType>({
                     if (!Object.entries(insight).length) {
                         return values.insight
                     }
+
+                    if (
+                        insight.filters &&
+                        JSON.stringify(cleanFilters(insight.filters)) === JSON.stringify(cleanFilters({}))
+                    ) {
+                        Sentry.captureException(new Error(`Tried to override filters`), {
+                            extra: {
+                                filters: JSON.stringify(insight.filters),
+                                insight: JSON.stringify(insight),
+                                valuesInsight: JSON.stringify(values.insight),
+                            },
+                        })
+                        throw new Error('Will not override empty filters.')
+                    }
+
                     const response = await api.update(
                         `api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}`,
                         insight
@@ -158,6 +173,10 @@ export const insightLogic = kea<insightLogicType>({
                 setInsightMetadata: async ({ metadata }, breakpoint) => {
                     if (values.insightMode === ItemMode.Edit) {
                         return { ...values.insight, ...metadata }
+                    }
+
+                    if (metadata.filters) {
+                        throw new Error('Can not update "filters" via setInsightMetadata')
                     }
 
                     const response = await api.update(
