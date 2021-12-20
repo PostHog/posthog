@@ -618,6 +618,7 @@ class TestInviteSignup(APIBaseTest):
         # Assert that the password was correctly saved
         self.assertTrue(user.check_password("test_password"))
 
+    @pytest.mark.ee
     @patch("posthog.api.organization.settings.EE_AVAILABLE", True)
     def test_api_invite_sign_up_where_there_are_no_default_non_private_projects(self):
         self.client.logout()
