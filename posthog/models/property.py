@@ -41,8 +41,8 @@ PropertyIdentifier = Tuple[PropertyName, PropertyType, Optional[GroupTypeIndex]]
 NEGATED_OPERATORS = ["is_not", "not_icontains", "not_regex", "is_not_set"]
 CLICKHOUSE_ONLY_PROPERTY_TYPES = ["static-cohort", "precalculated-cohort"]
 
-UNIX_TIMESTAMP_IN_SECONDS = "^\\d{10}\\.\\d{3}$"
-KNOWN_PROPERTY_FORMATS = Literal["^\\d{10}\\.\\d{3}$"]
+UNIX_TIMESTAMP = "unix_timestamp"
+KNOWN_PROPERTY_FORMATS = Literal["unix_timestamp"]
 
 
 @dataclasses.dataclass(frozen=True)

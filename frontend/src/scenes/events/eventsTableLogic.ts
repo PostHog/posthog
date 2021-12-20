@@ -299,7 +299,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                     // hard coded property definitions until the API returns them
                     properties.forEach((p: AnyPropertyFilter) => {
                         if (p.key === '$time') {
-                            p['property_definition'] = { dataType: 'DateTime', format: '^\\d{10}\\.\\d{3}$' }
+                            p['property_definition'] = { dataType: 'DateTime', format: 'unix_timestamp' }
                         }
                     })
                 }
@@ -348,7 +348,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 // hard coded property definitions until the API returns them
                 properties.forEach((p: AnyPropertyFilter) => {
                     if (p.key === '$time') {
-                        p['property_definition'] = { dataType: 'DateTime', format: '^\\d{10}\\.\\d{3}$' }
+                        p['property_definition'] = { dataType: 'DateTime', format: 'unix_timestamp' }
                     }
                 })
             }

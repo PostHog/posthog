@@ -162,7 +162,7 @@ class ClickhouseTestEventApi(
                             "value": "2021-12-25 12:00:00",
                             "operator": "is_date_before",
                             "type": "event",
-                            "property_definition": {"dataType": "DateTime", "format": "^\\d{10}\\.\\d{3}$"},
+                            "property_definition": {"dataType": "DateTime", "format": "unix_timestamp"},
                         }
                     ]
                 )

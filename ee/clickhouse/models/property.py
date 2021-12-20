@@ -34,7 +34,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
 from posthog.models.property import (
     NEGATED_OPERATORS,
-    UNIX_TIMESTAMP_IN_SECONDS,
+    UNIX_TIMESTAMP,
     OperatorType,
     Property,
     PropertyIdentifier,
@@ -245,7 +245,7 @@ def prop_filter_json_extract(
         if (
             prop.property_definition is not None
             and prop.property_definition.format is not None
-            and prop.property_definition.format == UNIX_TIMESTAMP_IN_SECONDS
+            and prop.property_definition.format == UNIX_TIMESTAMP
         ):
             query = f"AND parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10)) > %({prop_value_param_key})s"
 
@@ -261,7 +261,7 @@ def prop_filter_json_extract(
         if (
             prop.property_definition is not None
             and prop.property_definition.format is not None
-            and prop.property_definition.format == UNIX_TIMESTAMP_IN_SECONDS
+            and prop.property_definition.format == UNIX_TIMESTAMP
         ):
             query = f"AND parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10)) < %({prop_value_param_key})s"
 

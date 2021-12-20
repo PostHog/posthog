@@ -550,7 +550,7 @@ TEST_PROPERTIES = [
             key="sdk_$time",
             operator="is_date_before",
             value="2021-12-25",
-            property_definition=PropertyDefinition(dataType="DateTime", format="^\\d{10}\\.\\d{3}$").to_dict(),
+            property_definition=PropertyDefinition(dataType="DateTime", format="unix_timestamp").to_dict(),
         ),
         [11],
     ),
