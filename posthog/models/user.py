@@ -3,10 +3,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rest_framework.exceptions import ValidationError
 
+from posthog.constants import AvailableFeature
 from posthog.utils import get_instance_realm
 
 from .organization import Organization, OrganizationMembership
@@ -147,24 +149,20 @@ class User(AbstractUser, UUIDClassicModel):
         if self.current_team is None and self.organization is not None:
             if (
                 not settings.EE_AVAILABLE
+                or AvailableFeature.PROJECT_BASED_PERMISSIONING not in self.organization.available_features
                 or self.organization.memberships.get(user=self).level >= OrganizationMembership.Level.ADMIN
             ):
-                self.current_team = self.organization.teams.order_by(
-                    "access_control", "id"
-                ).first()  # Prefer open projects
+                # If project access control is NOT applicable, simply prefer open projects just in case
+                self.current_team = self.organization.teams.order_by("access_control", "id").first()
             else:
-                # User has private porjects and is a regular member in this org,
-                # current project should not be assigned to a private project to which the member doesn't have access
+                # If project access control IS applicable, make sure the user is assigned a project they have access to
                 from ee.models import ExplicitTeamMembership
 
                 available_private_project_ids = ExplicitTeamMembership.objects.filter(
                     parent_membership__user=self
                 ).values_list("team_id", flat=True)
                 self.current_team = (
-                    self.organization.teams.filter(
-                        models.Q(access_control=False)
-                        | models.Q(access_control=True, pk__in=available_private_project_ids)
-                    )
+                    self.organization.teams.filter(Q(access_control=False) | Q(pk__in=available_private_project_ids))
                     .order_by("access_control", "id")
                     .first()
                 )
