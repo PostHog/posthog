@@ -45,12 +45,13 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
     first_migration = None
     for migration_name, migration in ALL_ASYNC_MIGRATIONS.items():
 
-        AsyncMigration.objects.get_or_create(
-            name=migration_name,
-            description=migration.description,
-            posthog_max_version=migration.posthog_max_version,
-            posthog_min_version=migration.posthog_min_version,
-        )
+        sm = AsyncMigration.objects.get_or_create(name=migration_name)[0]
+
+        sm.description = migration.description
+        sm.posthog_max_version = migration.posthog_max_version
+        sm.posthog_min_version = migration.posthog_min_version
+
+        sm.save()
 
         dependency = migration.depends_on
 

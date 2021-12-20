@@ -14,7 +14,7 @@ import React, { useRef } from 'react'
 import useSize from '@react-hook/size'
 import { humanFriendlyDuration, pluralize } from 'lib/utils'
 import { Popover } from 'antd'
-import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
+import { LEGACY_InsightTooltip } from 'scenes/insights/InsightTooltip/LEGACY_InsightTooltip'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { MetricRow } from 'scenes/funnels/FunnelBarGraph'
 
@@ -106,7 +106,7 @@ export function BreakdownVerticalBarGroup({
                             trigger="hover"
                             placement="right"
                             content={
-                                <InsightTooltip
+                                <LEGACY_InsightTooltip
                                     altTitle={
                                         <div style={{ wordWrap: 'break-word' }}>
                                             <PropertyKeyInfo value={currentStep.name} />
@@ -119,7 +119,7 @@ export function BreakdownVerticalBarGroup({
                                     {popoverMetrics.map(({ title, value, visible }, index) =>
                                         visible !== false ? <MetricRow key={index} title={title} value={value} /> : null
                                     )}
-                                </InsightTooltip>
+                                </LEGACY_InsightTooltip>
                             }
                         >
                             <div

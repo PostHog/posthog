@@ -1903,6 +1903,7 @@ export const createProcessEventTests = (
 
     test('team event_properties', async () => {
         expect(await hub.db.fetchEventDefinitions()).toEqual([])
+        expect(await hub.db.fetchEventProperties()).toEqual([])
         expect(await hub.db.fetchPropertyDefinitions()).toEqual([])
 
         await processEvent(
@@ -1953,6 +1954,28 @@ export const createProcessEventTests = (
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
+            },
+        ])
+
+        // flushed every minute normally, triggering flush now, it's tested elsewhere
+        expect(await hub.db.fetchEventProperties()).toEqual([
+            {
+                id: expect.any(Number),
+                event: 'purchase',
+                property: 'price',
+                team_id: 2,
+            },
+            {
+                id: expect.any(Number),
+                event: 'purchase',
+                property: 'name',
+                team_id: 2,
+            },
+            {
+                id: expect.any(Number),
+                event: 'purchase',
+                property: '$ip',
+                team_id: 2,
             },
         ])
     })
