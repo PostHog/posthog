@@ -9,6 +9,7 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { Popup } from 'lib/components/Popup/Popup'
 import { Button, Input } from 'antd'
 import { authorizedUrlsLogic, KeyedAppUrl, NEW_URL } from './authorizedUrlsLogic'
+import { isURL } from 'lib/utils'
 
 interface AuthorizedUrlsTableInterface {
     pageKey?: string
@@ -17,7 +18,7 @@ interface AuthorizedUrlsTableInterface {
 
 export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableInterface): JSX.Element {
     const logic = authorizedUrlsLogic({ actionId })
-    const { appUrlsKeyed, popoverOpen, suggestionsLoading, searchTerm, launchUrl } = useValues(logic)
+    const { appUrlsKeyed, popoverOpen, suggestionsLoading, searchTerm, launchUrl, appUrls } = useValues(logic)
     const { addUrl, setPopoverOpen, removeUrl, setSearchTerm, updateUrl, newUrl } = useActions(logic)
 
     const columns: LemonTableColumns<KeyedAppUrl> = [
@@ -27,6 +28,7 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
             key: 'url',
             render: function Render(url, record) {
                 const [urlUpdatingState, setUrlUpdatingState] = useState(record.url)
+                const [errorState, setErrorState] = useState('')
                 useEffect(() => setUrlUpdatingState(record.url), [record])
                 return url !== NEW_URL ? (
                     <div className={clsx('authorized-url-col', record.type)}>
@@ -39,9 +41,42 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                         <Input
                             value={urlUpdatingState}
                             onChange={(e) => setUrlUpdatingState(e.target.value)}
-                            onPressEnter={() => updateUrl(record.originalIndex, urlUpdatingState)}
+                            onPressEnter={() => {
+                                setErrorState('')
+                                if (urlUpdatingState === NEW_URL) {
+                                    removeUrl(record.originalIndex)
+                                }
+                                // See https://regex101.com/r/UMBc9g/1 for tests
+                                if (
+                                    urlUpdatingState.indexOf('*') > -1 &&
+                                    !urlUpdatingState.match(/^(.*)\*[^\*]*\.[^\*]+\.[^\*]+$/)
+                                ) {
+                                    setErrorState(
+                                        'You can only wildcard subdomains. If you wildcard the domain or TLD, people might be able to gain access to your PostHog data.'
+                                    )
+                                    return
+                                }
+                                if (!isURL(urlUpdatingState)) {
+                                    setErrorState('Please type a valid URL or domain.')
+                                    return
+                                }
+
+                                if (
+                                    appUrls.indexOf(urlUpdatingState) > -1 &&
+                                    (appUrls.indexOf(urlUpdatingState, record.originalIndex) !== record.originalIndex ||
+                                        appUrls.indexOf(urlUpdatingState, record.originalIndex + 1) !==
+                                            record.originalIndex)
+                                ) {
+                                    setErrorState('This URL is already registered.')
+                                    return
+                                }
+
+                                updateUrl(record.originalIndex, urlUpdatingState)
+                            }}
                             autoFocus
+                            placeholder="Enter a URL or wildcard subdomain (e.g. https://*.posthog.com)"
                         />
+                        {errorState && <span className="text-small text-danger">{errorState}</span>}
                     </div>
                 )
             },
