@@ -21,14 +21,15 @@ export const appUrlsLogic = kea<appUrlsLogicType<KeyedAppUrl>>({
     },
     connect: {
         values: [teamLogic, ['currentTeam', 'currentTeamId']],
+        actions: [teamLogic, ['updateCurrentTeam']],
     },
     actions: () => ({
         setAppUrls: (appUrls: string[]) => ({ appUrls }),
-        addUrl: (value: string) => ({ value }),
-        addUrlAndGo: (value: string) => ({ value }),
+        addUrl: (url: string, launch?: boolean) => ({ url, launch }),
         removeUrl: (index: number) => ({ index }),
-        updateUrl: (index: number, value: string) => ({ index, value }),
+        updateUrl: (index: number, url: string) => ({ index, url }),
         launchAtUrl: (url: string) => ({ url }),
+        setPopoverOpen: (indexedUrl: string | null) => ({ indexedUrl }),
     }),
 
     loaders: ({ values }) => ({
@@ -84,8 +85,8 @@ export const appUrlsLogic = kea<appUrlsLogicType<KeyedAppUrl>>({
             [] as string[],
             {
                 setAppUrls: (_, { appUrls }) => appUrls,
-                addUrl: (state, { value }) => state.concat([value || defaultValue]),
-                updateUrl: (state, { index, value }) => Object.assign([...state], { [index]: value }),
+                addUrl: (state, { url }) => state.concat([url || defaultValue]),
+                updateUrl: (state, { index, url }) => Object.assign([...state], { [index]: url }),
                 removeUrl: (state, { index }) => {
                     const newAppUrls = [...state]
                     newAppUrls.splice(index, 1)
@@ -96,17 +97,26 @@ export const appUrlsLogic = kea<appUrlsLogicType<KeyedAppUrl>>({
         suggestions: [
             [],
             {
-                addUrl: (state, { value }) => [...state].filter((item) => value !== item),
+                addUrl: (state, { url }) => [...state].filter((item) => url !== item),
+            },
+        ],
+        popoverOpen: [
+            // Used in ToolbarLaunch.tsx to determine if the "..." more menu popover is shown for an item
+            null as string | null,
+            {
+                setPopoverOpen: (_, { indexedUrl }) => indexedUrl,
             },
         ],
     }),
-    listeners: ({ values, sharedListeners, props, actions }) => ({
-        addUrlAndGo: async ({ value }) => {
-            // TODO: Need to refactor this to use `teamLogic.actions.updateCurrentTeam`
-            const app_urls = [...values.appUrls, value]
-            await api.update('api/projects/@current', { app_urls })
-            actions.launchAtUrl(value)
-        },
+    listeners: ({ sharedListeners, props, actions }) => ({
+        addUrl: [
+            sharedListeners.saveAppUrls,
+            async ({ url, launch }) => {
+                if (launch) {
+                    actions.launchAtUrl(url)
+                }
+            },
+        ],
         removeUrl: sharedListeners.saveAppUrls,
         updateUrl: sharedListeners.saveAppUrls,
         [teamLogic.actionTypes.loadCurrentTeamSuccess]: async ({ currentTeam }) => {

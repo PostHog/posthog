@@ -7,6 +7,8 @@ import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { PostHog } from 'posthog-js'
 import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
+import { elementsLogic } from './elements/elementsLogic'
+import { heatmapLogic } from './elements/heatmapLogic'
 
 // input: props = all editorProps
 export const toolbarLogic = kea<toolbarLogicType>({
@@ -67,6 +69,11 @@ export const toolbarLogic = kea<toolbarLogicType>({
                 actionsTabLogic.actions.showButtonActions()
                 toolbarButtonLogic.actions.showActionsInfo()
                 // the right view will next be opened in `actionsTabLogic` on `getActionsSuccess`
+            } else if (props.userIntent === 'inspect') {
+                elementsLogic.actions.enableInspect()
+            } else if (props.userIntent === 'heatmap') {
+                toolbarButtonLogic.actions.showHeatmapInfo()
+                heatmapLogic.actions.enableHeatmap()
             }
         },
     }),

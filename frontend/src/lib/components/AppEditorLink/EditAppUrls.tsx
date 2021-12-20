@@ -14,15 +14,11 @@ export function EditAppUrls({
     allowNavigation?: boolean
 }): JSX.Element {
     const { appUrls, suggestions, suggestionsLoading } = useValues(appUrlsLogic({ actionId }))
-    const { addUrl, addUrlAndGo, removeUrl, updateUrl } = useActions(appUrlsLogic({ actionId }))
+    const { addUrl, removeUrl, updateUrl } = useActions(appUrlsLogic({ actionId }))
     const [loadMore, setLoadMore] = useState(false)
 
     const handleUrlClick = (url: string): void => {
-        if (allowNavigation) {
-            addUrlAndGo(url)
-            return
-        }
-        addUrl(url)
+        addUrl(url, allowNavigation)
     }
 
     return (
