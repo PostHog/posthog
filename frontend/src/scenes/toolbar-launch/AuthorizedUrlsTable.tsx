@@ -7,17 +7,18 @@ import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { PlusOutlined, EllipsisOutlined, DeleteOutlined, EditOutlined, CheckCircleFilled } from '@ant-design/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Popup } from 'lib/components/Popup/Popup'
-import { appEditorUrl } from 'lib/components/AppEditorLink/utils'
 import { Button, Input } from 'antd'
 import { authorizedUrlsLogic, KeyedAppUrl } from './authorizedUrlsLogic'
 
 interface AuthorizedUrlsTableInterface {
     pageKey?: string
+    actionId?: number
 }
 
-export function AuthorizedUrlsTable({ pageKey }: AuthorizedUrlsTableInterface): JSX.Element {
-    const { appUrlsKeyed, popoverOpen, suggestionsLoading, searchTerm } = useValues(authorizedUrlsLogic)
-    const { addUrl, setPopoverOpen, removeUrl, setSearchTerm } = useActions(authorizedUrlsLogic)
+export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableInterface): JSX.Element {
+    const logic = authorizedUrlsLogic({ actionId })
+    const { appUrlsKeyed, popoverOpen, suggestionsLoading, searchTerm, launchUrl } = useValues(logic)
+    const { addUrl, setPopoverOpen, removeUrl, setSearchTerm } = useActions(logic)
 
     const columns: LemonTableColumns<KeyedAppUrl> = [
         {
@@ -46,7 +47,7 @@ export function AuthorizedUrlsTable({ pageKey }: AuthorizedUrlsTableInterface): 
                             </LemonButton>
                         ) : (
                             <>
-                                <a href={appEditorUrl(record.url, undefined, true)}>
+                                <a href={launchUrl(record.url)}>
                                     <LemonButton type="highlighted">Launch toolbar</LemonButton>
                                 </a>
                                 <Popup
@@ -97,7 +98,7 @@ export function AuthorizedUrlsTable({ pageKey }: AuthorizedUrlsTableInterface): 
                         allowClear
                         enterButton
                         placeholder="Search for authorized URLs"
-                        style={{ width: 480, maxWidth: '100%' }}
+                        style={{ maxWidth: 480 }}
                         value={searchTerm}
                         onChange={(e) => {
                             setSearchTerm(e.target.value)
@@ -106,7 +107,7 @@ export function AuthorizedUrlsTable({ pageKey }: AuthorizedUrlsTableInterface): 
                     />
                 </div>
                 <Button type="primary" icon={<PlusOutlined />}>
-                    Add authorized domain
+                    Add{pageKey === 'toolbar-launch' && ' authorized domain'}
                 </Button>
             </div>
             <LemonTable

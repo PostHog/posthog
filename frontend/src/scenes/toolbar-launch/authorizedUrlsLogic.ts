@@ -1,12 +1,23 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
-import { appEditorUrl } from 'lib/components/AppEditorLink/utils'
 import { TrendResult } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { dayjs } from 'lib/dayjs'
 import Fuse from 'fuse.js'
 import { authorizedUrlsLogicType } from './authorizedUrlsLogicType'
+import { encodeParams } from 'kea-router'
+import { EditorProps } from '~/types'
+
+/** defaultIntent: whether to launch with empty intent (i.e. toolbar mode is default) */
+export function appEditorUrl(appUrl?: string, actionId?: number, defaultIntent?: boolean): string {
+    const params: EditorProps = {
+        userIntent: defaultIntent ? undefined : actionId ? 'edit-action' : 'add-action',
+        ...(actionId ? { actionId } : {}),
+        ...(appUrl ? { appUrl } : {}),
+    }
+    return '/api/user/redirect_to_site/' + encodeParams(params, '?')
+}
 
 export interface KeyedAppUrl {
     url: string
@@ -16,9 +27,11 @@ export interface KeyedAppUrl {
 const defaultValue = 'https://'
 
 export const authorizedUrlsLogic = kea<authorizedUrlsLogicType<KeyedAppUrl>>({
-    path: ['lib', 'components', 'AppEditorLink', 'appUrlsLogic'],
+    path: (key) => ['lib', 'components', 'AppEditorLink', 'appUrlsLogic', key],
+    key: (props) => `${props.pageKey}${props.actionId}` || 'global',
     props: {} as {
         actionId?: number
+        pageKey?: string
     },
     connect: {
         values: [teamLogic, ['currentTeam', 'currentTeamId']],
@@ -116,7 +129,7 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType<KeyedAppUrl>>({
             },
         ],
     }),
-    listeners: ({ sharedListeners, props, actions }) => ({
+    listeners: ({ sharedListeners, values, actions }) => ({
         addUrl: [
             sharedListeners.saveAppUrls,
             async ({ url, launch }) => {
@@ -133,7 +146,7 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType<KeyedAppUrl>>({
             }
         },
         launchAtUrl: ({ url }) => {
-            window.location.href = appEditorUrl(url, props.actionId)
+            window.location.href = values.launchUrl(url)
         },
     }),
     sharedListeners: ({ values }) => ({
@@ -141,7 +154,7 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType<KeyedAppUrl>>({
             teamLogic.actions.updateCurrentTeam({ app_urls: values.appUrls })
         },
     }),
-    selectors: {
+    selectors: ({ props }) => ({
         appUrlsKeyed: [
             (s) => [s.appUrls, s.suggestions, s.searchTerm],
             (appUrls, suggestions, searchTerm): KeyedAppUrl[] => {
@@ -169,5 +182,6 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType<KeyedAppUrl>>({
                     .map((result) => result.item)
             },
         ],
-    },
+        launchUrl: [() => [], () => (url: string) => appEditorUrl(url, props.actionId, !props.actionId)],
+    }),
 })
