@@ -175,7 +175,7 @@ class User(AbstractUser, UUIDClassicModel):
         with transaction.atomic():
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
             self.current_organization = organization
-            self.current_team = organization.teams.filter(access_control=False).first()
+            self.current_team = organization.teams.order_by("access_control", "id").first()
             self.save()
             return membership
 
