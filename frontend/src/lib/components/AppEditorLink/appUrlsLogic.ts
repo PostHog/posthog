@@ -7,10 +7,18 @@ import { TrendResult } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { dayjs } from 'lib/dayjs'
 
+export interface KeyedAppUrl {
+    url: string
+    type: 'authorized' | 'suggestion'
+}
+
 const defaultValue = 'https://'
 
-export const appUrlsLogic = kea<appUrlsLogicType>({
+export const appUrlsLogic = kea<appUrlsLogicType<KeyedAppUrl>>({
     path: ['lib', 'components', 'AppEditorLink', 'appUrlsLogic'],
+    props: {} as {
+        actionId?: number
+    },
     connect: {
         values: [teamLogic, ['currentTeam', 'currentTeamId']],
     },
@@ -20,6 +28,7 @@ export const appUrlsLogic = kea<appUrlsLogicType>({
         addUrlAndGo: (value: string) => ({ value }),
         removeUrl: (index: number) => ({ index }),
         updateUrl: (index: number, value: string) => ({ index, value }),
+        launchAtUrl: (url: string) => ({ url }),
     }),
 
     loaders: ({ values }) => ({
@@ -96,12 +105,7 @@ export const appUrlsLogic = kea<appUrlsLogicType>({
             // TODO: Need to refactor this to use `teamLogic.actions.updateCurrentTeam`
             const app_urls = [...values.appUrls, value]
             await api.update('api/projects/@current', { app_urls })
-            if (typeof props.actionId === 'number' || props.isToolbarModal) {
-                window.location.href = appEditorUrl(
-                    value,
-                    typeof props.actionId === 'number' ? props.actionId : undefined
-                )
-            }
+            actions.launchAtUrl(value)
         },
         removeUrl: sharedListeners.saveAppUrls,
         updateUrl: sharedListeners.saveAppUrls,
@@ -110,11 +114,30 @@ export const appUrlsLogic = kea<appUrlsLogicType>({
                 actions.setAppUrls(currentTeam.app_urls)
             }
         },
+        launchAtUrl: ({ url }) => {
+            window.location.href = appEditorUrl(url, props.actionId)
+        },
     }),
-
     sharedListeners: ({ values }) => ({
         saveAppUrls: () => {
             teamLogic.actions.updateCurrentTeam({ app_urls: values.appUrls })
         },
     }),
+    selectors: {
+        appUrlsKeyed: [
+            (s) => [s.appUrls, s.suggestions],
+            (appUrls, suggestions): KeyedAppUrl[] =>
+                appUrls
+                    .map((url) => ({
+                        url,
+                        type: 'authorized',
+                    }))
+                    .concat(
+                        suggestions.map((url) => ({
+                            url,
+                            type: 'suggestion',
+                        }))
+                    ) as KeyedAppUrl[],
+        ],
+    },
 })

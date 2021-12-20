@@ -13,8 +13,8 @@ export function EditAppUrls({
     actionId?: number
     allowNavigation?: boolean
 }): JSX.Element {
-    const { appUrls, suggestions, suggestionsLoading } = useValues(appUrlsLogic({ actionId, isToolbarModal: true }))
-    const { addUrl, addUrlAndGo, removeUrl, updateUrl } = useActions(appUrlsLogic({ actionId, isToolbarModal: true }))
+    const { appUrls, suggestions, suggestionsLoading } = useValues(appUrlsLogic({ actionId }))
+    const { addUrl, addUrlAndGo, removeUrl, updateUrl } = useActions(appUrlsLogic({ actionId }))
     const [loadMore, setLoadMore] = useState(false)
 
     const handleUrlClick = (url: string): void => {

@@ -1,4 +1,20 @@
 @import '~/vars';
 
 .toolbar-launch-page {
+    .authorized-urls-table {
+        .authorized-url-col {
+            .lemon-tag {
+                margin-left: 4px;
+            }
+
+            &.suggestion {
+                color: $text_muted_alt;
+            }
+        }
+        .actions-col {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+        }
+    }
 }
