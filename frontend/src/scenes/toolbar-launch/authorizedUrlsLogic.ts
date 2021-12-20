@@ -19,12 +19,13 @@ export function appEditorUrl(appUrl?: string, actionId?: number, defaultIntent?:
     return '/api/user/redirect_to_site/' + encodeParams(params, '?')
 }
 
+export const NEW_URL = 'https://'
+
 export interface KeyedAppUrl {
     url: string
     type: 'authorized' | 'suggestion'
+    originalIndex: number
 }
-
-const defaultValue = 'https://'
 
 export const authorizedUrlsLogic = kea<authorizedUrlsLogicType<KeyedAppUrl>>({
     path: (key) => ['lib', 'components', 'AppEditorLink', 'appUrlsLogic', key],
@@ -40,6 +41,7 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType<KeyedAppUrl>>({
     actions: () => ({
         setAppUrls: (appUrls: string[]) => ({ appUrls }),
         addUrl: (url: string, launch?: boolean) => ({ url, launch }),
+        newUrl: true,
         removeUrl: (index: number) => ({ index }),
         updateUrl: (index: number, url: string) => ({ index, url }),
         launchAtUrl: (url: string) => ({ url }),
@@ -100,7 +102,8 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType<KeyedAppUrl>>({
             [] as string[],
             {
                 setAppUrls: (_, { appUrls }) => appUrls,
-                addUrl: (state, { url }) => state.concat([url || defaultValue]),
+                addUrl: (state, { url }) => state.concat([url]),
+                newUrl: (state) => (state.includes(NEW_URL) ? state : [NEW_URL].concat(state)),
                 updateUrl: (state, { index, url }) => Object.assign([...state], { [index]: url }),
                 removeUrl: (state, { index }) => {
                     const newAppUrls = [...state]
@@ -159,14 +162,16 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType<KeyedAppUrl>>({
             (s) => [s.appUrls, s.suggestions, s.searchTerm],
             (appUrls, suggestions, searchTerm): KeyedAppUrl[] => {
                 const urls = appUrls
-                    .map((url) => ({
+                    .map((url, index) => ({
                         url,
                         type: 'authorized',
+                        originalIndex: index,
                     }))
                     .concat(
-                        suggestions.map((url) => ({
+                        suggestions.map((url, index) => ({
                             url,
                             type: 'suggestion',
+                            originalIndex: index,
                         }))
                     ) as KeyedAppUrl[]
 

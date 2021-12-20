@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import './AuthorizedUrlsTable.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -8,7 +8,7 @@ import { PlusOutlined, EllipsisOutlined, DeleteOutlined, EditOutlined, CheckCirc
 import { LemonButton } from 'lib/components/LemonButton'
 import { Popup } from 'lib/components/Popup/Popup'
 import { Button, Input } from 'antd'
-import { authorizedUrlsLogic, KeyedAppUrl } from './authorizedUrlsLogic'
+import { authorizedUrlsLogic, KeyedAppUrl, NEW_URL } from './authorizedUrlsLogic'
 
 interface AuthorizedUrlsTableInterface {
     pageKey?: string
@@ -18,7 +18,7 @@ interface AuthorizedUrlsTableInterface {
 export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableInterface): JSX.Element {
     const logic = authorizedUrlsLogic({ actionId })
     const { appUrlsKeyed, popoverOpen, suggestionsLoading, searchTerm, launchUrl } = useValues(logic)
-    const { addUrl, setPopoverOpen, removeUrl, setSearchTerm } = useActions(logic)
+    const { addUrl, setPopoverOpen, removeUrl, setSearchTerm, updateUrl, newUrl } = useActions(logic)
 
     const columns: LemonTableColumns<KeyedAppUrl> = [
         {
@@ -26,11 +26,22 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
             dataIndex: 'url',
             key: 'url',
             render: function Render(url, record) {
-                return (
+                const [urlUpdatingState, setUrlUpdatingState] = useState(record.url)
+                useEffect(() => setUrlUpdatingState(record.url), [record])
+                return url !== NEW_URL ? (
                     <div className={clsx('authorized-url-col', record.type)}>
                         {record.type === 'authorized' && <CheckCircleFilled style={{ marginRight: 4 }} />}
                         {url}
                         {record.type === 'suggestion' && <LemonTag>Suggestion</LemonTag>}
+                    </div>
+                ) : (
+                    <div>
+                        <Input
+                            value={urlUpdatingState}
+                            onChange={(e) => setUrlUpdatingState(e.target.value)}
+                            onPressEnter={() => updateUrl(record.originalIndex, urlUpdatingState)}
+                            autoFocus
+                        />
                     </div>
                 )
             },
@@ -54,6 +65,7 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                                     visible={popoverOpen === `${index}_${record.url}`}
                                     actionable
                                     onClickOutside={() => setPopoverOpen(null)}
+                                    onClickInside={() => setPopoverOpen(null)}
                                     overlay={
                                         <>
                                             <LemonButton fullWidth type="stealth">
@@ -106,7 +118,7 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                         autoFocus={pageKey === 'toolbar-launch'}
                     />
                 </div>
-                <Button type="primary" icon={<PlusOutlined />}>
+                <Button type="primary" icon={<PlusOutlined />} onClick={newUrl}>
                     Add{pageKey === 'toolbar-launch' && ' authorized domain'}
                 </Button>
             </div>
