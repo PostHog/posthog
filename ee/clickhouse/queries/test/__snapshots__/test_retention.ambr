@@ -57,7 +57,7 @@
   GROUP BY breakdown_values,
            intervals_from_base
   ORDER BY breakdown_values,
-           intervals_from_base SETTINGS timeout_before_checking_execution_speed = 60
+           intervals_from_base
   '
 ---
 # name: TestClickhouseRetention.test_groups_aggregating.1
@@ -180,7 +180,7 @@
   GROUP BY breakdown_values,
            intervals_from_base
   ORDER BY breakdown_values,
-           intervals_from_base SETTINGS timeout_before_checking_execution_speed = 60
+           intervals_from_base
   '
 ---
 # name: TestClickhouseRetention.test_groups_filtering
@@ -286,7 +286,7 @@
   GROUP BY breakdown_values,
            intervals_from_base
   ORDER BY breakdown_values,
-           intervals_from_base SETTINGS timeout_before_checking_execution_speed = 60
+           intervals_from_base
   '
 ---
 # name: TestClickhouseRetention.test_groups_filtering.1
@@ -390,7 +390,7 @@
   GROUP BY breakdown_values,
            intervals_from_base
   ORDER BY breakdown_values,
-           intervals_from_base SETTINGS timeout_before_checking_execution_speed = 60
+           intervals_from_base
   '
 ---
 # name: TestClickhouseRetention.test_groups_in_period
