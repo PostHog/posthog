@@ -1,10 +1,10 @@
 import { encodeParams } from 'kea-router'
-import { EditorProps, ToolbarUserIntent } from '~/types'
+import { EditorProps } from '~/types'
 
 /** defaultIntent: whether to launch with empty intent (i.e. toolbar mode is default) */
-export function appEditorUrl(appUrl?: string, actionId?: number, userIntent?: ToolbarUserIntent): string {
+export function appEditorUrl(appUrl?: string, actionId?: number, defaultIntent?: boolean): string {
     const params: EditorProps = {
-        userIntent: userIntent ? userIntent : actionId ? 'edit-action' : 'add-action',
+        userIntent: defaultIntent ? undefined : actionId ? 'edit-action' : 'add-action',
         ...(actionId ? { actionId } : {}),
         ...(appUrl ? { appUrl } : {}),
     }

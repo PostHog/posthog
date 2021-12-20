@@ -2,9 +2,9 @@ import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { Button, List } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
-import { appUrlsLogic } from './appUrlsLogic'
 import { UrlRow } from './UrlRow'
 import { Spinner } from '../Spinner/Spinner'
+import { authorizedUrlsLogic } from 'scenes/toolbar-launch/authorizedUrlsLogic'
 
 export function EditAppUrls({
     actionId,
@@ -13,8 +13,8 @@ export function EditAppUrls({
     actionId?: number
     allowNavigation?: boolean
 }): JSX.Element {
-    const { appUrls, suggestions, suggestionsLoading } = useValues(appUrlsLogic({ actionId }))
-    const { addUrl, removeUrl, updateUrl } = useActions(appUrlsLogic({ actionId }))
+    const { appUrls, suggestions, suggestionsLoading } = useValues(authorizedUrlsLogic({ actionId }))
+    const { addUrl, removeUrl, updateUrl } = useActions(authorizedUrlsLogic({ actionId }))
     const [loadMore, setLoadMore] = useState(false)
 
     const handleUrlClick = (url: string): void => {

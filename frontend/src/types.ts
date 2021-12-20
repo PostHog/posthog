@@ -251,7 +251,7 @@ export interface ElementType {
     text?: string
 }
 
-export type ToolbarUserIntent = 'add-action' | 'edit-action' | 'heatmap' | 'inspect'
+export type ToolbarUserIntent = 'add-action' | 'edit-action'
 
 export interface EditorProps {
     apiURL?: string

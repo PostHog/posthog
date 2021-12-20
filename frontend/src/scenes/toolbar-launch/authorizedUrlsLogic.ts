@@ -2,11 +2,11 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { appEditorUrl } from 'lib/components/AppEditorLink/utils'
-import { appUrlsLogicType } from './appUrlsLogicType'
 import { TrendResult } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { dayjs } from 'lib/dayjs'
 import Fuse from 'fuse.js'
+import { authorizedUrlsLogicType } from './authorizedUrlsLogicType'
 
 export interface KeyedAppUrl {
     url: string
@@ -15,7 +15,7 @@ export interface KeyedAppUrl {
 
 const defaultValue = 'https://'
 
-export const appUrlsLogic = kea<appUrlsLogicType<KeyedAppUrl>>({
+export const authorizedUrlsLogic = kea<authorizedUrlsLogicType<KeyedAppUrl>>({
     path: ['lib', 'components', 'AppEditorLink', 'appUrlsLogic'],
     props: {} as {
         actionId?: number

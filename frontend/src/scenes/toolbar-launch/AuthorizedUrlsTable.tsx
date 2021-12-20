@@ -2,7 +2,6 @@ import React from 'react'
 import './AuthorizedUrlsTable.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { appUrlsLogic, KeyedAppUrl } from 'lib/components/AppEditorLink/appUrlsLogic'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { PlusOutlined, EllipsisOutlined, DeleteOutlined, EditOutlined, CheckCircleFilled } from '@ant-design/icons'
@@ -10,14 +9,15 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { Popup } from 'lib/components/Popup/Popup'
 import { appEditorUrl } from 'lib/components/AppEditorLink/utils'
 import { Input } from 'antd'
+import { authorizedUrlsLogic, KeyedAppUrl } from './authorizedUrlsLogic'
 
 interface AuthorizedUrlsTableInterface {
     pageKey?: string
 }
 
 export function AuthorizedUrlsTable({ pageKey }: AuthorizedUrlsTableInterface): JSX.Element {
-    const { appUrlsKeyed, popoverOpen, suggestionsLoading, searchTerm } = useValues(appUrlsLogic)
-    const { addUrl, setPopoverOpen, removeUrl, setSearchTerm } = useActions(appUrlsLogic)
+    const { appUrlsKeyed, popoverOpen, suggestionsLoading, searchTerm } = useValues(authorizedUrlsLogic)
+    const { addUrl, setPopoverOpen, removeUrl, setSearchTerm } = useActions(authorizedUrlsLogic)
 
     const columns: LemonTableColumns<KeyedAppUrl> = [
         {
@@ -46,7 +46,7 @@ export function AuthorizedUrlsTable({ pageKey }: AuthorizedUrlsTableInterface): 
                             </LemonButton>
                         ) : (
                             <>
-                                <a href={appEditorUrl(record.url, undefined, 'inspect')}>
+                                <a href={appEditorUrl(record.url, undefined, true)}>
                                     <LemonButton type="highlighted">Launch toolbar</LemonButton>
                                 </a>
                                 <Popup
