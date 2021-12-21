@@ -44,6 +44,7 @@ import { generateRandomAnimal } from 'lib/utils/randomAnimal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { actionsModel } from '~/models/actionsModel'
+import * as Sentry from '@sentry/browser'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -147,6 +148,22 @@ export const insightLogic = kea<insightLogicType>({
                     if (!Object.entries(insight).length) {
                         return values.insight
                     }
+
+                    if (
+                        insight.filters &&
+                        JSON.stringify(cleanFilters(insight.filters)) === JSON.stringify(cleanFilters({}))
+                    ) {
+                        const error = new Error('Will not override empty filters in updateInsight.')
+                        Sentry.captureException(error, {
+                            extra: {
+                                filters: JSON.stringify(insight.filters),
+                                insight: JSON.stringify(insight),
+                                valuesInsight: JSON.stringify(values.insight),
+                            },
+                        })
+                        throw error
+                    }
+
                     const response = await api.update(
                         `api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}`,
                         insight
@@ -167,6 +184,17 @@ export const insightLogic = kea<insightLogicType>({
                 setInsightMetadata: async ({ metadata }, breakpoint) => {
                     if (values.insightMode === ItemMode.Edit) {
                         return { ...values.insight, ...metadata }
+                    }
+
+                    if (metadata.filters) {
+                        const error = new Error(`Will not override filters in setInsightMetadata`)
+                        Sentry.captureException(error, {
+                            extra: {
+                                filters: JSON.stringify(values.insight.filters),
+                                insight: JSON.stringify(values.insight),
+                            },
+                        })
+                        throw error
                     }
 
                     const response = await api.update(
@@ -615,6 +643,16 @@ export const insightLogic = kea<insightLogicType>({
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
             if (!insightId) {
                 throw new Error('Can only save saved insights whose id is known.')
+            }
+            if (
+                !values.insight.filters ||
+                JSON.stringify(cleanFilters(values.insight.filters)) === JSON.stringify(cleanFilters({}))
+            ) {
+                const error = new Error('Will not override empty filters in saveInsight.')
+                Sentry.captureException(error, {
+                    extra: { filters: JSON.stringify(values.insight.filters), insight: JSON.stringify(values.insight) },
+                })
+                throw error
             }
             const savedInsight: InsightModel = await api.update(
                 `api/projects/${teamLogic.values.currentTeamId}/insights/${insightId}`,
