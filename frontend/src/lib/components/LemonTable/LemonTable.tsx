@@ -281,7 +281,10 @@ export function LemonTable<T extends Record<string, any>>({
                                                     })
                                                 }
                                             >
-                                                <div className="LemonTable__header-content">
+                                                <div
+                                                    className="LemonTable__header-content"
+                                                    style={{ justifyContent: column.align }}
+                                                >
                                                     {column.title}
                                                     {column.sorter && (
                                                         <SortingIndicator

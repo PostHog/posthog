@@ -115,12 +115,7 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
             filters?.layout === FunnelLayout.horizontal &&
             !disableTable
         ) {
-            return (
-                <Card>
-                    <h3 className="l3">Details table</h3>
-                    <FunnelStepTable />
-                </Card>
-            )
+            return <FunnelStepTable />
         }
         if (
             (!filters.display ||
@@ -134,16 +129,13 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
         2. Bar value chart. Because this view displays data in completely different dimensions.
     */
             return (
-                <Card style={{ marginTop: 8 }}>
-                    <BindLogic logic={trendsLogic} props={insightProps}>
-                        <h3 className="l3">Details table</h3>
-                        <InsightsTable
-                            showTotalCount={activeView !== InsightType.SESSIONS}
-                            filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
-                            canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}
-                        />
-                    </BindLogic>
-                </Card>
+                <BindLogic logic={trendsLogic} props={insightProps}>
+                    <InsightsTable
+                        showTotalCount={activeView !== InsightType.SESSIONS}
+                        filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
+                        canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}
+                    />
+                </BindLogic>
             )
         }
 
