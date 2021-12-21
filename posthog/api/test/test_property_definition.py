@@ -35,7 +35,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         cls.user.save()
         EventProperty.objects.create(team=cls.demo_team, event="$pageview", property="$browser")
 
-    def test_property_formats(self):
+    def test_individual_property_formats(self):
         property = PropertyDefinition.objects.create(
             team=self.team, name="timestamp_property", property_type="DateTime", property_type_format="unix_timestamp"
         )
@@ -43,11 +43,6 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert response.json()["property_type"] == "DateTime"
         assert response.json()["property_type_format"] == "unix_timestamp"
-
-        query_list_response = self.client.get("/api/projects/@current/property_definitions/")
-        self.assertEqual(query_list_response.status_code, status.HTTP_200_OK)
-        matches = [p["name"] for p in query_list_response.json()["results"] if p["name"] == "timestamp_property"]
-        assert len(matches) == 1
 
     def test_list_property_definitions(self):
 
