@@ -17,7 +17,7 @@ import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/T
 import ReactDOM from 'react-dom'
 import { usePopper } from 'react-popper'
 import { ActionType, CohortType, EventDefinition, KeyMapping, PropertyDefinition } from '~/types'
-import { AimOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { AimOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { ActionSelectInfo } from 'scenes/insights/ActionSelectInfo'
 import { urls } from 'scenes/urls'
@@ -83,7 +83,7 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
                 </>
             }
         >
-            <InfoCircleOutlined />
+            <Tag className="lemonade-tag">Not seen</Tag>
         </Tooltip>
     )
 }
@@ -117,7 +117,7 @@ const renderItemContents = ({
         listGroupType === TaxonomicFilterGroupType.CustomEvents ||
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <>
-            <div className={clsx((isStale || isUnusedEventProperty) && 'text-muted')}>
+            <div className={clsx(isStale && 'text-muted')}>
                 <PropertyKeyInfo value={item.name ?? ''} disablePopover />
             </div>
             {isStale && staleIndicator(parsedLastSeen)}
