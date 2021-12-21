@@ -81,6 +81,7 @@ export function ProjectSettings(): JSX.Element {
     const { resetToken } = useActions(teamLogic)
     const { location } = useValues(router)
     const { user, hasAvailableFeature } = useValues(userLogic)
+    const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
 
     useAnchor(location.hash)
 
@@ -189,40 +190,40 @@ export function ProjectSettings(): JSX.Element {
                     you apply a Cohort filter, it means toggling filtering on will match only this specific cohort.
                 </p>
                 <TestAccountFiltersConfig />
-                {true ? (
+                <Divider />
+                <CorrelationConfig />
+                {hasAdvancedPaths && (
                     <>
                         <Divider />
-                        <CorrelationConfig />
+                        <h2 className="subtitle" id="path_cleaning_filtering">
+                            Path cleaning rules
+                            <LemonTag type="warning" style={{ marginLeft: 8 }}>
+                                Beta
+                            </LemonTag>
+                        </h2>
+                        <p>
+                            Make your <Link to={urls.insightNew({ insight: InsightType.PATHS })}>Paths</Link> clearer by
+                            aliasing one or multiple URLs.{' '}
+                            <i>
+                                Example: <code>htttp://client1.mydomain.com/accounts</code> and{' '}
+                                <code>htttp://tenant2.mydomain.com/accounts</code> can become a single{' '}
+                                <code>accounts</code> path.
+                            </i>
+                        </p>
+                        <p>
+                            Each rule is composed of an alias and a regex pattern. Any pattern in a URL or event name
+                            that matches the regex will be replaced with the alias. Rules are applied in the order that
+                            they're listed.
+                        </p>
+                        <p>
+                            <b>
+                                Rules that you set here will be applied before wildcarding and other regex replacement
+                                if the toggle is switched on.
+                            </b>
+                        </p>
+                        <PathCleaningFiltersConfig />
                     </>
-                ) : null}
-                <Divider />
-                <h2 className="subtitle" id="path_cleaning_filtering">
-                    Path cleaning rules
-                    <LemonTag type="warning" style={{ marginLeft: 8 }}>
-                        Beta
-                    </LemonTag>
-                </h2>
-                <p>
-                    Make your <Link to={urls.insightNew({ insight: InsightType.PATHS })}>Paths</Link> clearer by
-                    aliasing one or multiple URLs.{' '}
-                    <i>
-                        Example: <code>htttp://client1.mydomain.com/accounts</code> and{' '}
-                        <code>htttp://tenant2.mydomain.com/accounts</code> can become a single <code>accounts</code>{' '}
-                        path.
-                    </i>
-                </p>
-                <p>
-                    Each rule is composed of an alias and a regex pattern. Any pattern in a URL or event name that
-                    matches the regex will be replaced with the alias. Rules are applied in the order that they're
-                    listed.
-                </p>
-                <p>
-                    <b>
-                        Rules that you set here will be applied before wildcarding and other regex replacement if the
-                        toggle is switched on.
-                    </b>
-                </p>
-                <PathCleaningFiltersConfig />
+                )}
                 <Divider />
                 <div id="permitted-domains" />
                 <h2 className="subtitle" id="urls">

@@ -12,6 +12,7 @@ import {
     dateMappingOption,
     GroupActorType,
     ActorType,
+    ActionType,
 } from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
@@ -1257,4 +1258,11 @@ export function isGroupType(actor: ActorType): actor is GroupActorType {
 
 export function mapRange(value: number, x1: number, y1: number, x2: number, y2: number): number {
     return Math.floor(((value - x1) * (y2 - x2)) / (y1 - x1) + x2)
+}
+
+export function getEventNamesForAction(actionId: string | number, allActions: ActionType[]): string[] {
+    const id = parseInt(String(actionId))
+    return allActions
+        .filter((a) => a.id === id)
+        .flatMap((a) => a.steps?.filter((step) => step.event).map((step) => String(step.event)) as string[])
 }
