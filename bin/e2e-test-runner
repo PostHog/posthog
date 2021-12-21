@@ -1,14 +1,16 @@
 #!/bin/bash
 set -e
 
+DATABASE="posthog_e2e_test"
+
 export PGHOST="${PGHOST:=localhost}"
 export PGUSER="${PGUSER:=posthog}"
 export PGPASSWORD="${PGPASSWORD:=posthog}"
 export PGPORT="${PGPORT:=5432}"
-export DATABASE_URL="postgres://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/posthog_e2e_test"
+export DATABASE_URL="postgres://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${DATABASE}"
 
-dropdb --if-exists posthog_e2e_test
-createdb posthog_e2e_test
+dropdb --if-exists $DATABASE
+createdb $DATABASE
 DEBUG=1 python manage.py migrate &&
 DEBUG=1 python manage.py setup_dev &
 yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
