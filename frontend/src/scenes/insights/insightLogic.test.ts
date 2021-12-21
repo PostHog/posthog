@@ -678,6 +678,9 @@ describe('insightLogic', () => {
 
         logic.actions.setInsight({ id: 42, short_id: Insight42, filters: {} }, {})
         logic.actions.saveInsight()
-        expect(Sentry.captureException).toHaveBeenCalledWith(new Error('Tried to override filters'), expect.any(Object))
+        expect(Sentry.captureException).toHaveBeenCalledWith(
+            new Error('Will not override empty filters in saveInsight.'),
+            expect.any(Object)
+        )
     })
 })
