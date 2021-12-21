@@ -11,7 +11,7 @@ import { ToggleButtonChartFilter } from './ToggleButtonChartFilter'
 import { Tooltip } from 'lib/components/Tooltip'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
-import { PropertyFilters } from 'lib/components/PropertyFilters'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { FunnelStepReference, FunnelVizType, StepOrderValue } from '~/types'
@@ -30,7 +30,7 @@ import { FunnelExclusionsFilter } from './FunnelExclusionsFilter'
 import { FunnelStepReferencePicker } from './FunnelStepReferencePicker'
 
 export function FunnelTabWithSimpleMode(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, allEventNames } = useValues(insightLogic)
     const { loadResults } = useActions(insightLogic)
     const {
         isStepsEmpty,
@@ -167,6 +167,7 @@ export function FunnelTabWithSimpleMode(): JSX.Element {
                         TaxonomicFilterGroupType.Cohorts,
                         TaxonomicFilterGroupType.Elements,
                     ]}
+                    eventNames={allEventNames}
                 />
 
                 {clickhouseFeaturesEnabled && filters.funnel_viz_type === FunnelVizType.Steps && (

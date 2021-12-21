@@ -1,6 +1,14 @@
 import { kea } from 'kea'
 import { prompt } from 'lib/logic/prompt'
-import { dateFilterToText, errorToast, getFormattedLastWeekDate, objectsEqual, toParams, uuid } from 'lib/utils'
+import {
+    dateFilterToText,
+    errorToast,
+    getEventNamesForAction,
+    getFormattedLastWeekDate,
+    objectsEqual,
+    toParams,
+    uuid,
+} from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
@@ -13,6 +21,7 @@ import {
     InsightType,
     ItemMode,
     SetInsightOptions,
+    ActionType,
 } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
 import { router } from 'kea-router'
@@ -34,6 +43,7 @@ import { urls } from 'scenes/urls'
 import { generateRandomAnimal } from 'lib/utils/randomAnimal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { actionsModel } from '~/models/actionsModel'
 import * as Sentry from '@sentry/browser'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
@@ -485,6 +495,17 @@ export const insightLogic = kea<insightLogicType>({
                     undefined,
                     true
                 )
+            },
+        ],
+        allEventNames: [
+            (s) => [s.filters, actionsModel.selectors.actions],
+            (filters, actions: ActionType[]) => {
+                const allEvents = [
+                    ...(filters.events || []).map((e) => String(e.id)),
+                    ...(filters.actions || []).flatMap((action) => getEventNamesForAction(action.id, actions)),
+                ]
+                // remove duplicates and empty events
+                return Array.from(new Set(allEvents.filter((a): a is string => !!a)))
             },
         ],
     },
