@@ -62,8 +62,11 @@ class Person(models.Model):
         for distinct_id in distinct_ids:
             if not distinct_id == main_distinct_id:
                 with transaction.atomic():
-                    PersonDistinctId.objects.filter(person=self, distinct_id=distinct_id).delete()
-                    person = Person.objects.create(team_id=self.team_id, distinct_ids=[distinct_id])
+                    person = Person.objects.create(team_id=self.team_id)
+                    pdi = PersonDistinctId.objects.get(person=self, distinct_id=distinct_id)
+                    pdi.person_id = str(person.id)
+                    pdi.version = (pdi.version or 0) + 1
+                    pdi.save(update_fields=["version", "person_id"])
 
                 if is_clickhouse_enabled():
                     from ee.clickhouse.models.person import create_person, create_person_distinct_id
@@ -72,7 +75,11 @@ class Person(models.Model):
                         team_id=self.team_id, distinct_id=distinct_id, person_id=str(self.uuid), sign=-1
                     )
                     create_person_distinct_id(
-                        team_id=self.team_id, distinct_id=distinct_id, person_id=str(person.uuid), sign=1
+                        team_id=self.team_id,
+                        distinct_id=distinct_id,
+                        person_id=str(person.uuid),
+                        sign=1,
+                        version=pdi.version,
                     )
                     create_person(
                         team_id=self.team_id, uuid=str(person.uuid),
