@@ -1337,7 +1337,7 @@ export interface PropertyDefinition {
     updated_at?: string
     updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
-    is_event_property?: boolean // Indicates whether this property has been seen for this event; calculated at query time, not stored in the db
+    is_event_property?: boolean // Indicates whether this property has been seen for a particular set of events (when `eventNames` query string is sent); calculated at query time, not stored in the db
 }
 
 export interface PersonProperty {
