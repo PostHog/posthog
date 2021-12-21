@@ -78,9 +78,10 @@ export function InsightsTable({
             {Object.keys(CALC_COLUMN_LABELS).map((key) => (
                 <Menu.Item
                     key={key}
-                    onClick={() => {
+                    onClick={(e) => {
                         setCalcColumnState(key as CalcColumnState)
                         reportInsightsTableCalcToggled(key)
+                        e.domEvent.stopPropagation() // Prevent click here from affecting table sorting
                     }}
                 >
                     {CALC_COLUMN_LABELS[key as CalcColumnState]}
