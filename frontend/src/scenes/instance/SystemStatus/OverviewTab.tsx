@@ -65,7 +65,7 @@ export function OverviewTab(): JSX.Element {
                     className="system-status-table"
                     size="small"
                     rowKey="metric"
-                    pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                    pagination={false}
                     dataSource={overview}
                     columns={columns}
                     loading={systemStatusLoading}
@@ -94,7 +94,7 @@ export function OverviewTab(): JSX.Element {
                     className="system-config-table"
                     size="small"
                     rowKey="metric"
-                    pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                    pagination={false}
                     dataSource={configOptions}
                     columns={columns}
                     loading={preflightLoading}
@@ -108,7 +108,7 @@ function Subrows(props: SystemStatusSubrows): JSX.Element {
     return (
         <Table
             rowKey="metric"
-            pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+            pagination={false}
             dataSource={props.rows}
             columns={props.columns.map((title, dataIndex) => ({ title, dataIndex }))}
         />
