@@ -6,9 +6,10 @@ import { InsightEmptyState } from '../insights/EmptyStates'
 import { Modal, Button } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { GraphType, PersonType, GraphDataset } from '~/types'
-import { RetentionTrendPeoplePayload } from 'scenes/retention/types'
+import { RetentionTablePayload, RetentionTablePeoplePayload, RetentionTrendPeoplePayload } from 'scenes/retention/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import './RetentionLineGraph.scss'
+import { RetentionModal } from './RetentionModal'
 
 interface RetentionLineGraphProps {
     dashboardItemId?: number | null
@@ -24,17 +25,15 @@ export function RetentionLineGraph({
 }: RetentionLineGraphProps): JSX.Element | null {
     const { insightProps, insight } = useValues(insightLogic)
     const logic = retentionTableLogic(insightProps)
-    const { filters, trendSeries, people: _people, peopleLoading, loadingMore } = useValues(logic)
-    const people = _people as RetentionTrendPeoplePayload
+    const { results: _results, filters, trendSeries, people: _people, peopleLoading, loadingMore, aggregationTargetLabel } = useValues(logic)
+    const results = _results as RetentionTablePayload[]
+    const people = _people as RetentionTablePeoplePayload
 
     const { loadPeople, loadMorePeople } = useActions(logic)
     const [modalVisible, setModalVisible] = useState(false)
-    const [day, setDay] = useState(0)
-    function closeModal(): void {
-        setModalVisible(false)
-    }
-    const peopleData = people?.result ?? ([] as PersonType[])
-    const peopleNext = people?.next
+    const [selectedRow, selectRow] = useState(0)
+
+
     if (trendSeries.length === 0) {
         return null
     }
@@ -56,42 +55,24 @@ export function RetentionLineGraph({
                         ? undefined
                         : (point) => {
                               const { index } = point
+                              console.log(point)
                               loadPeople(index) // start from 0
-                              setDay(index)
+                              selectRow(index)
                               setModalVisible(true)
                           }
                 }
             />
-            <Modal
-                title={filters.period + ' ' + day + ' people'}
+            {results && <RetentionModal
+                results={results}
+                actors={people}
+                selectedRow={selectedRow}
                 visible={modalVisible}
-                onOk={closeModal}
-                onCancel={closeModal}
-                footer={<Button onClick={closeModal}>Close</Button>}
-                width={700}
-            >
-                {peopleData ? (
-                    <p>
-                        Found {peopleData.length === 99 ? '99+' : peopleData.length}{' '}
-                        {peopleData.length === 1 ? 'user' : 'users'}
-                    </p>
-                ) : (
-                    <p>Loading persons…</p>
-                )}
-                <PersonsTable loading={peopleLoading} people={peopleData} compact />
-                <div
-                    style={{
-                        margin: '1rem',
-                        textAlign: 'center',
-                    }}
-                >
-                    {peopleNext && (
-                        <Button type="primary" onClick={loadMorePeople} loading={loadingMore}>
-                            Load more people
-                        </Button>
-                    )}
-                </div>
-            </Modal>
+                dismissModal={() => setModalVisible(false)}
+                actorsLoading={peopleLoading}
+                loadMore={() => loadMorePeople()}
+                loadingMore={loadingMore}
+                aggregationTargetLabel={aggregationTargetLabel}
+            />}
         </>
     ) : (
         <InsightEmptyState color={color} isDashboard={!!dashboardItemId} />
