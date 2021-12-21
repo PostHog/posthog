@@ -143,14 +143,15 @@ export const insightLogic = kea<insightLogicType>({
                         insight.filters &&
                         JSON.stringify(cleanFilters(insight.filters)) === JSON.stringify(cleanFilters({}))
                     ) {
-                        Sentry.captureException(new Error(`Tried to override filters`), {
+                        const error = new Error('Will not override empty filters in updateInsight.')
+                        Sentry.captureException(error, {
                             extra: {
                                 filters: JSON.stringify(insight.filters),
                                 insight: JSON.stringify(insight),
                                 valuesInsight: JSON.stringify(values.insight),
                             },
                         })
-                        throw new Error('Will not override empty filters.')
+                        throw error
                     }
 
                     const response = await api.update(
@@ -176,7 +177,14 @@ export const insightLogic = kea<insightLogicType>({
                     }
 
                     if (metadata.filters) {
-                        throw new Error('Can not update "filters" via setInsightMetadata')
+                        const error = new Error(`Will not override filters in setInsightMetadata`)
+                        Sentry.captureException(error, {
+                            extra: {
+                                filters: JSON.stringify(values.insight.filters),
+                                insight: JSON.stringify(values.insight),
+                            },
+                        })
+                        throw error
                     }
 
                     const response = await api.update(
@@ -619,10 +627,11 @@ export const insightLogic = kea<insightLogicType>({
                 !values.insight.filters ||
                 JSON.stringify(cleanFilters(values.insight.filters)) === JSON.stringify(cleanFilters({}))
             ) {
-                Sentry.captureException(new Error(`Tried to override filters`), {
+                const error = new Error('Will not override empty filters in saveInsight.')
+                Sentry.captureException(error, {
                     extra: { filters: JSON.stringify(values.insight.filters), insight: JSON.stringify(values.insight) },
                 })
-                throw new Error('Will not override empty filters.')
+                throw error
             }
             const savedInsight: InsightModel = await api.update(
                 `api/projects/${teamLogic.values.currentTeamId}/insights/${insightId}`,
