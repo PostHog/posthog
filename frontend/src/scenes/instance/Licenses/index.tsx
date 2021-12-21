@@ -122,7 +122,7 @@ export function Licenses(): JSX.Element {
                 data-attr="license-table"
                 size="small"
                 rowKey="id"
-                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                pagination={false}
                 rowClassName="cursor-pointer"
                 dataSource={licenses}
                 columns={columns}

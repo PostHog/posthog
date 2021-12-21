@@ -14,7 +14,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function SessionTab(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, allEventNames } = useValues(insightLogic)
     const { filters } = useValues(trendsLogic(insightProps))
     const { setFilters } = useActions(trendsLogic(insightProps))
 
@@ -54,7 +54,7 @@ export function SessionTab(): JSX.Element {
             </Col>
             <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                 <GlobalFiltersTitle unit="actions/events" />
-                <PropertyFilters pageKey="insight-retention" />
+                <PropertyFilters pageKey="insight-retention" eventNames={allEventNames} />
                 <TestAccountFilter filters={filters} onChange={setFilters} />
             </Col>
         </Row>

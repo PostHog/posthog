@@ -25,7 +25,7 @@ import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { pluralize } from 'lib/utils'
+import { getEventNamesForAction, pluralize } from 'lib/utils'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import './index.scss'
 import { Popup } from 'lib/components/Popup/Popup'
@@ -35,6 +35,7 @@ import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import clsx from 'clsx'
 import { apiValueToMathType, mathsLogic, mathTypeToApiValues } from 'scenes/trends/mathsLogic'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
+import { actionsModel } from '~/models/actionsModel'
 
 const determineFilterLabel = (visible: boolean, filter: Partial<ActionFilter>): string => {
     if (visible) {
@@ -139,6 +140,7 @@ export function ActionFilterRow({
         duplicateFilter,
     } = useActions(logic)
     const { numericalPropertyNames } = useValues(propertyDefinitionsModel)
+    const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
 
     const visible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
@@ -435,6 +437,13 @@ export function ActionFilterRow({
                         style={{ marginBottom: 0 }}
                         showNestedArrow={showNestedArrow}
                         taxonomicGroupTypes={propertiesTaxonomicGroupTypes}
+                        eventNames={
+                            filter.type === TaxonomicFilterGroupType.Events && filter.id
+                                ? [String(filter.id)]
+                                : filter.type === TaxonomicFilterGroupType.Actions && filter.id
+                                ? getEventNamesForAction(parseInt(String(filter.id)), actions)
+                                : []
+                        }
                     />
                 </div>
             )}

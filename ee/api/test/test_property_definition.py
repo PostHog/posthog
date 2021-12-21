@@ -5,6 +5,7 @@ from rest_framework import status
 
 from ee.models.license import License, LicenseManager
 from ee.models.property_definition import EnterprisePropertyDefinition
+from posthog.models import EventProperty
 from posthog.models.property_definition import PropertyDefinition
 from posthog.test.base import APIBaseTest
 
@@ -41,6 +42,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
+        EventProperty.objects.create(team=self.team, event="$pageview", property="enterprise property")
         EnterprisePropertyDefinition.objects.create(
             team=self.team, name="enterprise property", description="", tags=["deprecated"]
         )
@@ -64,6 +66,20 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 1)
+        # always True if not scoping by event names
+        self.assertEqual(response_data["results"][0]["is_event_property"], None)
+
+        # add event_names=['$pageview'] to get properties that have been seen by this event
+        response = self.client.get(
+            f"/api/projects/@current/property_definitions/?search=property&event_names=%5B%22%24pageview%22%5D"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 2)
+        self.assertEqual(response_data["results"][0]["name"], "enterprise property")
+        self.assertEqual(response_data["results"][0]["is_event_property"], True)
+        self.assertEqual(response_data["results"][1]["name"], "other property")
+        self.assertEqual(response_data["results"][1]["is_event_property"], False)
 
         response = self.client.get(f"/api/projects/@current/property_definitions/?search=er pr")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

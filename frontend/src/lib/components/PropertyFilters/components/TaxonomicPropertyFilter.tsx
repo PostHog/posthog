@@ -9,7 +9,6 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
 import { Popup } from 'lib/components/Popup/Popup'
-import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
     TaxonomicFilterGroup,
@@ -17,6 +16,7 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
+import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import clsx from 'clsx'
@@ -29,6 +29,7 @@ export function TaxonomicPropertyFilter({
     onComplete,
     disablePopover, // inside a dropdown if this is false
     taxonomicGroupTypes,
+    eventNames,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || [
@@ -54,6 +55,7 @@ export function TaxonomicPropertyFilter({
         filterIndex: index,
         taxonomicGroupTypes: groupTypes,
         taxonomicOnChange,
+        eventNames,
     })
     const { filter, dropdownOpen, selectedCohortName, activeTaxonomicGroup } = useValues(logic)
     const { openDropdown, closeDropdown, selectItem } = useActions(logic)
@@ -71,6 +73,7 @@ export function TaxonomicPropertyFilter({
             value={cohortOrOtherValue}
             onChange={taxonomicOnChange}
             taxonomicGroupTypes={groupTypes}
+            eventNames={eventNames}
         />
     )
 

@@ -109,7 +109,7 @@
                  distinct_id,
                  team_id
         HAVING max(is_deleted) = 0)
-     GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+     GROUP BY distinct_id) AS pdi ON e.distinct_id = pdi.distinct_id
   INNER JOIN
     (SELECT id
      FROM person
@@ -196,7 +196,7 @@
                  distinct_id,
                  team_id
         HAVING max(is_deleted) = 0)
-     GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+     GROUP BY distinct_id) AS pdi ON e.distinct_id = pdi.distinct_id
   INNER JOIN
     (SELECT id
      FROM person
@@ -301,7 +301,7 @@
                  distinct_id,
                  team_id
         HAVING max(is_deleted) = 0)
-     GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+     GROUP BY distinct_id) AS pdi ON e.distinct_id = pdi.distinct_id
   INNER JOIN
     (SELECT id
      FROM person
@@ -344,7 +344,7 @@
                  distinct_id,
                  team_id
         HAVING max(is_deleted) = 0)
-     GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+     GROUP BY distinct_id) AS pdi ON e.distinct_id = pdi.distinct_id
   INNER JOIN
     (SELECT id
      FROM person

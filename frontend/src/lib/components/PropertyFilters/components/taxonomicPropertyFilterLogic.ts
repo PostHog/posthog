@@ -24,6 +24,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                 taxonomicFilterLogicKey: props.pageKey,
                 taxonomicGroupTypes: props.taxonomicGroupTypes,
                 onChange: props.taxonomicOnChange,
+                eventNames: props.eventNames,
             }),
             ['taxonomicGroups'],
         ],

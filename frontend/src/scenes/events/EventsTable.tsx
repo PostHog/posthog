@@ -16,7 +16,7 @@ import { TableConfig } from 'lib/components/ResizableTable'
 import { ActionType, AnyPropertyFilter, ChartDisplayType, EventsTableRowItem, FilterType, InsightType } from '~/types'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { EventName } from 'scenes/actions/EventName'
-import { PropertyFilters } from 'lib/components/PropertyFilters'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
@@ -340,7 +340,13 @@ export function EventsTable({
                                 setEventFilter(value || '')
                             }}
                         />
-                        {filtersEnabled && <PropertyFilters pageKey={pageKey} style={{ marginBottom: 0 }} />}
+                        {filtersEnabled && (
+                            <PropertyFilters
+                                pageKey={pageKey}
+                                style={{ marginBottom: 0 }}
+                                eventNames={eventFilter ? [eventFilter] : []}
+                            />
+                        )}
                     </div>
 
                     <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.75rem' }}>
