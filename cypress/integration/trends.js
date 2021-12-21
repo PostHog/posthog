@@ -96,7 +96,7 @@ describe('Trends', () => {
         cy.get('[data-attr=math-total-0]').click()
 
         // Should contain more than label column
-        cy.get('[data-attr=insights-table-graph]').find('.ant-table-cell').its('length').should('be.gte', 1)
+        cy.get('[data-attr=insights-table-graph]').find('td').its('length').should('be.gte', 1)
     })
 
     it('Apply date filter', () => {
