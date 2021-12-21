@@ -22,9 +22,7 @@ describe('TeamManager()', () => {
     let teamManager: TeamManager
 
     beforeEach(async () => {
-        ;[hub, closeHub] = await createHub({
-            EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED_TEAMS: '2',
-        })
+        ;[hub, closeHub] = await createHub()
         await resetTestDatabase()
         teamManager = hub.teamManager
     })

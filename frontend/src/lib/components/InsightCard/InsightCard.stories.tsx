@@ -234,7 +234,6 @@ export const InsightCard: Story = (args) => {
                             description: args.insightDescription,
                             color: insightColor,
                         }}
-                        index={0}
                         loading={args.loading}
                         apiError={args.apiError}
                         highlighted={args.highlighted}
@@ -251,7 +250,6 @@ export const InsightCard: Story = (args) => {
                             'Neque porro quisquam est qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit.',
                         tags: ['every', 'green', 'bus', 'drives', 'fast', 'face'],
                     }}
-                    index={1}
                     loading={false}
                     apiError={false}
                     highlighted={false}
@@ -261,7 +259,6 @@ export const InsightCard: Story = (args) => {
                 />
                 <InsightCardComponent
                     insight={{ ...EXAMPLE_TRENDS, name: '', description: '', tags: [] }}
-                    index={2}
                     loading={false}
                     apiError={false}
                     highlighted={false}

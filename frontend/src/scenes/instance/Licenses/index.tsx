@@ -8,17 +8,22 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
+import { LicenseType } from '~/types'
 
 export const scene: SceneExport = {
     component: Licenses,
     logic: licenseLogic,
 }
 
+export function isLicenseExpired(license: LicenseType): boolean {
+    return new Date(license.valid_until) < new Date()
+}
+
 const columns = [
     {
         title: 'Active',
         render: function renderActive(license: any) {
-            return new Date(license.valid_until) > new Date() ? 'active' : 'expired'
+            return isLicenseExpired(license) ? 'expired' : 'active'
         },
     },
     {
@@ -117,7 +122,7 @@ export function Licenses(): JSX.Element {
                 data-attr="license-table"
                 size="small"
                 rowKey="id"
-                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                pagination={false}
                 rowClassName="cursor-pointer"
                 dataSource={licenses}
                 columns={columns}
