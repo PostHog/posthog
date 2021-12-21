@@ -63,7 +63,6 @@ class Person(models.Model):
                     PersonDistinctId.objects.filter(person=self, distinct_id=distinct_id).delete()
                     person = Person.objects.create(team_id=self.team_id, distinct_ids=[distinct_id])
 
-                # :TODO: Tests!
                 if is_clickhouse_enabled():
                     from ee.clickhouse.models.person import create_person, create_person_distinct_id
 
