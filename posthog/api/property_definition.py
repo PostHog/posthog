@@ -104,7 +104,7 @@ class PropertyDefinitionViewSet(
                 LEFT JOIN ee_enterprisepropertydefinition ON ee_enterprisepropertydefinition.propertydefinition_ptr_id=posthog_propertydefinition.id
                 WHERE posthog_propertydefinition.team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {search_query}
                 GROUP BY posthog_propertydefinition.id, ee_enterprisepropertydefinition.propertydefinition_ptr_id
-                ORDER BY is_event_property DESC, name ASC
+                ORDER BY is_event_property DESC, query_usage_30_day DESC, name ASC
                 """,
                 params=params,
             )
@@ -114,7 +114,7 @@ class PropertyDefinitionViewSet(
                 SELECT posthog_propertydefinition.*, {event_property_field} AS is_event_property
                 FROM posthog_propertydefinition
                 WHERE posthog_propertydefinition.team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {search_query}
-                ORDER BY is_event_property DESC, name ASC
+                ORDER BY is_event_property DESC, query_usage_30_day DESC, name ASC
                 """,
                 params=params,
             )
