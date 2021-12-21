@@ -14,7 +14,7 @@ class PersonManager(models.Manager):
                 return super().create(*args, **kwargs)
             distinct_ids = kwargs.pop("distinct_ids")
             person = super().create(*args, **kwargs)
-            person.add_distinct_ids(distinct_ids)
+            person._add_distinct_ids(distinct_ids)
             return person
 
     @staticmethod
@@ -34,10 +34,12 @@ class Person(models.Model):
             .values_list("distinct_id")
         ]
 
+    # :DEPRECATED: This should happen through the plugin server
     def add_distinct_id(self, distinct_id: str) -> None:
         PersonDistinctId.objects.create(person=self, distinct_id=distinct_id, team_id=self.team_id)
 
-    def add_distinct_ids(self, distinct_ids: List[str]) -> None:
+    # :DEPRECATED: This should happen through the plugin server
+    def _add_distinct_ids(self, distinct_ids: List[str]) -> None:
         for distinct_id in distinct_ids:
             self.add_distinct_id(distinct_id)
 
