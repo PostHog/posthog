@@ -94,7 +94,6 @@ export function InsightsTable({
 
     if (isLegend) {
         columns.push({
-            title: '',
             render: function RenderCheckbox(_, item: IndexedTrendResult) {
                 return (
                     <PHCheckbox
@@ -104,43 +103,15 @@ export function InsightsTable({
                     />
                 )
             },
-            width: 30,
-        })
-    }
-
-    if (filters.breakdown) {
-        columns.push({
-            title: (
-                <PropertyKeyInfo disableIcon disablePopover value={filters.breakdown.toString() || 'Breakdown Value'} />
-            ),
-            render: function RenderBreakdownValue(_, item: IndexedTrendResult) {
-                const breakdownLabel = formatBreakdownLabel(cohorts, item.breakdown_value)
-                return (
-                    <SeriesToggleWrapper id={item.id} toggleVisibility={toggleVisibility}>
-                        {breakdownLabel && <div title={breakdownLabel}>{stringWithWBR(breakdownLabel, 20)}</div>}
-                    </SeriesToggleWrapper>
-                )
-            },
-            key: 'breakdown',
-            width: 150,
-            sorter: (a, b) => {
-                const labelA = formatBreakdownLabel(cohorts, a.breakdown_value)
-                const labelB = formatBreakdownLabel(cohorts, b.breakdown_value)
-                return labelA.localeCompare(labelB)
-            },
+            width: 0,
         })
     }
 
     columns.push({
-        title: 'Event or Action',
+        title: 'Series',
         render: function RenderLabel(_, item: IndexedTrendResult): JSX.Element {
             return (
                 <div className="series-name-wrapper-col">
-                    {canEditSeriesNameInline && (
-                        <div className="edit-icon" onClick={() => handleEditClick(item)}>
-                            <EditOutlined />
-                        </div>
-                    )}
                     <InsightLabel
                         seriesColor={colorList[item.id]}
                         action={item.action}
@@ -156,17 +127,45 @@ export function InsightsTable({
                         compareValue={filters.compare ? formatCompareLabel(item) : undefined}
                         onLabelClick={canEditSeriesNameInline ? () => handleEditClick(item) : undefined}
                     />
+                    {canEditSeriesNameInline && (
+                        <EditOutlined
+                            title="Rename graph series"
+                            className="edit-icon"
+                            onClick={() => handleEditClick(item)}
+                        />
+                    )}
                 </div>
             )
         },
         key: 'label',
-        width: 200,
         sorter: (a, b) => {
             const labelA = a.action?.name || a.label || ''
             const labelB = b.action?.name || b.label || ''
             return labelA.localeCompare(labelB)
         },
     })
+
+    if (filters.breakdown) {
+        columns.push({
+            title: (
+                <PropertyKeyInfo disableIcon disablePopover value={filters.breakdown.toString() || 'Breakdown Value'} />
+            ),
+            render: function RenderBreakdownValue(_, item: IndexedTrendResult) {
+                const breakdownLabel = formatBreakdownLabel(cohorts, item.breakdown_value)
+                return (
+                    <SeriesToggleWrapper id={item.id} toggleVisibility={toggleVisibility}>
+                        {breakdownLabel && <div title={breakdownLabel}>{stringWithWBR(breakdownLabel, 20)}</div>}
+                    </SeriesToggleWrapper>
+                )
+            },
+            key: 'breakdown',
+            sorter: (a, b) => {
+                const labelA = formatBreakdownLabel(cohorts, a.breakdown_value)
+                const labelB = formatBreakdownLabel(cohorts, b.breakdown_value)
+                return labelA.localeCompare(labelB)
+            },
+        })
+    }
 
     if (indexedResults?.length > 0 && indexedResults[0].data) {
         const previousResult = !!filters.compare
@@ -189,7 +188,7 @@ export function InsightsTable({
                 },
                 key: `data[${index}]`,
                 sorter: (a, b) => a.data[index] - b.data[index],
-                align: 'center', // doesn't matter since it's overridden in css
+                align: 'right',
             })
         )
 
@@ -201,7 +200,8 @@ export function InsightsTable({
             title: (
                 <Dropdown overlay={calcColumnMenu}>
                     <span className="cursor-pointer">
-                        {CALC_COLUMN_LABELS[calcColumnState]} <DownOutlined />
+                        {CALC_COLUMN_LABELS[calcColumnState]}
+                        <DownOutlined className="ml-025" />
                     </span>
                 </Dropdown>
             ),
@@ -231,8 +231,7 @@ export function InsightsTable({
             },
             sorter: (a, b) => (a.count || a.aggregated_value) - (b.count || b.aggregated_value),
             dataIndex: 'count',
-            width: 120,
-            align: 'center',
+            align: 'right',
         })
     }
 
@@ -244,7 +243,6 @@ export function InsightsTable({
         <LemonTable
             dataSource={indexedResults}
             columns={columns}
-            size="small"
             rowKey="id"
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
             data-attr="insights-table-graph"
