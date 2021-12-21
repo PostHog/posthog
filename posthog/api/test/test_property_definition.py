@@ -103,6 +103,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         response = self.client.get("/api/projects/@current/property_definitions/?search=p ting")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["is_event_property"], None)
         for item in response.json()["results"]:
             self.assertIn(item["name"], ["app_rating"])
 

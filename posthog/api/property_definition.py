@@ -36,6 +36,7 @@ class PropertyDefinitionSerializer(serializers.ModelSerializer):
             "name",
             "is_numerical",
             "query_usage_30_day",
+            # This is a calculated property, used only when "event_names" is passed to the API.
             "is_event_property",
         )
 
@@ -81,7 +82,7 @@ class PropertyDefinitionViewSet(
         if event_names and len(event_names) > 0:
             event_property_field = "(SELECT count(1) > 0 FROM posthog_eventproperty WHERE posthog_eventproperty.team_id=posthog_propertydefinition.team_id AND posthog_eventproperty.event IN %(event_names)s AND posthog_eventproperty.property = posthog_propertydefinition.name)"
         else:
-            event_property_field = "true"
+            event_property_field = "NULL"
 
         search = self.request.GET.get("search", None)
         search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)

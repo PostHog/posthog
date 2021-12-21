@@ -67,7 +67,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 1)
         # always True if not scoping by event names
-        self.assertEqual(response_data["results"][0]["is_event_property"], True)
+        self.assertEqual(response_data["results"][0]["is_event_property"], None)
 
         # add event_names=['$pageview'] to get properties that have been seen by this event
         response = self.client.get(

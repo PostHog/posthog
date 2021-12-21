@@ -33,4 +33,4 @@ class PropertyDefinition(UUIDModel):
 
     # This is a dynamically calculated field in api/property_definition.py. Defaults to `True` here to help serializers.
     def is_event_property(self) -> bool:
-        return True
+        return None
