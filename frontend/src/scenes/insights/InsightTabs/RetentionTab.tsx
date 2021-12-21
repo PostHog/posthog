@@ -75,7 +75,7 @@ export function RetentionTab(): JSX.Element {
                                                 }
                                             />
                                         ) : (
-                                            <b>unique users</b>
+                                            <b>Unique users</b>
                                         )}{' '}
                                         who did
                                     </>
