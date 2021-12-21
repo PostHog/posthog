@@ -135,7 +135,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     type: TaxonomicFilterGroupType.EventProperties,
                     endpoint: combineUrl(
                         `api/projects/${teamId}/property_definitions`,
-                        featureFlags[FEATURE_FLAGS.EVENT_PROPERTY_FILTER] ? { event_names: eventNames } : {}
+                        featureFlags[FEATURE_FLAGS.UNSEEN_EVENT_PROPERTIES] ? { event_names: eventNames } : {}
                     ).url,
                     getName: (propertyDefinition: PropertyDefinition): string => propertyDefinition.name,
                     getValue: (propertyDefinition: PropertyDefinition): TaxonomicFilterValue => propertyDefinition.name,

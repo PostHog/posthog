@@ -86,7 +86,7 @@ export const FEATURE_FLAGS = {
     LINE_GRAPH_V2: 'line-graph-v2', // owner @alexkim205
     NEW_INSIGHT_TOOLTIPS: 'insight-tooltips', // owner @alexkim205
     DASHBOARD_REDESIGN: 'dashboard-redesign', // owner: @Twixes
-    EVENT_PROPERTY_FILTER: 'event-property-filter', // owner: @mariusandra
+    UNSEEN_EVENT_PROPERTIES: 'unseen-event-properties', // owner: @mariusandra
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

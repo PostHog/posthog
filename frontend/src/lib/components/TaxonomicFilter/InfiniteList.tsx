@@ -107,7 +107,7 @@ const renderItemContents = ({
         dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS
 
     const isUnusedEventProperty =
-        featureFlags[FEATURE_FLAGS.EVENT_PROPERTY_FILTER] &&
+        featureFlags[FEATURE_FLAGS.UNSEEN_EVENT_PROPERTIES] &&
         listGroupType === TaxonomicFilterGroupType.EventProperties &&
         !(item as PropertyDefinition).is_event_property
 
