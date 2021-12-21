@@ -251,7 +251,7 @@ export function ActionsTable(): JSX.Element {
                 columns={columns}
                 loading={actionsLoading}
                 rowKey="id"
-                pagination={{ pageSize: 30 }}
+                pagination={{ pageSize: 100 }}
                 data-attr="actions-table"
                 dataSource={data}
                 defaultSorting={{

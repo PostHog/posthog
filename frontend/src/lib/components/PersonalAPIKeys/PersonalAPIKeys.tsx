@@ -135,7 +135,7 @@ function PersonalAPIKeysTable(): JSX.Element {
             dataSource={keys}
             columns={columns}
             rowKey="id"
-            pagination={{ pageSize: 100, hideOnSinglePage: true }}
+            pagination={{ pageSize: 50, hideOnSinglePage: true }}
             style={{ marginTop: '1rem' }}
         />
     )
