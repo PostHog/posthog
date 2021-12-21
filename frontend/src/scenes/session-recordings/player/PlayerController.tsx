@@ -49,9 +49,14 @@ export function PlayerController(): JSX.Element {
                     ))}
                 </Select.OptGroup>
             </Select>
-            <div className="rrweb-inactivity-toggle">
+            <div
+                onClick={() => {
+                    setSkipInactivitySetting(!skipInactivitySetting)
+                }}
+                className="rrweb-inactivity-toggle"
+            >
                 <span className="inactivity-label">Skip inactivity</span>
-                <Switch checked={skipInactivitySetting} onChange={setSkipInactivitySetting} size="small" />
+                <Switch checked={skipInactivitySetting} size="small" />
             </div>
         </div>
     )
