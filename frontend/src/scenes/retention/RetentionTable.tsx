@@ -3,10 +3,7 @@ import { useValues, useActions } from 'kea'
 import { Table } from 'antd'
 import { retentionTableLogic } from './retentionTableLogic'
 import { Tooltip } from 'lib/components/Tooltip'
-import {
-    RetentionTablePayload,
-    RetentionTablePeoplePayload,
-} from 'scenes/retention/types'
+import { RetentionTablePayload, RetentionTablePeoplePayload } from 'scenes/retention/types'
 import { ColumnsType } from 'antd/lib/table'
 import clsx from 'clsx'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -117,17 +114,19 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
                     },
                 })}
             />
-            {results && <RetentionModal
-                results={results}
-                actors={people}
-                selectedRow={selectedRow}
-                visible={modalVisible}
-                dismissModal={dismissModal}
-                actorsLoading={peopleLoading}
-                loadMore={loadMore}
-                loadingMore={loadingMore}
-                aggregationTargetLabel={aggregationTargetLabel}
-            />}
+            {results && (
+                <RetentionModal
+                    results={results}
+                    actors={people}
+                    selectedRow={selectedRow}
+                    visible={modalVisible}
+                    dismissModal={dismissModal}
+                    actorsLoading={peopleLoading}
+                    loadMore={loadMore}
+                    loadingMore={loadingMore}
+                    aggregationTargetLabel={aggregationTargetLabel}
+                />
+            )}
         </>
     )
 }
