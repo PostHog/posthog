@@ -1,5 +1,5 @@
 import React from 'react'
-import { Dropdown, Menu, Skeleton, Table } from 'antd'
+import { Dropdown, Menu, Skeleton } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
@@ -7,7 +7,6 @@ import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { getChartColors } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
 import { BreakdownKeyType, CohortType, IntervalType, TrendResult } from '~/types'
-import { ColumnsType } from 'antd/lib/table'
 import { average, median, maybeAddCommasToInteger, capitalizeFirstLetter } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -22,6 +21,8 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { entityFilterLogic } from '../ActionFilter/entityFilterLogic'
 import './InsightsTable.scss'
 import clsx from 'clsx'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
+import stringWithWBR from 'lib/utils/stringWithWBR'
 
 interface InsightsTableProps {
     isLegend?: boolean // `true` -> Used as a supporting legend at the bottom of another graph; `false` -> used as it's own display
@@ -89,12 +90,12 @@ export function InsightsTable({
     )
 
     // Build up columns to include. Order matters.
-    const columns: ColumnsType<IndexedTrendResult> = []
+    const columns: LemonTableColumns<IndexedTrendResult> = []
 
     if (isLegend) {
         columns.push({
             title: '',
-            render: function RenderCheckbox({}, item: IndexedTrendResult) {
+            render: function RenderCheckbox(_, item: IndexedTrendResult) {
                 return (
                     <PHCheckbox
                         color={colorList[item.id]}
@@ -103,7 +104,6 @@ export function InsightsTable({
                     />
                 )
             },
-            fixed: 'left',
             width: 30,
         })
     }
@@ -113,15 +113,15 @@ export function InsightsTable({
             title: (
                 <PropertyKeyInfo disableIcon disablePopover value={filters.breakdown.toString() || 'Breakdown Value'} />
             ),
-            render: function RenderBreakdownValue({}, item: IndexedTrendResult) {
+            render: function RenderBreakdownValue(_, item: IndexedTrendResult) {
                 const breakdownLabel = formatBreakdownLabel(cohorts, item.breakdown_value)
                 return (
                     <SeriesToggleWrapper id={item.id} toggleVisibility={toggleVisibility}>
-                        {breakdownLabel && <span title={breakdownLabel}>{breakdownLabel}</span>}
+                        {breakdownLabel && <div title={breakdownLabel}>{stringWithWBR(breakdownLabel, 20)}</div>}
                     </SeriesToggleWrapper>
                 )
             },
-            fixed: 'left',
+            key: 'breakdown',
             width: 150,
             sorter: (a, b) => {
                 const labelA = formatBreakdownLabel(cohorts, a.breakdown_value)
@@ -133,7 +133,7 @@ export function InsightsTable({
 
     columns.push({
         title: 'Event or Action',
-        render: function RenderLabel({}, item: IndexedTrendResult): JSX.Element {
+        render: function RenderLabel(_, item: IndexedTrendResult): JSX.Element {
             return (
                 <div className="series-name-wrapper-col">
                     {canEditSeriesNameInline && (
@@ -159,7 +159,7 @@ export function InsightsTable({
                 </div>
             )
         },
-        fixed: 'left',
+        key: 'label',
         width: 200,
         sorter: (a, b) => {
             const labelA = a.action?.name || a.label || ''
@@ -172,21 +172,26 @@ export function InsightsTable({
         const previousResult = !!filters.compare
             ? indexedResults.find((r) => r.compare_label === 'previous')
             : undefined
-        const valueColumns: ColumnsType<IndexedTrendResult> = indexedResults[0].data.map(({}, index: number) => ({
-            title: (
-                <DateDisplay
-                    interval={(filters.interval as IntervalType) || 'day'}
-                    date={(indexedResults[0].dates || indexedResults[0].days)[index]} // current
-                    secondaryDate={!!previousResult ? (previousResult.dates || previousResult.days)[index] : undefined} // previous
-                    hideWeekRange
-                />
-            ),
-            render: function RenderPeriod({}, item: IndexedTrendResult) {
-                return maybeAddCommasToInteger(item.data[index])
-            },
-            sorter: (a, b) => a.data[index] - b.data[index],
-            align: 'center', // doesn't matter since it's overridden in css
-        }))
+        const valueColumns: LemonTableColumn<IndexedTrendResult, any>[] = indexedResults[0].data.map(
+            (__, index: number) => ({
+                title: (
+                    <DateDisplay
+                        interval={(filters.interval as IntervalType) || 'day'}
+                        date={(indexedResults[0].dates || indexedResults[0].days)[index]} // current
+                        secondaryDate={
+                            !!previousResult ? (previousResult.dates || previousResult.days)[index] : undefined
+                        } // previous
+                        hideWeekRange
+                    />
+                ),
+                render: function RenderPeriod(_, item: IndexedTrendResult) {
+                    return maybeAddCommasToInteger(item.data[index])
+                },
+                key: `data[${index}]`,
+                sorter: (a, b) => a.data[index] - b.data[index],
+                align: 'center', // doesn't matter since it's overridden in css
+            })
+        )
 
         columns.push(...valueColumns)
     }
@@ -200,7 +205,7 @@ export function InsightsTable({
                     </span>
                 </Dropdown>
             ),
-            render: function RenderCalc(count: number, item: IndexedTrendResult) {
+            render: function RenderCalc(count: any, item: IndexedTrendResult) {
                 if (calcColumnState === 'average') {
                     return average(item.data).toLocaleString()
                 } else if (calcColumnState === 'median') {
@@ -215,7 +220,7 @@ export function InsightsTable({
                 }
                 return (
                     <>
-                        {count.toLocaleString()}
+                        {count?.toLocaleString?.()}
                         {item.action && item.action?.math === 'dau' && (
                             <Tooltip title="Keep in mind this is just the sum of all values in the row, not the unique users across the entire time period (i.e. this number may contain duplicate users).">
                                 <InfoCircleOutlined style={{ marginLeft: 4, color: 'var(--primary-alt)' }} />
@@ -225,8 +230,7 @@ export function InsightsTable({
                 )
             },
             sorter: (a, b) => (a.count || a.aggregated_value) - (b.count || b.aggregated_value),
-            dataIndex: 'count',
-            fixed: 'right',
+            key: 'count',
             width: 120,
             align: 'center',
         })
@@ -237,18 +241,12 @@ export function InsightsTable({
     }
 
     return (
-        <Table
+        <LemonTable
             dataSource={indexedResults}
             columns={columns}
             size="small"
             rowKey="id"
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
-            style={{ marginTop: '1rem' }}
-            scroll={
-                indexedResults && indexedResults.length > 0 && indexedResults[0].data
-                    ? { x: indexedResults[0].data.length * 160 }
-                    : {}
-            }
             data-attr="insights-table-graph"
         />
     )
