@@ -121,7 +121,7 @@ export function FeatureFlag(): JSX.Element {
                     scrollToFirstError
                 >
                     <PageHeader
-                        title="Feature flag"
+                        title="Feature Flag"
                         buttons={
                             <div style={{ display: 'flex' }}>
                                 <Form.Item className="enabled-switch">

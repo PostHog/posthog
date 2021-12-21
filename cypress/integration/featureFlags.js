@@ -1,4 +1,4 @@
-describe('Feature flags', () => {
+describe('Feature Flags', () => {
     beforeEach(() => {
         cy.visit('/feature_flags')
     })
@@ -6,7 +6,7 @@ describe('Feature flags', () => {
     it('Create feature flag', () => {
         // ensure unique names to avoid clashes
         const name = 'beta-feature' + Math.floor(Math.random() * 10000000)
-        cy.get('h1').should('contain', 'Feature flags')
+        cy.get('h1').should('contain', 'Feature Flags')
         cy.get('[data-attr=new-feature-flag]').click()
         cy.get('[data-attr=feature-flag-key]').type(name).should('have.value', name)
         cy.get('[data-attr=feature-flag-description]')
@@ -55,7 +55,7 @@ describe('Feature flags', () => {
 
     it('Delete feature flag', () => {
         const name = 'to-be-deleted' + Math.floor(Math.random() * 10000000)
-        cy.get('h1').should('contain', 'Feature flags')
+        cy.get('h1').should('contain', 'Feature Flags')
         cy.get('[data-attr=new-feature-flag]').click()
         cy.get('[data-attr=feature-flag-key]').type(name).should('have.value', name)
         cy.get('[data-attr=feature-flag-submit]').click()
