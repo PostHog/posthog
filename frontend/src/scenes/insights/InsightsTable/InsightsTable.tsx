@@ -230,7 +230,7 @@ export function InsightsTable({
                 )
             },
             sorter: (a, b) => (a.count || a.aggregated_value) - (b.count || b.aggregated_value),
-            key: 'count',
+            dataIndex: 'count',
             width: 120,
             align: 'center',
         })
