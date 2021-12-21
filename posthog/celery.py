@@ -251,7 +251,7 @@ def clickhouse_mutation_count():
         pass
 
 
-def materialized_columns_enabled() -> bool:
+def recompute_materialized_columns_enabled() -> bool:
     if (
         is_clickhouse_enabled()
         and settings.EE_AVAILABLE
@@ -264,7 +264,7 @@ def materialized_columns_enabled() -> bool:
 
 @app.task(ignore_result=True)
 def clickhouse_materialize_columns():
-    if materialized_columns_enabled():
+    if recompute_materialized_columns_enabled():
         from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 
         materialize_properties_task()
@@ -272,7 +272,7 @@ def clickhouse_materialize_columns():
 
 @app.task(ignore_result=True)
 def clickhouse_mark_all_materialized():
-    if materialized_columns_enabled():
+    if recompute_materialized_columns_enabled():
         from ee.tasks.materialized_columns import mark_all_materialized
 
         mark_all_materialized()
