@@ -42,7 +42,6 @@ export function RetentionLineGraph({
     if (trendSeries.length === 0) {
         return null
     }
-
     return trendSeries ? (
         <>
             <LineGraph
@@ -61,8 +60,8 @@ export function RetentionLineGraph({
                         : (point) => {
                               const { points } = point
                               const datasetIndex = points.clickedPointNotLine
-                                  ? points.pointsIntersectingClick[0]._datasetIndex
-                                  : points.pointsIntersectingLine[0]._datasetIndex
+                                  ? points.pointsIntersectingClick[0].dataset.index
+                                  : points.pointsIntersectingLine[0].dataset.index
                               loadPeople(datasetIndex) // start from 0
                               selectRow(datasetIndex)
                               setModalVisible(true)
