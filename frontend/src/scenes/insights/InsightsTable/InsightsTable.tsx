@@ -1,5 +1,5 @@
 import React from 'react'
-import { Dropdown, Menu, Skeleton } from 'antd'
+import { Dropdown, Menu } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
@@ -236,16 +236,14 @@ export function InsightsTable({
         })
     }
 
-    if (resultsLoading) {
-        return <Skeleton active paragraph={{ rows: 4 }} />
-    }
-
     return (
         <LemonTable
             dataSource={indexedResults}
             columns={columns}
             rowKey="id"
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
+            loading={resultsLoading}
+            emptyState="No insight results yet…"
             data-attr="insights-table-graph"
         />
     )
