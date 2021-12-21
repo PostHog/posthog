@@ -62,8 +62,10 @@ export function RetentionLineGraph({
                               const datasetIndex = points.clickedPointNotLine
                                   ? points.pointsIntersectingClick[0].dataset.index
                                   : points.pointsIntersectingLine[0].dataset.index
-                              loadPeople(datasetIndex) // start from 0
-                              selectRow(datasetIndex)
+                              if (datasetIndex) {
+                                  loadPeople(datasetIndex) // start from 0
+                                  selectRow(datasetIndex)
+                              }
                               setModalVisible(true)
                           }
                 }
