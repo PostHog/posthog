@@ -261,7 +261,7 @@ export function SitePopover(): JSX.Element {
                             {preflight?.can_create_org && <NewOrganizationButton />}
                         </SitePopoverSection>
                     )}
-                    {(!preflight?.cloud || user?.is_staff) && (
+                    {(!(preflight?.cloud || preflight?.demo) || user?.is_staff) && (
                         <SitePopoverSection title="PostHog status">
                             {!preflight?.cloud && <License license={relevantLicense} expired={expired} />}
                             <SystemStatus />
