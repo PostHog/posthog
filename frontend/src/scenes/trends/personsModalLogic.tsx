@@ -3,7 +3,7 @@ import { Link } from 'lib/components/Link'
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
-import { errorToast, toParams } from 'lib/utils'
+import { errorToast, isGroupType, pluralize, toParams } from 'lib/utils'
 import {
     ActionFilter,
     FilterType,
@@ -12,12 +12,13 @@ import {
     PropertyFilter,
     FunnelCorrelationResultsType,
     ActorType,
+    GraphDataset,
 } from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { DatasetType, TrendActors } from 'scenes/trends/types'
+import { TrendActors } from 'scenes/trends/types'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
@@ -38,7 +39,7 @@ export interface PersonsModalParams {
     funnelStep?: number
     pathsDropoff?: boolean
     pointValue?: number // The y-axis value of the data point (i.e. count, unique persons, ...)
-    crossDataset?: DatasetType[] // `crossDataset` contains the data set for all the points in the same x-axis point; allows switching between matching points
+    crossDataset?: GraphDataset[] // `crossDataset` contains the data set for all the points in the same x-axis point; allows switching between matching points
     seriesId?: number
 }
 
@@ -116,7 +117,7 @@ interface LoadPeopleFromUrlProps {
     // The y-axis value of the data point (i.e. count, unique persons, ...)
     pointValue?: number
     // Contains the data set for all the points in the same x-axis point; allows switching between matching points
-    crossDataset?: DatasetType[]
+    crossDataset?: GraphDataset[]
     // The frontend ID that identifies this particular series (i.e. if breakdowns are applied, each breakdown value is its own series)
     seriesId?: number
 }
@@ -231,6 +232,20 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         clickhouseFeaturesEnabled: [
             () => [preflightLogic.selectors.preflight],
             (preflight) => !!preflight?.is_clickhouse_enabled,
+        ],
+        isGroupType: [(s) => [s.people], (people) => people?.people?.[0] && isGroupType(people.people[0])],
+        actorLabel: [
+            (s) => [s.people, s.isGroupType, s.groupTypes],
+            (result, _isGroupType, groupTypes) => {
+                if (_isGroupType && result?.action !== 'session') {
+                    return result?.action.math_group_type_index != undefined &&
+                        groupTypes.length > result?.action.math_group_type_index
+                        ? `${groupTypes[result?.action.math_group_type_index].group_type}(s)`
+                        : ''
+                } else {
+                    return pluralize(result?.count || 0, 'person', undefined, false)
+                }
+            },
         ],
     },
     loaders: ({ actions, values }) => ({
@@ -446,21 +461,24 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         switchToDataPoint: async ({ seriesId }) => {
             const data = values.people?.crossDataset?.find(({ seriesId: _id }) => _id === seriesId)
 
-            if (data && values.peopleParams) {
-                const params = {
-                    ...values.peopleParams,
-                    seriesId,
-                    breakdown_value: data.breakdown_value,
-                    action: data.action,
-                    pointValue: data.pointValue,
+            if (data) {
+                if (values.peopleParams) {
+                    actions.loadPeople({
+                        ...values.peopleParams,
+                        seriesId,
+                        breakdown_value: data.breakdown_value,
+                        action: data.action,
+                        pointValue: data.pointValue,
+                    })
                 }
                 if (data.personUrl && values.peopleUrlParams) {
                     actions.loadPeopleFromUrl({
                         ...values.peopleUrlParams,
+                        seriesId,
+                        breakdown_value: data.breakdown_value,
+                        action: data.action,
                         url: data.personUrl,
                     })
-                } else {
-                    actions.loadPeople(params)
                 }
             }
         },

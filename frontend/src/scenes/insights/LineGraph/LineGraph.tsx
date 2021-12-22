@@ -500,6 +500,18 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
 
                 const clickedPointNotLine = pointsIntersectingClick.length !== 0
 
+                const referencePoint = clickedPointNotLine ? pointsIntersectingClick[0] : pointsIntersectingLine[0]
+
+                const crossDataset = datasets
+                    .filter((_dt) => !_dt.dotted)
+                    .map((_dt) => ({
+                        ..._dt,
+                        seriesId: _dt.id,
+                        personUrl: _dt.persons_urls?.[referencePoint.index].url,
+                        pointValue: _dt.data[referencePoint.index],
+                    }))
+                console.log(crossDataset)
+
                 onClick?.({
                     points: {
                         pointsIntersectingLine: pointsIntersectingLine.map((p) => ({
@@ -512,9 +524,9 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                         })),
                         clickedPointNotLine,
                     },
-                    index: clickedPointNotLine
-                        ? pointsIntersectingClick?.[0]?.index
-                        : pointsIntersectingLine?.[0]?.index,
+                    index: referencePoint.index,
+                    crossDataset,
+                    seriesId: datasets[referencePoint.datasetIndex].id,
                 })
             },
         }

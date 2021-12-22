@@ -1546,4 +1546,6 @@ export interface GraphPointPayload {
     label?: string // Soon to be deprecated with LEGACY_LineGraph
     day?: string // Soon to be deprecated with LEGACY_LineGraph
     value?: number
+    crossDataset?: GraphDataset[]
+    seriesId?: number
 }

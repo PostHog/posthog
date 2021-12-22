@@ -45,6 +45,7 @@ export function ActionsLineGraph({
                 dashboardItemId || isMultiSeriesFormula(filters.formula) || !showPersonsModal
                     ? undefined
                     : (payload) => {
+                          console.log(payload.points.pointsIntersectingLine)
                           const { index, points, crossDataset, seriesId } = payload
 
                           // For now, take first point when clicking a specific point.

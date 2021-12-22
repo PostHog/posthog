@@ -18,6 +18,8 @@ import { GroupActorHeader } from 'scenes/persons/GroupActorHeader'
 import { IconPersonFilled } from 'lib/components/icons'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { getChartColors } from 'lib/colors'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface PersonsModalProps {
     visible: boolean
@@ -44,6 +46,7 @@ export function PersonsModal({
         isInitialLoad,
         clickhouseFeaturesEnabled,
         peopleParams,
+        actorLabel,
     } = useValues(personsModalLogic)
     const {
         hidePeople,
@@ -54,6 +57,7 @@ export function PersonsModal({
         switchToDataPoint,
     } = useActions(personsModalLogic)
     const { preflight } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const title = useMemo(
         () =>
@@ -166,34 +170,37 @@ export function PersonsModal({
                                 }
                             />
                         )}
-                        {!!people.crossDataset?.length && !!people.seriesId && (
-                            <div className="data-point-selector">
-                                <Select value={people.seriesId} onChange={(seriesId) => switchToDataPoint(seriesId)}>
-                                    {people.crossDataset
-                                        .filter((dp) => dp.seriesId)
-                                        .map((dataPoint) => (
-                                            <Select.Option
-                                                value={dataPoint.seriesId}
-                                                key={`${dataPoint.action.id}${dataPoint.breakdown_value}`}
-                                            >
-                                                <InsightLabel
-                                                    seriesColor={colorList[dataPoint.seriesId % colorList.length]}
-                                                    action={dataPoint.action}
-                                                    breakdownValue={
-                                                        dataPoint.breakdown_value === ''
-                                                            ? 'None'
-                                                            : dataPoint.breakdown_value?.toString()
-                                                    }
-                                                    useCustomName
-                                                    showCountedByTag={showCountedByTag}
-                                                    hasMultipleSeries={hasMultipleSeries}
-                                                    hideSeriesSubtitle
-                                                />
-                                            </Select.Option>
-                                        ))}
-                                </Select>
-                            </div>
-                        )}
+                        {featureFlags[FEATURE_FLAGS.MULTI_POINT_PERSON_MODAL] &&
+                            !!people.crossDataset?.length &&
+                            !!people.seriesId && (
+                                <div className="data-point-selector">
+                                    <Select
+                                        value={people.seriesId}
+                                        onChange={(seriesId) => switchToDataPoint(seriesId)}
+                                    >
+                                        {people.crossDataset
+                                            .filter((dp) => dp.seriesId)
+                                            .map((dataPoint) => (
+                                                <Select.Option
+                                                    value={dataPoint.seriesId}
+                                                    key={`${dataPoint.action.id}${dataPoint.breakdown_value}`}
+                                                >
+                                                    <InsightLabel
+                                                        seriesColor={colorList[dataPoint.seriesId % colorList.length]}
+                                                        action={dataPoint.action}
+                                                        breakdownValue={
+                                                            dataPoint.breakdown_value === ''
+                                                                ? 'None'
+                                                                : dataPoint.breakdown_value?.toString()
+                                                        }
+                                                        showCountedByTag={showCountedByTag}
+                                                        hasMultipleSeries={hasMultipleSeries}
+                                                    />
+                                                </Select.Option>
+                                            ))}
+                                    </Select>
+                                </div>
+                            )}
                         <div className="user-count-subheader">
                             <IconPersonFilled style={{ fontSize: '1.125rem', marginRight: '0.5rem' }} />
                             <span>
