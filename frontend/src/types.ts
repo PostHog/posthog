@@ -1544,10 +1544,12 @@ export type GraphDataset = ChartDataset<ChartType> &
         action?: ActionFilter
     }
 
+export type GraphPoint = InteractionItem & { dataset: GraphDataset }
 interface PointsPayload {
-    pointsIntersectingLine: (InteractionItem & { dataset: GraphDataset })[]
-    pointsIntersectingClick: (InteractionItem & { dataset: GraphDataset })[]
+    pointsIntersectingLine: GraphPoint[]
+    pointsIntersectingClick: GraphPoint[]
     clickedPointNotLine: boolean
+    referencePoint: GraphPoint
 }
 
 export interface GraphPointPayload {

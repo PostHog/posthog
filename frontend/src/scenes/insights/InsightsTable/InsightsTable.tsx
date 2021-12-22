@@ -98,7 +98,7 @@ export function InsightsTable({
             render: function RenderCheckbox(_, item: IndexedTrendResult) {
                 return (
                     <PHCheckbox
-                        color={colorList[item.id % colorList.length]}
+                        color={colorList[item.id]}
                         checked={visibilityMap[item.id]}
                         onChange={() => toggleVisibility(item.id)}
                     />
@@ -114,7 +114,7 @@ export function InsightsTable({
             return (
                 <div className="series-name-wrapper-col">
                     <InsightLabel
-                        seriesColor={colorList[item.id % colorList.length]}
+                        seriesColor={colorList[item.id]}
                         action={item.action}
                         fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                         hasMultipleSeries={indexedResults.length > 1}

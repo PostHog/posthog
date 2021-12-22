@@ -47,11 +47,7 @@ export function ActionsLineGraph({
                     : (payload) => {
                           const { index, points, crossDataset, seriesId } = payload
 
-                          // For now, take first point when clicking a specific point.
-                          // TODO: Implement case when if the entire line was clicked, show people for that entire day across actions.
-                          const dataset = points.clickedPointNotLine
-                              ? points.pointsIntersectingClick[0].dataset
-                              : points.pointsIntersectingLine[0].dataset
+                          const dataset = points.referencePoint.dataset
                           const day = dataset?.days?.[index] ?? ''
                           const label = dataset?.label ?? dataset?.labels?.[index] ?? ''
 

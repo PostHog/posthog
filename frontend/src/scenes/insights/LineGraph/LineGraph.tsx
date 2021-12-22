@@ -28,7 +28,7 @@ import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import './LineGraph.scss'
 import { LEGACY_InsightTooltip } from '../InsightTooltip/LEGACY_InsightTooltip'
 import { dayjs } from 'lib/dayjs'
-import { AnnotationType, GraphDataset, GraphPointPayload, GraphType, IntervalType } from '~/types'
+import { AnnotationType, GraphDataset, GraphPointPayload, GraphType, IntervalType, GraphPoint } from '~/types'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { LEGACY_LineGraph } from './LEGACY_LineGraph.jsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -500,7 +500,11 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
 
                 const clickedPointNotLine = pointsIntersectingClick.length !== 0
 
-                const referencePoint = clickedPointNotLine ? pointsIntersectingClick[0] : pointsIntersectingLine[0]
+                // For now, take first point when clicking a specific point.
+                // TODO: Implement case when if the entire line was clicked, show people for that entire day across actions.
+                const referencePoint: GraphPoint = clickedPointNotLine
+                    ? { ...pointsIntersectingClick[0], dataset: datasets[pointsIntersectingClick[0].datasetIndex] }
+                    : { ...pointsIntersectingLine[0], dataset: datasets[pointsIntersectingLine[0].datasetIndex] }
 
                 const crossDataset = datasets
                     .filter((_dt) => !_dt.dotted)
@@ -521,6 +525,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                             dataset: datasets[p.datasetIndex],
                         })),
                         clickedPointNotLine,
+                        referencePoint,
                     },
                     index: referencePoint.index,
                     crossDataset,

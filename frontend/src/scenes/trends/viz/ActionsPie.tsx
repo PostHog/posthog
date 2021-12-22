@@ -73,7 +73,7 @@ export function ActionsPie({
                                 ? undefined
                                 : (payload) => {
                                       const { points, index, seriesId } = payload
-                                      const dataset = points.pointsIntersectingClick?.[0]?.dataset
+                                      const dataset = points.referencePoint.dataset
                                       const action = dataset.actions?.[index]
                                       const label = dataset.labels?.[index]
                                       const date_from = filtersParam.date_from || ''

@@ -82,11 +82,7 @@ export function ActionsHorizontalBar({
                     : (point) => {
                           const { value: pointValue, index, points, seriesId } = point
 
-                          // For now, take first point when clicking a specific point.
-                          // TODO: Implement case when if the entire line was clicked, show people for that entire day across actions.
-                          const dataset = points.clickedPointNotLine
-                              ? points.pointsIntersectingClick[0].dataset
-                              : points.pointsIntersectingLine[0].dataset
+                          const dataset = points.referencePoint.dataset
 
                           const action = dataset.actions?.[point.index]
                           const label = dataset.labels?.[point.index]
