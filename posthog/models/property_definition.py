@@ -7,6 +7,9 @@ from posthog.models.utils import UUIDModel
 
 class PropertyType(models.TextChoices):
     Datetime = "DateTime", "DateTime"
+    String = "String", "String"
+    Numeric = "Numeric", "Numeric"
+    Boolean = "Boolean", "Boolean"
 
 
 class PropertyFormat(models.TextChoices):
