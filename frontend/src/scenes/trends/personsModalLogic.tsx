@@ -28,7 +28,7 @@ import { dayjs } from 'lib/dayjs'
 import { groupsModel } from '~/models/groupsModel'
 
 export interface PersonsModalParams {
-    action: ActionFilter | 'session' // todo, refactor this session string param out
+    action: ActionFilter | 'session' // TODO: refactor this session string param out
     label: string // Contains the step name
     date_from: string | number
     date_to: string | number
@@ -39,7 +39,7 @@ export interface PersonsModalParams {
     funnelStep?: number
     pathsDropoff?: boolean
     pointValue?: number // The y-axis value of the data point (i.e. count, unique persons, ...)
-    crossDataset?: GraphDataset[] // `crossDataset` contains the data set for all the points in the same x-axis point; allows switching between matching points
+    crossDataset?: GraphDataset[]
     seriesId?: number
 }
 
@@ -459,24 +459,25 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             })
         },
         switchToDataPoint: async ({ seriesId }) => {
-            const data = values.people?.crossDataset?.find(({ seriesId: _id }) => _id === seriesId)
+            const data = values.people?.crossDataset?.find(({ id: _id }) => _id === seriesId)
 
-            if (data) {
+            if (data && data.action) {
+                const commonParams = {
+                    seriesId,
+                    breakdown_value: data.breakdown_value,
+                    action: data.action,
+                    pointValue: data.pointValue,
+                }
                 if (values.peopleParams) {
                     actions.loadPeople({
                         ...values.peopleParams,
-                        seriesId,
-                        breakdown_value: data.breakdown_value,
-                        action: data.action,
-                        pointValue: data.pointValue,
+                        ...commonParams,
                     })
                 }
                 if (data.personUrl && values.peopleUrlParams) {
                     actions.loadPeopleFromUrl({
                         ...values.peopleUrlParams,
-                        seriesId,
-                        breakdown_value: data.breakdown_value,
-                        action: data.action,
+                        ...commonParams,
                         url: data.personUrl,
                     })
                 }

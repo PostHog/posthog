@@ -95,7 +95,7 @@ export function PersonsModal({
         (view === InsightType.TRENDS || view === InsightType.STICKINESS) &&
         showModalActions
 
-    const colorList = getChartColors('white')
+    const colorList = getChartColors('white', people?.crossDataset?.length)
     const showCountedByTag = !!people?.crossDataset?.find(({ action }) => action?.math && action.math !== 'total')
     const hasMultipleSeries = !!people?.crossDataset?.find(({ action }) => action?.order)
 
@@ -172,32 +172,30 @@ export function PersonsModal({
                         )}
                         {featureFlags[FEATURE_FLAGS.MULTI_POINT_PERSON_MODAL] &&
                             !!people.crossDataset?.length &&
-                            !!people.seriesId && (
+                            people.seriesId !== undefined && (
                                 <div className="data-point-selector">
                                     <Select
                                         value={people.seriesId}
                                         onChange={(seriesId) => switchToDataPoint(seriesId)}
                                     >
-                                        {people.crossDataset
-                                            .filter((dp) => dp.seriesId)
-                                            .map((dataPoint) => (
-                                                <Select.Option
-                                                    value={dataPoint.seriesId}
-                                                    key={`${dataPoint.action.id}${dataPoint.breakdown_value}`}
-                                                >
-                                                    <InsightLabel
-                                                        seriesColor={colorList[dataPoint.seriesId % colorList.length]}
-                                                        action={dataPoint.action}
-                                                        breakdownValue={
-                                                            dataPoint.breakdown_value === ''
-                                                                ? 'None'
-                                                                : dataPoint.breakdown_value?.toString()
-                                                        }
-                                                        showCountedByTag={showCountedByTag}
-                                                        hasMultipleSeries={hasMultipleSeries}
-                                                    />
-                                                </Select.Option>
-                                            ))}
+                                        {people.crossDataset.map((dataPoint) => (
+                                            <Select.Option
+                                                value={dataPoint.id}
+                                                key={`${dataPoint.action?.id}${dataPoint.breakdown_value}`}
+                                            >
+                                                <InsightLabel
+                                                    seriesColor={colorList[dataPoint.id]}
+                                                    action={dataPoint.action}
+                                                    breakdownValue={
+                                                        dataPoint.breakdown_value === ''
+                                                            ? 'None'
+                                                            : dataPoint.breakdown_value?.toString()
+                                                    }
+                                                    showCountedByTag={showCountedByTag}
+                                                    hasMultipleSeries={hasMultipleSeries}
+                                                />
+                                            </Select.Option>
+                                        ))}
                                     </Select>
                                 </div>
                             )}

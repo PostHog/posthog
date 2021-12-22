@@ -506,11 +506,9 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                     .filter((_dt) => !_dt.dotted)
                     .map((_dt) => ({
                         ..._dt,
-                        seriesId: _dt.id,
                         personUrl: _dt.persons_urls?.[referencePoint.index].url,
                         pointValue: _dt.data[referencePoint.index],
                     }))
-                console.log(crossDataset)
 
                 onClick?.({
                     points: {
