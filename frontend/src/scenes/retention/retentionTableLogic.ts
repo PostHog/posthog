@@ -106,7 +106,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                 // go further and translate thhese numbers into percentage of the previous value
                 // so we get some idea for the rate of convergence.
 
-                return results.map((cohortRetention) => {
+                return results.map((cohortRetention, datasetIndex) => {
                     const retentionPercentages = cohortRetention.values
                         .map((value) => value.count / cohortRetention.values[0].count)
                         // Make them display in the right scale
@@ -142,6 +142,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                                       // map values to percentage of previous
                                       .map(([value, previous]) => (100 * value) / previous)
                                 : retentionPercentages,
+                        index: datasetIndex,
                     }
                 })
             },

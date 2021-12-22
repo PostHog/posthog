@@ -1,3 +1,4 @@
+import logging
 import random
 from typing import Dict
 
@@ -33,6 +34,15 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         cls.user.current_team = cls.demo_team
         cls.user.save()
         EventProperty.objects.create(team=cls.demo_team, event="$pageview", property="$browser")
+
+    def test_individual_property_formats(self):
+        property = PropertyDefinition.objects.create(
+            team=self.team, name="timestamp_property", property_type="DateTime", property_type_format="unix_timestamp"
+        )
+        response = self.client.get(f"/api/projects/@current/property_definitions/{property.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.json()["property_type"] == "DateTime"
+        assert response.json()["property_type_format"] == "unix_timestamp"
 
     def test_list_property_definitions(self):
 

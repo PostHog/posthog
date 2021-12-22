@@ -386,6 +386,7 @@ export enum SessionPlayerState {
     PLAY = 'play',
     PAUSE = 'pause',
     SCRUB = 'scrub',
+    SKIP = 'skip',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -1530,6 +1531,7 @@ export type GraphDataset = ChartDataset<ChartType> &
         dotted?: boolean // toggled on to draw incompleteness lines in LineGraph.tsx
         breakdownValues?: (string | number | undefined)[] // array of breakdown values used only in ActionsHorizontalBar.tsx data
         personsValues?: (Person | undefined)[] // array of persons ussed only in (ActionsHorizontalBar|ActionsPie).tsx
+        index?: number
     }
 
 interface PointsPayload {
