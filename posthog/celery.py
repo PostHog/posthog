@@ -10,7 +10,6 @@ from django.db import connection
 from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
-from posthog.models.constance import get_dynamic_setting
 from posthog.redis import get_client
 from posthog.utils import is_clickhouse_enabled
 
@@ -252,6 +251,8 @@ def clickhouse_mutation_count():
 
 
 def recompute_materialized_columns_enabled() -> bool:
+    from posthog.models.constance import get_dynamic_setting
+
     if (
         is_clickhouse_enabled()
         and settings.EE_AVAILABLE
