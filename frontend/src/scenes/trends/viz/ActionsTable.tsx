@@ -46,7 +46,7 @@ export function ActionsTable(): JSX.Element {
                     },
                 ]}
                 rowKey="label"
-                pagination={{ pageSize: 9999, hideOnSinglePage: true }}
+                pagination={false}
                 dataSource={data}
                 data-attr="actions-table-graph"
             />

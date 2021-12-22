@@ -11,6 +11,7 @@ export interface RetentionTrendPayload {
     data: number[]
     days: string[]
     labels: string[]
+    index: number
 }
 
 export interface RetentionTablePeoplePayload {

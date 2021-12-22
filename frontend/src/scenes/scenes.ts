@@ -48,19 +48,19 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Events]: {
         projectBased: true,
-        name: 'Events & actions',
+        name: 'Events & Actions',
     },
     [Scene.Actions]: {
         projectBased: true,
-        name: 'Events & actions',
+        name: 'Events & Actions',
     },
     [Scene.EventStats]: {
         projectBased: true,
-        name: 'Events & actions',
+        name: 'Events & Actions',
     },
     [Scene.EventPropertyStats]: {
         projectBased: true,
-        name: 'Events & actions',
+        name: 'Events & Actions',
     },
     [Scene.SessionRecordings]: {
         projectBased: true,
@@ -72,18 +72,18 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Persons]: {
         projectBased: true,
-        name: 'Persons & groups',
+        name: 'Persons & Groups',
     },
     [Scene.Action]: {
         projectBased: true,
     },
     [Scene.Groups]: {
         projectBased: true,
-        name: 'Persons & groups',
+        name: 'Persons & Groups',
     },
     [Scene.Group]: {
         projectBased: true,
-        name: 'Persons & groups',
+        name: 'Persons & Groups',
     },
     [Scene.Experiments]: {
         projectBased: true,
@@ -95,7 +95,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.FeatureFlags]: {
         projectBased: true,
-        name: 'Feature flags',
+        name: 'Feature Flags',
     },
     [Scene.FeatureFlag]: {
         projectBased: true,
@@ -128,6 +128,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.OnboardingSetup]: {
         projectBased: true,
         hideDemoWarnings: true,
+    },
+    [Scene.ToolbarLaunch]: {
+        projectBased: true,
+        name: 'Toolbar',
     },
     // Organization-based routes
     [Scene.OrganizationCreateFirst]: {
@@ -232,6 +236,7 @@ export const routes: Record<string, Scene> = {
     [urls.systemStatusPage(':id')]: Scene.SystemStatus,
     [urls.asyncMigrations()]: Scene.AsyncMigrations,
     [urls.mySettings()]: Scene.MySettings,
+    [urls.toolbarLaunch()]: Scene.ToolbarLaunch,
     // Onboarding / setup routes
     [urls.login()]: Scene.Login,
     [urls.preflight()]: Scene.PreflightCheck,

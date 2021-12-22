@@ -35,6 +35,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
         endBuffer: true,
         startScrub: true,
         endScrub: true,
+        setSkipInactivitySetting: (skipInactivitySetting: boolean) => ({ skipInactivitySetting }),
+        setSkippingInactivity: (isSkippingInactivity: boolean) => ({ isSkippingInactivity }),
+        syncPlayerSpeed: true,
         setCurrentPlayerPosition: (playerPosition: PlayerPosition | null) => ({ playerPosition }),
         setSpeed: (speed: number) => ({ speed }),
         setScale: (scale: number) => ({ scale }),
@@ -82,6 +85,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
                 setSpeed: (_, { speed }) => speed,
             },
         ],
+        skipInactivitySetting: [
+            true,
+            { persist: true },
+            {
+                setSkipInactivitySetting: (_, { skipInactivitySetting }) => skipInactivitySetting,
+            },
+        ],
+        isSkippingInactivity: [false, { setSkippingInactivity: (_, { isSkippingInactivity }) => isSkippingInactivity }],
         scale: [
             1,
             {
@@ -100,13 +111,24 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
     }),
     selectors: {
         currentPlayerState: [
-            (selectors) => [selectors.playingState, selectors.isBuffering, selectors.isScrubbing],
-            (playingState, isBuffering, isScrubbing) => {
+            (selectors) => [
+                selectors.playingState,
+                selectors.isBuffering,
+                selectors.isScrubbing,
+                selectors.isSkippingInactivity,
+            ],
+            (playingState, isBuffering, isScrubbing, isSkippingInactivity) => {
                 if (isScrubbing) {
                     // If scrubbing, playingState takes precedence
                     return playingState
                 }
-                return isBuffering ? SessionPlayerState.BUFFER : playingState
+                if (isBuffering) {
+                    return SessionPlayerState.BUFFER
+                }
+                if (isSkippingInactivity && playingState !== SessionPlayerState.PAUSE) {
+                    return SessionPlayerState.SKIP
+                }
+                return playingState
             },
         ],
         currentPlayerTime: [
@@ -141,7 +163,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
             const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], {
                 root: values.rootFrame,
                 triggerFocus: false,
-                speed: values.speed,
                 insertStyleRules: [
                     `.ph-no-capture {   background-image: url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNOCAwSDE2TDAgMTZWOEw4IDBaIiBmaWxsPSIjMkQyRDJEIi8+CjxwYXRoIGQ9Ik0xNiA4VjE2SDhMMTYgOFoiIGZpbGw9IiMyRDJEMkQiLz4KPC9zdmc+Cg=="); }`,
                 ],
@@ -151,9 +172,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
         setPlayer: ({ player }) => {
             if (player) {
                 actions.seek(values.currentPlayerPosition)
+                actions.syncPlayerSpeed()
             }
         },
         setCurrentSegment: ({ segment }) => {
+            // Check if we should we skip this segment
+            if (!segment.isActive && values.skipInactivitySetting) {
+                actions.setSkippingInactivity(true)
+            } else {
+                actions.setSkippingInactivity(false)
+            }
+
             // Check if the new segment is for a different window_id than the last one
             // If so, we need to re-initialize the player
             if (values.player && values.player.windowId !== segment.windowId) {
@@ -161,6 +190,29 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
                 actions.tryInitReplayer()
             }
             actions.seek(values.currentPlayerPosition)
+        },
+        setSkipInactivitySetting: ({ skipInactivitySetting }) => {
+            if (!values.currentSegment?.isActive && skipInactivitySetting) {
+                actions.setSkippingInactivity(true)
+            } else {
+                actions.setSkippingInactivity(false)
+            }
+        },
+        setSkippingInactivity: () => {
+            actions.syncPlayerSpeed()
+        },
+        syncPlayerSpeed: () => {
+            if (values.isSkippingInactivity) {
+                // Sets speed to skip section in max 1 second
+                const secondsToSkip =
+                    ((values.currentSegment?.endPlayerPosition?.time ?? 0) -
+                        (values.currentPlayerPosition?.time ?? 0)) /
+                    1000
+                const skipSpeed = Math.max(50, secondsToSkip)
+                values.player?.replayer?.setConfig({ speed: skipSpeed })
+            } else {
+                values.player?.replayer?.setConfig({ speed: values.speed })
+            }
         },
         checkBufferingCompleted: () => {
             // If buffering has completed, resume last playing state
@@ -221,7 +273,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
         },
         setPlay: () => {
             actions.stopAnimation()
-            values.player?.replayer?.setConfig({ speed: values.speed }) // hotfix: speed changes on player state change
+            actions.syncPlayerSpeed() // hotfix: speed changes on player state change
 
             // Use the start of the current segment if there is no currentPlayerPosition
             // (theoretically, should never happen, but Typescript doesn't know that)
@@ -232,7 +284,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
         },
         setPause: () => {
             actions.stopAnimation()
-            values.player?.replayer?.setConfig({ speed: values.speed }) // hotfix: speed changes on player state change
+            actions.syncPlayerSpeed() // hotfix: speed changes on player state change
             values.player?.replayer?.pause()
         },
         startBuffer: () => {
@@ -241,8 +293,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
         startScrub: () => {
             actions.stopAnimation()
         },
-        setSpeed: ({ speed }) => {
-            values.player?.replayer?.setConfig({ speed })
+        setSpeed: () => {
+            actions.syncPlayerSpeed()
         },
         seek: async ({ playerPosition, forcePlay }, breakpoint) => {
             actions.stopAnimation()
@@ -342,7 +394,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
         },
         updateAnimation: () => {
             // The main loop of the player. Called on each frame
-
             const playerTime = values.player?.replayer?.getCurrentTime()
             let nextPlayerPosition: PlayerPosition | null = null
             if (playerTime !== undefined && values.currentSegment) {

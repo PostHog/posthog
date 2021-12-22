@@ -771,14 +771,14 @@ code.code {
 
 .main-app-content {
     min-width: 0;
-    padding: 0 2rem 2rem;
+    padding: 0 2rem 4rem;
 
     @media (min-width: $sm) and (max-width: $lg) {
         padding: 0 1rem 2rem;
     }
 
     @media (max-width: $sm) {
-        padding: 0 1rem;
+        padding: 0 1rem 1rem;
     }
 }
 

@@ -93,7 +93,7 @@ $funnel_canvas_background: #fff;
     .insight-controls {
         overflow: visible;
         position: relative;
-        margin-bottom: $default_spacing / 2;
+        margin-bottom: 1rem;
 
         .ant-card-body {
             padding: $default_spacing * 0.8 $default_spacing;

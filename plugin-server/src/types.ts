@@ -617,6 +617,8 @@ export enum PropertyOperator {
     LessThan = 'lt',
     IsSet = 'is_set',
     IsNotSet = 'is_not_set',
+    IsDateBefore = 'is_date_before',
+    IsDateAfter = 'is_date_after',
 }
 
 /** Sync with posthog/frontend/src/types.ts */

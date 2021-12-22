@@ -76,6 +76,7 @@ export const FilterRow = React.memo(function FilterRow({
             ) : (
                 <>
                     <Popup
+                        className={'filter-row-popup'}
                         visible={open}
                         placement={taxonomicPopoverPlacement || 'bottom-end'}
                         fallbackPlacements={['bottom-start']}

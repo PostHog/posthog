@@ -297,6 +297,8 @@ export enum PropertyOperator {
     LessThan = 'lt',
     IsSet = 'is_set',
     IsNotSet = 'is_not_set',
+    IsDateBefore = 'is_date_before',
+    IsDateAfter = 'is_date_after',
 }
 
 export enum SavedInsightsTabs {
@@ -384,6 +386,7 @@ export enum SessionPlayerState {
     PLAY = 'play',
     PAUSE = 'pause',
     SCRUB = 'scrub',
+    SKIP = 'skip',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -1337,6 +1340,7 @@ export interface PropertyDefinition {
     updated_at?: string
     updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
+    is_event_property?: boolean // Indicates whether this property has been seen for a particular set of events (when `eventNames` query string is sent); calculated at query time, not stored in the db
 }
 
 export interface PersonProperty {
@@ -1527,6 +1531,7 @@ export type GraphDataset = ChartDataset<ChartType> &
         dotted?: boolean // toggled on to draw incompleteness lines in LineGraph.tsx
         breakdownValues?: (string | number | undefined)[] // array of breakdown values used only in ActionsHorizontalBar.tsx data
         personsValues?: (Person | undefined)[] // array of persons ussed only in (ActionsHorizontalBar|ActionsPie).tsx
+        index?: number
     }
 
 interface PointsPayload {

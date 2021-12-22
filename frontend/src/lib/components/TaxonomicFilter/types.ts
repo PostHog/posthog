@@ -14,6 +14,7 @@ export interface TaxonomicFilterProps {
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicFilterLogicKey?: string
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
+    eventNames?: string[]
 }
 
 export type TaxonomicFilterValue = string | number
