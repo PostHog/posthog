@@ -239,11 +239,7 @@ export function PropertyValue({
                         showNow={false}
                         value={dayJSMightParse(value) ? dayjs(value) : null}
                         onOk={(selectedDate) => {
-                            console.log('on ok')
                             setValue(selectedDate.format('YYYY-MM-DD HH:MM:ss'))
-                        }}
-                        onClick={(event) => {
-                            console.log(event)
                         }}
                         getPopupContainer={(trigger: Element | null) => {
                             const container = trigger?.parentElement?.parentElement?.parentElement
