@@ -61,7 +61,7 @@ class SimplifyFilterMixin:
             simplified_properties.extend(self._simplify_property(team, prop, **kwargs))
         return simplified_properties
 
-    def _simplify_property(self, team: "Team", property: "Property") -> List["Property"]:
+    def _simplify_property(self, team: "Team", property: "Property", **kwargs) -> List["Property"]:
         if property.type == "cohort":
             from ee.clickhouse.models.cohort import simplified_cohort_filter_properties
             from posthog.models import Cohort

@@ -11,7 +11,7 @@ from sentry_sdk import capture_exception
 from posthog.event_usage import report_org_usage, report_org_usage_failure
 from posthog.models import Event, GroupTypeMapping, OrganizationMembership, Team, User
 from posthog.tasks.status_report import get_instance_licenses
-from posthog.utils import get_instance_realm, get_previous_day, is_clickhouse_enabled
+from posthog.utils import get_instance_realm, get_previous_day
 from posthog.version import VERSION
 
 logger = logging.getLogger(__name__)
