@@ -1247,7 +1247,7 @@ export interface PreflightStatus {
     ee_available?: boolean
     /** Is ClickHouse used as the analytics database instead of Postgres. */
     is_clickhouse_enabled?: boolean
-    realm: 'cloud' | 'hosted' | 'hosted-clickhouse'
+    realm: 'cloud' | 'demo' | 'hosted' | 'hosted-clickhouse'
     db_backend?: 'postgres' | 'clickhouse'
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>
