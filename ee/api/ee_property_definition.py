@@ -19,6 +19,8 @@ class EnterprisePropertyDefinitionSerializer(serializers.ModelSerializer):
             "updated_by",
             "query_usage_30_day",
             "is_event_property",
+            "property_type",
+            "property_type_format",
         )
         read_only_fields = ["id", "name", "is_numerical", "query_usage_30_day", "is_event_property"]
 
