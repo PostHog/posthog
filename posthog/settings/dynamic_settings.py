@@ -1,7 +1,5 @@
 from posthog.settings.utils import get_from_env, str_to_bool
 
-CONSTANCE_BACKEND = "constance.backends.database.DatabaseBackend"
-
 CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
 
 CONSTANCE_CONFIG = {

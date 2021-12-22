@@ -25,7 +25,7 @@ def get_dynamic_setting(key) -> Any:
     if saved_setting is not None:
         return saved_setting.value
     else:
-        return CONSTANCE_CONFIG[key][1]  # Get the default value
+        return CONSTANCE_CONFIG[key][0]  # Get the default value
 
 
 def set_dynamic_setting(key, value):

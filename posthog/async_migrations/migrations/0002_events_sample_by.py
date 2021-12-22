@@ -1,10 +1,10 @@
-from constance import config
 from django.conf import settings
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.events import EVENTS_TABLE
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
 from posthog.constants import AnalyticsDBMS
+from posthog.models.constance import set_dynamic_setting
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 from posthog.version_requirement import ServiceVersionRequirement
 
@@ -53,7 +53,7 @@ class Migration(AsyncMigrationDefinition):
             ENGINE = ReplacingMergeTree(_timestamp)
             PARTITION BY toYYYYMM(timestamp)
             ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
-            SAMPLE BY cityHash64(distinct_id) 
+            SAMPLE BY cityHash64(distinct_id)
             """,
             rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
             resumable=True,
@@ -62,7 +62,7 @@ class Migration(AsyncMigrationDefinition):
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"""
             INSERT INTO {TEMPORARY_TABLE_NAME}
-            SELECT * 
+            SELECT *
             FROM {EVENTS_TABLE}
             WHERE timestamp < toDateTime64(toYYYYMM(now()) - 1, 6)
             AND timestamp >= (SELECT max(timestamp) FROM {TEMPORARY_TABLE_NAME})""",
@@ -74,14 +74,14 @@ class Migration(AsyncMigrationDefinition):
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
             rollback=f"ATTACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
-            side_effect=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
-            side_effect_rollback=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
+            side_effect=lambda: set_dynamic_setting("COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
+            side_effect_rollback=lambda: set_dynamic_setting("COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
         ),
         AsyncMigrationOperation(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"""
             INSERT INTO {TEMPORARY_TABLE_NAME}
-            SELECT * 
+            SELECT *
             FROM {EVENTS_TABLE}
             WHERE timestamp >= (SELECT max(timestamp) FROM {TEMPORARY_TABLE_NAME})""",
             rollback=f"TRUNCATE TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
@@ -113,8 +113,8 @@ class Migration(AsyncMigrationDefinition):
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"ATTACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
             rollback=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
-            side_effect=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
-            side_effect_rollback=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
+            side_effect=lambda: set_dynamic_setting("COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
+            side_effect_rollback=lambda: set_dynamic_setting("COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
         ),
     ]
 
@@ -130,11 +130,11 @@ class Migration(AsyncMigrationDefinition):
     def precheck(self):
         result = sync_execute(
             f"""
-        SELECT (free_space.size / greatest(event_table_size.size, 1)) FROM 
+        SELECT (free_space.size / greatest(event_table_size.size, 1)) FROM
             (SELECT 1 as jc, 'event_table_size', sum(bytes) as size FROM system.parts WHERE table = 'sharded_events' AND database='{CLICKHOUSE_DATABASE}') event_table_size
-        JOIN 
+        JOIN
             (SELECT 1 as jc, 'free_disk_space', free_space as size FROM system.disks WHERE name = 'default') free_space
-        ON event_table_size.jc=free_space.jc 
+        ON event_table_size.jc=free_space.jc
         """
         )
         event_size_to_free_space_ratio = result[0][0]
@@ -145,9 +145,9 @@ class Migration(AsyncMigrationDefinition):
         else:
             result = sync_execute(
                 f"""
-            SELECT formatReadableSize(free_space.size - (free_space.free_space - (1.5 * event_table_size.size ))) as required FROM 
+            SELECT formatReadableSize(free_space.size - (free_space.free_space - (1.5 * event_table_size.size ))) as required FROM
                 (SELECT 1 as jc, 'event_table_size', sum(bytes) as size FROM system.parts WHERE table = 'sharded_events' AND database='{CLICKHOUSE_DATABASE}') event_table_size
-            JOIN 
+            JOIN
                 (SELECT 1 as jc, 'free_disk_space', free_space, total_space as size FROM system.disks WHERE name = 'default') free_space
             ON event_table_size.jc=free_space.jc
             """

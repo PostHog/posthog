@@ -5,12 +5,12 @@ from random import randrange
 from celery import Celery
 from celery.schedules import crontab
 from celery.signals import task_postrun, task_prerun
-from constance import config
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
+from posthog.models.constance import get_dynamic_setting
 from posthog.redis import get_client
 from posthog.utils import is_clickhouse_enabled
 
@@ -255,8 +255,8 @@ def recompute_materialized_columns_enabled() -> bool:
     if (
         is_clickhouse_enabled()
         and settings.EE_AVAILABLE
-        and getattr(config, "MATERIALIZED_COLUMNS_ENABLED")
-        and getattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED")
+        and get_dynamic_setting("MATERIALIZED_COLUMNS_ENABLED")
+        and get_dynamic_setting("COMPUTE_MATERIALIZED_COLUMNS_ENABLED")
     ):
         return True
     return False
