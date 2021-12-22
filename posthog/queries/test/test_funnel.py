@@ -1,13 +1,10 @@
-from datetime import datetime
 from unittest.mock import patch
 
-import pytz
 from freezegun import freeze_time
 
 from posthog.constants import FILTER_TEST_ACCOUNTS, INSIGHT_FUNNELS
-from posthog.models import Action, ActionStep, Element, Event, Person
+from posthog.models import Action, ActionStep, Element
 from posthog.models.filters import Filter
-from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
 from posthog.tasks.update_cache import update_cache_item
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
@@ -135,8 +132,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self._signup_event(distinct_id="a_user_that_got_deleted_or_doesnt_exist")
 
-            calculate_actions_from_last_calculation()
-
             result = funnel.run()
             self.assertEqual(result[0]["name"], "user signed up")
             self.assertEqual(result[0]["count"], 4)
@@ -189,8 +184,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             half_property = person_factory(distinct_ids=["half_property"], team_id=self.team.pk)
             self._signup_event(distinct_id="half_property", properties={"$browser": "Safari"})
             self._pay_event(distinct_id="half_property")
-
-            calculate_actions_from_last_calculation()
 
             result = funnel.run()
             self.assertEqual(result[0]["count"], 2)
@@ -253,8 +246,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._pay_event(distinct_id="half_property")
             self._movie_event(distinct_id="half_property")
 
-            calculate_actions_from_last_calculation()
-
             result = funnel.run()
 
             self.assertEqual(result[0]["count"], 1)
@@ -293,8 +284,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._signup_event(distinct_id="with_property")
             self._pay_event(distinct_id="with_property")
             self._movie_event(distinct_id="with_property")
-
-            calculate_actions_from_last_calculation()
 
             result = funnel.run()
             self.assertEqual(result[0]["count"], 1)

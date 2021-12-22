@@ -39,7 +39,6 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.team import Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries import base, retention, stickiness, trends
-from posthog.tasks.calculate_action import calculate_action
 from posthog.utils import generate_cache_key, get_safe_cache, should_refresh
 
 from .person import PersonSerializer, paginated_result
@@ -125,7 +124,6 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
                 action=instance, **{key: value for key, value in step.items() if key not in ("isNew", "selection")},
             )
 
-        calculate_action.delay(action_id=instance.pk)
         report_user_action(validated_data["created_by"], "action created", instance.get_analytics_metadata())
 
         return instance
@@ -152,7 +150,6 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
                     )
 
         instance = super().update(instance, validated_data)
-        calculate_action.delay(action_id=instance.pk)
         instance.refresh_from_db()
         report_user_action(
             self.context["request"].user,

@@ -10,7 +10,6 @@ from posthog.models.plugin import PluginConfig
 from posthog.models.utils import UUIDT
 from posthog.tasks.status_report import status_report
 from posthog.test.base import APIBaseTest
-from posthog.utils import is_clickhouse_enabled
 from posthog.version import VERSION
 
 

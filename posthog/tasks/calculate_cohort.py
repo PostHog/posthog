@@ -10,7 +10,6 @@ from django.utils import timezone
 
 from posthog.constants import INSIGHT_STICKINESS
 from posthog.models import Cohort
-from posthog.utils import is_clickhouse_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +29,7 @@ def calculate_cohorts() -> None:
         .exclude(is_static=True)
         .order_by(F("last_calculation").asc(nulls_first=True))[0 : settings.CALCULATE_X_COHORTS_PARALLEL]
     ):
-        if is_clickhouse_enabled():
-            calculate_cohort_ch.delay(cohort.id)
-        else:
-            calculate_cohort.delay(cohort.id)
+        calculate_cohort_ch.delay(cohort.id)
 
 
 @shared_task(ignore_result=True, max_retries=1)
@@ -47,9 +43,8 @@ def calculate_cohort(cohort_id: int) -> None:
 
 @shared_task(ignore_result=True, max_retries=2)
 def calculate_cohort_ch(cohort_id: int) -> None:
-    if is_clickhouse_enabled():
-        cohort: Cohort = Cohort.objects.get(pk=cohort_id)
-        cohort.calculate_people_ch()
+    cohort: Cohort = Cohort.objects.get(pk=cohort_id)
+    cohort.calculate_people_ch()
 
 
 @shared_task(ignore_result=True, max_retries=1)
@@ -65,24 +60,23 @@ def calculate_cohort_from_list(cohort_id: int, items: List[str]) -> None:
 def insert_cohort_from_query(
     cohort_id: int, insight_type: str, filter_data: Dict[str, Any], entity_data: Dict[str, Any]
 ) -> None:
-    if is_clickhouse_enabled():
-        from ee.clickhouse.queries.stickiness.clickhouse_stickiness import insert_stickiness_people_into_cohort
-        from ee.clickhouse.queries.util import get_earliest_timestamp
-        from ee.clickhouse.views.actions import insert_entity_people_into_cohort
-        from ee.clickhouse.views.cohort import insert_cohort_people_into_pg
-        from posthog.models.entity import Entity
-        from posthog.models.filters.filter import Filter
-        from posthog.models.filters.stickiness_filter import StickinessFilter
+    from ee.clickhouse.queries.stickiness.clickhouse_stickiness import insert_stickiness_people_into_cohort
+    from ee.clickhouse.queries.util import get_earliest_timestamp
+    from ee.clickhouse.views.actions import insert_entity_people_into_cohort
+    from ee.clickhouse.views.cohort import insert_cohort_people_into_pg
+    from posthog.models.entity import Entity
+    from posthog.models.filters.filter import Filter
+    from posthog.models.filters.stickiness_filter import StickinessFilter
 
-        cohort = Cohort.objects.get(pk=cohort_id)
-        entity = Entity(data=entity_data)
-        if insight_type == INSIGHT_STICKINESS:
-            _stickiness_filter = StickinessFilter(
-                data=filter_data, team=cohort.team, get_earliest_timestamp=get_earliest_timestamp
-            )
-            insert_stickiness_people_into_cohort(cohort, entity, _stickiness_filter)
-        else:
-            _filter = Filter(data=filter_data)
-            insert_entity_people_into_cohort(cohort, entity, _filter)
+    cohort = Cohort.objects.get(pk=cohort_id)
+    entity = Entity(data=entity_data)
+    if insight_type == INSIGHT_STICKINESS:
+        _stickiness_filter = StickinessFilter(
+            data=filter_data, team=cohort.team, get_earliest_timestamp=get_earliest_timestamp
+        )
+        insert_stickiness_people_into_cohort(cohort, entity, _stickiness_filter)
+    else:
+        _filter = Filter(data=filter_data)
+        insert_entity_people_into_cohort(cohort, entity, _filter)
 
-        insert_cohort_people_into_pg(cohort=cohort)
+    insert_cohort_people_into_pg(cohort=cohort)

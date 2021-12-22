@@ -24,7 +24,6 @@ from posthog.models import (
 from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
 from posthog.queries.abstract_test.test_timerange import AbstractTimerangeTest
 from posthog.queries.trends import Trends, breakdown_label
-from posthog.tasks.calculate_action import calculate_action, calculate_actions_from_last_calculation
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
 from posthog.utils import generate_cache_key, relative_date_parse
 
@@ -100,8 +99,6 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
             no_events = action_factory(team=self.team, name="no events")
             sign_up_action = action_factory(team=self.team, name="sign up")
-
-            calculate_actions_from_last_calculation()
 
             return sign_up_action, person
 
@@ -1707,7 +1704,6 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": value}
                 )
             event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": None})
-            calculate_actions_from_last_calculation()
             return sign_up_action
 
         def _test_math_property_aggregation(self, math_property, values, expected_value):
@@ -1767,7 +1763,6 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": "x"})
             event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": None})
             event_factory(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": 8})
-            calculate_actions_from_last_calculation()
             action_response = trends().run(
                 Filter(data={"actions": [{"id": sign_up_action.id, "math": "avg", "math_property": "some_number"}]}),
                 self.team,

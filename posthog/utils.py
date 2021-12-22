@@ -595,20 +595,14 @@ def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]
     return new_string, named_params
 
 
-def is_clickhouse_enabled() -> bool:
-    return settings.PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE
-
-
 def get_instance_realm() -> str:
     """
     Returns the realm for the current instance. `cloud` or `hosted` or `hosted-clickhouse`.
     """
     if settings.MULTI_TENANCY:
         return "cloud"
-    elif is_clickhouse_enabled():
-        return "hosted-clickhouse"
     else:
-        return "hosted"
+        return "hosted-clickhouse"
 
 
 def get_can_create_org() -> bool:

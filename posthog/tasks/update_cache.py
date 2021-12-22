@@ -28,7 +28,7 @@ from posthog.models import Dashboard, Filter, Insight, Team
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.types import FilterType
-from posthog.utils import generate_cache_key, is_clickhouse_enabled
+from posthog.utils import generate_cache_key
 
 PARALLEL_INSIGHT_CACHE = int(os.environ.get("PARALLEL_DASHBOARD_ITEM_CACHE", 5))
 

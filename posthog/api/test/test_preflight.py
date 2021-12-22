@@ -68,7 +68,7 @@ class TestPreflight(APIBaseTest):
                     "initiated": True,
                     "cloud": False,
                     "realm": "hosted",
-                    "is_clickhouse_enabled": False,
+                    "is_clickhouse_enabled": True,
                     "db_backend": "postgres",
                     "available_social_auth_providers": {
                         "google-oauth2": False,

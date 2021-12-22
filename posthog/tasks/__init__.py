@@ -1,6 +1,5 @@
 # Make tasks ready for celery autoimport
 import posthog.tasks.async_migrations
-import posthog.tasks.calculate_action
 import posthog.tasks.calculate_cohort
 import posthog.tasks.calculate_event_property_usage
 import posthog.tasks.delete_clickhouse_data

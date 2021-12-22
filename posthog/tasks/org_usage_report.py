@@ -92,7 +92,7 @@ def send_all_reports(
         "posthog_version": VERSION,
         "deployment_infrastructure": os.getenv("DEPLOYMENT", "unknown"),
         "realm": realm,
-        "is_clickhouse_enabled": is_clickhouse_enabled(),
+        "is_clickhouse_enabled": True,
         "period": {"start_inclusive": period_start.isoformat(), "end_inclusive": period_end.isoformat()},
         "site_url": os.getenv("SITE_URL", "unknown"),
         "license_keys": license_keys,

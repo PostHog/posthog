@@ -76,7 +76,7 @@ class TestFilters(PGTestFilters):
         filter = Filter(data={"properties": [{"type": "cohort", "key": "id", "value": cohort.pk}]})
 
         self.assertEqual(
-            filter.simplify(self.team, is_clickhouse_enabled=False).properties_to_dict(),
+            filter.simplify(self.team).properties_to_dict(),
             {"properties": [{"type": "cohort", "key": "id", "value": cohort.pk, "operator": None}]},
         )
 

@@ -17,7 +17,6 @@ from posthog.models.team import Team
 from posthog.plugins.access import can_configure_plugins, can_install_plugins
 from posthog.plugins.reload import reload_plugins_on_workers
 from posthog.plugins.utils import download_plugin_archive, get_json_from_archive, load_json_file, parse_url
-from posthog.utils import is_clickhouse_enabled
 from posthog.version import VERSION
 
 from .utils import UUIDModel, sane_repr
@@ -258,50 +257,31 @@ def fetch_plugin_log_entries(
     limit: Optional[int] = None,
     type_filter: List[PluginLogEntry.Type] = [],
 ) -> List[Union[PluginLogEntry, PluginLogEntryRaw]]:
-    if is_clickhouse_enabled():
-        clickhouse_where_parts: List[str] = []
-        clickhouse_kwargs: Dict[str, Any] = {}
-        if team_id is not None:
-            clickhouse_where_parts.append("team_id = %(team_id)s")
-            clickhouse_kwargs["team_id"] = team_id
-        if plugin_config_id is not None:
-            clickhouse_where_parts.append("plugin_config_id = %(plugin_config_id)s")
-            clickhouse_kwargs["plugin_config_id"] = plugin_config_id
-        if after is not None:
-            clickhouse_where_parts.append("timestamp > toDateTime64(%(after)s, 6)")
-            clickhouse_kwargs["after"] = after.isoformat().replace("+00:00", "")
-        if before is not None:
-            clickhouse_where_parts.append("timestamp < toDateTime64(%(before)s, 6)")
-            clickhouse_kwargs["before"] = before.isoformat().replace("+00:00", "")
-        if search:
-            clickhouse_where_parts.append("message ILIKE %(search)s")
-            clickhouse_kwargs["search"] = f"%{search}%"
-        if len(type_filter) > 0:
-            clickhouse_where_parts.append("type in %(types)s")
-            clickhouse_kwargs["types"] = type_filter
-        clickhouse_query = f"""
-            SELECT id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id FROM plugin_log_entries
-            WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC {f'LIMIT {limit}' if limit else ''}
-        """
-        return [PluginLogEntryRaw(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]
-    else:
-        filter_kwargs: Dict[str, Any] = {}
-        if team_id is not None:
-            filter_kwargs["team_id"] = team_id
-        if plugin_config_id is not None:
-            filter_kwargs["plugin_config_id"] = plugin_config_id
-        if after is not None:
-            filter_kwargs["timestamp__gt"] = after
-        if before is not None:
-            filter_kwargs["timestamp__lt"] = before
-        if search:
-            filter_kwargs["message__icontains"] = search
-        if len(type_filter) > 0:
-            filter_kwargs["type__in"] = type_filter
-        query = PluginLogEntry.objects.order_by("-timestamp").filter(**filter_kwargs)
-        if limit:
-            query = query[:limit]
-        return list(query)
+    clickhouse_where_parts: List[str] = []
+    clickhouse_kwargs: Dict[str, Any] = {}
+    if team_id is not None:
+        clickhouse_where_parts.append("team_id = %(team_id)s")
+        clickhouse_kwargs["team_id"] = team_id
+    if plugin_config_id is not None:
+        clickhouse_where_parts.append("plugin_config_id = %(plugin_config_id)s")
+        clickhouse_kwargs["plugin_config_id"] = plugin_config_id
+    if after is not None:
+        clickhouse_where_parts.append("timestamp > toDateTime64(%(after)s, 6)")
+        clickhouse_kwargs["after"] = after.isoformat().replace("+00:00", "")
+    if before is not None:
+        clickhouse_where_parts.append("timestamp < toDateTime64(%(before)s, 6)")
+        clickhouse_kwargs["before"] = before.isoformat().replace("+00:00", "")
+    if search:
+        clickhouse_where_parts.append("message ILIKE %(search)s")
+        clickhouse_kwargs["search"] = f"%{search}%"
+    if len(type_filter) > 0:
+        clickhouse_where_parts.append("type in %(types)s")
+        clickhouse_kwargs["types"] = type_filter
+    clickhouse_query = f"""
+        SELECT id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id FROM plugin_log_entries
+        WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC {f'LIMIT {limit}' if limit else ''}
+    """
+    return [PluginLogEntryRaw(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]
 
 
 @receiver(models.signals.post_save, sender=Organization)

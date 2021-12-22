@@ -14,8 +14,6 @@ from posthog.api.test.test_event_definition import (
     create_team,
     create_user,
 )
-from posthog.constants import TREND_FILTER_TYPE_EVENTS
-from posthog.utils import is_clickhouse_enabled
 
 
 def identify(
@@ -33,16 +31,10 @@ def identify(
     """
     properties = properties or {}
 
-    if is_clickhouse_enabled():
-        from ee.clickhouse.models.person import Person, PersonDistinctId
+    from ee.clickhouse.models.person import Person, PersonDistinctId
 
-        person = Person.objects.create(team_id=team_id, properties=properties)
-        PersonDistinctId.objects.create(distinct_id=distinct_id, team_id=team_id, person_id=person.id)
-    else:
-        from posthog.models.person import Person, PersonDistinctId
-
-        person = Person.objects.create(team_id=team_id, properties=properties)
-        PersonDistinctId.objects.create(distinct_id=distinct_id, team_id=team_id, person_id=person.id)
+    person = Person.objects.create(team_id=team_id, properties=properties)
+    PersonDistinctId.objects.create(distinct_id=distinct_id, team_id=team_id, person_id=person.id)
 
     capture_event(
         event=EventData(

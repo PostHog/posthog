@@ -5,34 +5,13 @@ from django.utils.timezone import datetime, now
 from freezegun import freeze_time
 
 from posthog.models import Organization, SessionRecordingEvent, Team
-from posthog.tasks.session_recording_retention import session_recording_retention, session_recording_retention_scheduler
+from posthog.tasks.session_recording_retention import session_recording_retention
 from posthog.test.base import BaseTest
 
 threshold = now
 
 
 class TestSessionRecording(BaseTest):
-    @patch("posthog.tasks.session_recording_retention.session_recording_retention.delay")
-    def test_scheduler(self, patched_session_recording_retention: MagicMock) -> None:
-        with freeze_time("2020-01-10"):
-            organization, _, team = Organization.objects.bootstrap(
-                self.user, team_fields={"session_recording_opt_in": True, "session_recording_retention_period_days": 5}
-            )
-            team2 = Team.objects.create(organization=organization, session_recording_opt_in=False)
-            team3 = Team.objects.create(
-                organization=organization, session_recording_opt_in=False, session_recording_retention_period_days=6
-            )
-
-            session_recording_retention_scheduler()
-
-            patched_session_recording_retention.assert_has_calls(
-                [
-                    call(team_id=team.id, time_threshold=(now() - timedelta(days=5)).isoformat()),
-                    call(team_id=team3.id, time_threshold=(now() - timedelta(days=6)).isoformat()),
-                ],
-                any_order=True,
-            )
-
     def test_deletes_from_django(self) -> None:
         with freeze_time("2020-01-10"):
             self.create_snapshot("1", threshold() - timedelta(days=1, minutes=5))

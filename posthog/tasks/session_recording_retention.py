@@ -15,12 +15,6 @@ RETENTION_PERIOD = timedelta(days=7)
 SESSION_CUTOFF = timedelta(minutes=30)
 
 
-def session_recording_retention_scheduler() -> None:
-    for team in Team.objects.all().filter(session_recording_retention_period_days__isnull=False):
-        time_threshold = now() - timedelta(days=team.session_recording_retention_period_days)
-        session_recording_retention.delay(team_id=team.id, time_threshold=time_threshold.isoformat())
-
-
 @shared_task(ignore_result=True, max_retries=1)
 def session_recording_retention(team_id: int, time_threshold: str) -> None:
     cursor = connection.cursor()

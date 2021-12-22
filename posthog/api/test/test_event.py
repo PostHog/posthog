@@ -367,17 +367,15 @@ def factory_test_event_api(event_factory, person_factory, _):
                 )
 
                 page2 = self.client.get(response["next"]).json()
-                from posthog.utils import is_clickhouse_enabled
 
-                if is_clickhouse_enabled():
-                    from ee.clickhouse.client import sync_execute
+                from ee.clickhouse.client import sync_execute
 
-                    self.assertEqual(
-                        sync_execute(
-                            "select count(*) from events where team_id = %(team_id)s", {"team_id": self.team.pk}
-                        )[0][0],
-                        250,
-                    )
+                self.assertEqual(
+                    sync_execute("select count(*) from events where team_id = %(team_id)s", {"team_id": self.team.pk})[
+                        0
+                    ][0],
+                    250,
+                )
 
                 self.assertEqual(len(page2["results"]), 100)
                 self.assertEqual(
@@ -423,17 +421,15 @@ def factory_test_event_api(event_factory, person_factory, _):
                 self.assertIn(f"after={after}", unquote(response["next"]))
 
                 page2 = self.client.get(response["next"]).json()
-                from posthog.utils import is_clickhouse_enabled
 
-                if is_clickhouse_enabled():
-                    from ee.clickhouse.client import sync_execute
+                from ee.clickhouse.client import sync_execute
 
-                    self.assertEqual(
-                        sync_execute(
-                            "select count(*) from events where team_id = %(team_id)s", {"team_id": self.team.pk}
-                        )[0][0],
-                        25,
-                    )
+                self.assertEqual(
+                    sync_execute("select count(*) from events where team_id = %(team_id)s", {"team_id": self.team.pk})[
+                        0
+                    ][0],
+                    25,
+                )
 
                 self.assertEqual(len(page2["results"]), 10)
                 self.assertIn(f"before=", unquote(page2["next"]))
