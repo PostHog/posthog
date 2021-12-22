@@ -14,14 +14,13 @@ from posthog.constants import (
 )
 from posthog.models import Action, ActionStep, Event, Person
 from posthog.models.filters import RetentionFilter
-from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
 from posthog.queries.retention import Retention
 from posthog.test.base import APIBaseTest
 
 
 # parameterize tests to reuse in EE
 def retention_test_factory(retention, event_factory, person_factory, action_factory):
-    class TestRetention(AbstractIntervalTest, APIBaseTest):
+    class TestRetention(APIBaseTest):
         def test_retention_default(self):
             person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
             person_factory(team_id=self.team.pk, distinct_ids=["person2"])

@@ -11,7 +11,6 @@ from posthog.api.test.test_trends import NormalizedTrendResult, get_time_series_
 from posthog.constants import ENTITY_ID, ENTITY_TYPE
 from posthog.models import Action, ActionStep, Event, Person
 from posthog.models.team import Team
-from posthog.queries.abstract_test.test_compare import AbstractCompareTest
 from posthog.queries.stickiness import Stickiness
 from posthog.test.base import APIBaseTest
 from posthog.utils import encode_get_request_params
@@ -44,7 +43,7 @@ def get_stickiness_people_ok(client: Client, team_id: int, request: Dict[str, An
 
 # parameterize tests to reuse in EE
 def stickiness_test_factory(stickiness, event_factory, person_factory, action_factory, get_earliest_timestamp):
-    class TestStickiness(APIBaseTest, AbstractCompareTest):
+    class TestStickiness(APIBaseTest):
         def _create_multiple_people(self, period=timedelta(days=1), event_properties=lambda index: {}):
             base_time = datetime.fromisoformat("2020-01-01T12:00:00.000000")
             p1 = person_factory(team_id=self.team.id, distinct_ids=["person1"], properties={"name": "person1"})

@@ -21,8 +21,6 @@ from posthog.models import (
     Organization,
     Person,
 )
-from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
-from posthog.queries.abstract_test.test_timerange import AbstractTimerangeTest
 from posthog.queries.trends import Trends, breakdown_label
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
 from posthog.utils import generate_cache_key, relative_date_parse
@@ -30,7 +28,7 @@ from posthog.utils import generate_cache_key, relative_date_parse
 
 # parameterize tests to reuse in EE
 def trend_test_factory(trends, event_factory, person_factory, action_factory, cohort_factory):
-    class TestTrends(AbstractTimerangeTest, AbstractIntervalTest, APIBaseTest):
+    class TestTrends(APIBaseTest):
         maxDiff = None
 
         def _get_trend_people(self, filter: Filter, entity: Entity):

@@ -4,12 +4,11 @@ from freezegun import freeze_time
 
 from posthog.constants import ENTITY_ID, ENTITY_TYPE, TRENDS_CUMULATIVE
 from posthog.models import Action, ActionStep, Cohort, Event, Organization, Person
-from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
 from posthog.test.base import APIBaseTest
 
 
 def action_people_test_factory(event_factory, person_factory, action_factory, cohort_factory):
-    class TestActionPeople(AbstractIntervalTest, APIBaseTest):
+    class TestActionPeople(APIBaseTest):
         def _create_events(self, use_time=False):
             action_factory(team=self.team, name="no events")
 
