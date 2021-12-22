@@ -129,6 +129,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         hideDemoWarnings: true,
     },
+    [Scene.ToolbarLaunch]: {
+        projectBased: true,
+        name: 'Toolbar',
+    },
     // Organization-based routes
     [Scene.OrganizationCreateFirst]: {
         name: 'Organization creation',
@@ -232,6 +236,7 @@ export const routes: Record<string, Scene> = {
     [urls.systemStatusPage(':id')]: Scene.SystemStatus,
     [urls.asyncMigrations()]: Scene.AsyncMigrations,
     [urls.mySettings()]: Scene.MySettings,
+    [urls.toolbarLaunch()]: Scene.ToolbarLaunch,
     // Onboarding / setup routes
     [urls.login()]: Scene.Login,
     [urls.preflight()]: Scene.PreflightCheck,
