@@ -917,16 +917,3 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             return [self.pluck(d[key], child_key) if child_key else d[key] for d in list_of_dicts]
 
     return TestRetention
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=name)
-    action.calculate_events()
-    return action
-
-
-class TestDjangoRetention(retention_test_factory(Retention, Event.objects.create, Person.objects.create, _create_action)):  # type: ignore
-    pass

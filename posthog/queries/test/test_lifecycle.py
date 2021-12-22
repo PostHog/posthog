@@ -608,16 +608,3 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
             )
 
     return TestLifecycle
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=name)
-    action.calculate_events()
-    return action
-
-
-class TestDjangoLifecycle(lifecycle_test_factory(Trends, Event.objects.create, Person.objects.create, _create_action)):  # type: ignore
-    pass
