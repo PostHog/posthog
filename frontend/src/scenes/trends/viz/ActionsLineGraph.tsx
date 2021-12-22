@@ -70,7 +70,6 @@ export function ActionsLineGraph({
                               pointValue: dataset?.data?.[index] ?? undefined,
                           }
                           if (dataset.persons_urls?.[index].url) {
-                              console.log('loadPeopleFromUrl', params)
                               loadPeopleFromUrl({
                                   ...params,
                                   url: dataset.persons_urls[index].url,
