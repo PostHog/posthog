@@ -1240,6 +1240,8 @@ export interface PreflightStatus {
     can_create_org: boolean
     /** Whether this is PostHog Cloud. */
     cloud: boolean
+    /** Whether this is a managed demo environment. */
+    demo: boolean
     celery: boolean
     /** Whether EE code is available (but not necessarily a license). */
     ee_available?: boolean

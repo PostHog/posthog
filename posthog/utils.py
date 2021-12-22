@@ -624,6 +624,7 @@ def get_can_create_org() -> bool:
 
     if (
         settings.MULTI_TENANCY
+        or settings.DEMO
         or settings.E2E_TESTING
         or not Organization.objects.filter(for_internal_metrics=False).exists()
     ):

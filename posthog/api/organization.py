@@ -29,8 +29,8 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
     def has_permission(self, request: Request, view) -> bool:
         user = cast(User, request.user)
         if (
-            # make multiple orgs only premium on self-hosted, since enforcement of this is not possible on Cloud
-            not getattr(settings, "MULTI_TENANCY", False)
+            # Make multiple orgs only premium on self-hosted, since enforcement of this wouldn't make sense on Cloud
+            not settings.MULTI_TENANCY
             and request.method in CREATE_METHODS
             and (
                 user.organization is None
