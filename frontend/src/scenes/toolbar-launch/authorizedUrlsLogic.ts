@@ -45,7 +45,6 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType<KeyedAppUrl>>({
         removeUrl: (index: number) => ({ index }),
         updateUrl: (index: number, url: string) => ({ index, url }),
         launchAtUrl: (url: string) => ({ url }),
-        setPopoverOpen: (indexedUrl: string | null) => ({ indexedUrl }),
         setSearchTerm: (term: string) => ({ term }),
         setEditUrlIndex: (originalIndex: number | null) => ({ originalIndex }),
     }),
@@ -117,13 +116,6 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType<KeyedAppUrl>>({
             [],
             {
                 addUrl: (state, { url }) => [...state].filter((item) => url !== item),
-            },
-        ],
-        popoverOpen: [
-            // Used in ToolbarLaunch.tsx to determine if the "..." more menu popover is shown for an item
-            null as string | null,
-            {
-                setPopoverOpen: (_, { indexedUrl }) => indexedUrl,
             },
         ],
         searchTerm: [

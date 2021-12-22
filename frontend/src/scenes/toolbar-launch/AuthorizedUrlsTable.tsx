@@ -4,12 +4,12 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
-import { PlusOutlined, EllipsisOutlined, DeleteOutlined, EditOutlined, CheckCircleFilled } from '@ant-design/icons'
+import { PlusOutlined, DeleteOutlined, EditOutlined, CheckCircleFilled } from '@ant-design/icons'
 import { LemonButton } from 'lib/components/LemonButton'
-import { Popup } from 'lib/components/Popup/Popup'
 import { Button, Input } from 'antd'
 import { authorizedUrlsLogic, KeyedAppUrl, NEW_URL } from './authorizedUrlsLogic'
-import { isURL } from 'lib/utils'
+import { isMobile, isURL } from 'lib/utils'
+import { More } from 'lib/components/LemonButton/More'
 
 interface AuthorizedUrlsTableInterface {
     pageKey?: string
@@ -18,9 +18,8 @@ interface AuthorizedUrlsTableInterface {
 
 export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableInterface): JSX.Element {
     const logic = authorizedUrlsLogic({ actionId })
-    const { appUrlsKeyed, popoverOpen, suggestionsLoading, searchTerm, launchUrl, appUrls, editUrlIndex } =
-        useValues(logic)
-    const { addUrl, setPopoverOpen, removeUrl, setSearchTerm, updateUrl, newUrl, setEditUrlIndex } = useActions(logic)
+    const { appUrlsKeyed, suggestionsLoading, searchTerm, launchUrl, appUrls, editUrlIndex } = useValues(logic)
+    const { addUrl, removeUrl, setSearchTerm, updateUrl, newUrl, setEditUrlIndex } = useActions(logic)
 
     const columns: LemonTableColumns<KeyedAppUrl> = [
         {
@@ -93,14 +92,10 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                             </LemonButton>
                         ) : (
                             <>
-                                <a href={launchUrl(record.url)}>
+                                <a href={launchUrl(record.url)} style={{ marginRight: 4 }}>
                                     <LemonButton type="highlighted">Launch toolbar</LemonButton>
                                 </a>
-                                <Popup
-                                    visible={popoverOpen === `${index}_${record.url}`}
-                                    actionable
-                                    onClickOutside={() => setPopoverOpen(null)}
-                                    onClickInside={() => setPopoverOpen(null)}
+                                <More
                                     overlay={
                                         <>
                                             <LemonButton
@@ -122,18 +117,7 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                                             </LemonButton>
                                         </>
                                     }
-                                >
-                                    <LemonButton
-                                        type="stealth"
-                                        onClick={() => setPopoverOpen(popoverOpen ? null : `${index}_${record.url}`)}
-                                        style={{ marginLeft: 8 }}
-                                    >
-                                        <EllipsisOutlined
-                                            style={{ color: 'var(--primary)', fontSize: 24 }}
-                                            className="urls-dropdown-actions"
-                                        />
-                                    </LemonButton>
-                                </Popup>
+                                />
                             </>
                         )}
                     </div>
@@ -155,7 +139,7 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                         onChange={(e) => {
                             setSearchTerm(e.target.value)
                         }}
-                        autoFocus={pageKey === 'toolbar-launch'}
+                        autoFocus={pageKey === 'toolbar-launch' && !isMobile()}
                     />
                 </div>
                 <Button type="primary" icon={<PlusOutlined />} onClick={newUrl}>

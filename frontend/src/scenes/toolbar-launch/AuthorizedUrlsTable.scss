@@ -2,6 +2,8 @@
 
 .authorized-urls-table {
     .authorized-url-col {
+        display: flex;
+        align-items: center;
         .lemon-tag {
             margin-left: 4px;
         }

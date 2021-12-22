@@ -44,8 +44,8 @@ function ToolbarLaunch(): JSX.Element {
             <AuthorizedUrlsTable pageKey="toolbar-launch" />
 
             <div className="footer-caption">
-                Make sure you're using the <Link to={`${urls.projectSettings()}#snippet`}>snippet</Link> or the latest{' '}
-                <code>posthog-js</code> version.
+                Make sure you're using the <Link to={`${urls.projectSettings()}#snippet`}>HTML snippet</Link> or the
+                latest <code>posthog-js</code> version.
             </div>
 
             <Row className="feature-highlight-list">
