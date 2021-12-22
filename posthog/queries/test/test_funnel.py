@@ -7,7 +7,6 @@ from freezegun import freeze_time
 from posthog.constants import FILTER_TEST_ACCOUNTS, INSIGHT_FUNNELS
 from posthog.models import Action, ActionStep, Element, Event, Person
 from posthog.models.filters import Filter
-from posthog.queries.funnel import Funnel
 from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
 from posthog.tasks.update_cache import update_cache_item
 from posthog.test.base import APIBaseTest, test_with_materialized_columns

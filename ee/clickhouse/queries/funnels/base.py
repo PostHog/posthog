@@ -20,11 +20,10 @@ from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
 from posthog.constants import FUNNEL_WINDOW_INTERVAL, FUNNEL_WINDOW_INTERVAL_UNIT, LIMIT, TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Entity, Filter, Team
-from posthog.queries.funnel import Funnel
 from posthog.utils import relative_date_parse
 
 
-class ClickhouseFunnelBase(ABC, Funnel):
+class ClickhouseFunnelBase(ABC):
     _filter: Filter
     _team: Team
     _include_timestamp: Optional[bool]
