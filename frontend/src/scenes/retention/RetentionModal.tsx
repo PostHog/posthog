@@ -51,7 +51,7 @@ export function RetentionModal({
             {!actorsLoading ? (
                 <div>
                     {results[selectedRow]?.values[0]?.count === 0 ? (
-                        <span>No persons during this period.</span>
+                        <span>No {aggregationTargetLabel.plural} during this period.</span>
                     ) : (
                         <div>
                             <table className="table-bordered full-width">
@@ -133,7 +133,7 @@ export function RetentionModal({
                             >
                                 {actors.next ? (
                                     <Button type="primary" onClick={loadMore} loading={loadingMore}>
-                                        Load more people
+                                        Load more {aggregationTargetLabel.plural}
                                     </Button>
                                 ) : null}
                             </div>

@@ -57,8 +57,8 @@ export function RetentionLineGraph({
                 onClick={
                     dashboardItemId
                         ? undefined
-                        : (point) => {
-                              const { points } = point
+                        : (payload) => {
+                              const { points } = payload
                               const datasetIndex = points.clickedPointNotLine
                                   ? points.pointsIntersectingClick[0].dataset.index
                                   : points.pointsIntersectingLine[0].dataset.index
