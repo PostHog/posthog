@@ -41,6 +41,13 @@ export enum AvailableFeature {
     MULTIVARIATE_FLAGS = 'multivariate_flags',
 }
 
+export enum Realm {
+    Cloud = 'cloud',
+    Demo = 'demo',
+    SelfHostedPostgres = 'hosted',
+    SelfHostedClickHouse = 'hosted-clickhouse',
+}
+
 export type ColumnChoice = string[] | 'DEFAULT'
 
 export interface ColumnConfig {
@@ -69,7 +76,7 @@ export interface UserType extends UserBasicType {
     organization: OrganizationType | null
     team: TeamBasicType | null
     organizations: OrganizationBasicType[]
-    realm: 'cloud' | 'hosted' | 'hosted-clickhouse'
+    realm: Realm
     posthog_version?: string
 }
 
@@ -1247,7 +1254,7 @@ export interface PreflightStatus {
     ee_available?: boolean
     /** Is ClickHouse used as the analytics database instead of Postgres. */
     is_clickhouse_enabled?: boolean
-    realm: 'cloud' | 'demo' | 'hosted' | 'hosted-clickhouse'
+    realm: Realm
     db_backend?: 'postgres' | 'clickhouse'
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>
