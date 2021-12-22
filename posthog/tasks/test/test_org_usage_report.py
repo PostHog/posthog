@@ -164,5 +164,5 @@ def create_event_postgres(distinct_id: str, event: str, lib: str, created_at: da
     )
 
 
-class TestOrganizationUsageReport(factory_org_usage_report(create_person, create_event_postgres, send_all_org_usage_reports, {"EE_AVAILABLE": False, "USE_TZ": False})):  # type: ignore
+class TestOrganizationUsageReport(factory_org_usage_report(create_person, create_event_postgres, send_all_org_usage_reports, {"USE_TZ": False})):  # type: ignore
     pass

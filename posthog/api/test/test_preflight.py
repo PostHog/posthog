@@ -68,7 +68,6 @@ class TestPreflight(APIBaseTest):
                     "initiated": True,
                     "cloud": False,
                     "realm": "hosted",
-                    "ee_available": settings.EE_AVAILABLE,
                     "is_clickhouse_enabled": False,
                     "db_backend": "postgres",
                     "available_social_auth_providers": {
@@ -140,7 +139,6 @@ class TestPreflight(APIBaseTest):
                     "initiated": True,
                     "cloud": True,
                     "realm": "cloud",
-                    "ee_available": True,
                     "is_clickhouse_enabled": True,
                     "db_backend": "clickhouse",
                     "available_social_auth_providers": {
@@ -188,7 +186,6 @@ class TestPreflight(APIBaseTest):
                     "initiated": True,
                     "cloud": True,
                     "realm": "cloud",
-                    "ee_available": True,
                     "is_clickhouse_enabled": True,
                     "db_backend": "clickhouse",
                     "available_social_auth_providers": {

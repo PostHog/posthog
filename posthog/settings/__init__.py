@@ -17,7 +17,6 @@ from typing import Dict, List
 # :TRICKY: Imported before anything else to support overloads
 from posthog.settings.overrides import *
 
-from posthog.settings.ee import EE_AVAILABLE
 from posthog.settings.base_variables import *
 
 from posthog.settings.access import *
@@ -87,8 +86,7 @@ UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = get_from_env(
 # Whether to capture internal metrics
 CAPTURE_INTERNAL_METRICS = get_from_env("CAPTURE_INTERNAL_METRICS", False, type_cast=str_to_bool)
 
-if EE_AVAILABLE:
-    HOOK_EVENTS: Dict[str, str] = {}
+HOOK_EVENTS: Dict[str, str] = {}
 
 
 # Support creating multiple organizations in a single instance. Requires a premium license.

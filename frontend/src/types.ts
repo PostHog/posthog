@@ -1243,8 +1243,6 @@ export interface PreflightStatus {
     /** Whether this is PostHog Cloud. */
     cloud: boolean
     celery: boolean
-    /** Whether EE code is available (but not necessarily a license). */
-    ee_available?: boolean
     /** Is ClickHouse used as the analytics database instead of Postgres. */
     is_clickhouse_enabled?: boolean
     realm: 'cloud' | 'hosted' | 'hosted-clickhouse'

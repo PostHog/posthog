@@ -83,7 +83,6 @@ export const preflightLogic = kea<preflightLogicType<PreflightMode>>({
                     posthog_version: values.preflight.posthog_version,
                     realm: values.realm,
                     is_clickhouse_enabled: values.preflight.is_clickhouse_enabled,
-                    ee_available: values.preflight.ee_available,
                     email_service_available: values.preflight.email_service_available,
                 })
 

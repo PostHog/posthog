@@ -215,9 +215,6 @@ def fetch_sql(sql_: str, params: Tuple[Any, ...]) -> List[Any]:
 
 
 def get_instance_licenses() -> List[str]:
-    if settings.EE_AVAILABLE:
-        from ee.models import License
+    from ee.models import License
 
-        return [license.key for license in License.objects.all()]
-    else:
-        return []
+    return [license.key for license in License.objects.all()]

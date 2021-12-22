@@ -109,12 +109,11 @@ class TestUpdateCache(APIBaseTest):
         filter = Filter(data={"insight": "TRENDS", "events": [{"id": "$pageview"}]})
         dashboard_item = self._create_dashboard(filter)
 
-        with self.settings(EE_AVAILABLE=False):
-            update_cache_item(
-                generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
-                CacheType.TRENDS,
-                {"filter": filter.toJSON(), "team_id": self.team.pk,},
-            )
+        update_cache_item(
+            generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
+            CacheType.TRENDS,
+            {"filter": filter.toJSON(), "team_id": self.team.pk,},
+        )
 
         updated_dashboard_item = Insight.objects.get(pk=dashboard_item.pk)
         self.assertEqual(updated_dashboard_item.refreshing, False)
@@ -136,12 +135,12 @@ class TestUpdateCache(APIBaseTest):
         dashboard_item = self._create_dashboard(filter)
 
         funnel_mock.return_value.run.return_value = {}
-        with self.settings(EE_AVAILABLE=False):
-            update_cache_item(
-                generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
-                CacheType.FUNNEL,
-                {"filter": filter.toJSON(), "team_id": self.team.pk,},
-            )
+
+        update_cache_item(
+            generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
+            CacheType.FUNNEL,
+            {"filter": filter.toJSON(), "team_id": self.team.pk,},
+        )
 
         updated_dashboard_item = Insight.objects.get(pk=dashboard_item.pk)
         self.assertEqual(updated_dashboard_item.refreshing, False)
@@ -173,7 +172,7 @@ class TestUpdateCache(APIBaseTest):
             }
         )
 
-        with self.settings(EE_AVAILABLE=True, PRIMARY_DB="clickhouse"):
+        with self.settings(PRIMARY_DB="clickhouse"):
             filter = base_filter
             funnel_mock.return_value.run.return_value = {}
             update_cache_item(

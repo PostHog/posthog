@@ -596,7 +596,7 @@ def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]
 
 
 def is_clickhouse_enabled() -> bool:
-    return settings.EE_AVAILABLE and settings.PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE
+    return settings.PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE
 
 
 def get_instance_realm() -> str:

@@ -100,7 +100,6 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
     if request.user.is_authenticated:
         response = {
             **response,
-            "ee_available": settings.EE_AVAILABLE,
             "is_clickhouse_enabled": is_clickhouse_enabled(),
             "db_backend": settings.PRIMARY_DB.value,
             "available_timezones": get_available_timezones_with_offsets(),

@@ -5,7 +5,6 @@ from kombu import Exchange, Queue
 from posthog.constants import AnalyticsDBMS
 from posthog.settings.base_variables import TEST
 from posthog.settings.data_stores import PRIMARY_DB, REDIS_URL
-from posthog.settings.ee import EE_AVAILABLE
 
 # Only listen to the default queue "celery", unless overridden via the cli
 # NB! This is set to explicitly exclude the "posthog-plugins" queue, handled by a nodejs process
@@ -19,7 +18,7 @@ CELERY_IGNORE_RESULT = True  # only applies to delay(), must do @shared_task(ign
 CELERY_RESULT_EXPIRES = timedelta(days=4)  # expire tasks after 4 days instead of the default 1
 REDBEAT_LOCK_TIMEOUT = 45  # keep distributed beat lock for 45sec
 
-if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE and EE_AVAILABLE:
+if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
     CELERY_IMPORTS.append("ee.tasks.materialized_columns")
 
 if TEST:

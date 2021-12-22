@@ -150,8 +150,7 @@ class Team(UUIDClassicModel):
         except OrganizationMembership.DoesNotExist:
             return None
         if (
-            not settings.EE_AVAILABLE
-            or not requesting_parent_membership.organization.is_feature_available(
+            not requesting_parent_membership.organization.is_feature_available(
                 AvailableFeature.PROJECT_BASED_PERMISSIONING
             )
             or not self.access_control

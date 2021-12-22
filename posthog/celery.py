@@ -140,7 +140,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 # Set up clickhouse query instrumentation
 @task_prerun.connect
 def set_up_instrumentation(task_id, task, **kwargs):
-    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
+    if is_clickhouse_enabled():
         from ee.clickhouse import client
 
         client._request_information = {"kind": "celery", "id": task.name}
@@ -148,7 +148,7 @@ def set_up_instrumentation(task_id, task, **kwargs):
 
 @task_postrun.connect
 def teardown_instrumentation(task_id, task, **kwargs):
-    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
+    if is_clickhouse_enabled():
         from ee.clickhouse import client
 
         client._request_information = None
@@ -174,7 +174,7 @@ if settings.CLICKHOUSE_REPLICATION:
 
 @app.task(ignore_result=True)
 def clickhouse_lag():
-    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
+    if is_clickhouse_enabled():
         from ee.clickhouse.client import sync_execute
         from posthog.internal_metrics import gauge
 
@@ -194,7 +194,7 @@ def clickhouse_lag():
 
 @app.task(ignore_result=True)
 def clickhouse_row_count():
-    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
+    if is_clickhouse_enabled():
         from ee.clickhouse.client import sync_execute
         from posthog.internal_metrics import gauge
 
@@ -212,7 +212,7 @@ def clickhouse_row_count():
 
 @app.task(ignore_result=True)
 def clickhouse_part_count():
-    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
+    if is_clickhouse_enabled():
         from ee.clickhouse.client import sync_execute
         from posthog.internal_metrics import gauge
 
@@ -231,7 +231,7 @@ def clickhouse_part_count():
 
 @app.task(ignore_result=True)
 def clickhouse_mutation_count():
-    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
+    if is_clickhouse_enabled():
         from ee.clickhouse.client import sync_execute
         from posthog.internal_metrics import gauge
 
@@ -254,7 +254,6 @@ def clickhouse_mutation_count():
 def recompute_materialized_columns_enabled() -> bool:
     if (
         is_clickhouse_enabled()
-        and settings.EE_AVAILABLE
         and getattr(config, "MATERIALIZED_COLUMNS_ENABLED")
         and getattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED")
     ):

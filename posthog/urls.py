@@ -52,11 +52,10 @@ def authorize_and_redirect(request):
 
 # Try to include EE endpoints
 ee_urlpatterns: List[Any] = []
-if settings.EE_AVAILABLE:
-    from ee.urls import extend_api_router
-    from ee.urls import urlpatterns as ee_urlpatterns
+from ee.urls import extend_api_router
+from ee.urls import urlpatterns as ee_urlpatterns
 
-    extend_api_router(router, projects_router=projects_router)
+extend_api_router(router, projects_router=projects_router)
 
 
 def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> URLPattern:
