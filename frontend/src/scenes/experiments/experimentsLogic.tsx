@@ -1,39 +1,41 @@
 import { kea } from 'kea'
-import { combineUrl, router } from 'kea-router'
 import { api } from 'lib/api.mock'
 import { experimentsLogicType } from './experimentsLogicType'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 import { Experiment } from '~/types'
+import { CheckCircleOutlined } from '@ant-design/icons'
+import { toast } from 'react-toastify'
+import React from 'react'
 
 export const experimentsLogic = kea<experimentsLogicType>({
     path: ['scenes', 'experiments', 'experimentsLogic'],
     connect: { values: [teamLogic, ['currentTeamId']] },
-    actions: {
-        setOpenExperiment: (experiment) => ({ experiment }),
-    },
+    actions: {},
     loaders: ({ values }) => ({
         experiments: [
-            null as Experiment | null,
+            [] as Experiment[],
             {
                 loadExperiments: async () => {
-                    const url = `api/projects/${values.currentTeamId}/experiments`
-                    return await api.get(url)
+                    const response = await api.get(`api/projects/${values.currentTeamId}/experiments`)
+                    return response.results as Experiment[]
+                },
+                deleteExperiment: async (id: number) => {
+                    await api.delete(`api/projects/${values.currentTeamId}/experiments/${id}`)
+                    toast(
+                        <div>
+                            <h1 className="text-success">
+                                <CheckCircleOutlined /> Experiment removed
+                            </h1>
+                        </div>
+                    )
+                    return values.experiments.filter((experiment) => experiment.id !== id)
                 },
             },
         ],
     }),
-    reducers: {
-        openExperiment: [
-            null,
-            {
-                setOpenExperiment: (_, { experiment }) => experiment,
-            },
-        ],
-    },
-    actionToUrl: ({ values }) => ({
-        setOpenExperiment: () =>
-            combineUrl(values.openExperiment ? urls.experiment('new') : urls.experiments(), router.values.searchParams)
-                .url,
+    events: ({ actions }) => ({
+        afterMount: () => {
+            actions.loadExperiments()
+        },
     }),
 })

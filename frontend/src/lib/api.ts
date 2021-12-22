@@ -209,7 +209,8 @@ const api = {
                 .update({ data: cohortData })
         },
         async list(): Promise<PaginatedResponse<CohortType>> {
-            return await new ApiRequest().cohorts().get()
+            // TODO: Remove hard limit and paginate cohorts
+            return await new ApiRequest().cohorts().withQueryString('limit=600').get()
         },
         determineDeleteEndpoint(): string {
             return new ApiRequest().cohorts().assembleEndpointUrl()

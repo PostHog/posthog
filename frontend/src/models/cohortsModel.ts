@@ -17,8 +17,9 @@ export const cohortsModel = kea<cohortsModelType>({
         cohorts: {
             __default: [] as CohortType[],
             loadCohorts: async () => {
+                // TRICKY in tests this was returning undefined without calling list
                 const response = await api.cohorts.list()
-                return response.results
+                return response?.results || []
             },
         },
     }),

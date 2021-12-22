@@ -12,7 +12,7 @@ from ee.clickhouse.models.cohort import format_filter_query, get_person_ids_by_c
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import create_person, create_person_distinct_id
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
@@ -488,8 +488,21 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             properties={"attr": "some_val"},
             timestamp=datetime(2020, 1, 9, 12, 0, 1),
         )
+
+        p4 = Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["4"],
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
+
+        p5 = Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["5"],
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
         return action
 
+    @snapshot_clickhouse_queries
     def test_cohortpeople_action_count(self):
 
         action = self._setup_actions_with_different_counts()
@@ -533,6 +546,19 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             "SELECT person_id FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort3.pk}
         )
         self.assertEqual(len(results), 1)
+
+        cohort4 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"action_id": action.pk, "days": 3, "count": 0, "count_operator": "eq"}],
+            name="cohort4",
+        )
+        with freeze_time("2020-01-10"):
+            cohort4.calculate_people_ch()
+
+        results = sync_execute(
+            "SELECT person_id FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort4.pk}
+        )
+        self.assertEqual(len(results), 2)
 
     def test_cohortpeople_deleted_person(self):
         p1 = Person.objects.create(

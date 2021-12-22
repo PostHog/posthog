@@ -195,6 +195,7 @@
 
     .rrweb-speed-toggle {
         cursor: pointer;
+        margin-right: $default_spacing;
     }
 
     .rrweb-inactivity-toggle {
@@ -202,6 +203,7 @@
         flex-direction: row;
         align-items: center;
         white-space: nowrap;
+        cursor: pointer;
 
         .inactivity-label {
             font-size: 14px;

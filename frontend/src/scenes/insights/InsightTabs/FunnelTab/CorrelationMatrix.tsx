@@ -1,6 +1,6 @@
 import { Button, Modal } from 'antd'
 import React from 'react'
-import { CheckCircleFilled } from '@ant-design/icons'
+import { CheckCircleFilled, InfoCircleOutlined, MinusCircleOutlined, CloseCircleOutlined } from '@ant-design/icons'
 import './CorrelationMatrix.scss'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
@@ -20,6 +20,7 @@ export function CorrelationMatrix(): JSX.Element {
         useValues(logic)
     const { setFunnelCorrelationDetails, openCorrelationPersonsModal } = useActions(logic)
 
+    const actor = funnelCorrelationDetails?.result_type === FunnelCorrelationResultsType.Events ? 'event' : 'property'
     const action =
         funnelCorrelationDetails?.result_type === FunnelCorrelationResultsType.Events
             ? 'performed event'
@@ -42,7 +43,17 @@ export function CorrelationMatrix(): JSX.Element {
         )
     }
 
-    const { correlationScore, truePositive, falsePositive, trueNegative, falseNegative } = correlationMatrixAndScore
+    const { correlationScore, truePositive, falsePositive, trueNegative, falseNegative, correlationScoreStrength } =
+        correlationMatrixAndScore
+
+    const scoreIcon =
+        correlationScoreStrength === 'strong' ? (
+            <CheckCircleFilled style={{ color: 'var(--success)' }} />
+        ) : correlationScoreStrength === 'moderate' ? (
+            <MinusCircleOutlined style={{ color: 'var(--warning)' }} />
+        ) : (
+            <CloseCircleOutlined style={{ color: 'var(--danger)' }} />
+        )
 
     const dismiss = (): void => setFunnelCorrelationDetails(null)
 
@@ -170,16 +181,42 @@ export function CorrelationMatrix(): JSX.Element {
                         </table>
                         <div className="mt text-center">
                             {capitalizeFirstLetter(funnelCorrelationDetails?.result_type || '')} <b>{displayName}</b>{' '}
-                            has a correlation score of{' '}
+                            has a{' '}
+                            {funnelCorrelationDetails?.correlation_type === FunnelCorrelationType.Success ? (
+                                <b className="text-success">
+                                    positive{' '}
+                                    <Tooltip
+                                        title={`Positive correlation means this ${actor} is correlated with a successful conversion.`}
+                                    >
+                                        <InfoCircleOutlined className="cursor-pointer" />
+                                    </Tooltip>
+                                </b>
+                            ) : (
+                                <b className="text-danger">
+                                    negative{' '}
+                                    <Tooltip
+                                        title={`Negative correlation means this ${actor} is correlated with an unsuccessful conversion (user dropped off).`}
+                                    >
+                                        <InfoCircleOutlined className="cursor-pointer" />
+                                    </Tooltip>
+                                </b>
+                            )}{' '}
+                            correlation score of{' '}
                             <b
                                 style={{
                                     color:
-                                        funnelCorrelationDetails?.correlation_type === FunnelCorrelationType.Success
+                                        correlationScoreStrength === 'strong'
                                             ? 'var(--success)'
+                                            : correlationScoreStrength === 'moderate'
+                                            ? 'var(--warning)'
                                             : 'var(--danger)',
                                 }}
                             >
-                                <CheckCircleFilled /> {correlationScore.toFixed(3)}
+                                <Tooltip title={`This ${actor} has ${correlationScoreStrength} correlation.`}>
+                                    <span style={{ cursor: 'pointer' }}>
+                                        {scoreIcon} {correlationScore.toFixed(3)}
+                                    </span>
+                                </Tooltip>
                             </b>
                         </div>
                     </>

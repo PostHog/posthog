@@ -5,12 +5,14 @@ from .helpers import *
 from datetime import timedelta
 from typing import List, Tuple
 
+from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from ee.clickhouse.materialized_columns import backfill_materialized_columns, get_materialized_columns, materialize
 from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
+from ee.clickhouse.queries.funnels import ClickhouseFunnel
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.session_recordings.clickhouse_session_recording_list import ClickhouseSessionRecordingList
-from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
+from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
 from posthog.models import Action, ActionStep, Cohort, Team, Organization
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
@@ -242,6 +244,18 @@ class QuerySuite:
             ClickhouseTrends().run(filter, self.team)
 
     @benchmark_clickhouse
+    def track_funnel_normal(self):
+        filter = Filter(
+            data={
+                "insight": "FUNNELS",
+                "events": [{"id": "user signed up", "order": 0}, {"id": "insight analyzed", "order": 1}],
+                **DATE_RANGE,
+            },
+            team=self.team,
+        )
+        ClickhouseFunnel(filter, self.team).run()
+
+    @benchmark_clickhouse
     def track_correlations_by_events(self):
         filter = Filter(
             data={"events": [{"id": "user signed up"}, {"id": "insight analyzed"}], **SHORT_DATE_RANGE,},
@@ -457,6 +471,26 @@ class QuerySuite:
         )
 
         ClickhouseRetention().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_lifecycle(self):
+        filter = Filter(
+            data={
+                "insight": "LIFECYCLE",
+                "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0, "math": "total"}],
+                "display": "ActionsLineGraph",
+                "interval": "week",
+                "shown_as": "Lifecycle",
+                "date_from": "-14d",
+                "properties": [],
+                "compare": False,
+                "filter_test_accounts": True,
+                **DATE_RANGE,
+            },
+            team=self.team,
+        )
+
+        ClickhouseTrends().run(filter, self.team)
 
     def setup(self):
         for table, property in MATERIALIZED_PROPERTIES:

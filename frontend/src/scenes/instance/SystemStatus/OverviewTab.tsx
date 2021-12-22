@@ -4,7 +4,18 @@ import { systemStatusLogic } from './systemStatusLogic'
 import { useValues } from 'kea'
 import { SystemStatusSubrows } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { IconExternalLink } from 'lib/components/icons'
+import { IconOpenInNew } from 'lib/components/icons'
+import { Link } from 'lib/components/Link'
+
+interface MetricRow {
+    metric: string
+    key: string
+    value: any
+}
+
+const METRIC_KEY_TO_INTERNAL_LINK = {
+    async_migrations_ok: '/instance/async_migrations',
+}
 
 function RenderValue(value: any): JSX.Element | string {
     if (typeof value === 'boolean') {
@@ -16,6 +27,19 @@ function RenderValue(value: any): JSX.Element | string {
     return value.toString()
 }
 
+function RenderMetric(metricRow: MetricRow): JSX.Element {
+    return (
+        <span>
+            {metricRow.metric}{' '}
+            {METRIC_KEY_TO_INTERNAL_LINK[metricRow.key] ? (
+                <Link to={METRIC_KEY_TO_INTERNAL_LINK[metricRow.key]}>
+                    <IconOpenInNew style={{ verticalAlign: 'middle' }} />
+                </Link>
+            ) : null}
+        </span>
+    )
+}
+
 export function OverviewTab(): JSX.Element {
     const { overview, systemStatusLoading } = useValues(systemStatusLogic)
     const { configOptions, preflightLoading } = useValues(preflightLogic)
@@ -23,8 +47,8 @@ export function OverviewTab(): JSX.Element {
     const columns = [
         {
             title: 'Metric',
-            dataIndex: 'metric',
             className: 'metric-column',
+            render: RenderMetric,
         },
         {
             title: 'Value',
@@ -41,7 +65,7 @@ export function OverviewTab(): JSX.Element {
                     className="system-status-table"
                     size="small"
                     rowKey="metric"
-                    pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                    pagination={false}
                     dataSource={overview}
                     columns={columns}
                     loading={systemStatusLoading}
@@ -63,14 +87,14 @@ export function OverviewTab(): JSX.Element {
                         rel="noopener"
                         target="_blank"
                     >
-                        Learn more <IconExternalLink style={{ verticalAlign: 'middle' }} />
+                        Learn more <IconOpenInNew style={{ verticalAlign: 'middle' }} />
                     </a>
                 </p>
                 <Table
                     className="system-config-table"
                     size="small"
                     rowKey="metric"
-                    pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                    pagination={false}
                     dataSource={configOptions}
                     columns={columns}
                     loading={preflightLoading}
@@ -84,7 +108,7 @@ function Subrows(props: SystemStatusSubrows): JSX.Element {
     return (
         <Table
             rowKey="metric"
-            pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+            pagination={false}
             dataSource={props.rows}
             columns={props.columns.map((title, dataIndex) => ({ title, dataIndex }))}
         />

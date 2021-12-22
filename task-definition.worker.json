@@ -17,6 +17,10 @@
             "essential": true,
             "environment": [
                 {
+                    "name": "MULTI_TENANCY",
+                    "value": "True"
+                },
+                {
                     "name": "USING_PGBOUNCER",
                     "value": "True"
                 },
@@ -111,10 +115,6 @@
                 {
                     "name": "PERSISTED_FEATURE_FLAGS",
                     "value": "0"
-                },
-                {
-                    "name": "MATERIALIZED_COLUMNS_ENABLED",
-                    "value": "1"
                 },
                 {
                     "name": "CALCULATE_X_COHORTS_PARALLEL",

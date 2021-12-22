@@ -46,6 +46,7 @@ export async function startPluginsServer(
     let pingJob: schedule.Job | undefined
     let piscinaStatsJob: schedule.Job | undefined
     let internalMetricsStatsJob: schedule.Job | undefined
+    let flushLastSeenAtCacheJob: schedule.Job | undefined
     let pluginMetricsJob: schedule.Job | undefined
     let piscina: Piscina | undefined
     let queue: Queue | undefined // ingestion queue
@@ -80,6 +81,7 @@ export async function startPluginsServer(
         statusReport.stopStatusReportSchedule()
         piscinaStatsJob && schedule.cancelJob(piscinaStatsJob)
         internalMetricsStatsJob && schedule.cancelJob(internalMetricsStatsJob)
+        flushLastSeenAtCacheJob && schedule.cancelJob(flushLastSeenAtCacheJob)
         await jobQueueConsumer?.stop()
         await scheduleControl?.stopSchedule()
         await new Promise<void>((resolve, reject) =>
@@ -194,6 +196,13 @@ export async function startPluginsServer(
         if (hub.internalMetrics) {
             internalMetricsStatsJob = schedule.scheduleJob('0 * * * * *', async () => {
                 await hub!.internalMetrics?.flush(piscina!)
+            })
+        }
+
+        // every 10 seconds past the minute flush lastSeenAt cache
+        if (serverConfig.EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED) {
+            flushLastSeenAtCacheJob = schedule.scheduleJob('10 * * * * *', async () => {
+                await piscina!.broadcastTask({ task: 'flushLastSeenAtCache' })
             })
         }
 

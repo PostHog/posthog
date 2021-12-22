@@ -42,8 +42,8 @@ export function FeatureFlags(): JSX.Element {
             render: function Render(_, featureFlag: FeatureFlagType) {
                 return (
                     <>
-                        <Link to={featureFlag.id ? urls.featureFlag(featureFlag.id) : undefined}>
-                            <h4 className="row-name">{stringWithWBR(featureFlag.key, 17)}</h4>
+                        <Link to={featureFlag.id ? urls.featureFlag(featureFlag.id) : undefined} className="row-name">
+                            {stringWithWBR(featureFlag.key, 17)}
                         </Link>
                         {featureFlag.name && <span className="row-description">{featureFlag.name}</span>}
                     </>
@@ -143,7 +143,7 @@ export function FeatureFlags(): JSX.Element {
         <div className="feature_flags">
             <PageHeader
                 title="Feature Flags"
-                caption="Feature flags are a way of turning functionality in your app on or off, based on user properties."
+                caption="Feature Flags are a way of turning functionality in your app on or off, based on user properties."
             />
             <div>
                 <Input.Search
@@ -173,7 +173,7 @@ export function FeatureFlags(): JSX.Element {
                 rowKey="key"
                 loading={featureFlagsLoading}
                 defaultSorting={{ columnKey: 'key', order: 1 }}
-                pagination={{ pageSize: 20 }}
+                pagination={{ pageSize: 100 }}
                 nouns={['feature flag', 'feature flags']}
                 data-attr="feature-flag-table"
             />

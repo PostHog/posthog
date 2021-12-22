@@ -1,22 +1,16 @@
 import React, { useState, useEffect } from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Modal, Button } from 'antd'
-import { percentage } from 'lib/utils'
-import { Link } from 'lib/components/Link'
+import { Table } from 'antd'
 import { retentionTableLogic } from './retentionTableLogic'
 import { Tooltip } from 'lib/components/Tooltip'
-import {
-    RetentionTablePayload,
-    RetentionTablePeoplePayload,
-    RetentionTableAppearanceType,
-} from 'scenes/retention/types'
+import { RetentionTablePayload, RetentionTablePeoplePayload } from 'scenes/retention/types'
 import { ColumnsType } from 'antd/lib/table'
 import clsx from 'clsx'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { dayjs } from 'lib/dayjs'
-import { Spinner } from 'lib/components/Spinner/Spinner'
 import './RetentionTable.scss'
-import { urls } from 'scenes/urls'
+
+import { RetentionModal } from './RetentionModal'
 
 export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: number | null }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -27,7 +21,8 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
         peopleLoading,
         people: _people,
         loadingMore,
-        filters: { period, date_to, aggregation_group_type_index, breakdowns },
+        filters: { period, date_to, breakdowns },
+        aggregationTargetLabel,
     } = useValues(logic)
     const results = _results as RetentionTablePayload[]
     const people = _people as RetentionTablePeoplePayload
@@ -93,13 +88,17 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
         setModalVisible(false)
     }
 
+    function loadMore(): void {
+        loadMorePeople()
+    }
+
     return (
         <>
             <Table
                 data-attr="retention-table"
                 size="small"
                 className="retention-table"
-                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                pagination={false}
                 rowClassName={dashboardItemId ? '' : 'cursor-pointer'}
                 dataSource={results}
                 columns={columns}
@@ -107,7 +106,7 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
                 loading={resultsLoading}
                 onRow={(_, rowIndex: number | undefined) => ({
                     onClick: () => {
-                        if (!dashboardItemId && rowIndex !== undefined && aggregation_group_type_index == undefined) {
+                        if (!dashboardItemId && rowIndex !== undefined) {
                             loadPeople(rowIndex)
                             setModalVisible(true)
                             selectRow(rowIndex)
@@ -116,106 +115,17 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
                 })}
             />
             {results && (
-                <Modal
+                <RetentionModal
+                    results={results}
+                    actors={people}
+                    selectedRow={selectedRow}
                     visible={modalVisible}
-                    closable={true}
-                    onCancel={dismissModal}
-                    footer={<Button onClick={dismissModal}>Close</Button>}
-                    style={{
-                        top: 20,
-                        minWidth: results[selectedRow]?.values[0]?.count === 0 ? '10%' : '90%',
-                        fontSize: 16,
-                    }}
-                    title={results[selectedRow] ? dayjs(results[selectedRow].date).format('MMMM D, YYYY') : ''}
-                >
-                    {!peopleLoading ? (
-                        <div>
-                            {results[selectedRow]?.values[0]?.count === 0 ? (
-                                <span>No persons during this period.</span>
-                            ) : (
-                                <div>
-                                    <table className="table-bordered full-width">
-                                        <tbody>
-                                            <tr>
-                                                <th />
-                                                {results &&
-                                                    results
-                                                        .slice(0, results[selectedRow]?.values.length)
-                                                        .map((data, index) => <th key={index}>{data.label}</th>)}
-                                            </tr>
-                                            <tr>
-                                                <td>user_id</td>
-                                                {results &&
-                                                    results[selectedRow]?.values.map((data: any, index: number) => (
-                                                        <td key={index}>
-                                                            {data.count}&nbsp;{' '}
-                                                            {data.count > 0 && (
-                                                                <span>
-                                                                    (
-                                                                    {percentage(
-                                                                        data.count /
-                                                                            results[selectedRow]?.values[0]['count']
-                                                                    )}
-                                                                    )
-                                                                </span>
-                                                            )}
-                                                        </td>
-                                                    ))}
-                                            </tr>
-                                            {people.result &&
-                                                people.result.map((personAppearances: RetentionTableAppearanceType) => (
-                                                    <tr key={personAppearances.person.id}>
-                                                        <td className="text-overflow" style={{ minWidth: 200 }}>
-                                                            <Link
-                                                                to={urls.person(
-                                                                    personAppearances.person.distinct_ids[0]
-                                                                )}
-                                                                data-attr="retention-person-link"
-                                                            >
-                                                                {personAppearances.person.name}
-                                                            </Link>
-                                                        </td>
-                                                        {personAppearances.appearances.map(
-                                                            (appearance: number, index: number) => {
-                                                                return (
-                                                                    <td
-                                                                        key={index}
-                                                                        className={
-                                                                            appearance
-                                                                                ? 'retention-success'
-                                                                                : 'retention-dropped'
-                                                                        }
-                                                                    />
-                                                                )
-                                                            }
-                                                        )}
-                                                    </tr>
-                                                ))}
-                                        </tbody>
-                                    </table>
-                                    <div
-                                        style={{
-                                            margin: '1rem',
-                                            textAlign: 'center',
-                                        }}
-                                    >
-                                        {people.next ? (
-                                            <Button
-                                                type="primary"
-                                                onClick={() => loadMorePeople()}
-                                                loading={loadingMore}
-                                            >
-                                                Load more people
-                                            </Button>
-                                        ) : null}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    ) : (
-                        <Spinner size="sm" />
-                    )}
-                </Modal>
+                    dismissModal={dismissModal}
+                    actorsLoading={peopleLoading}
+                    loadMore={loadMore}
+                    loadingMore={loadingMore}
+                    aggregationTargetLabel={aggregationTargetLabel}
+                />
             )}
         </>
     )

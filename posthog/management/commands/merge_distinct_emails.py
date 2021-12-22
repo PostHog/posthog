@@ -40,6 +40,6 @@ class Command(BaseCommand):
 
                 people = Person.objects.filter(team=team, properties__email=email).order_by("pk")
                 first_person = people[0]
-                other_people = people[1:]
+                other_people = list(people[1:])
 
                 first_person.merge_people(other_people)

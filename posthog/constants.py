@@ -14,6 +14,8 @@ class AvailableFeature(str, Enum):
     INGESTION_TAXONOMY = "ingestion_taxonomy"
     PATHS_ADVANCED = "paths_advanced"
     CORRELATION_ANALYSIS = "correlation_analysis"
+    GROUP_ANALYTICS = "group_analytics"
+    MULTIVARIATE_FLAGS = "multivariate_flags"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"

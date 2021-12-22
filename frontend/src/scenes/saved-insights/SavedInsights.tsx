@@ -191,10 +191,10 @@ export function SavedInsights(): JSX.Element {
             key: 'name',
             render: function renderName(name: string, insight) {
                 return (
-                    <Col>
-                        <Row wrap={false}>
-                            <Link to={urls.insightView(insight.short_id, insight.filters)}>
-                                <h4 className="row-name">{name || <i>{UNNAMED_INSIGHT_NAME}</i>}</h4>
+                    <>
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <Link to={urls.insightView(insight.short_id, insight.filters)} className="row-name">
+                                {name || <i>{UNNAMED_INSIGHT_NAME}</i>}
                             </Link>
                             <div
                                 style={{ cursor: 'pointer', width: 'fit-content', marginLeft: 8 }}
@@ -206,11 +206,11 @@ export function SavedInsights(): JSX.Element {
                                     <StarOutlined className="star-outlined" />
                                 )}
                             </div>
-                        </Row>
+                        </div>
                         {hasDashboardCollaboration && insight.description && (
                             <span className="row-description">{insight.description}</span>
                         )}
-                    </Col>
+                    </>
                 )
             },
         },

@@ -11,7 +11,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Sorting } from 'lib/components/LemonTable'
 import { urls } from 'scenes/urls'
 
-export const INSIGHTS_PER_PAGE = 15
+export const INSIGHTS_PER_PAGE = 20
 
 export interface InsightsResult {
     results: InsightModel[]

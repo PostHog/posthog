@@ -8,7 +8,7 @@
     <node-interpreter value="project" />
     <envs>
       <env name="WORKER_CONCURRENCY" value="2" />
-      <env name="DATABASE_URL" value="postgres://localhost/posthog" />
+      <env name="DATABASE_URL" value="postgres://posthog:posthog@localhost:5432/posthog" />
     </envs>
     <method v="2" />
   </configuration>

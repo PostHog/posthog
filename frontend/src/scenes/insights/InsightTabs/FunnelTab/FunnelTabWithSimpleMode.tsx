@@ -11,7 +11,7 @@ import { ToggleButtonChartFilter } from './ToggleButtonChartFilter'
 import { Tooltip } from 'lib/components/Tooltip'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
-import { PropertyFilters } from 'lib/components/PropertyFilters'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { FunnelStepReference, FunnelVizType, StepOrderValue } from '~/types'
@@ -30,7 +30,7 @@ import { FunnelExclusionsFilter } from './FunnelExclusionsFilter'
 import { FunnelStepReferencePicker } from './FunnelStepReferencePicker'
 
 export function FunnelTabWithSimpleMode(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, allEventNames } = useValues(insightLogic)
     const { loadResults } = useActions(insightLogic)
     const {
         isStepsEmpty,
@@ -167,6 +167,7 @@ export function FunnelTabWithSimpleMode(): JSX.Element {
                         TaxonomicFilterGroupType.Cohorts,
                         TaxonomicFilterGroupType.Elements,
                     ]}
+                    eventNames={allEventNames}
                 />
 
                 {clickhouseFeaturesEnabled && filters.funnel_viz_type === FunnelVizType.Steps && (
@@ -242,8 +243,10 @@ export function FunnelTabWithSimpleMode(): JSX.Element {
                                     <Tooltip
                                         title={
                                             <>
-                                                Exclude {aggregationTargetLabel.plural} who completed the specified
-                                                event between two specific steps. Note that these
+                                                Exclude {aggregationTargetLabel.plural}{' '}
+                                                {filters.aggregation_group_type_index != undefined ? 'that' : 'who'}{' '}
+                                                completed the specified event between two specific steps. Note that
+                                                these
                                                 {aggregationTargetLabel.plural} will be{' '}
                                                 <b>completely excluded from the entire funnel</b>.
                                             </>

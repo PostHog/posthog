@@ -12,6 +12,7 @@ import {
     dateMappingOption,
     GroupActorType,
     ActorType,
+    ActionType,
 } from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
@@ -366,6 +367,8 @@ export const operatorMap: Record<string, string> = {
     lt: '< lower than',
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
+    is_date_before: '< before',
+    is_date_after: '> after',
 }
 
 export function isOperatorMulti(operator: string): boolean {
@@ -379,6 +382,10 @@ export function isOperatorFlag(operator: string): boolean {
 
 export function isOperatorRegex(operator: string): boolean {
     return ['regex', 'not_regex'].includes(operator)
+}
+
+export function isOperatorDate(operator: string): boolean {
+    return ['is_date_before', 'is_date_after'].includes(operator)
 }
 
 export function formatPropertyLabel(
@@ -450,28 +457,6 @@ export function idToKey(array: Record<string, any>[], keyField: string = 'id'): 
 
 export function delay(ms: number): Promise<number> {
     return new Promise((resolve) => window.setTimeout(resolve, ms))
-}
-
-/**
- * Trigger a resize event on window.
- */
-export function triggerResize(): void {
-    try {
-        window.dispatchEvent(new Event('resize'))
-    } catch (error) {
-        // will break on IE11
-    }
-}
-
-/**
- * Trigger a resize event on window a few times between 10 to 2000 ms after the menu was collapsed/expanded.
- * We need this so the dashboard resizes itself properly, as the available div width will still
- * change when the sidebar's expansion is animating.
- */
-export function triggerResizeAfterADelay(): void {
-    for (const duration of [10, 100, 500, 750, 1000, 2000]) {
-        window.setTimeout(triggerResize, duration)
-    }
 }
 
 export function clearDOMTextSelection(): void {
@@ -602,7 +587,7 @@ export function colonDelimitedDuration(d: string | number | null | undefined, nu
         m = Math.floor(s / 60)
         s -= m * 60
     }
-    s = Math.round(s)
+    s = Math.floor(s)
 
     const units = [zeroPad(weeks, 2), zeroPad(days, 2), zeroPad(h, 2), zeroPad(m, 2), zeroPad(s, 2)]
 
@@ -625,10 +610,9 @@ export function isURL(input: any): boolean {
     if (!input || typeof input !== 'string') {
         return false
     }
-    // https://stackoverflow.com/questions/3809401/what-is-a-good-regular-expression-to-match-a-url
-    const regexp =
-        /^\s*https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi
-    return !!input.match?.(regexp)
+    // Regex by elmervc
+    const regexp = new RegExp('^([a-zA-Z]+)://(-.)?(([^s/?.#-]+|([^s/?.#-]-[^s/?.#-])).?)+(/[^s]*)?', 'iu')
+    return !!input.trim().match(regexp)
 }
 
 export function isEmail(string: string): boolean {
@@ -723,62 +707,115 @@ export function determineDifferenceType(
     }
 }
 
+const DATE_FORMAT = 'D MMM YYYY'
+
 export const dateMapping: Record<string, dateMappingOption> = {
     Custom: { values: [] },
-    Today: { values: ['dStart'] },
-    Yesterday: { values: ['-1d', 'dStart'] },
-    'Last 24 hours': { values: ['-24h'] },
-    'Last 48 hours': { values: ['-48h'], inactive: true },
-    'Last 7 days': { values: ['-7d'] },
-    'Last 14 days': { values: ['-14d'] },
-    'Last 30 days': { values: ['-30d'] },
-    'Last 90 days': { values: ['-90d'] },
-    'This month': { values: ['mStart'], inactive: true },
-    'Previous month': { values: ['-1mStart', '-1mEnd'], inactive: true },
-    'Year to date': { values: ['yStart'] },
+    Today: {
+        values: ['dStart'],
+        getFormattedDate: (date: dayjs.Dayjs, format: string): string => date.startOf('d').format(format),
+    },
+    Yesterday: {
+        values: ['-1d', 'dStart'],
+        getFormattedDate: (date: dayjs.Dayjs, format: string): string => date.subtract(1, 'd').format(format),
+    },
+    'Last 24 hours': {
+        values: ['-24h'],
+        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
+            `${date.subtract(24, 'h').format(format)} - ${date.endOf('d').format(format)}`,
+    },
+    'Last 48 hours': {
+        values: ['-48h'],
+        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
+            `${date.subtract(48, 'h').format(format)} - ${date.endOf('d').format(format)}`,
+        inactive: true,
+    },
+    'Last 7 days': {
+        values: ['-7d'],
+        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
+            `${date.subtract(7, 'd').format(format)} - ${date.endOf('d').format(format)}`,
+    },
+    'Last 14 days': {
+        values: ['-14d'],
+        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
+            `${date.subtract(14, 'd').format(format)} - ${date.endOf('d').format(format)}`,
+    },
+    'Last 30 days': {
+        values: ['-30d'],
+        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
+            `${date.subtract(30, 'd').format(format)} - ${date.endOf('d').format(format)}`,
+    },
+    'Last 90 days': {
+        values: ['-90d'],
+        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
+            `${date.subtract(90, 'd').format(format)} - ${date.endOf('d').format(format)}`,
+    },
+    'This month': {
+        values: ['mStart'],
+        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
+            `${date.subtract(1, 'm').format(format)} - ${date.endOf('d').format(format)}`,
+        inactive: true,
+    },
+    'Previous month': {
+        values: ['-1mStart', '-1mEnd'],
+        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
+            `${date.subtract(1, 'm').startOf('M').format(format)} - ${date.subtract(1, 'm').endOf('M').format(format)}`,
+        inactive: true,
+    },
+    'Year to date': {
+        values: ['yStart'],
+        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
+            `${date.startOf('y').format(format)} - ${date.endOf('d').format(format)}`,
+    },
     'All time': { values: ['all'] },
 }
 
 export const isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
 
+export function getFormattedLastWeekDate(lastDay: dayjs.Dayjs = dayjs()): string {
+    return `${lastDay.subtract(7, 'week').format(DATE_FORMAT)} - ${lastDay.endOf('d').format(DATE_FORMAT)}`
+}
+
 export function dateFilterToText(
     dateFrom: string | dayjs.Dayjs | null | undefined,
     dateTo: string | dayjs.Dayjs | null | undefined,
     defaultValue: string,
-    dateOptions: Record<string, dateMappingOption> = dateMapping
+    dateOptions: Record<string, dateMappingOption> = dateMapping,
+    isDateFormatted: boolean = false,
+    dateFormat: string = DATE_FORMAT
 ): string {
     if (dayjs.isDayjs(dateFrom) && dayjs.isDayjs(dateTo)) {
-        return `${dateFrom.format('YYYY-MM-DD')} - ${dateTo.format('YYYY-MM-DD')}`
+        return `${dateFrom.format(dateFormat)} - ${dateTo.format(dateFormat)}`
     }
     dateFrom = (dateFrom || undefined) as string | undefined
     dateTo = (dateTo || undefined) as string | undefined
 
     if (isDate.test(dateFrom || '') && isDate.test(dateTo || '')) {
-        return `${dateFrom} - ${dateTo}`
+        return isDateFormatted
+            ? `${dayjs(dateFrom, 'YYYY-MM-DD').format(dateFormat)} - ${dayjs(dateTo, 'YYYY-MM-DD').format(dateFormat)}`
+            : `${dateFrom} - ${dateTo}`
     }
 
-    if (dateFrom === 'dStart') {
-        // Changed to "last 24 hours" but this is backwards compatibility
-        return 'Today'
-    }
-
+    // From date to today
     if (isDate.test(dateFrom || '') && !isDate.test(dateTo || '')) {
         const days = dayjs().diff(dayjs(dateFrom), 'days')
+        const formattedDateFrom = dayjs(dateFrom).format(dateFormat)
+        const formattedToday = dayjs().format(dateFormat)
         if (days > 366) {
-            return `${dateFrom} - Today`
+            return isDateFormatted ? `${dateFrom} - Today` : `${formattedDateFrom} - ${formattedToday}}`
         } else if (days > 0) {
-            return `Last ${days} days`
+            return isDateFormatted ? `${formattedDateFrom} - ${formattedToday}` : `Last ${days} days`
         } else if (days === 0) {
-            return `Today`
+            return isDateFormatted ? formattedToday : `Today`
         } else {
-            return `Starting from ${dateFrom}`
+            return isDateFormatted ? `${formattedDateFrom} - ` : `Starting from ${dateFrom}`
         }
     }
 
     let name = defaultValue
-    Object.entries(dateOptions).map(([key, { values }]) => {
+    Object.entries(dateOptions).map(([key, { values, getFormattedDate }]) => {
         if (values[0] === dateFrom && values[1] === dateTo && key !== 'Custom') {
-            name = key
+            name = isDateFormatted && getFormattedDate ? getFormattedDate(dayjs(), dateFormat) : key
         }
     })[0]
     return name
@@ -1223,4 +1260,15 @@ export function isEllipsisActive(e: HTMLElement | null): boolean {
 
 export function isGroupType(actor: ActorType): actor is GroupActorType {
     return actor.type === 'group'
+}
+
+export function mapRange(value: number, x1: number, y1: number, x2: number, y2: number): number {
+    return Math.floor(((value - x1) * (y2 - x2)) / (y1 - x1) + x2)
+}
+
+export function getEventNamesForAction(actionId: string | number, allActions: ActionType[]): string[] {
+    const id = parseInt(String(actionId))
+    return allActions
+        .filter((a) => a.id === id)
+        .flatMap((a) => a.steps?.filter((step) => step.event).map((step) => String(step.event)) as string[])
 }

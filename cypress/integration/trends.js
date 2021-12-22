@@ -20,7 +20,7 @@ describe('Trends', () => {
         cy.contains('Add graph series').click()
         cy.get('[data-attr=trend-element-subject-1]').click()
         cy.get('[data-attr=taxonomic-tab-actions]').click()
-        cy.contains('HogFlix homepage view').click()
+        cy.contains('Hogflix homepage view').click()
 
         // then
         cy.get('[data-attr=trend-line-graph]').should('exist')
@@ -73,7 +73,7 @@ describe('Trends', () => {
 
     it('Apply interval filter', () => {
         cy.get('[data-attr=interval-filter]').click()
-        cy.contains('Weekly').click()
+        cy.contains('Week').click()
 
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
@@ -96,14 +96,14 @@ describe('Trends', () => {
         cy.get('[data-attr=math-total-0]').click()
 
         // Should contain more than label column
-        cy.get('[data-attr=insights-table-graph]').find('.ant-table-cell').its('length').should('be.gte', 1)
+        cy.get('[data-attr=insights-table-graph]').find('td').its('length').should('be.gte', 1)
     })
 
     it('Apply date filter', () => {
         cy.get('[data-attr=date-filter]').click()
         cy.contains('Last 30 days').click()
 
-        cy.get('[data-attr="date-filter"] .ant-select-selection-item').contains('Last 30 days')
+        cy.get('.ant-select-item').contains('Last 30 days')
         cy.get('[data-attr=trend-line-graph]', { timeout: 10000 }).should('exist')
     })
 
@@ -121,6 +121,13 @@ describe('Trends', () => {
     })
 
     it('Save to dashboard', () => {
+        // apply random filter
+        cy.get('[data-attr=new-prop-filter-trends-filters]').click()
+        cy.get('[data-attr=taxonomic-filter-searchfield]').click()
+        cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
+        cy.get('[data-attr=prop-val]').click()
+        cy.get('[data-attr=prop-val-0]').click({ force: true })
+
         cy.get('[data-attr=save-to-dashboard-button]').click()
         cy.get('form > .ant-select > .ant-select-selector').click()
         cy.get(':nth-child(1) > .ant-select-item-option-content').click()

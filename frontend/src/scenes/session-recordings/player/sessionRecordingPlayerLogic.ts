@@ -2,105 +2,101 @@ import { kea } from 'kea'
 import { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { SessionPlayerState, SessionPlayerTime } from '~/types'
-import { eventWithTime, playerMetaData } from 'rrweb/typings/types'
+import { PlayerPosition, RecordingSegment, SessionPlayerState } from '~/types'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
+import {
+    comparePlayerPositions,
+    getPlayerPositionFromPlayerTime,
+    getPlayerTimeFromPlayerPosition,
+    getSegmentFromPlayerPosition,
+} from './playerUtils'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8, 16]
 
-const BUFFER_TIME_BUFFER_MS = 5 * 1000 // The length of time player has to have loaded to get out of buffering state
-
-export function getZeroOffsetTime(time: number, meta: playerMetaData): number {
-    return Math.max(Math.min(time - meta.startTime, meta.totalTime), 0)
-}
-export function getOffsetTime(zeroOffsetTime: number, meta: playerMetaData): number {
-    return Math.max(Math.min(zeroOffsetTime + meta.startTime, meta.endTime), meta.startTime)
+interface Player {
+    replayer: Replayer
+    windowId: string
 }
 
-export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>({
+export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<Player>>({
     path: ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic'],
     connect: {
         logic: [eventUsageLogic],
-        values: [
-            sessionRecordingLogic,
-            ['sessionRecordingId', 'sessionPlayerData', 'sessionPlayerDataLoading', 'isPlayable'],
-        ],
+        values: [sessionRecordingLogic, ['sessionRecordingId', 'sessionPlayerData']],
         actions: [sessionRecordingLogic, ['loadRecordingSnapshotsSuccess', 'loadRecordingMetaSuccess']],
     },
     actions: {
-        initReplayer: (frame: HTMLDivElement) => ({ frame }),
-        setReplayer: (replayer: Replayer | null) => ({ replayer }),
+        tryInitReplayer: () => true,
+        setPlayer: (player: Player | null) => ({ player }),
         setPlay: true,
         setPause: true,
-        setBuffer: true,
-        setSkip: true,
-        setScrub: true,
-        setMeta: (meta: playerMetaData) => ({ meta }),
-        setMetaDuration: (duration: number) => ({ duration }),
-        setCurrentTime: (time: number) => ({ time }),
-        setRealTime: (time: number) => ({ time }),
-        setLastBufferedTime: (time: number) => ({ time }),
+        startBuffer: true,
+        endBuffer: true,
+        startScrub: true,
+        endScrub: true,
+        setSkipInactivitySetting: (skipInactivitySetting: boolean) => ({ skipInactivitySetting }),
+        setSkippingInactivity: (isSkippingInactivity: boolean) => ({ isSkippingInactivity }),
+        syncPlayerSpeed: true,
+        setCurrentPlayerPosition: (playerPosition: PlayerPosition | null) => ({ playerPosition }),
         setSpeed: (speed: number) => ({ speed }),
         setScale: (scale: number) => ({ scale }),
         togglePlayPause: true,
-        seek: (time: number, forcePlay: boolean = false) => ({ time, forcePlay }),
+        seek: (playerPosition: PlayerPosition | null, forcePlay: boolean = false) => ({ playerPosition, forcePlay }),
         seekForward: true,
         seekBackward: true,
-        clearLoadingState: true,
         resolvePlayerState: true,
         updateAnimation: true,
         stopAnimation: true,
+        setCurrentSegment: (segment: RecordingSegment) => ({ segment }),
+        setRootFrame: (frame: HTMLDivElement) => ({ frame }),
+        checkBufferingCompleted: true,
+        initializePlayerFromStart: true,
     },
     reducers: () => ({
-        replayer: [
-            null as Replayer | null,
+        rootFrame: [
+            null as HTMLDivElement | null,
             {
-                setReplayer: (_, { replayer }) => replayer,
+                setRootFrame: (_, { frame }) => frame,
             },
         ],
-        time: [
+        player: [
+            null as Player | null,
             {
-                current: 0,
-                lastBuffered: 0,
-            } as SessionPlayerTime,
-            {
-                setCurrentTime: (state, { time }) => ({ ...state, current: time }),
-                setLastBufferedTime: (state, { time }) => ({ ...state, lastBuffered: time }),
+                setPlayer: (_, { player }) => player,
             },
         ],
-        realTime: [
+        currentPlayerPosition: [
+            null as PlayerPosition | null,
             {
-                current: 0,
-                lastBuffered: 0,
-            } as SessionPlayerTime,
+                setCurrentPlayerPosition: (_, { playerPosition }) => playerPosition,
+            },
+        ],
+        currentSegment: [
+            null as RecordingSegment | null,
             {
-                seek: (state, { time }) => ({ ...state, current: time }),
-                setCurrentTime: (state, { time }) => ({ ...state, current: time }),
-                setRealTime: (state, { time }) => ({ ...state, current: time }),
+                setCurrentSegment: (_, { segment }) => segment,
             },
         ],
         speed: [
             1,
+            { persist: true },
             {
                 setSpeed: (_, { speed }) => speed,
             },
         ],
+        skipInactivitySetting: [
+            true,
+            { persist: true },
+            {
+                setSkipInactivitySetting: (_, { skipInactivitySetting }) => skipInactivitySetting,
+            },
+        ],
+        isSkippingInactivity: [false, { setSkippingInactivity: (_, { isSkippingInactivity }) => isSkippingInactivity }],
         scale: [
             1,
             {
                 setScale: (_, { scale }) => scale,
-            },
-        ],
-        meta: [
-            {
-                startTime: 0,
-                endTime: 0,
-                totalTime: 0,
-            } as playerMetaData,
-            {
-                setMeta: (_, { meta }) => meta,
-                setMetaDuration: (state, { duration }) => ({ ...state, endTime: duration, totalTime: duration }),
             },
         ],
         playingState: [
@@ -110,198 +106,277 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 setPause: () => SessionPlayerState.PAUSE,
             },
         ],
-        loadingState: [
-            SessionPlayerState.BUFFER as
-                | SessionPlayerState.BUFFER
-                | SessionPlayerState.SKIP
-                | SessionPlayerState.SCRUB
-                | null,
-            {
-                setBuffer: () => SessionPlayerState.BUFFER,
-                setSkip: () => SessionPlayerState.SKIP,
-                setScrub: () => SessionPlayerState.SCRUB,
-                clearLoadingState: () => null,
-            },
-        ],
+        isBuffering: [true, { startBuffer: () => true, endBuffer: () => false }],
+        isScrubbing: [false, { startScrub: () => true, endScrub: () => false }],
     }),
     selectors: {
         currentPlayerState: [
-            (selectors) => [selectors.playingState, selectors.loadingState],
-            (playingState, loadingState) => {
-                if (loadingState === SessionPlayerState.SCRUB) {
+            (selectors) => [
+                selectors.playingState,
+                selectors.isBuffering,
+                selectors.isScrubbing,
+                selectors.isSkippingInactivity,
+            ],
+            (playingState, isBuffering, isScrubbing, isSkippingInactivity) => {
+                if (isScrubbing) {
                     // If scrubbing, playingState takes precedence
                     return playingState
                 }
-                return loadingState ?? playingState
+                if (isBuffering) {
+                    return SessionPlayerState.BUFFER
+                }
+                if (isSkippingInactivity && playingState !== SessionPlayerState.PAUSE) {
+                    return SessionPlayerState.SKIP
+                }
+                return playingState
+            },
+        ],
+        currentPlayerTime: [
+            (selectors) => [selectors.currentPlayerPosition, selectors.sessionPlayerData],
+            (currentPlayerPosition, sessionPlayerData) => {
+                if (sessionPlayerData?.metadata?.segments && currentPlayerPosition) {
+                    return getPlayerTimeFromPlayerPosition(currentPlayerPosition, sessionPlayerData?.metadata?.segments)
+                }
+                return 0
             },
         ],
         jumpTimeMs: [(selectors) => [selectors.speed], (speed) => 10 * 1000 * speed],
-        snapshots: [
-            (selectors) => [selectors.sessionPlayerData],
-            (sessionPlayerData) => sessionPlayerData?.snapshots ?? [],
-        ],
-        zeroOffsetTime: [
-            (selectors) => [selectors.time, selectors.realTime, selectors.meta],
-            (time, realTime, meta) => ({
-                current: getZeroOffsetTime(realTime.current, meta),
-                lastBuffered: getZeroOffsetTime(time.lastBuffered, meta),
-            }),
-        ],
     },
     listeners: ({ values, actions, cache }) => ({
-        initReplayer: ({ frame }) => {
-            if (values.snapshots.length < 2) {
+        setRootFrame: () => {
+            actions.tryInitReplayer()
+        },
+        tryInitReplayer: () => {
+            // Tries to initialize a new player
+            const windowId: string | null = values.currentPlayerPosition?.windowId ?? null
+            actions.setPlayer(null)
+            values.rootFrame.innerHTML = '' // Clear the previously drawn frames
+            if (
+                !values.rootFrame ||
+                windowId === null ||
+                !values.sessionPlayerData.snapshotsByWindowId[windowId] ||
+                values.sessionPlayerData.snapshotsByWindowId[windowId].length < 2
+            ) {
+                actions.setPlayer(null)
                 return
             }
-
-            const replayer = new Replayer(values.snapshots, {
-                root: frame.current,
-                skipInactive: true,
+            const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], {
+                root: values.rootFrame,
                 triggerFocus: false,
-                speed: values.speed,
                 insertStyleRules: [
                     `.ph-no-capture {   background-image: url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNOCAwSDE2TDAgMTZWOEw4IDBaIiBmaWxsPSIjMkQyRDJEIi8+CjxwYXRoIGQ9Ik0xNiA4VjE2SDhMMTYgOFoiIGZpbGw9IiMyRDJEMkQiLz4KPC9zdmc+Cg=="); }`,
                 ],
             })
-            replayer.on('finish', () => {
-                // Use 500ms buffer because current time is not always exactly identical to end time.
-                if (values.time.current + 500 >= values.meta.endTime) {
-                    actions.setPause()
-                }
-            })
-            replayer.on('skip-start', () => {
-                if (values.loadingState !== SessionPlayerState.BUFFER) {
-                    actions.setSkip()
-                }
-            })
-            replayer.on('skip-end', () => {
-                if (values.loadingState === SessionPlayerState.SKIP) {
-                    actions.clearLoadingState()
-                }
-            })
-
-            actions.setReplayer(replayer)
+            actions.setPlayer({ replayer, windowId })
         },
-        setReplayer: ({ replayer }) => {
-            if (replayer) {
-                actions.setPlay()
+        setPlayer: ({ player }) => {
+            if (player) {
+                actions.seek(values.currentPlayerPosition)
+                actions.syncPlayerSpeed()
             }
         },
-        loadRecordingMetaSuccess: async ({ sessionPlayerData }, breakpoint) => {
-            // Set meta timestamps when first chunk loads. The first time is a guesstimate that's later corrected by
-            // the time the whole chunk loads.
-            const startOffset = sessionPlayerData?.session_recording?.start_time ?? 0
-            const duration = sessionPlayerData?.session_recording?.recording_duration ?? 0
-            actions.setMeta({
-                startTime: startOffset,
-                endTime: startOffset + duration,
-                totalTime: duration,
-            })
+        setCurrentSegment: ({ segment }) => {
+            // Check if we should we skip this segment
+            if (!segment.isActive && values.skipInactivitySetting) {
+                actions.setSkippingInactivity(true)
+            } else {
+                actions.setSkippingInactivity(false)
+            }
 
-            breakpoint()
+            // Check if the new segment is for a different window_id than the last one
+            // If so, we need to re-initialize the player
+            if (values.player && values.player.windowId !== segment.windowId) {
+                values.player?.replayer?.pause()
+                actions.tryInitReplayer()
+            }
+            actions.seek(values.currentPlayerPosition)
         },
-        loadRecordingSnapshotsSuccess: async (_, breakpoint) => {
-            // On loading more of the recording, trigger some state changes
-            const currentEvents = values.replayer?.service.state.context.events ?? []
-            const eventsToAdd = values.snapshots.slice(currentEvents.length) ?? []
-
-            // If replayer isn't initialized, it will be initialized with the already loaded snapshots
-            if (!!values.replayer) {
-                eventsToAdd.forEach((event: eventWithTime) => {
-                    values.replayer?.addEvent(event)
-                })
+        setSkipInactivitySetting: ({ skipInactivitySetting }) => {
+            if (!values.currentSegment?.isActive && skipInactivitySetting) {
+                actions.setSkippingInactivity(true)
+            } else {
+                actions.setSkippingInactivity(false)
             }
-
-            // replayer should be updated with new events.
-            const finalEvents = [...currentEvents, ...eventsToAdd]
-            if (finalEvents.length < 1) {
-                return
+        },
+        setSkippingInactivity: () => {
+            actions.syncPlayerSpeed()
+        },
+        syncPlayerSpeed: () => {
+            if (values.isSkippingInactivity) {
+                // Sets speed to skip section in max 1 second
+                const secondsToSkip =
+                    ((values.currentSegment?.endPlayerPosition?.time ?? 0) -
+                        (values.currentPlayerPosition?.time ?? 0)) /
+                    1000
+                const skipSpeed = Math.max(50, secondsToSkip)
+                values.player?.replayer?.setConfig({ speed: skipSpeed })
+            } else {
+                values.player?.replayer?.setConfig({ speed: values.speed })
             }
-
-            // Update last buffered point
-            const lastEvent = finalEvents[finalEvents.length - 1]
-            actions.setLastBufferedTime(lastEvent.timestamp)
-
+        },
+        checkBufferingCompleted: () => {
             // If buffering has completed, resume last playing state
             if (
+                values.currentPlayerPosition &&
+                values.sessionPlayerData.bufferedTo &&
                 values.currentPlayerState === SessionPlayerState.BUFFER &&
-                values.time.current + BUFFER_TIME_BUFFER_MS < lastEvent.timestamp
+                comparePlayerPositions(
+                    values.currentPlayerPosition,
+                    values.sessionPlayerData.bufferedTo,
+                    values.sessionPlayerData.metadata.segments
+                ) < 0
             ) {
-                actions.clearLoadingState()
-                actions.setPlay()
+                actions.endBuffer()
+                actions.seek(values.currentPlayerPosition)
             }
-
-            // Set meta once whole session recording loads. This overrides the meta set when metadata
-            // was fetched separately.
-            if (!values.sessionPlayerDataLoading && !!values.replayer) {
-                const meta = values.replayer.getMetaData()
-                // Sometimes replayer doesn't update with events we recently added.
-                const endTime = Math.max(
-                    meta.endTime,
-                    finalEvents.length ? finalEvents[finalEvents.length - 1]?.timestamp : 0
-                )
-                const finalMeta = {
-                    ...meta,
-                    endTime,
-                    totalTime: endTime - meta.startTime,
+        },
+        initializePlayerFromStart: () => {
+            const initialSegment = values.sessionPlayerData?.metadata?.segments[0]
+            if (initialSegment) {
+                actions.setCurrentSegment(initialSegment)
+                actions.setCurrentPlayerPosition(initialSegment.startPlayerPosition)
+                if (!values.player) {
+                    actions.tryInitReplayer()
                 }
-                actions.setMeta(finalMeta)
+            }
+        },
+        loadRecordingMetaSuccess: async (_, breakpoint) => {
+            // Once the recording metadata is loaded, we set the player to the
+            // beginning and then try to play the recording
+            actions.initializePlayerFromStart()
+            actions.checkBufferingCompleted()
+            breakpoint()
+        },
+
+        loadRecordingSnapshotsSuccess: async (_, breakpoint) => {
+            // On loading more of the recording, trigger some state changes
+            const currentEvents = values.player?.replayer?.service.state.context.events ?? []
+            const eventsToAdd = []
+            if (values.currentSegment?.windowId !== undefined) {
+                eventsToAdd.push(
+                    ...(values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId] ?? []).slice(
+                        currentEvents.length
+                    )
+                )
             }
 
+            // If replayer isn't initialized, it will be initialized with the already loaded snapshots
+            if (!!values.player?.replayer) {
+                for (const event of eventsToAdd) {
+                    await values.player?.replayer?.addEvent(event)
+                }
+            } else {
+                actions.initializePlayerFromStart()
+            }
+            actions.checkBufferingCompleted()
             breakpoint()
         },
         setPlay: () => {
             actions.stopAnimation()
-            values.replayer?.setConfig({ speed: values.speed }) // hotfix: speed changes on player state change
-            actions.seek(values.time.current, true)
+            actions.syncPlayerSpeed() // hotfix: speed changes on player state change
+
+            // Use the start of the current segment if there is no currentPlayerPosition
+            // (theoretically, should never happen, but Typescript doesn't know that)
+            const nextPlayerPosition = values.currentPlayerPosition || values.currentSegment?.startPlayerPosition
+            if (nextPlayerPosition) {
+                actions.seek(nextPlayerPosition, true)
+            }
         },
         setPause: () => {
             actions.stopAnimation()
-            values.replayer?.setConfig({ speed: values.speed }) // hotfix: speed changes on player state change
-            values.replayer?.pause()
+            actions.syncPlayerSpeed() // hotfix: speed changes on player state change
+            values.player?.replayer?.pause()
         },
-        setBuffer: () => {
+        startBuffer: () => {
             actions.stopAnimation()
         },
-        setScrub: () => {
+        startScrub: () => {
             actions.stopAnimation()
         },
-        setSpeed: ({ speed }) => {
-            values.replayer?.setConfig({ speed })
+        setSpeed: () => {
+            actions.syncPlayerSpeed()
         },
-        seek: async ({ time, forcePlay }, breakpoint) => {
-            // Real seeking is debounced so as not to overload rrweb.
-            await breakpoint(100)
+        seek: async ({ playerPosition, forcePlay }, breakpoint) => {
+            actions.stopAnimation()
+            actions.setCurrentPlayerPosition(playerPosition)
 
-            // Time passed into seek function must be timestamp offset time.
-            const nextTime = getZeroOffsetTime(time ?? 0, values.meta)
-
-            // Set current time to keep player updated. Replayer will catch up once time is buffered
-            actions.setCurrentTime(time ?? 0)
+            // Check if we're seeking to a new segment
+            let nextSegment = null
+            if (playerPosition && values.sessionPlayerData?.metadata) {
+                nextSegment = getSegmentFromPlayerPosition(playerPosition, values.sessionPlayerData.metadata.segments)
+                if (
+                    nextSegment &&
+                    (nextSegment.windowId !== values.currentSegment?.windowId ||
+                        nextSegment.startTimeEpochMs !== values.currentSegment?.startTimeEpochMs)
+                ) {
+                    actions.setCurrentSegment(nextSegment)
+                }
+            }
 
             // If next time is greater than last buffered time, set to buffering
-            if (!values.zeroOffsetTime.lastBuffered || nextTime > values.zeroOffsetTime.lastBuffered) {
-                values.replayer?.pause()
-                actions.setBuffer()
+            if (
+                !values.sessionPlayerData?.bufferedTo ||
+                !playerPosition ||
+                !values.currentSegment ||
+                comparePlayerPositions(
+                    playerPosition,
+                    values.sessionPlayerData.bufferedTo,
+                    values.sessionPlayerData.metadata.segments
+                ) > 0
+            ) {
+                values.player?.replayer?.pause()
+                actions.startBuffer()
             }
+
             // If not forced to play and if last playing state was pause, pause
             else if (!forcePlay && values.currentPlayerState === SessionPlayerState.PAUSE) {
-                values.replayer?.pause(nextTime)
-                actions.clearLoadingState()
+                values.player?.replayer?.pause(playerPosition.time)
+                actions.endBuffer()
             }
             // Otherwise play
             else {
-                values.replayer?.play(nextTime)
+                values.player?.replayer?.play(playerPosition.time)
                 actions.updateAnimation()
+                actions.endBuffer()
             }
-
             breakpoint()
         },
         seekForward: () => {
-            actions.seek(values.time.current + values.jumpTimeMs)
+            if (values.currentPlayerPosition) {
+                const currentPlayerTime = getPlayerTimeFromPlayerPosition(
+                    values.currentPlayerPosition,
+                    values.sessionPlayerData.metadata.segments
+                )
+                if (currentPlayerTime !== null) {
+                    const nextPlayerTime = currentPlayerTime + values.jumpTimeMs
+                    let nextPlayerPosition = getPlayerPositionFromPlayerTime(
+                        nextPlayerTime,
+                        values.sessionPlayerData.metadata.segments
+                    )
+                    if (!nextPlayerPosition) {
+                        // At the end of the recording. Pause the player and reset the playerPosition
+                        actions.setPause()
+                        nextPlayerPosition = values.sessionPlayerData.metadata.segments[0].startPlayerPosition
+                    }
+                    actions.seek(nextPlayerPosition)
+                }
+            }
         },
         seekBackward: () => {
-            actions.seek(values.time.current - values.jumpTimeMs)
+            if (values.currentPlayerPosition) {
+                const currentPlayerTime = getPlayerTimeFromPlayerPosition(
+                    values.currentPlayerPosition,
+                    values.sessionPlayerData.metadata.segments
+                )
+                if (currentPlayerTime !== null) {
+                    const nextPlayerTime = Math.max(currentPlayerTime - values.jumpTimeMs, 0)
+                    const nextPlayerPosition = getPlayerPositionFromPlayerTime(
+                        nextPlayerTime,
+                        values.sessionPlayerData.metadata.segments
+                    )
+                    actions.seek(nextPlayerPosition)
+                }
+            }
         },
         togglePlayPause: () => {
             // If buffering, toggle is a noop
@@ -312,33 +387,71 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (values.currentPlayerState === SessionPlayerState.PAUSE) {
                 actions.setPlay()
             }
-            // If skipping, pause and turn skipping off
-            else if (values.currentPlayerState === SessionPlayerState.SKIP) {
-                actions.clearLoadingState()
-                actions.setPause()
-            }
             // If playing, pause
             else {
                 actions.setPause()
             }
         },
         updateAnimation: () => {
-            const nextTime = getOffsetTime(values.replayer?.getCurrentTime() || 0, values.meta)
-            if (nextTime > values.time.lastBuffered) {
-                values.replayer?.pause()
-                actions.setBuffer()
-            } else {
-                actions.setCurrentTime(nextTime)
+            // The main loop of the player. Called on each frame
+            const playerTime = values.player?.replayer?.getCurrentTime()
+            let nextPlayerPosition: PlayerPosition | null = null
+            if (playerTime !== undefined && values.currentSegment) {
+                nextPlayerPosition = {
+                    windowId: values.currentSegment.windowId,
+                    // Cap the player position to the end of the segment. Below, we'll check if
+                    // the player is at the end of the segment and if so, we'll go to the next one
+                    time: Math.min(playerTime, values.currentSegment.endPlayerPosition.time),
+                }
             }
-            cache.timer = requestAnimationFrame(actions.updateAnimation)
+
+            // If we're beyond the current segments, move to next segments if there is one
+            if (
+                nextPlayerPosition &&
+                values.currentSegment?.endPlayerPosition &&
+                comparePlayerPositions(
+                    nextPlayerPosition,
+                    values.currentSegment?.endPlayerPosition,
+                    values.sessionPlayerData.metadata.segments
+                ) >= 0
+            ) {
+                const nextSegmentIndex = values.sessionPlayerData.metadata.segments.indexOf(values.currentSegment) + 1
+                if (nextSegmentIndex < values.sessionPlayerData.metadata.segments.length) {
+                    const nextSegment = values.sessionPlayerData.metadata.segments[nextSegmentIndex]
+                    actions.setCurrentPlayerPosition(nextSegment.startPlayerPosition)
+                    actions.setCurrentSegment(nextSegment)
+                } else {
+                    // At the end of the recording. Pause the player and reset the playerPosition
+                    actions.setPause()
+                    actions.setCurrentPlayerPosition(values.sessionPlayerData.metadata.segments[0].startPlayerPosition)
+                }
+            }
+
+            // If we're beyond buffered position, set to buffering
+            else if (
+                !values.sessionPlayerData.bufferedTo ||
+                !nextPlayerPosition ||
+                !values.currentSegment ||
+                comparePlayerPositions(
+                    nextPlayerPosition,
+                    values.sessionPlayerData.bufferedTo,
+                    values.sessionPlayerData.metadata.segments
+                ) > 0
+            ) {
+                // Pause only the animation, not our player, so it will restart
+                // when the buffering progresses
+                values.player?.replayer?.pause()
+                actions.startBuffer()
+            } else {
+                // The normal loop. Progress the player position and continue the loop
+                actions.setCurrentPlayerPosition(nextPlayerPosition)
+                cache.timer = requestAnimationFrame(actions.updateAnimation)
+            }
         },
         stopAnimation: () => {
             if (cache.timer) {
                 cancelAnimationFrame(cache.timer)
             }
-        },
-        clearLoadingState: () => {
-            values.replayer?.setConfig({ speed: values.speed }) // hotfix: speed changes on player state change
         },
     }),
     windowValues: {
@@ -346,8 +459,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     },
     events: ({ values, actions }) => ({
         beforeUnmount: () => {
-            values.replayer?.pause()
-            actions.setReplayer(null)
+            values.player?.replayer?.pause()
+            actions.setPlayer(null)
         },
     }),
 })

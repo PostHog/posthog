@@ -5,38 +5,55 @@ import { TextProps } from 'antd/lib/typography/Text'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 
-interface Props {
+interface EntityFilterInfoProps {
     filter: EntityFilter | ActionFilter | FunnelStepRangeEntityFilter
-    showSubTitle?: boolean
 }
 
 function TextWrapper(props: TextProps): JSX.Element {
     return (
-        <Typography.Text ellipsis={true} style={{ maxWidth: 400 }} {...props}>
+        <Typography.Text style={{ maxWidth: 400 }} {...props}>
             {props.children}
         </Typography.Text>
     )
 }
 
-export function EntityFilterInfo({ filter, showSubTitle = true }: Props): JSX.Element {
-    const title = getDisplayNameFromEntityFilter(filter)
-    const subtitle = getDisplayNameFromEntityFilter(filter, false)
+export function EntityFilterInfo({ filter }: EntityFilterInfoProps): JSX.Element {
+    const title = getDisplayNameFromEntityFilter(filter, false)
 
-    if (filter.type === EntityTypes.NEW_ENTITY || (!title && !subtitle)) {
+    // No filter
+    if (filter.type === EntityTypes.NEW_ENTITY || !title) {
         return <TextWrapper title="Select filter">Select filter</TextWrapper>
     }
 
-    const titleToDisplay = getKeyMapping(title, 'event')?.label ?? title ?? undefined
-    const subTitleToDisplay = getKeyMapping(subtitle, 'event')?.label ?? subtitle ?? undefined
+    const titleToDisplay = getKeyMapping(title, 'event')?.label?.trim() ?? title ?? undefined
+
+    // No custom name
+    if (!filter?.custom_name) {
+        return (
+            <span style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
+                <TextWrapper ellipsis={false} title={titleToDisplay}>
+                    {titleToDisplay}
+                </TextWrapper>
+            </span>
+        )
+    }
+
+    // Display custom name first and action title as secondary
+    const customTitle = getDisplayNameFromEntityFilter(filter, true)
 
     return (
         <span style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
-            <TextWrapper title={titleToDisplay}>{titleToDisplay}</TextWrapper>
-            {showSubTitle && title !== subtitle && (
-                <TextWrapper type="secondary" style={{ fontSize: 13, marginLeft: 4 }} title={subTitleToDisplay}>
-                    ({subTitleToDisplay})
-                </TextWrapper>
-            )}
+            <TextWrapper ellipsis={false} title={customTitle ?? undefined}>
+                {customTitle}
+            </TextWrapper>
+            <TextWrapper
+                ellipsis={true}
+                type="secondary"
+                style={{ fontSize: 13, marginLeft: 4 }}
+                title={titleToDisplay}
+            >
+                ({titleToDisplay})
+            </TextWrapper>
         </span>
     )
 }

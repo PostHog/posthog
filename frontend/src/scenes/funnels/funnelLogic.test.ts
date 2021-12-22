@@ -22,6 +22,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 jest.mock('lib/api')
 jest.mock('posthog-js')
@@ -205,7 +207,9 @@ describe('funnelLogic', () => {
         } else if (url.pathname === `api/person/funnel/`) {
             return { results: [], next: null }
         }
-        return defaultAPIMocks(url, { availableFeatures: [AvailableFeature.CORRELATION_ANALYSIS] })
+        return defaultAPIMocks(url, {
+            availableFeatures: [AvailableFeature.CORRELATION_ANALYSIS, AvailableFeature.GROUP_ANALYTICS],
+        })
     })
 
     initKeaTestLogic({
@@ -551,6 +555,7 @@ describe('funnelLogic', () => {
             ).toMatchValues({
                 correlationMatrixAndScore: {
                     correlationScore: expect.anything(),
+                    correlationScoreStrength: 'weak',
                     truePositive: 2,
                     falsePositive: 2,
                     trueNegative: 11,
@@ -915,6 +920,35 @@ describe('funnelLogic', () => {
                 .toNotHaveDispatchedActions([
                     insightLogic({ dashboardItemId: Insight123 }).actionCreators.loadResults(),
                 ])
+        })
+    })
+
+    describe('is modal active', () => {
+        it('modal is inactive when clickhouse is not enabled', async () => {
+            await expectLogic().toDispatchActions(preflightLogic, ['loadPreflight']).toMatchValues(logic, {
+                isModalActive: false,
+            })
+        })
+        it('modal is inactive when viewed on dashboard', async () => {
+            await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
+            await router.actions.push(urls.dashboard('1'))
+            await expectLogic(logic).toMatchValues({
+                isModalActive: false,
+            })
+        })
+        it('modal is active when viewing insight', async () => {
+            await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
+            await router.actions.push(urls.insightView('1' as InsightShortId))
+            await expectLogic(logic).toMatchValues({
+                isModalActive: true,
+            })
+        })
+        it('modal is active when editing insight', async () => {
+            await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
+            await router.actions.push(urls.insightEdit('1' as InsightShortId))
+            await expectLogic(logic).toMatchValues({
+                isModalActive: true,
+            })
         })
     })
 })

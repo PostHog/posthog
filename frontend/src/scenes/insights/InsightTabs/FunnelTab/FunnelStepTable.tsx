@@ -2,7 +2,7 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
 import { TableProps } from 'antd'
-import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
+import { FunnelLayout } from 'lib/constants'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import Table, { ColumnsType } from 'antd/lib/table'
 import { FlagOutlined, UserOutlined, UserDeleteOutlined } from '@ant-design/icons'
@@ -26,7 +26,6 @@ import {
     renderSubColumnTitle,
 } from 'scenes/insights/InsightTabs/FunnelTab/funnelStepTableUtils'
 import './FunnelStepTable.scss'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 
@@ -44,18 +43,16 @@ export function FunnelStepTable(): JSX.Element | null {
         flattenedBreakdowns,
         aggregationTargetLabel,
         isModalActive,
+        filters,
     } = useValues(logic)
     const { openPersonsModalForStep, toggleVisibilityByBreakdown, setHiddenById } = useActions(logic)
     const { cohorts } = useValues(cohortsModel)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const isNewVertical =
-        featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] && barGraphLayout === FunnelLayout.vertical
-    const showLabels = (visibleStepsWithConversionMetrics?.[0]?.nested_breakdown?.length ?? 0) < 6
+    const showLabels = false // #7653 - replaces (visibleStepsWithConversionMetrics?.[0]?.nested_breakdown?.length ?? 0) < 6
+    const isOnlySeries = flattenedBreakdowns.length === 1
 
     function getColumns(): ColumnsType<FlattenedFunnelStep> | ColumnsType<FlattenedFunnelStepByBreakdown> {
-        if (isNewVertical) {
+        if (barGraphLayout === FunnelLayout.vertical) {
             const _columns: ColumnsType<FlattenedFunnelStepByBreakdown> = []
-            const isOnlySeries = flattenedBreakdowns.length === 1
 
             if (!isViewedOnDashboard) {
                 _columns.push({
@@ -191,7 +188,9 @@ export function FunnelStepTable(): JSX.Element | null {
                             renderSubColumnTitle(
                                 <>
                                     <UserOutlined
-                                        title={`Unique ${aggregationTargetLabel.plural} who completed this step`}
+                                        title={`Unique ${aggregationTargetLabel.plural} ${
+                                            filters.aggregation_group_type_index != undefined ? 'that' : 'who'
+                                        } completed this step`}
                                     />{' '}
                                     Completed
                                 </>
@@ -212,8 +211,7 @@ export function FunnelStepTable(): JSX.Element | null {
                             step.order === 0 ? 4 : (stepIndex - 1) * 5 + 6,
                             breakdown.steps?.[step.order]?.conversionRates.fromBasisStep != undefined ? (
                                 <>
-                                    {featureFlags[FEATURE_FLAGS.SIGMA_ANALYSIS] &&
-                                    getSignificanceFromBreakdownStep(breakdown, step.order)?.fromBasisStep ? (
+                                    {getSignificanceFromBreakdownStep(breakdown, step.order)?.fromBasisStep ? (
                                         <Tooltip title="Significantly different from other breakdown values">
                                             <span className="table-text-highlight">
                                                 <FlagOutlined style={{ marginRight: 2 }} />{' '}
@@ -292,8 +290,7 @@ export function FunnelStepTable(): JSX.Element | null {
                                 (stepIndex - 1) * 5 + 8,
                                 breakdown.steps?.[step.order]?.conversionRates.fromPrevious != undefined ? (
                                     <>
-                                        {featureFlags[FEATURE_FLAGS.SIGMA_ANALYSIS] &&
-                                        !getSignificanceFromBreakdownStep(breakdown, step.order)?.fromBasisStep &&
+                                        {!getSignificanceFromBreakdownStep(breakdown, step.order)?.fromBasisStep &&
                                         getSignificanceFromBreakdownStep(breakdown, step.order)?.fromPrevious ? (
                                             <Tooltip title="Significantly different from other breakdown values">
                                                 <span className="table-text-highlight">
@@ -374,10 +371,12 @@ export function FunnelStepTable(): JSX.Element | null {
             align: 'center',
         })
 
-        if (featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] && !!steps[0]?.breakdown) {
+        if (!!steps[0]?.breakdown) {
             _columns.push({
                 title: '',
                 render: function RenderCheckbox({}, step: FlattenedFunnelStep): JSX.Element | null {
+                    const color = getSeriesColor(step?.breakdownIndex, flattenedBreakdowns.length === 1)
+
                     // Breakdown parent
                     if (step.breakdownIndex === undefined && (step.nestedRowKeys ?? []).length > 0) {
                         return (
@@ -391,9 +390,7 @@ export function FunnelStepTable(): JSX.Element | null {
                                     )
                                     setHiddenById(
                                         Object.fromEntries(
-                                            (flattenedSteps?.filter((s) => s.breakdownIndex !== undefined) ?? []).map(
-                                                ({ rowKey }) => [rowKey, !currentState]
-                                            )
+                                            step.nestedRowKeys?.map((rowKey) => [rowKey, currentState]) ?? []
                                         )
                                     )
                                 }}
@@ -401,10 +398,16 @@ export function FunnelStepTable(): JSX.Element | null {
                         )
                     }
                     // Breakdown child
+
                     return (
                         <PHCheckbox
+                            color={color}
                             checked={!hiddenLegendKeys[step.rowKey]}
-                            onChange={() => toggleVisibilityByBreakdown(step.breakdownIndex as number)}
+                            onChange={() => {
+                                setHiddenById({
+                                    [getVisibilityIndex(step, step.breakdown_value)]: !hiddenLegendKeys[step.rowKey],
+                                })
+                            }}
                         />
                     )
                 },
@@ -417,36 +420,35 @@ export function FunnelStepTable(): JSX.Element | null {
         _columns.push({
             title: 'Step',
             render: function RenderLabel({}, step: FlattenedFunnelStep): JSX.Element {
-                const isBreakdownChild = !!step.breakdown && !step.isBreakdownParent
                 const color = getStepColor(step, !!step.breakdown)
 
                 return (
                     <InsightLabel
                         seriesColor={color}
                         fallbackName={
-                            isBreakdownChild && isBreakdownChildType(step.breakdown)
+                            !step.isBreakdownParent && isBreakdownChildType(step.breakdown)
                                 ? formatBreakdownLabel(cohorts, step.breakdown)
                                 : step.name
                         }
                         action={
-                            isBreakdownChild && isBreakdownChildType(step.breakdown)
+                            !step.isBreakdownParent && isBreakdownChildType(step.breakdown)
                                 ? undefined
                                 : getActionFilterFromFunnelStep(step)
                         }
-                        hasMultipleSeries={!isBreakdownChild && steps.length > 1}
+                        hasMultipleSeries={step.isBreakdownParent && steps.length > 1}
                         breakdownValue={
                             step.breakdown === ''
                                 ? 'None'
                                 : isBreakdownChildType(step.breakdown)
-                                ? step.breakdown
+                                ? step.breakdown_value
                                 : undefined
                         }
-                        hideBreakdown={!isBreakdownChild}
+                        hideBreakdown={step.isBreakdownParent}
                         iconSize={IconSize.Small}
                         iconStyle={{ marginRight: 12 }}
-                        hideIcon={!isBreakdownChild}
+                        hideIcon
                         allowWrap
-                        useCustomName
+                        showEventName={step.isBreakdownParent}
                     />
                 )
             },
@@ -532,26 +534,27 @@ export function FunnelStepTable(): JSX.Element | null {
 
     // If the bars are vertical, use table as legend #5733
     const columns = getColumns()
-    const tableData: TableProps<any /* TODO: Type this */> = isNewVertical
-        ? {
-              dataSource: flattenedStepsByBreakdown.slice(
-                  0,
-                  isViewedOnDashboard ? 2 : flattenedStepsByBreakdown.length
-              ),
-              columns,
-              showHeader: false,
-              rowClassName: (record, index) => {
-                  return clsx(
-                      `funnel-steps-table-row-${index}`,
-                      index === 2 && 'funnel-table-cell',
-                      featureFlags[FEATURE_FLAGS.SIGMA_ANALYSIS] && record.significant && 'table-cell-highlight'
-                  )
-              },
-          }
-        : {
-              dataSource: flattenedSteps,
-              columns,
-          }
+    const tableData: TableProps<any /* TODO: Type this */> =
+        barGraphLayout === FunnelLayout.vertical
+            ? {
+                  dataSource: flattenedStepsByBreakdown.slice(
+                      0,
+                      isViewedOnDashboard ? 2 : flattenedStepsByBreakdown.length
+                  ),
+                  columns,
+                  showHeader: false,
+                  rowClassName: (record, index) => {
+                      return clsx(
+                          `funnel-steps-table-row-${index}`,
+                          index === 2 && 'funnel-table-cell',
+                          record.significant && 'table-cell-highlight'
+                      )
+                  },
+              }
+            : {
+                  dataSource: flattenedSteps,
+                  columns,
+              }
 
     return stepsWithCount.length > 1 ? (
         <Table
@@ -561,7 +564,7 @@ export function FunnelStepTable(): JSX.Element | null {
             rowKey="rowKey"
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
             style={{ height: '100%' }}
-            data-attr={isNewVertical ? 'funnel-bar-graph' : 'funnel-steps-table'}
+            data-attr={barGraphLayout === FunnelLayout.vertical ? 'funnel-bar-graph' : 'funnel-steps-table'}
             className="funnel-steps-table"
         />
     ) : null

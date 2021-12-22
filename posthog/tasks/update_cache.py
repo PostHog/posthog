@@ -35,7 +35,6 @@ PARALLEL_INSIGHT_CACHE = int(os.environ.get("PARALLEL_DASHBOARD_ITEM_CACHE", 5))
 logger = logging.getLogger(__name__)
 
 if is_clickhouse_enabled():
-    from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
     from ee.clickhouse.queries.funnels import (
         ClickhouseFunnel,
         ClickhouseFunnelBase,
@@ -45,6 +44,7 @@ if is_clickhouse_enabled():
         ClickhouseFunnelUnordered,
     )
     from ee.clickhouse.queries.paths import ClickhousePaths
+    from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
     from ee.clickhouse.queries.sessions.clickhouse_sessions import ClickhouseSessions
     from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
     from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends

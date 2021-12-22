@@ -178,7 +178,7 @@
                     },
                     {
                         "id": 3,
-                        "name": "HogFlix paid",
+                        "name": "Hogflix paid",
                         "post_to_slack": false,
                         "slack_message_format": "",
                         "steps": [
@@ -204,7 +204,7 @@
                     },
                     {
                         "id": 2,
-                        "name": "HogFlix signed up",
+                        "name": "Hogflix signed up",
                         "post_to_slack": false,
                         "slack_message_format": "",
                         "steps": [
@@ -230,7 +230,7 @@
                     },
                     {
                         "id": 1,
-                        "name": "HogFlix homepage view",
+                        "name": "Hogflix homepage view",
                         "post_to_slack": false,
                         "slack_message_format": "",
                         "steps": [

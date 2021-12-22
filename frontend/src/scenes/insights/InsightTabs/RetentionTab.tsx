@@ -11,7 +11,7 @@ import { TestAccountFilter } from '../TestAccountFilter'
 import './RetentionTab.scss'
 import { ACTIONS_LINE_GRAPH_LINEAR, FEATURE_FLAGS, RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
-import { IconExternalLink } from 'lib/components/icons'
+import { IconOpenInNew } from 'lib/components/icons'
 import { GlobalFiltersTitle } from '../common'
 import { ActionFilter } from '../ActionFilter/ActionFilter'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -24,7 +24,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function RetentionTab(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { insightProps, clickhouseFeaturesEnabled } = useValues(insightLogic)
+    const { insightProps, clickhouseFeaturesEnabled, allEventNames } = useValues(insightLogic)
     const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
     const { filters, actionFilterTargetEntity, actionFilterReturningEntity } = useValues(
         retentionTableLogic(insightProps)
@@ -75,7 +75,7 @@ export function RetentionTab(): JSX.Element {
                                                 }
                                             />
                                         ) : (
-                                            <b>unique users</b>
+                                            <b>Unique users</b>
                                         )}{' '}
                                         who did
                                     </>
@@ -152,7 +152,7 @@ export function RetentionTab(): JSX.Element {
                                     style={{ display: 'inline-flex', alignItems: 'center' }}
                                 >
                                     Go to docs
-                                    <IconExternalLink style={{ marginLeft: 4 }} />
+                                    <IconOpenInNew style={{ marginLeft: 4 }} />
                                 </a>
                             </p>
                         </Col>
@@ -169,6 +169,7 @@ export function RetentionTab(): JSX.Element {
                             TaxonomicFilterGroupType.Cohorts,
                             TaxonomicFilterGroupType.Elements,
                         ]}
+                        eventNames={allEventNames}
                     />
                     <TestAccountFilter filters={filters} onChange={setFilters} />
 

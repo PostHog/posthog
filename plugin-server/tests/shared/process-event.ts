@@ -136,7 +136,7 @@ export const createProcessEventTests = (
     async function processEvent(
         distinctId: string,
         ip: string | null,
-        siteUrl: string,
+        _siteUrl: string,
         data: PluginEvent,
         teamId: number,
         now: DateTime,
@@ -158,8 +158,7 @@ export const createProcessEventTests = (
             }
         `
         await resetTestDatabase(testCode, extraServerConfig)
-        // TODO: #7422 remove experimental config
-        ;[hub, closeHub] = await createTestHub({ EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED_TEAMS: '2,3' })
+        ;[hub, closeHub] = await createTestHub()
         returned.hub = hub
         returned.closeHub = closeHub
         eventsProcessor = new EventsProcessor(hub)
@@ -555,6 +554,8 @@ export const createProcessEventTests = (
                 id: expect.any(String),
                 is_numerical: true,
                 name: 'distinct_id',
+                property_type: null,
+                property_type_format: null,
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
@@ -563,6 +564,8 @@ export const createProcessEventTests = (
                 id: expect.any(String),
                 is_numerical: false,
                 name: 'token',
+                property_type: null,
+                property_type_format: null,
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
@@ -571,6 +574,8 @@ export const createProcessEventTests = (
                 id: expect.any(String),
                 is_numerical: false,
                 name: '$browser',
+                property_type: null,
+                property_type_format: null,
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
@@ -579,6 +584,8 @@ export const createProcessEventTests = (
                 id: expect.any(String),
                 is_numerical: false,
                 name: '$current_url',
+                property_type: null,
+                property_type_format: null,
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
@@ -587,6 +594,8 @@ export const createProcessEventTests = (
                 id: expect.any(String),
                 is_numerical: false,
                 name: '$os',
+                property_type: null,
+                property_type_format: null,
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
@@ -595,6 +604,8 @@ export const createProcessEventTests = (
                 id: expect.any(String),
                 is_numerical: false,
                 name: '$browser_version',
+                property_type: null,
+                property_type_format: null,
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
@@ -603,6 +614,8 @@ export const createProcessEventTests = (
                 id: expect.any(String),
                 is_numerical: false,
                 name: '$initial_referring_domain',
+                property_type: null,
+                property_type_format: null,
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
@@ -611,6 +624,8 @@ export const createProcessEventTests = (
                 id: expect.any(String),
                 is_numerical: false,
                 name: '$initial_referrer_url',
+                property_type: null,
+                property_type_format: null,
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
@@ -619,6 +634,8 @@ export const createProcessEventTests = (
                 id: expect.any(String),
                 is_numerical: false,
                 name: 'utm_medium',
+                property_type: null,
+                property_type_format: null,
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
@@ -627,6 +644,8 @@ export const createProcessEventTests = (
                 id: expect.any(String),
                 is_numerical: false,
                 name: 'gclid',
+                property_type: null,
+                property_type_format: null,
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
@@ -635,6 +654,8 @@ export const createProcessEventTests = (
                 id: expect.any(String),
                 is_numerical: false,
                 name: '$ip',
+                property_type: null,
+                property_type_format: null,
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
@@ -1904,6 +1925,7 @@ export const createProcessEventTests = (
 
     test('team event_properties', async () => {
         expect(await hub.db.fetchEventDefinitions()).toEqual([])
+        expect(await hub.db.fetchEventProperties()).toEqual([])
         expect(await hub.db.fetchPropertyDefinitions()).toEqual([])
 
         await processEvent(
@@ -1935,6 +1957,8 @@ export const createProcessEventTests = (
                 id: expect.any(String),
                 is_numerical: true,
                 name: 'price',
+                property_type: null,
+                property_type_format: null,
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
@@ -1943,6 +1967,8 @@ export const createProcessEventTests = (
                 id: expect.any(String),
                 is_numerical: false,
                 name: 'name',
+                property_type: null,
+                property_type_format: null,
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
@@ -1951,9 +1977,33 @@ export const createProcessEventTests = (
                 id: expect.any(String),
                 is_numerical: false,
                 name: '$ip',
+                property_type: null,
+                property_type_format: null,
                 query_usage_30_day: null,
                 team_id: 2,
                 volume_30_day: null,
+            },
+        ])
+
+        // flushed every minute normally, triggering flush now, it's tested elsewhere
+        expect(await hub.db.fetchEventProperties()).toEqual([
+            {
+                id: expect.any(Number),
+                event: 'purchase',
+                property: 'price',
+                team_id: 2,
+            },
+            {
+                id: expect.any(Number),
+                event: 'purchase',
+                property: 'name',
+                team_id: 2,
+            },
+            {
+                id: expect.any(Number),
+                event: 'purchase',
+                property: '$ip',
+                team_id: 2,
             },
         ])
     })

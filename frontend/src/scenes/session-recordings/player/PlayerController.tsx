@@ -4,20 +4,20 @@ import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { Select } from 'antd'
+import { Select, Switch } from 'antd'
 import { SessionPlayerState } from '~/types'
 import { IconPause, IconPlay } from 'scenes/session-recordings/player/icons'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { Timestamp } from 'scenes/session-recordings/player/Timestamp'
 
 export function PlayerController(): JSX.Element {
-    const { togglePlayPause, setSpeed } = useActions(sessionRecordingPlayerLogic)
-    const { currentPlayerState, speed, isSmallScreen } = useValues(sessionRecordingPlayerLogic)
+    const { togglePlayPause, setSpeed, setSkipInactivitySetting } = useActions(sessionRecordingPlayerLogic)
+    const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting } = useValues(sessionRecordingPlayerLogic)
 
     return (
         <div className="rrweb-controller">
             <span>
-                {currentPlayerState === SessionPlayerState.PLAY || currentPlayerState === SessionPlayerState.SKIP ? (
+                {currentPlayerState === SessionPlayerState.PLAY ? (
                     <IconPause
                         onClick={togglePlayPause}
                         className="rrweb-controller-icon ph-rrweb-controller-icon-play-pause"
@@ -49,6 +49,15 @@ export function PlayerController(): JSX.Element {
                     ))}
                 </Select.OptGroup>
             </Select>
+            <div
+                onClick={() => {
+                    setSkipInactivitySetting(!skipInactivitySetting)
+                }}
+                className="rrweb-inactivity-toggle"
+            >
+                <span className="inactivity-label">Skip inactivity</span>
+                <Switch checked={skipInactivitySetting} size="small" />
+            </div>
         </div>
     )
 }

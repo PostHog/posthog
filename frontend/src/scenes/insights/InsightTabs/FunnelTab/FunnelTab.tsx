@@ -13,7 +13,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { FunnelStepOrderPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepOrderPicker'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
-import { PropertyFilters } from 'lib/components/PropertyFilters'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { FunnelVizType } from '~/types'
@@ -34,7 +34,7 @@ export function FunnelTab(): JSX.Element {
 }
 
 function FunnelTabOld(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, allEventNames } = useValues(insightLogic)
     const { loadResults } = useActions(insightLogic)
     const { isStepsEmpty, filters, clickhouseFeaturesEnabled, aggregationTargetLabel, filterSteps } = useValues(
         funnelLogic(insightProps)
@@ -160,8 +160,10 @@ function FunnelTabOld(): JSX.Element {
                                         <Tooltip
                                             title={
                                                 <>
-                                                    Exclude {aggregationTargetLabel.plural} who completed the specified
-                                                    event between two specific steps. Note that these
+                                                    Exclude {aggregationTargetLabel.plural}{' '}
+                                                    {filters.aggregation_group_type_index != undefined ? 'that' : 'who'}{' '}
+                                                    completed the specified event between two specific steps. Note that
+                                                    these
                                                     {aggregationTargetLabel.plural} will be{' '}
                                                     <b>completely excluded from the entire funnel</b>.
                                                 </>
@@ -202,6 +204,7 @@ function FunnelTabOld(): JSX.Element {
                             TaxonomicFilterGroupType.Cohorts,
                             TaxonomicFilterGroupType.Elements,
                         ]}
+                        eventNames={allEventNames}
                     />
                     <TestAccountFilter filters={filters} onChange={setFilters} />
                     {clickhouseFeaturesEnabled && filters.funnel_viz_type === FunnelVizType.Steps && (

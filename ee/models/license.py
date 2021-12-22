@@ -61,6 +61,8 @@ class License(models.Model):
         AvailableFeature.INGESTION_TAXONOMY,
         AvailableFeature.PATHS_ADVANCED,
         AvailableFeature.CORRELATION_ANALYSIS,
+        AvailableFeature.GROUP_ANALYTICS,
+        AvailableFeature.MULTIVARIATE_FLAGS,
     ]
 
     ENTERPRISE_PLAN = "enterprise"

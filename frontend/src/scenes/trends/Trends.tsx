@@ -9,7 +9,7 @@ import {
     ACTIONS_BAR_CHART,
     ACTIONS_BAR_CHART_VALUE,
 } from 'lib/constants'
-import { ActionsPie, ActionsLineGraph, ActionsBarValueGraph, ActionsTable } from './viz'
+import { ActionsPie, ActionsLineGraph, ActionsHorizontalBar, ActionsTable } from './viz'
 import { SaveCohortModal } from './SaveCohortModal'
 import { trendsLogic } from './trendsLogic'
 import { InsightType } from '~/types'
@@ -32,6 +32,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
         loadMoreBreakdownUrl,
         breakdownValuesLoading,
         showModalActions,
+        aggregationTargetLabel,
     } = useValues(trendsLogic(insightProps))
     const { loadMoreBreakdownValues } = useActions(trendsLogic(insightProps))
     const { showingPeople } = useValues(personsModalLogic)
@@ -66,7 +67,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
             return <ActionsPie filters={_filters} />
         }
         if (_filters.display === ACTIONS_BAR_CHART_VALUE) {
-            return <ActionsBarValueGraph filters={_filters} />
+            return <ActionsHorizontalBar filters={_filters} />
         }
     }
 
@@ -108,6 +109,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
                     setCohortModalVisible(true)
                 }}
                 showModalActions={showModalActions}
+                aggregationTargetLabel={aggregationTargetLabel}
             />
             <SaveCohortModal
                 visible={cohortModalVisible}

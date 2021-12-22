@@ -2,8 +2,8 @@ import './InfiniteList.scss'
 import '../Popup/Popup.scss'
 import React, { useState } from 'react'
 import { Empty, Skeleton, Tag } from 'antd'
-import { AutoSizer } from 'react-virtualized/dist/commonjs/AutoSizer'
-import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/commonjs/List'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import {
     getKeyMapping,
     PropertyKeyDescription,
@@ -25,7 +25,7 @@ import { dayjs } from 'lib/dayjs'
 import { FEATURE_FLAGS, STALE_EVENT_SECONDS } from 'lib/constants'
 import { Tooltip } from '../Tooltip'
 import clsx from 'clsx'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 enum ListTooltip {
     None = 0,
@@ -60,19 +60,57 @@ const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
     )
 }
 
+const unusedIndicator = (eventNames: string[]): JSX.Element => {
+    return (
+        <Tooltip
+            title={
+                <>
+                    This property has not been seen on{' '}
+                    {eventNames ? (
+                        <>
+                            the event{eventNames.length > 1 ? 's' : ''}{' '}
+                            {eventNames.map((e, index) => (
+                                <>
+                                    {index === 0 ? '' : index === eventNames.length - 1 ? ' and ' : ', '}
+                                    <strong>"{e}"</strong>
+                                </>
+                            ))}
+                        </>
+                    ) : (
+                        'this event'
+                    )}
+                    , but has been seen on other events.
+                </>
+            }
+        >
+            <Tag className="lemonade-tag">Not seen</Tag>
+        </Tooltip>
+    )
+}
+
 const renderItemContents = ({
     item,
     listGroupType,
-    featureFlagEnabled,
+    featureFlags,
+    eventNames,
 }: {
-    item: EventDefinition | CohortType
+    item: EventDefinition | PropertyDefinition | CohortType
     listGroupType: TaxonomicFilterGroupType
-    featureFlagEnabled: boolean
+    featureFlags: FeatureFlagsSet
+    eventNames: string[]
 }): JSX.Element | string => {
     const parsedLastSeen = (item as EventDefinition).last_seen_at ? dayjs((item as EventDefinition).last_seen_at) : null
     const isStale =
-        (featureFlagEnabled && listGroupType === TaxonomicFilterGroupType.Events && !parsedLastSeen) ||
+        (featureFlags[FEATURE_FLAGS.STALE_EVENTS] &&
+            listGroupType === TaxonomicFilterGroupType.Events &&
+            !parsedLastSeen) ||
         dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS
+
+    const isUnusedEventProperty =
+        featureFlags[FEATURE_FLAGS.UNSEEN_EVENT_PROPERTIES] &&
+        listGroupType === TaxonomicFilterGroupType.EventProperties &&
+        (item as PropertyDefinition).is_event_property !== null &&
+        !(item as PropertyDefinition).is_event_property
 
     return listGroupType === TaxonomicFilterGroupType.EventProperties ||
         listGroupType === TaxonomicFilterGroupType.PersonProperties ||
@@ -84,6 +122,7 @@ const renderItemContents = ({
                 <PropertyKeyInfo value={item.name ?? ''} disablePopover />
             </div>
             {isStale && staleIndicator(parsedLastSeen)}
+            {isUnusedEventProperty && unusedIndicator(eventNames)}
         </>
     ) : listGroupType === TaxonomicFilterGroupType.Elements ? (
         <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover />
@@ -176,7 +215,8 @@ const selectedItemHasPopup = (
 }
 
 export function InfiniteList(): JSX.Element {
-    const { mouseInteractionsEnabled, activeTab, searchQuery, value, groupType } = useValues(taxonomicFilterLogic)
+    const { mouseInteractionsEnabled, activeTab, searchQuery, value, groupType, eventNames } =
+        useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -221,7 +261,8 @@ export function InfiniteList(): JSX.Element {
                 {renderItemContents({
                     item,
                     listGroupType,
-                    featureFlagEnabled: !!featureFlags[FEATURE_FLAGS.STALE_EVENTS],
+                    featureFlags,
+                    eventNames,
                 })}
             </div>
         ) : (

@@ -112,8 +112,8 @@ export function Cohorts(): JSX.Element {
             render: function Render(name, { id, description }) {
                 return (
                     <>
-                        <Link to={combineUrl(urls.cohort(id), searchParams).url}>
-                            <h4 className="row-name">{name || 'Untitled'}</h4>
+                        <Link to={combineUrl(urls.cohort(id), searchParams).url} className="row-name">
+                            {name || 'Untitled'}
                         </Link>
                         {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && description && (
                             <span className="row-description">{description}</span>
@@ -246,7 +246,7 @@ export function Cohorts(): JSX.Element {
                     columns={columns}
                     loading={cohortsLoading}
                     rowKey="id"
-                    pagination={{ pageSize: 30 }}
+                    pagination={{ pageSize: 100 }}
                     dataSource={searchTerm ? searchCohorts(cohorts, searchTerm) : cohorts}
                     nouns={['cohort', 'cohorts']}
                 />

@@ -49,7 +49,10 @@ class SignupSerializer(serializers.Serializer):
         organization_name = validated_data.pop("organization_name", validated_data["first_name"])
 
         self._organization, self._team, self._user = User.objects.bootstrap(
-            organization_name=organization_name, create_team=self.create_team, **validated_data,
+            organization_name=organization_name,
+            create_team=self.create_team,
+            **validated_data,
+            is_staff=is_instance_first_user,
         )
         user = self._user
 

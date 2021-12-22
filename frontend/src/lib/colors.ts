@@ -88,28 +88,45 @@ export const dashboardColorHSL = {
     black: [0, 0, 18],
 }
 
-export const cssHSL = (h: number, s: number, l: number): string =>
-    `hsl(${h % 360}, ${Math.max(0, Math.min(100, s))}%, ${Math.max(0, Math.min(100, l))}%)`
+export const cssHSLA = (h: number, s: number, l: number, a: number = 1): string =>
+    `hsla(${h % 360}, ${Math.max(0, Math.min(100, s))}%, ${Math.max(0, Math.min(100, l))}%, ${a})`
 
 export const dashboardColors: Record<string, string> = {}
 Object.entries(dashboardColorHSL).forEach(([key, [h, s, l]]) => {
-    dashboardColors[key] = cssHSL(h, s, l)
+    dashboardColors[key] = cssHSLA(h, s, l)
 })
 
-export function getChartColors(backgroundColor: string): string[] {
+export function getChartColors(
+    backgroundColor: string,
+    numSeries?: number,
+    injectLightColors: boolean = false
+): string[] {
+    const alpha = 80
+
     if (backgroundColor === 'black') {
         const colors = []
-        for (let i = 0; i < 20; i++) {
+        for (let i = 0; i < (numSeries ?? 20); i++) {
             const h = ((40 + i * 160) % 360) + (i > 10 ? 40 : 0)
             const s = i > 0 ? 30 : 10
             const l = 90 - (i % 5) * 10 //  (i % 2 === 0 ? i : (10 - i)) * 7
-            colors.push(cssHSL(h, s, l))
+            colors.push(cssHSLA(h, s, l))
+            if (injectLightColors) {
+                colors.push(cssHSLA(h, s, l, alpha / 100))
+            }
         }
         return colors
     }
 
     if (backgroundColor === 'white' || !backgroundColor) {
-        return lightColors.map((color) => getColorVar(color))
+        const colors: string[] = []
+        for (let i = 0; i < (numSeries ?? 20); i++) {
+            const hex = getColorVar(lightColors[i % lightColors.length]).substring(0, 7)
+            colors.push(hex)
+            if (injectLightColors) {
+                colors.push(`${hex}${alpha}`)
+            }
+        }
+        return colors
     }
 
     const colors = dashboardColorHSL[backgroundColor as keyof typeof dashboardColorHSL]

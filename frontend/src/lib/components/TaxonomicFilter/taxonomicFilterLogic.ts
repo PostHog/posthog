@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { BuiltLogic, kea } from 'kea'
 import { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 import {
     SimpleOption,
@@ -6,6 +6,7 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
+    ListStorage,
 } from 'lib/components/TaxonomicFilter/types'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
@@ -13,10 +14,14 @@ import { ActionType, CohortType, EventDefinition, PersonProperty, PropertyDefini
 import { cohortsModel } from '~/models/cohortsModel'
 import { actionsModel } from '~/models/actionsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
-import { teamLogic } from '../../../scenes/teamLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { capitalizeFirstLetter, toParams } from 'lib/utils'
+import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
+import { combineUrl } from 'kea-router'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
     path: (key) => ['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic', key],
@@ -45,6 +50,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             group,
             value,
             item,
+        }),
+        infiniteListResultsReceived: (groupType: TaxonomicFilterGroupType, results: ListStorage) => ({
+            groupType,
+            results,
         }),
     }),
 
@@ -77,14 +86,22 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         ],
     }),
 
+    // NB, don't change to the async "selectors: (logic) => {}", as this causes a white screen when infiniteListLogic-s
+    // connect to taxonomicFilterLogic to select their initial values. They won't be built yet and will be unknown.
     selectors: {
         taxonomicFilterLogicKey: [
             () => [(_, props) => props.taxonomicFilterLogicKey],
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
+        eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames],
         taxonomicGroups: [
-            (selectors) => [selectors.currentTeamId, selectors.groupAnalyticsTaxonomicGroups],
-            (teamId, groupAnalyticsTaxonomicGroups): TaxonomicFilterGroup[] => [
+            (selectors) => [
+                selectors.currentTeamId,
+                selectors.groupAnalyticsTaxonomicGroups,
+                selectors.eventNames,
+                featureFlagLogic.selectors.featureFlags,
+            ],
+            (teamId, groupAnalyticsTaxonomicGroups, eventNames, featureFlags): TaxonomicFilterGroup[] => [
                 {
                     name: 'Events',
                     searchPlaceholder: 'events',
@@ -97,7 +114,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     name: 'Actions',
                     searchPlaceholder: 'actions',
                     type: TaxonomicFilterGroupType.Actions,
-                    logic: actionsModel as any,
+                    logic: actionsModel,
                     value: 'actions',
                     getName: (action: ActionType): string => action.name,
                     getValue: (action: ActionType): TaxonomicFilterValue => action.id,
@@ -116,7 +133,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     name: 'Event properties',
                     searchPlaceholder: 'event properties',
                     type: TaxonomicFilterGroupType.EventProperties,
-                    endpoint: `api/projects/${teamId}/property_definitions`,
+                    endpoint: combineUrl(
+                        `api/projects/${teamId}/property_definitions`,
+                        featureFlags[FEATURE_FLAGS.UNSEEN_EVENT_PROPERTIES] ? { event_names: eventNames } : {}
+                    ).url,
                     getName: (propertyDefinition: PropertyDefinition): string => propertyDefinition.name,
                     getValue: (propertyDefinition: PropertyDefinition): TaxonomicFilterValue => propertyDefinition.name,
                 },
@@ -185,6 +205,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 ...groupAnalyticsTaxonomicGroups,
             ],
         ],
+        activeTaxonomicGroup: [
+            (s) => [s.activeTab, s.taxonomicGroups],
+            (activeTab, taxonomicGroups) => taxonomicGroups.find((g) => g.type === activeTab),
+        ],
         taxonomicGroupTypes: [
             (selectors) => [(_, props) => props.taxonomicGroupTypes, selectors.taxonomicGroups],
             (groupTypes, taxonomicGroups): TaxonomicFilterGroupType[] =>
@@ -205,6 +229,31 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     getValue: (group) => group.name,
                     groupTypeIndex: index,
                 })),
+        ],
+        infiniteListLogics: [
+            (s) => [s.taxonomicGroupTypes, (_, props) => props],
+            (taxonomicGroupTypes, props): Record<string, BuiltLogic<infiniteListLogicType>> =>
+                Object.fromEntries(
+                    taxonomicGroupTypes.map((groupType) => [
+                        groupType,
+                        infiniteListLogic.build({
+                            ...props,
+                            listGroupType: groupType,
+                        }),
+                    ])
+                ),
+        ],
+        totalCounts: [
+            (s) => [
+                (state, props) =>
+                    Object.fromEntries(
+                        Object.entries(s.infiniteListLogics(state, props)).map(([groupType, logic]) => [
+                            groupType,
+                            logic.isMounted() ? logic.selectors.totalCount(state, logic.props) : 0,
+                        ])
+                    ),
+            ],
+            (totalCounts) => totalCounts,
         ],
         value: [() => [(_, props) => props.value], (value) => value],
         groupType: [() => [(_, props) => props.groupType], (groupType) => groupType],
@@ -235,7 +284,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             },
         ],
     },
-
     listeners: ({ actions, values, props }) => ({
         selectItem: ({ group, value, item }) => {
             if (item && value) {
@@ -277,15 +325,46 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         },
 
         tabLeft: () => {
-            const { currentTabIndex, taxonomicGroupTypes } = values
-            const newIndex = (currentTabIndex - 1 + taxonomicGroupTypes.length) % taxonomicGroupTypes.length
-            actions.setActiveTab(taxonomicGroupTypes[newIndex])
+            const { currentTabIndex, taxonomicGroupTypes, totalCounts } = values
+            for (let i = 1; i < taxonomicGroupTypes.length; i++) {
+                const newIndex = (currentTabIndex - i + taxonomicGroupTypes.length) % taxonomicGroupTypes.length
+                if (totalCounts[taxonomicGroupTypes[newIndex]] > 0) {
+                    actions.setActiveTab(taxonomicGroupTypes[newIndex])
+                    return
+                }
+            }
         },
 
         tabRight: () => {
-            const { currentTabIndex, taxonomicGroupTypes } = values
-            const newIndex = (currentTabIndex + 1) % taxonomicGroupTypes.length
-            actions.setActiveTab(taxonomicGroupTypes[newIndex])
+            const { currentTabIndex, taxonomicGroupTypes, totalCounts } = values
+            for (let i = 1; i < taxonomicGroupTypes.length; i++) {
+                const newIndex = (currentTabIndex + i) % taxonomicGroupTypes.length
+                if (totalCounts[taxonomicGroupTypes[newIndex]] > 0) {
+                    actions.setActiveTab(taxonomicGroupTypes[newIndex])
+                    return
+                }
+            }
+        },
+
+        setSearchQuery: () => {
+            const { activeTaxonomicGroup, totalCounts } = values
+
+            // Taxonomic group with a local data source, zero results after searching.
+            // Open the next tab.
+            if (
+                activeTaxonomicGroup &&
+                !activeTaxonomicGroup.endpoint &&
+                totalCounts[activeTaxonomicGroup.type] === 0
+            ) {
+                actions.tabRight()
+            }
+        },
+
+        infiniteListResultsReceived: ({ groupType, results }) => {
+            // Open the next tab if no results on an active tab.
+            if (groupType === values.activeTab && results.count === 0) {
+                actions.tabRight()
+            }
         },
     }),
 })

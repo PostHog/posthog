@@ -6,6 +6,7 @@ from posthog.utils import is_clickhouse_enabled
 from . import (
     action,
     annotation,
+    async_migration,
     authentication,
     cohort,
     dashboard,
@@ -94,12 +95,14 @@ router.register(r"users", user.UserViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
 router.register(r"shared_dashboards", dashboard.SharedDashboardsViewSet)
+router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
 
 if is_clickhouse_enabled():
     from ee.clickhouse.views.actions import ClickhouseActionsViewSet, LegacyClickhouseActionsViewSet
     from ee.clickhouse.views.cohort import ClickhouseCohortViewSet, LegacyClickhouseCohortViewSet
     from ee.clickhouse.views.element import ClickhouseElementViewSet, LegacyClickhouseElementViewSet
     from ee.clickhouse.views.events import ClickhouseEventsViewSet, LegacyClickhouseEventsViewSet
+    from ee.clickhouse.views.experiments import ClickhouseExperimentsViewSet
     from ee.clickhouse.views.groups import ClickhouseGroupsTypesView, ClickhouseGroupsView
     from ee.clickhouse.views.insights import ClickhouseInsightsViewSet, LegacyClickhouseInsightsViewSet
     from ee.clickhouse.views.paths import ClickhousePathsViewSet, LegacyClickhousePathsViewSet
@@ -124,6 +127,7 @@ if is_clickhouse_enabled():
     projects_router.register(r"paths", ClickhousePathsViewSet, "project_paths", ["team_id"])
     projects_router.register(r"elements", ClickhouseElementViewSet, "project_elements", ["team_id"])
     projects_router.register(r"cohorts", ClickhouseCohortViewSet, "project_cohorts", ["team_id"])
+    projects_router.register(r"experiments", ClickhouseExperimentsViewSet, "project_experiments", ["team_id"])
     projects_router.register(
         r"session_recordings", ClickhouseSessionRecordingViewSet, "project_session_recordings", ["team_id"],
     )

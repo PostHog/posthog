@@ -1,19 +1,29 @@
 import React from 'react'
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
-import { IconExternalLink } from 'lib/components/icons'
+import { IconOpenInNew } from 'lib/components/icons'
 import { teamLogic } from 'scenes/teamLogic'
 
 export const UTM_TAGS = '?utm_medium=in-product&utm_campaign=feature-flag'
 
-export function JSSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+export function JSSnippet({ flagKey, variants }: { flagKey: string; variants?: string[] }): JSX.Element {
     return (
         <>
-            <CodeSnippet language={Language.JavaScript} wrap>
-                {`if (posthog.isFeatureEnabled('${flagKey ?? ''}')) {
+            {!!variants?.length ? (
+                variants.map((variant, index) => (
+                    <CodeSnippet key={index} language={Language.JavaScript} wrap>
+                        {`if (posthog.getFeatureFlag('${flagKey ?? ''}') === '${variant}') {
+    // where '${variant}' is the variant, run your code here
+}`}
+                    </CodeSnippet>
+                ))
+            ) : (
+                <CodeSnippet language={Language.JavaScript} wrap>
+                    {`if (posthog.isFeatureEnabled('${flagKey ?? ''}')) {
     // run your activation code here
 }`}
-            </CodeSnippet>
+                </CodeSnippet>
+            )}
             <div className="mt">
                 Need more information?{' '}
                 <a
@@ -21,7 +31,7 @@ export function JSSnippet({ flagKey }: { flagKey: string }): JSX.Element {
                     rel="noopener"
                     href={`https://posthog.com/docs/integrations/js-integration${UTM_TAGS}#feature-flags`}
                 >
-                    Check the docs <IconExternalLink />
+                    Check the docs <IconOpenInNew />
                 </a>
             </div>
         </>
@@ -43,7 +53,7 @@ export function PythonSnippet({ flagKey }: { flagKey: string }): JSX.Element {
                     rel="noopener"
                     href={`https://posthog.com/docs/integrations/python-integration${UTM_TAGS}#feature-flags`}
                 >
-                    Check the docs <IconExternalLink />
+                    Check the docs <IconOpenInNew />
                 </a>
             </div>
         </>
@@ -66,7 +76,7 @@ export function APISnippet(): JSX.Element {
             <div className="mt">
                 Need more information?{' '}
                 <a target="_blank" rel="noopener" href={`https://posthog.com/docs/api/feature-flags${UTM_TAGS}`}>
-                    Check the docs <IconExternalLink />
+                    Check the docs <IconOpenInNew />
                 </a>
             </div>
         </>

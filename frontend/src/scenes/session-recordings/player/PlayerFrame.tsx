@@ -7,20 +7,20 @@ import { IconPlay } from 'scenes/session-recordings/player/icons'
 
 export const PlayerFrame = React.forwardRef<HTMLDivElement>(function PlayerFrameInner(_, ref): JSX.Element {
     const replayDimensionRef = useRef<viewportResizeDimension>()
-    const { currentPlayerState, replayer } = useValues(sessionRecordingPlayerLogic)
+    const { currentPlayerState, player } = useValues(sessionRecordingPlayerLogic)
     const { togglePlayPause, setScale } = useActions(sessionRecordingPlayerLogic)
     const frameRef = ref as MutableRefObject<HTMLDivElement>
 
     useEffect(() => {
-        if (!replayer) {
+        if (!player) {
             return
         }
 
-        replayer.on('resize', updatePlayerDimensions as Handler)
+        player.replayer.on('resize', updatePlayerDimensions as Handler)
         window.addEventListener('resize', windowResize)
 
         return () => window.removeEventListener('resize', windowResize)
-    }, [replayer])
+    }, [player?.replayer])
 
     const windowResize = (): void => {
         updatePlayerDimensions(replayDimensionRef.current)
@@ -28,7 +28,7 @@ export const PlayerFrame = React.forwardRef<HTMLDivElement>(function PlayerFrame
 
     // :TRICKY: Scale down the iframe and try to position it vertically
     const updatePlayerDimensions = (replayDimensions: viewportResizeDimension | undefined): void => {
-        if (!replayDimensions || !frameRef?.current?.parentElement || !replayer) {
+        if (!replayDimensions || !frameRef?.current?.parentElement || !player?.replayer) {
             return
         }
 
@@ -37,7 +37,7 @@ export const PlayerFrame = React.forwardRef<HTMLDivElement>(function PlayerFrame
 
         const scale = Math.min(width / replayDimensions.width, height / replayDimensions.height, 1)
 
-        replayer.wrapper.style.transform = `scale(${scale})`
+        player.replayer.wrapper.style.transform = `scale(${scale})`
         frameRef.current.style.paddingLeft = `${(width - replayDimensions.width * scale) / 2}px`
         frameRef.current.style.paddingTop = `${(height - replayDimensions.height * scale) / 2}px`
         frameRef.current.style.marginBottom = `-${height - replayDimensions.height * scale}px`
@@ -46,9 +46,6 @@ export const PlayerFrame = React.forwardRef<HTMLDivElement>(function PlayerFrame
     }
 
     const renderPlayerState = (): JSX.Element | null => {
-        if (currentPlayerState === SessionPlayerState.SKIP) {
-            return <div className="rrweb-overlay">Skipping inactivity...</div>
-        }
         if (currentPlayerState === SessionPlayerState.BUFFER) {
             return <div className="rrweb-overlay">Buffering...</div>
         }
@@ -58,6 +55,9 @@ export const PlayerFrame = React.forwardRef<HTMLDivElement>(function PlayerFrame
                     <IconPlay className="rrweb-overlay-play-icon" />
                 </div>
             )
+        }
+        if (currentPlayerState === SessionPlayerState.SKIP) {
+            return <div className="rrweb-overlay">Skipping inactivity</div>
         }
         return null
     }

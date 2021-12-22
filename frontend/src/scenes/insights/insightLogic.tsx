@@ -1,11 +1,18 @@
 import { kea } from 'kea'
 import { prompt } from 'lib/logic/prompt'
-import { errorToast, objectsEqual, toParams, uuid } from 'lib/utils'
+import {
+    dateFilterToText,
+    errorToast,
+    getEventNamesForAction,
+    getFormattedLastWeekDate,
+    objectsEqual,
+    toParams,
+    uuid,
+} from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
 import {
-    AvailableFeature,
     Breadcrumb,
     InsightModel,
     FilterType,
@@ -14,6 +21,7 @@ import {
     InsightType,
     ItemMode,
     SetInsightOptions,
+    ActionType,
 } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
 import { router } from 'kea-router'
@@ -29,12 +37,14 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { extractObjectDiffKeys, findInsightFromMountedLogic, getInsightId } from './utils'
 import { teamLogic } from '../teamLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 import { generateRandomAnimal } from 'lib/utils/randomAnimal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { actionsModel } from '~/models/actionsModel'
+import * as Sentry from '@sentry/browser'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -114,6 +124,7 @@ export const insightLogic = kea<insightLogicType>({
         loadResults: (refresh = false) => ({ refresh, queryId: uuid() }),
         setInsightMetadata: (metadata: Partial<InsightModel>) => ({ metadata }),
         createAndRedirectToNewInsight: (filters?: Partial<FilterType>) => ({ filters }),
+        toggleInsightLegend: true,
     }),
     loaders: ({ actions, cache, values, props }) => ({
         insight: [
@@ -137,6 +148,22 @@ export const insightLogic = kea<insightLogicType>({
                     if (!Object.entries(insight).length) {
                         return values.insight
                     }
+
+                    if (
+                        insight.filters &&
+                        JSON.stringify(cleanFilters(insight.filters)) === JSON.stringify(cleanFilters({}))
+                    ) {
+                        const error = new Error('Will not override empty filters in updateInsight.')
+                        Sentry.captureException(error, {
+                            extra: {
+                                filters: JSON.stringify(insight.filters),
+                                insight: JSON.stringify(insight),
+                                valuesInsight: JSON.stringify(values.insight),
+                            },
+                        })
+                        throw error
+                    }
+
                     const response = await api.update(
                         `api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}`,
                         insight
@@ -147,13 +174,27 @@ export const insightLogic = kea<insightLogicType>({
                         result: response.result || values.insight.result,
                     }
                     callback?.(updatedInsight)
-                    savedInsightsLogic.findMounted()?.actions.loadInsights()
                     dashboardsModel.actions.updateDashboardItem(updatedInsight)
+                    savedInsightsLogic.findMounted()?.actions.loadInsights()
+                    if (updatedInsight.dashboard) {
+                        dashboardLogic.findMounted({ id: updatedInsight.dashboard })?.actions.loadDashboardItems()
+                    }
                     return updatedInsight
                 },
                 setInsightMetadata: async ({ metadata }, breakpoint) => {
                     if (values.insightMode === ItemMode.Edit) {
                         return { ...values.insight, ...metadata }
+                    }
+
+                    if (metadata.filters) {
+                        const error = new Error(`Will not override filters in setInsightMetadata`)
+                        Sentry.captureException(error, {
+                            extra: {
+                                filters: JSON.stringify(values.insight.filters),
+                                insight: JSON.stringify(values.insight),
+                            },
+                        })
+                        throw error
                     }
 
                     const response = await api.update(
@@ -417,10 +458,6 @@ export const insightLogic = kea<insightLogicType>({
             (savedFilters, filters) =>
                 filters && savedFilters && !objectsEqual(cleanFilters(savedFilters), cleanFilters(filters)),
         ],
-        metadataEditable: [
-            () => [userLogic.selectors.user],
-            (user) => user?.organization?.available_features?.includes(AvailableFeature.DASHBOARD_COLLABORATION),
-        ],
         syncWithUrl: [
             () => [(_, props: InsightLogicProps) => props.syncWithUrl, router.selectors.location],
             (syncWithUrl, { pathname }) => syncWithUrl && pathname.startsWith('/insights/'),
@@ -446,6 +483,31 @@ export const insightLogic = kea<insightLogicType>({
                         ? urls.insightEdit(short_id, cleanFilters({ ...filters, insight: insightType }, filters))
                         : undefined,
         ],
+        currentFormattedDateRange: [
+            (s) => [s.insight],
+            (insight) => {
+                return dateFilterToText(
+                    insight?.result?.[0]?.filter?.date_from ?? insight?.result?.[0]?.days?.[0],
+                    insight?.last_refresh ??
+                        insight?.result?.[0]?.filter?.date_to ??
+                        insight?.result?.[0]?.days?.[insight?.result?.[0]?.days.length - 1],
+                    getFormattedLastWeekDate(),
+                    undefined,
+                    true
+                )
+            },
+        ],
+        allEventNames: [
+            (s) => [s.filters, actionsModel.selectors.actions],
+            (filters, actions: ActionType[]) => {
+                const allEvents = [
+                    ...(filters.events || []).map((e) => String(e.id)),
+                    ...(filters.actions || []).flatMap((action) => getEventNamesForAction(action.id, actions)),
+                ]
+                // remove duplicates and empty events
+                return Array.from(new Set(allEvents.filter((a): a is string => !!a)))
+            },
+        ],
     },
     listeners: ({ actions, selectors, values, props }) => ({
         setFilters: async ({ filters }, _, __, previousState) => {
@@ -461,11 +523,13 @@ export const insightLogic = kea<insightLogicType>({
                     layout: undefined,
                     hiddenLegendKeys: undefined,
                     funnel_advanced: undefined,
+                    legend_hidden: undefined,
                 }),
                 Object.assign({}, values.loadedFilters, {
                     layout: undefined,
                     hiddenLegendKeys: undefined,
                     funnel_advanced: undefined,
+                    legend_hidden: undefined,
                 })
             )
 
@@ -580,6 +644,16 @@ export const insightLogic = kea<insightLogicType>({
             if (!insightId) {
                 throw new Error('Can only save saved insights whose id is known.')
             }
+            if (
+                !values.insight.filters ||
+                JSON.stringify(cleanFilters(values.insight.filters)) === JSON.stringify(cleanFilters({}))
+            ) {
+                const error = new Error('Will not override empty filters in saveInsight.')
+                Sentry.captureException(error, {
+                    extra: { filters: JSON.stringify(values.insight.filters), insight: JSON.stringify(values.insight) },
+                })
+                throw error
+            }
             const savedInsight: InsightModel = await api.update(
                 `api/projects/${teamLogic.values.currentTeamId}/insights/${insightId}`,
                 { ...values.insight, saved: true }
@@ -669,6 +743,9 @@ export const insightLogic = kea<insightLogicType>({
             router.actions.replace(
                 urls.insightEdit(createdInsight.short_id, cleanFilters(createdInsight.filters || filters || {}))
             )
+        },
+        toggleInsightLegend: () => {
+            actions.setFilters({ ...values.filters, legend_hidden: !values.filters.legend_hidden })
         },
     }),
     actionToUrl: ({ values }) => {

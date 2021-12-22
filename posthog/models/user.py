@@ -3,10 +3,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rest_framework.exceptions import ValidationError
 
+from posthog.constants import AvailableFeature
 from posthog.utils import get_instance_realm
 
 from .organization import Organization, OrganizationMembership
@@ -41,6 +43,7 @@ class UserManager(BaseUserManager):
         organization_fields: Optional[Dict[str, Any]] = None,
         team_fields: Optional[Dict[str, Any]] = None,
         create_team: Optional[Callable[["Organization", "User"], "Team"]] = None,
+        is_staff: bool = False,
         **user_fields,
     ) -> Tuple["Organization", "Team", "User"]:
         """Instead of doing the legwork of creating a user from scratch, delegate the details with bootstrap."""
@@ -48,7 +51,9 @@ class UserManager(BaseUserManager):
             organization_fields = organization_fields or {}
             organization_fields.setdefault("name", organization_name)
             organization = Organization.objects.create(**organization_fields)
-            user = self.create_user(email=email, password=password, first_name=first_name, **user_fields)
+            user = self.create_user(
+                email=email, password=password, first_name=first_name, is_staff=is_staff, **user_fields
+            )
             if create_team:
                 team = create_team(organization, user)
             else:
@@ -142,7 +147,25 @@ class User(AbstractUser, UUIDClassicModel):
     @property
     def team(self) -> Optional[Team]:
         if self.current_team is None and self.organization is not None:
-            self.current_team = self.organization.teams.order_by("access_control", "id").first()  # Prefer open projects
+            if (
+                not settings.EE_AVAILABLE
+                or AvailableFeature.PROJECT_BASED_PERMISSIONING not in self.organization.available_features
+                or self.organization.memberships.get(user=self).level >= OrganizationMembership.Level.ADMIN
+            ):
+                # If project access control is NOT applicable, simply prefer open projects just in case
+                self.current_team = self.organization.teams.order_by("access_control", "id").first()
+            else:
+                # If project access control IS applicable, make sure the user is assigned a project they have access to
+                from ee.models import ExplicitTeamMembership
+
+                available_private_project_ids = ExplicitTeamMembership.objects.filter(
+                    parent_membership__user=self
+                ).values_list("team_id", flat=True)
+                self.current_team = (
+                    self.organization.teams.filter(Q(access_control=False) | Q(pk__in=available_private_project_ids))
+                    .order_by("access_control", "id")
+                    .first()
+                )
             self.save()
         return self.current_team
 
@@ -152,7 +175,17 @@ class User(AbstractUser, UUIDClassicModel):
         with transaction.atomic():
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
             self.current_organization = organization
-            self.current_team = organization.teams.first()
+            if (
+                not settings.EE_AVAILABLE
+                or AvailableFeature.PROJECT_BASED_PERMISSIONING not in organization.available_features
+                or level >= OrganizationMembership.Level.ADMIN
+            ):
+                # If project access control is NOT applicable, simply prefer open projects just in case
+                self.current_team = organization.teams.order_by("access_control", "id").first()
+            else:
+                # If project access control IS applicable, make sure the user is assigned a project they have access to
+                # We don't need to check for ExplicitTeamMembership as none can exist for a completely new member
+                self.current_team = organization.teams.order_by("id").filter(access_control=False).first()
             self.save()
             return membership
 

@@ -2,9 +2,14 @@ import React, { useEffect, useRef, useState } from 'react'
 import { AutoComplete, Select } from 'antd'
 import { useThrottledCallback } from 'use-debounce'
 import api from 'lib/api'
-import { isOperatorFlag, isOperatorMulti, isOperatorRegex, toString } from 'lib/utils'
+import { isOperatorDate, isOperatorFlag, isOperatorMulti, isOperatorRegex, toString } from 'lib/utils'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { PropertyOperator } from '~/types'
+import dayjs, { Dayjs } from 'dayjs'
+import generatePicker from 'antd/lib/date-picker/generatePicker'
+import dayjsGenerateConfig from 'rc-picker/es/generate/dayjs'
+
+export const DatePicker = generatePicker<Dayjs>(dayjsGenerateConfig)
 
 type PropValue = {
     id?: number
@@ -178,6 +183,11 @@ export function PropertyValue({
         },
     }
 
+    const dayJSMightParse = (
+        candidateDateTimeValue: string | number | (string | number)[] | null | undefined
+    ): candidateDateTimeValue is string | number | undefined =>
+        ['string', 'number'].includes(typeof candidateDateTimeValue)
+
     return (
         <>
             {isMultiSelect ? (
@@ -217,6 +227,26 @@ export function PropertyValue({
                         )
                     })}
                 </SelectGradientOverflow>
+            ) : operator && isOperatorDate(operator) ? (
+                <>
+                    <DatePicker
+                        {...commonInputProps}
+                        inputReadOnly={true}
+                        className={'filter-date-picker'}
+                        dropdownClassName={'filter-date-picker-dropdown'}
+                        format="YYYY-MM-DD HH:mm:ss"
+                        showTime={true}
+                        showNow={false}
+                        value={dayJSMightParse(value) ? dayjs(value) : null}
+                        onOk={(selectedDate) => {
+                            setValue(selectedDate.format('YYYY-MM-DD HH:MM:ss'))
+                        }}
+                        getPopupContainer={(trigger: Element | null) => {
+                            const container = trigger?.parentElement?.parentElement?.parentElement
+                            return container ?? document.body
+                        }}
+                    />
+                </>
             ) : (
                 <AutoComplete
                     {...commonInputProps}

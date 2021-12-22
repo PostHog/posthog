@@ -15,7 +15,7 @@ flake8-import-order
 flake8-logging-format
 flake8-print
 pip-tools
-mypy
+mypy>=0.910
 mypy-extensions
 djangorestframework-stubs
 django-stubs
@@ -23,6 +23,14 @@ fakeredis
 freezegun
 packaging
 black
+types-Markdown
+types-PyYAML
+types-freezegun
+types-protobuf
+types-python-dateutil
+types-pytz
+types-redis
+types-requests
 isort
 pytest
 pytest-django

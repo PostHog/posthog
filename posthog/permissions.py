@@ -216,3 +216,14 @@ class TeamMemberStrictManagementPermission(BasePermission):
             else OrganizationMembership.Level.ADMIN
         )
         return requesting_level >= minimum_level
+
+
+class StaffUser(BasePermission):
+    """
+    Allows access to only staff users
+    """
+
+    message = "You are not a staff user, contact your instance admin."
+
+    def has_permission(self, request, _):
+        return request.user.is_staff
