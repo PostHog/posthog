@@ -165,7 +165,7 @@ export function PersonsModal({
                                 }
                             />
                         )}
-                        {people.crossDataset && people.seriesId && (
+                        {!!people.crossDataset?.length && !!people.seriesId && (
                             <div className="data-point-selector">
                                 <Select value={people.seriesId} onChange={(seriesId) => switchToDataPoint(seriesId)}>
                                     {people.crossDataset
