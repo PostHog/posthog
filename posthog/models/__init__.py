@@ -2,6 +2,7 @@ from .action import Action
 from .action_step import ActionStep
 from .annotation import Annotation
 from .cohort import Cohort, CohortPeople
+from .constance import Constance, get_dynamic_setting, set_dynamic_setting
 from .dashboard import Dashboard
 from .element import Element
 from .element_group import ElementGroup
@@ -32,6 +33,7 @@ __all__ = [
     "Annotation",
     "Cohort",
     "CohortPeople",
+    "Constance",
     "Dashboard",
     "Insight",
     "Element",
