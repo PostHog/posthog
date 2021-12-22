@@ -143,7 +143,7 @@ export function FeatureFlags(): JSX.Element {
         <div className="feature_flags">
             <PageHeader
                 title="Feature Flags"
-                caption="Feature flags are a way of turning functionality in your app on or off, based on user properties."
+                caption="Feature Flags are a way of turning functionality in your app on or off, based on user properties."
             />
             <div>
                 <Input.Search
