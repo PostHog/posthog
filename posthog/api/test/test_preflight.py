@@ -275,7 +275,6 @@ class TestPreflight(APIBaseTest):
     @pytest.mark.ee
     @pytest.mark.skip_on_multitenancy
     def test_can_create_org_with_multi_org(self):
-
         # First with no license
         with self.settings(MULTI_ORG_ENABLED=True):
             response = self.client.get("/_preflight/")

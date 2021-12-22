@@ -33,8 +33,10 @@ class SignupSerializer(serializers.Serializer):
                 queryset=User.objects.all(), message="There is already an account with this email address."
             )
         ]
+        if not settings.DEMO
+        else []  # In the demo environment, we treat an email collision in signup as login
     )
-    password: serializers.Field = serializers.CharField(allow_null=True)
+    password: serializers.Field = serializers.CharField(allow_null=True, required=not settings.DEMO)
     organization_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
     email_opt_in: serializers.Field = serializers.BooleanField(default=True)
 
@@ -44,16 +46,32 @@ class SignupSerializer(serializers.Serializer):
         return value
 
     def create(self, validated_data, **kwargs):
-        is_instance_first_user: bool = not User.objects.exists()
-
-        organization_name = validated_data.pop("organization_name", validated_data["first_name"])
-
-        self._organization, self._team, self._user = User.objects.bootstrap(
-            organization_name=organization_name,
-            create_team=self.create_team,
-            **validated_data,
-            is_staff=is_instance_first_user,
+        already_existing_demo_user = (
+            None if not settings.DEMO else User.objects.filter(email=validated_data["email"]).first()
         )
+
+        if not already_existing_demo_user:
+            # Normal signup flow
+            is_instance_first_user: bool = not User.objects.exists()
+
+            organization_name = validated_data.pop("organization_name", validated_data["first_name"])
+            if settings.DEMO:
+                validated_data["password"] = None
+
+            self._organization, self._team, self._user = User.objects.bootstrap(
+                organization_name=organization_name,
+                create_team=self.create_team,
+                **validated_data,
+                is_staff=is_instance_first_user,
+            )
+        else:
+            # If there's an email collision in signup in the demo environment, we treat it as a login
+            is_instance_first_user = False
+
+            self._user = already_existing_demo_user
+            self._organization = already_existing_demo_user.organization
+            self._team = already_existing_demo_user.team
+
         user = self._user
 
         # Temp (due to FF-release [`new-onboarding-2822`]): Activate the setup/onboarding process if applicable
@@ -78,14 +96,16 @@ class SignupSerializer(serializers.Serializer):
         return user
 
     def create_team(self, organization: Organization, user: User) -> Team:
-        if self.enable_new_onboarding(user):
+        if settings.DEMO or self.enable_new_onboarding(user):
             return create_demo_team(organization=organization)
         else:
             return Team.objects.create_with_data(user=user, organization=organization)
 
     def to_representation(self, instance) -> Dict:
         data = UserBasicSerializer(instance=instance).data
-        data["redirect_url"] = "/personalization" if self.enable_new_onboarding() else "/ingestion"
+        data["redirect_url"] = (
+            "/personalization" if self.enable_new_onboarding() else "/ingestion" if not settings.DEMO else "/"
+        )
         return data
 
     def enable_new_onboarding(self, user: Optional[User] = None) -> bool:
