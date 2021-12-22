@@ -9,6 +9,8 @@ import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const POLL_TIMEOUT = 5000
 
@@ -64,7 +66,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             .filter((keyPart) => !!keyPart)
             .join('-'),
     connect: {
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
     },
     actions: {
         setProperties: (
@@ -292,13 +294,24 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             async ({ nextParams }, breakpoint) => {
                 clearTimeout(values.pollTimeout)
 
+                const properties = [...values.properties, ...(props.fixedFilters?.properties || [])]
+                if (featureFlagLogic?.values.featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME]) {
+                    // hard coded property definitions until the API returns them
+                    properties.forEach((p: AnyPropertyFilter) => {
+                        if (p.key === '$time') {
+                            p['property_definition'] = { dataType: 'DateTime', format: 'unix_timestamp' }
+                        }
+                    })
+                }
+
                 const urlParams = toParams({
                     ...(props.fixedFilters || {}),
-                    properties: [...values.properties, ...(props.fixedFilters?.properties || [])],
+                    properties,
                     ...(nextParams || {}),
                     ...(values.eventFilter ? { event: values.eventFilter } : {}),
                     orderBy: [values.orderBy],
                 })
+
                 let apiResponse = null
 
                 try {
@@ -330,9 +343,19 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 return
             }
 
+            const properties = [...values.properties, ...(props.fixedFilters?.properties || [])]
+            if (featureFlagLogic?.values.featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME]) {
+                // hard coded property definitions until the API returns them
+                properties.forEach((p: AnyPropertyFilter) => {
+                    if (p.key === '$time') {
+                        p['property_definition'] = { dataType: 'DateTime', format: 'unix_timestamp' }
+                    }
+                })
+            }
+
             const params: Record<string, unknown> = {
                 ...(props.fixedFilters || {}),
-                properties: [...values.properties, ...(props.fixedFilters?.properties || [])],
+                properties,
                 ...(values.eventFilter ? { event: values.eventFilter } : {}),
                 orderBy: [values.orderBy],
             }

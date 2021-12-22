@@ -32,7 +32,14 @@ from ee.clickhouse.sql.person import (
 )
 from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
-from posthog.models.property import NEGATED_OPERATORS, OperatorType, Property, PropertyIdentifier, PropertyName
+from posthog.models.property import (
+    NEGATED_OPERATORS,
+    UNIX_TIMESTAMP,
+    OperatorType,
+    Property,
+    PropertyIdentifier,
+    PropertyName,
+)
 from posthog.models.team import Team
 from posthog.utils import is_valid_regex, relative_date_parse
 
@@ -229,6 +236,38 @@ def prop_filter_json_extract(
                 idx=idx, prepend=prepend, prop_var=prop_var, left=property_expr
             ),
             params,
+        )
+    elif operator == "is_date_after":
+        # introducing duplication in these branches now rather than refactor too early
+        prop_value_param_key = "v{}_{}".format(prepend, idx)
+        query = f"AND parseDateTimeBestEffortOrNull({property_expr}) > %({prop_value_param_key})s"
+
+        if (
+            prop.property_definition is not None
+            and prop.property_definition.format is not None
+            and prop.property_definition.format == UNIX_TIMESTAMP
+        ):
+            query = f"AND parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10)) > %({prop_value_param_key})s"
+
+        return (
+            query,
+            {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value},
+        )
+    elif operator == "is_date_before":
+        # introducing duplication in these branches now rather than refactor too early
+        prop_value_param_key = "v{}_{}".format(prepend, idx)
+        query = f"AND parseDateTimeBestEffortOrNull({property_expr}) < %({prop_value_param_key})s"
+
+        if (
+            prop.property_definition is not None
+            and prop.property_definition.format is not None
+            and prop.property_definition.format == UNIX_TIMESTAMP
+        ):
+            query = f"AND parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10)) < %({prop_value_param_key})s"
+
+        return (
+            query,
+            {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value},
         )
     elif operator == "gt":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}

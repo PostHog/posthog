@@ -367,6 +367,8 @@ export const operatorMap: Record<string, string> = {
     lt: '< lower than',
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
+    is_date_before: '< before',
+    is_date_after: '> after',
 }
 
 export function isOperatorMulti(operator: string): boolean {
@@ -380,6 +382,10 @@ export function isOperatorFlag(operator: string): boolean {
 
 export function isOperatorRegex(operator: string): boolean {
     return ['regex', 'not_regex'].includes(operator)
+}
+
+export function isOperatorDate(operator: string): boolean {
+    return ['is_date_before', 'is_date_after'].includes(operator)
 }
 
 export function formatPropertyLabel(

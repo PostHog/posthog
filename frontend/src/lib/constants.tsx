@@ -87,6 +87,7 @@ export const FEATURE_FLAGS = {
     NEW_INSIGHT_TOOLTIPS: 'insight-tooltips', // owner @alexkim205
     DASHBOARD_REDESIGN: 'dashboard-redesign', // owner: @Twixes
     UNSEEN_EVENT_PROPERTIES: 'unseen-event-properties', // owner: @mariusandra
+    QUERY_EVENTS_BY_DATETIME: '6619-query-events-by-date', // owner @pauldambra
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

@@ -17,6 +17,9 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import clsx from 'clsx'
 
 let uniqueMemoizedIndex = 0
 
@@ -45,6 +48,8 @@ export function TaxonomicPropertyFilter({
         }
     }
     const { setFilter } = useActions(propertyFilterLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
     const logic = taxonomicPropertyFilterLogic({
         pageKey,
         filterIndex: index,
@@ -73,7 +78,13 @@ export function TaxonomicPropertyFilter({
     )
 
     return (
-        <div className={`taxonomic-property-filter${!disablePopover ? ' in-dropdown large' : ' row-on-page'}`}>
+        <div
+            className={clsx(
+                'taxonomic-property-filter',
+                disablePopover && 'row-on-page',
+                !disablePopover && ' in-dropdown large'
+            )}
+        >
             {showInitialSearchInline ? (
                 taxonomicFilter
             ) : (
@@ -116,6 +127,7 @@ export function TaxonomicPropertyFilter({
 
                     {showOperatorValueSelect && (
                         <OperatorValueSelect
+                            allowQueryingEventsByDateTime={featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME]}
                             type={filter?.type}
                             propkey={filter?.key}
                             operator={filter?.operator}
