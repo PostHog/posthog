@@ -33,11 +33,10 @@ export const scene: SceneExport = {
 }
 
 export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Element {
-    useMountedLogic(insightCommandLogic)
-
     const logic = insightLogic({ dashboardItemId: shortId, syncWithUrl: true })
     const { insightProps, activeView, filters, insight, insightMode, filtersChanged, savedFilters, tagLoading } =
         useValues(logic)
+    useMountedLogic(insightCommandLogic(insightProps))
     const {
         setActiveView,
         setInsightMode,
