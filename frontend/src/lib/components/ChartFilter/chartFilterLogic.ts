@@ -37,11 +37,15 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
 
             if (isFunnelVizType(chartFilter)) {
                 if (!objectsEqual(funnel_viz_type, chartFilter) || display !== ChartDisplayType.FunnelViz) {
-                    actions.setFilters({ display: ChartDisplayType.FunnelViz, funnel_viz_type: chartFilter })
+                    actions.setFilters({
+                        ...values.filters,
+                        display: ChartDisplayType.FunnelViz,
+                        funnel_viz_type: chartFilter,
+                    })
                 }
             } else {
                 if (!objectsEqual(display, chartFilter)) {
-                    actions.setFilters({ display: chartFilter })
+                    actions.setFilters({ ...values.filters, display: chartFilter })
                 }
             }
         },

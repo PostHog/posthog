@@ -24,9 +24,10 @@ export const insightDateFilterLogic = kea<insightDateFilterLogicType>({
             (filters) => ({ dateFrom: filters?.date_from || null, dateTo: filters?.date_to || null }),
         ],
     },
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, values }) => ({
         setDates: ({ dateFrom, dateTo }) => {
             actions.setFilters({
+                ...values.filters,
                 date_from: dateFrom || null,
                 date_to: dateTo || null,
             })

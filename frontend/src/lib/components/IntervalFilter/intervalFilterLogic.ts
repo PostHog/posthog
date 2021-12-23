@@ -25,11 +25,6 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
         },
     }),
     selectors: {
-        interval: [
-            (s) => [s.filters],
-            (filters) => {
-                return filters?.interval
-            },
-        ],
+        interval: [(s) => [s.filters], (filters) => filters?.interval],
     },
 })

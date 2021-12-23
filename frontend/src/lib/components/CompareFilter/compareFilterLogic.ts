@@ -30,7 +30,7 @@ export const compareFilterLogic = kea<compareFilterLogicType>({
     listeners: ({ values, actions }) => ({
         setCompare: ({ compare }) => {
             if (!objectsEqual(compare, values.compare)) {
-                actions.setFilters({ compare })
+                actions.setFilters({ ...values.filters, compare })
             }
         },
         toggleCompare: () => {
