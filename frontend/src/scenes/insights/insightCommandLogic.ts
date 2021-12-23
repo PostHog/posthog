@@ -15,7 +15,11 @@ export const insightCommandLogic = kea<insightCommandLogicType>({
     key: keyForInsightLogicProps('new'),
     path: (key) => ['scenes', 'insights', 'insightCommandLogic', key],
 
-    connect: (props: InsightLogicProps) => [commandPaletteLogic, compareFilterLogic, insightDateFilterLogic(props)],
+    connect: (props: InsightLogicProps) => [
+        commandPaletteLogic,
+        compareFilterLogic(props),
+        insightDateFilterLogic(props),
+    ],
     events: ({ props }) => ({
         afterMount: () => {
             const funnelCommands: Command[] = [
@@ -26,7 +30,7 @@ export const insightCommandLogic = kea<insightCommandLogicType>({
                             icon: RiseOutlined,
                             display: 'Toggle "Compare Previous" on Graph',
                             executor: () => {
-                                compareFilterLogic.actions.toggleCompare()
+                                compareFilterLogic(props).actions.toggleCompare()
                             },
                         },
                         ...Object.entries(dateMapping).map(([key, { values }]) => ({
