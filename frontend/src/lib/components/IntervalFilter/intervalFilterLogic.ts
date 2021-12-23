@@ -8,12 +8,12 @@ import { InsightLogicProps } from '~/types'
 export const intervalFilterLogic = kea<intervalFilterLogicType>({
     props: {} as InsightLogicProps,
     path: ['lib', 'components', 'IntervalFilter', 'intervalFilterLogic'],
-    actions: () => ({
-        setInterval: (interval: IntervalKeyType) => ({ interval }),
-    }),
     connect: (props: InsightLogicProps) => ({
         actions: [insightLogic(props), ['setFilters']],
         values: [insightLogic(props), ['filters']],
+    }),
+    actions: () => ({
+        setInterval: (interval: IntervalKeyType) => ({ interval }),
     }),
     listeners: ({ values, actions }) => ({
         setInterval: ({ interval }) => {
