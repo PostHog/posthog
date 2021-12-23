@@ -138,11 +138,13 @@ export function InsightLabel({
                     )}
 
                     {((action?.math && action.math !== 'total') || showCountedByTag) && (
-                        <MathTag
-                            math={action?.math}
-                            mathProperty={action?.math_property}
-                            mathGroupTypeIndex={action?.math_group_type_index}
-                        />
+                        <span style={{ marginRight: 4 }}>
+                            <MathTag
+                                math={action?.math}
+                                mathProperty={action?.math_property}
+                                mathGroupTypeIndex={action?.math_group_type_index}
+                            />
+                        </span>
                     )}
 
                     {pillValues.length > 0 && (
