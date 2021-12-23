@@ -79,7 +79,7 @@ class TestCohort(BaseTest):
 
         get_person_ids_by_cohort_id.return_value = [person1.uuid, person2.uuid]
 
-        cohort.calculate_people(use_clickhouse=True)
+        cohort.calculate_people()
 
         self.assertCountEqual(list(cohort.people.all()), [person1, person2])
 
