@@ -50,6 +50,7 @@ export function EventDetails({ event }: { event: EventType }): JSX.Element {
                             type="link"
                             onClick={() => setShowHiddenProps(!showHiddenProps)}
                         >
+                            {showHiddenProps ? 'Showing ' : ''}
                             {hiddenPropsCount} hidden properties. Click to {showHiddenProps ? 'hide' : 'show'}.
                         </Button>
                     </small>
