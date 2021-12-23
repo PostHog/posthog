@@ -128,6 +128,12 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType<KeyedAppUrl>>({
             null as number | null,
             {
                 setEditUrlIndex: (_, { originalIndex }) => originalIndex,
+                removeUrl: (editUrlIndex, { index }) =>
+                    editUrlIndex && index < editUrlIndex
+                        ? editUrlIndex - 1
+                        : index === editUrlIndex
+                        ? null
+                        : editUrlIndex,
             },
         ],
     }),
