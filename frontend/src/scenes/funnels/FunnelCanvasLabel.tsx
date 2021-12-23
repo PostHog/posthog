@@ -18,7 +18,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
     const { conversionMetrics, clickhouseFeaturesEnabled, aggregationTargetLabel } = useValues(
         funnelLogic(insightProps)
     )
-    const { setChartFilter } = useActions(chartFilterLogic)
+    const { setChartFilter } = useActions(chartFilterLogic(insightProps))
 
     if (activeView !== InsightType.FUNNELS) {
         return null
