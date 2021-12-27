@@ -141,6 +141,3 @@ class Migration(AsyncMigrationDefinition):
 
     def healthcheck(self):
         raise NotImplementedError("todo")
-
-    def progress(self, _):
-        raise NotImplementedError("todo")
