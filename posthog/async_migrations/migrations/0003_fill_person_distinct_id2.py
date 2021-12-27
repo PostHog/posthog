@@ -69,13 +69,8 @@ class Migration(AsyncMigrationDefinition):
          3. update app to always use pdi2
     """
 
-    #  TODO: add version details
-    # posthog_min_version = "1.31.0"
-    # posthog_max_version = "1.32.0"
-
-    # service_version_requirements = [
-    #     ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0"),
-    # ]
+    # After releasing this version we can remove code related to `person_distinct_id` table
+    posthog_max_version = "1.34.0"
 
     operations = [
         AsyncMigrationOperation(
