@@ -52,17 +52,17 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
     insight_type = filter_data.get("insight")
 
     if insight_type == INSIGHT_TRENDS:
-        filter = Filter(data=filter_data)
+        filter = Filter(data=filter_data).simplify(team=cohort.team)
         entity = get_target_entity(filter)
         query, params = ClickhouseTrendsActors(cohort.team, entity, filter).actor_query(limit_actors=False)
     elif insight_type == INSIGHT_STICKINESS:
-        stickiness_filter = StickinessFilter(data=filter_data, team=cohort.team)
+        stickiness_filter = StickinessFilter(data=filter_data, team=cohort.team).simplify(team=cohort.team)
         entity = get_target_entity(stickiness_filter)
         query, params = ClickhouseStickinessActors(cohort.team, entity, stickiness_filter).actor_query(
             limit_actors=False
         )
     elif insight_type == INSIGHT_FUNNELS:
-        funnel_filter = Filter(data=filter_data)
+        funnel_filter = Filter(data=filter_data).simplify(team=cohort.team)
         if funnel_filter.correlation_person_entity:
             query, params = FunnelCorrelationActors(filter=funnel_filter, team=cohort.team).actor_query(
                 limit_actors=False
@@ -71,7 +71,7 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
             funnel_actor_class = get_funnel_actor_class(funnel_filter)
             query, params = funnel_actor_class(filter=funnel_filter, team=cohort.team).actor_query(limit_actors=False)
     elif insight_type == INSIGHT_PATHS:
-        path_filter = PathFilter(data=filter_data)
+        path_filter = PathFilter(data=filter_data).simplify(team=cohort.team)
         query, params = ClickhousePathsActors(path_filter, cohort.team, funnel_filter=None).actor_query(
             limit_actors=False
         )
