@@ -73,7 +73,7 @@ jobs:
             - name: Start stack with Docker Compose
               run: |
                   docker-compose -f ee/docker-compose.ch.yml down
-                  docker-compose -f ee/docker-compose.ch.yml up db clickhouse zookeeper kafka plugins redis
+                  docker-compose -f ee/docker-compose.ch.yml up db clickhouse zookeeper kafka redis
 
             - name: Set up Python 3.8
               uses: actions/setup-python@v2
@@ -117,6 +117,8 @@ jobs:
               env:
                   GENERATE_SOURCEMAP: 'false'
               run: |
+                  yarn build
+                  cd plugin-server
                   yarn build
 
             - name: Wait for Clickhouse & Kafka
