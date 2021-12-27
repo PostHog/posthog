@@ -29,7 +29,7 @@ class Migration(AsyncMigrationDefinition):
 
             1. "person 1" is associated with "distinct_id A"
             2. "person 1" is deleted resulting in a new row being written with is_deleted = 1
-            
+
         The data can end up looking like:
 
         _timestamp            |  distinct_id |  person_id  |  is_deleted
@@ -50,7 +50,7 @@ class Migration(AsyncMigrationDefinition):
         a better fix where we just want the latest data.
 
         The new schema includes a `version` column which is strictly
-        increasing. At the time of writing, this version is a big int 
+        increasing. At the time of writing, this version is a big int
         [updated in a
         transaction](https://github.com/PostHog/posthog/blob/bcf2b6370f8d2205f1f7d5fb5f431124c3848691/plugin-server/src/worker/ingestion/properties-updater.ts#L58:L58)
         within postgres, then propagated to clickhouse on successful commit via
@@ -89,19 +89,19 @@ class Migration(AsyncMigrationDefinition):
                         version
                     )
                     /*
-                    Get all team_id, distinct_id, person_id tuples that 
+                    Get all team_id, distinct_id, person_id tuples that
                     haven't been deleted.
-                    
-                    Note that this query differs from the exact existing 
-                    person_distinct_id query currently in the codebase, e.g. 
+
+                    Note that this query differs from the exact existing
+                    person_distinct_id query currently in the codebase, e.g.
                     [this one](https://github.com/PostHog/posthog/blob/bcf2b6370f8d2205f1f7d5fb5f431124c3848691/ee/clickhouse/sql/person.py#L255:L255)
-                    in that it isn't filtering by team_id. We might need to 
+                    in that it isn't filtering by team_id. We might need to
                     reconsider that to avoid out of memory issues.
-                    
+
                     SELECT * FROM <old_query>
                     FULL JOIN <new_query> new ON old.distinct_id = new.distinct_id
                     WHERE old.person_id <> new.person_id
-                    
+
                     NOTE: where the query differs, I have left the original query
                     part commented out.
                     */
@@ -130,7 +130,16 @@ class Migration(AsyncMigrationDefinition):
     ]
 
     def is_required(self):
-        raise NotImplementedError("todo")
+        rows = sync_execute(
+            """
+            SELECT comment
+            FROM system.columns
+            WHERE database = %(database)s AND table = 'person_distinct_id' AND name = 'distinct_id'
+        """,
+            {"database": CLICKHOUSE_DATABASE},
+        )
+
+        return len(rows) > 0 and rows[0][0] != "skip_0003_fill_person_distinct_id2"
 
     def precheck(self):
         raise NotImplementedError("todo")
