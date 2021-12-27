@@ -143,6 +143,9 @@ export class DB {
     /** How many unique group types to allow per team */
     MAX_GROUP_TYPES_PER_TEAM = 5
 
+    /** Whether to write to clickhouse_person_unique_id topic */
+    writeToPersonUniqueId?: boolean
+
     constructor(
         postgres: Pool,
         redisPool: GenericPool<Redis.Redis>,
@@ -688,21 +691,7 @@ export class DB {
         const { id, version: versionStr, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId
         if (this.kafkaProducer) {
             const version = Number(versionStr || 0)
-            return [
-                {
-                    topic: KAFKA_PERSON_UNIQUE_ID,
-                    messages: [
-                        {
-                            value: Buffer.from(
-                                JSON.stringify({
-                                    ...personDistinctIdCreated,
-                                    person_id: person.uuid,
-                                    is_deleted: 0,
-                                })
-                            ),
-                        },
-                    ],
-                },
+            const messages = [
                 {
                     topic: KAFKA_PERSON_DISTINCT_ID,
                     messages: [
@@ -719,6 +708,25 @@ export class DB {
                     ],
                 },
             ]
+
+            if (await this.fetchWriteToPersonUniqueId()) {
+                messages.push({
+                    topic: KAFKA_PERSON_UNIQUE_ID,
+                    messages: [
+                        {
+                            value: Buffer.from(
+                                JSON.stringify({
+                                    ...personDistinctIdCreated,
+                                    person_id: person.uuid,
+                                    is_deleted: 0,
+                                })
+                            ),
+                        },
+                    ],
+                })
+            }
+
+            return messages
         } else {
             return []
         }
@@ -769,21 +777,6 @@ export class DB {
                 const { id, version: versionStr, ...usefulColumns } = row as PersonDistinctId
                 const version = Number(versionStr || 0)
                 kafkaMessages.push({
-                    topic: KAFKA_PERSON_UNIQUE_ID,
-                    messages: [
-                        {
-                            value: Buffer.from(
-                                JSON.stringify({ ...usefulColumns, person_id: target.uuid, is_deleted: 0 })
-                            ),
-                        },
-                        {
-                            value: Buffer.from(
-                                JSON.stringify({ ...usefulColumns, person_id: source.uuid, is_deleted: 1 })
-                            ),
-                        },
-                    ],
-                })
-                kafkaMessages.push({
                     topic: KAFKA_PERSON_DISTINCT_ID,
                     messages: [
                         {
@@ -793,6 +786,24 @@ export class DB {
                         },
                     ],
                 })
+
+                if (await this.fetchWriteToPersonUniqueId()) {
+                    kafkaMessages.push({
+                        topic: KAFKA_PERSON_UNIQUE_ID,
+                        messages: [
+                            {
+                                value: Buffer.from(
+                                    JSON.stringify({ ...usefulColumns, person_id: target.uuid, is_deleted: 0 })
+                                ),
+                            },
+                            {
+                                value: Buffer.from(
+                                    JSON.stringify({ ...usefulColumns, person_id: source.uuid, is_deleted: 1 })
+                                ),
+                            },
+                        ],
+                    })
+                }
             }
         }
         return kafkaMessages
@@ -1213,6 +1224,26 @@ export class DB {
             'fetchTeam'
         )
         return selectResult.rows[0]
+    }
+
+    public async fetchAsyncMigrationComplete(migrationName: string): Promise<boolean> {
+        const { rows } = await this.postgresQuery(
+            `
+            SELECT name
+            FROM posthog_asyncmigration
+            WHERE name = $1 AND status = 2
+            `,
+            [migrationName],
+            'fetchAsyncMigrationComplete'
+        )
+        return rows.length > 0
+    }
+
+    public async fetchWriteToPersonUniqueId(): Promise<boolean> {
+        if (this.writeToPersonUniqueId != undefined) {
+            this.writeToPersonUniqueId = !(await this.fetchAsyncMigrationComplete('0003_fill_person_distinct_id2'))
+        }
+        return this.writeToPersonUniqueId as boolean
     }
 
     /** Return the ID of the team that is used exclusively internally by the instance for storing metrics data. */
