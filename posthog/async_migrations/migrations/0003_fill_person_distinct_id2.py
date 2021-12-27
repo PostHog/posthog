@@ -1,12 +1,9 @@
-from constance import config
-from django.conf import settings
+from functools import cached_property
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.sql.events import EVENTS_TABLE
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
 from posthog.constants import AnalyticsDBMS
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
-from posthog.version_requirement import ServiceVersionRequirement
+from posthog.settings import CLICKHOUSE_DATABASE
 
 """
 Migration summary:
@@ -74,58 +71,6 @@ class Migration(AsyncMigrationDefinition):
     # After releasing this version we can remove code related to `person_distinct_id` table
     posthog_max_version = "1.34.0"
 
-    operations = [
-        AsyncMigrationOperation(
-            database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"""
-                INSERT INTO person_distinct_id2(
-                        team_id,
-                        distinct_id,
-                        person_id,
-                        is_deleted,
-                        version
-                    )
-                    /*
-                    Get all team_id, distinct_id, person_id tuples that
-                    haven't been deleted.
-
-                    Note that this query differs from the exact existing
-                    person_distinct_id query currently in the codebase, e.g.
-                    [this one](https://github.com/PostHog/posthog/blob/bcf2b6370f8d2205f1f7d5fb5f431124c3848691/ee/clickhouse/sql/person.py#L255:L255)
-                    in that it isn't filtering by team_id. We might need to
-                    reconsider that to avoid out of memory issues.
-
-                    SELECT * FROM <old_query>
-                    FULL JOIN <new_query> new ON old.distinct_id = new.distinct_id
-                    WHERE old.person_id <> new.person_id
-
-                    NOTE: where the query differs, I have left the original query
-                    part commented out.
-                    */
-                SELECT -- any(team_id) as team_id,
-                    team_id,
-                    distinct_id,
-                    argMax(person_id, _timestamp) as person_id,
-                    0 as is_deleted,
-                    0 as version
-                FROM (
-                        SELECT distinct_id,
-                            person_id,
-                            team_id,
-                            max(_timestamp) as _timestamp
-                        FROM person_distinct_id -- WHERE team_id = 2
-                        GROUP BY team_id,
-                            person_id,
-                            distinct_id
-                        HAVING max(is_deleted) = 0
-                    ) -- GROUP BY distinct_id
-                GROUP BY team_id,
-                    distinct_id
-            """,
-            resumable=True,
-        ),
-    ]
-
     def is_required(self):
         rows = sync_execute(
             """
@@ -137,6 +82,46 @@ class Migration(AsyncMigrationDefinition):
         )
 
         return len(rows) > 0 and rows[0][0] != "skip_0003_fill_person_distinct_id2"
+
+    @cached_property
+    def operations(self):
+        return [self.migrate_team_operation(team_id) for team_id in self._team_ids]
+
+    def migrate_team_operation(self, team_id: int):
+        return AsyncMigrationOperation(
+            database=AnalyticsDBMS.CLICKHOUSE,
+            sql=f"""
+                INSERT INTO person_distinct_id2(team_id, distinct_id, person_id, is_deleted, version)
+                SELECT
+                    team_id,
+                    distinct_id,
+                    argMax(person_id, _timestamp) as person_id,
+                    0 as is_deleted,
+                    0 as version
+                FROM (
+                    SELECT
+                        distinct_id,
+                        person_id,
+                        any(team_id) as team_id,
+                        max(_timestamp) as _timestamp
+                    FROM
+                        person_distinct_id
+                    WHERE
+                        person_distinct_id.team_id = {team_id}
+                    GROUP BY
+                        person_id,
+                        distinct_id
+                    HAVING
+                        max(is_deleted) = 0
+                )
+                GROUP BY team_id, distinct_id
+            """,
+            resumable=True,
+        )
+
+    @cached_property
+    def _team_ids(self):
+        return [row[0] for row in sync_execute("SELECT DISTINCT team_id FROM person_distinct_id")]
 
     # def precheck(self):
     #     raise NotImplementedError("todo")
