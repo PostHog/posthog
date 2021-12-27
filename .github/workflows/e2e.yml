@@ -122,6 +122,9 @@ jobs:
                   cd plugin-server
                   yarn build
 
+            - name: Add kafka host to /etc/hosts for kafka connectivity
+              run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+
             - name: Wait for Clickhouse & Kafka
               run: bin/check_kafka_clickhouse_up
 
