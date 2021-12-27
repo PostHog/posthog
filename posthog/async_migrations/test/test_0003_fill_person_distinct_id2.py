@@ -1,13 +1,11 @@
-from typing import Any
-
 import pytest
 
 from posthog.test.base import BaseTest
 
-MIGRATION_NAME = "0002_fill_pdi2_from_pdi"
+MIGRATION_NAME = "0003_fill_person_distinct_id2"
 
 
-class Test0002FillPdi2FromPdi(BaseTest):
+class Test0003FillPersonDistinctId2(BaseTest):
 
     # Run the full migration through
     @pytest.mark.ee

@@ -68,8 +68,8 @@ class Migration(AsyncMigrationDefinition):
             into pdi2 (this migration)
          3. update app to always use pdi2
     """
-    
-    # TODO: add version details
+
+    #  TODO: add version details
     # posthog_min_version = "1.31.0"
     # posthog_max_version = "1.32.0"
 
