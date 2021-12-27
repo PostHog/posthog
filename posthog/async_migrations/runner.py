@@ -77,15 +77,20 @@ def start_async_migration(migration_name: str, ignore_posthog_version=False) -> 
 
     mark_async_migration_as_running(migration_instance)
 
-    return run_async_migration_next_op(migration_name, migration_instance)
+    return run_async_migration_operations(migration_name, migration_instance)
 
 
-def run_async_migration_next_op(migration_name: str, migration_instance: Optional[AsyncMigration] = None, run_all=True):
+def run_async_migration_operations(migration_name: str, migration_instance: Optional[AsyncMigration] = None):
+    while run_async_migration_next_op(migration_name, migration_instance):
+        pass
+
+
+def run_async_migration_next_op(migration_name: str, migration_instance: Optional[AsyncMigration] = None):
     """
     Runs the next operation specified by the currently running migration
-    If `run_all=True`, we run through all operations recursively, else we run one and return
+    We run the next operation of the migration which needs attention
     Terminology:
-    - migration_instance: The migration object as stored in the DB 
+    - migration_instance: The migration object as stored in the DB
     - migration_definition: The actual migration class outlining the operations (e.g. async_migrations/examples/example.py)
     """
 
@@ -126,10 +131,7 @@ def run_async_migration_next_op(migration_name: str, migration_instance: Optiona
         return False
 
     update_migration_progress(migration_instance)
-
-    # recursively run through all operations
-    if run_all:
-        return run_async_migration_next_op(migration_name, migration_instance)
+    return True
 
 
 def run_migration_healthcheck(migration_instance: AsyncMigration):
