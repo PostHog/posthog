@@ -3,7 +3,6 @@ from uuid import UUID
 
 import pytest
 
-from ee.clickhouse.sql.person import INSERT_PERSON_DISTINCT_ID
 from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import get_async_migration_definition, setup_async_migrations
 from posthog.test.base import BaseTest
