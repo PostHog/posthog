@@ -9,55 +9,21 @@ from posthog.settings import CLICKHOUSE_DATABASE
 Migration summary:
 
 Schema change to migrate the data from the old person_distinct_id table
-to the new person_distinct_id2 table. This is required as the existing
-person_distinct_id does not use a strictly increasing id for
-identifying the latest (distinct_id, person_id) pairing. If we assume
-that a delete is always the latest then we can assume that any delete is
-enough to distinguish if a pairing is deleted or not.
+to the new person_distinct_id2 table.
 
-Aside from correctness, which we can handle as we're assuming that
-persons can't be undeleted, the current setup results in very slow query
-performance for large teams. e.g. [this
-query](https://github.com/PostHog/posthog/blob/bcf2b6370f8d2205f1f7d5fb5f431124c3848691/ee/clickhouse/sql/person.py#L255:L255)
-is slow.
+The reason this is needed is for faster `person_distinct_id` queries as the
+old schema worked off of (distinct_id, person_id) pairs, making it expensive
+to for our analytics queries, which need to map from distinct_id -> latest person_id.
 
-The issue is highlighted by the fact that we can have the scenario:
+The new schema works off of distinct_id columns, leveraging ReplacingMergeTrees
+with a version column we store in postgres.
 
-    1. "person 1" is associated with "distinct_id A"
-    2. "person 1" is deleted resulting in a new row being written with is_deleted = 1
-
-The data can end up looking like:
-
-_timestamp            |  distinct_id |  person_id  |  is_deleted
-----------------------+--------------+-------------+--------------
-2019-01-01 10:10:10   |  A           |  1          |  0
-2019-01-01 10:10:10   |  A           |  1          |  1
-
-Hence there is no way of telling if the person was first deleted then
-re-associated or the other way around. Hence at the moment with the old
-table we're just checking that all rows relating to a (distinct_id,
-person_id) pair are marked as is_deleted = 0.
-
-The person_distinct_id table uses the `CollapsingMergeTree` engine, which
-will at some point pair these two rows together, but we can't rely on
-waiting. It also means that if we've have to be diligent with ensuring
-we have written cancel rows correctly. It's good for cases where we
-might want to perform aggregation over data, but `ReplacingMergeTree` is
-a better fix where we just want the latest data.
-
-The new schema includes a `version` column which is strictly
-increasing. At the time of writing, this version is a big int
-[updated in a
-transaction](https://github.com/PostHog/posthog/blob/bcf2b6370f8d2205f1f7d5fb5f431124c3848691/plugin-server/src/worker/ingestion/properties-updater.ts#L58:L58)
-within postgres, then propagated to clickhouse on successful commit via
-kafka.
+We migrate teams one-by-one to avoid running out of memory.
 
 The migration strategy:
 
-    1. write to both pdi and pdi2 any new updates (already done separate to
-    this migration)
-    2. insert all non-deleted (team_id, distinct_id, person_id) rows from pdi
-    into pdi2 (this migration)
+    1. write to both pdi and pdi2 any new updates (done prior to this migration)
+    2. insert all non-deleted (team_id, distinct_id, person_id) rows from pdi into pdi2 (this migration)
     3. Once migration has run, we only read/write from/to pdi2.
 """
 
