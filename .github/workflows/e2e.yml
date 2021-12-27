@@ -73,7 +73,64 @@ jobs:
             - name: Start stack with Docker Compose
               run: |
                   docker-compose -f ee/docker-compose.ch.yml down
-                  docker-compose -f ee/docker-compose.ch.yml up
+                  docker-compose -f ee/docker-compose.ch.yml up db clickhouse zookeeper kafka plugins redis
+
+            - name: Set up Python 3.8
+              uses: actions/setup-python@v2
+              with:
+                  python-version: 3.8
+
+            - uses: syphar/restore-virtualenv@v1.2
+              id: cache-virtualenv
+              with:
+                  requirement_files: requirements.txt # this is optional
+            - uses: syphar/restore-pip-download-cache@v1
+              if: steps.cache-virtualenv.outputs.cache-hit != 'true'
+            - name: Install python dependencies
+              if: steps.cache-virtualenv.outputs.cache-hit != 'true'
+              run: |
+                  python -m pip install --upgrade pip
+                  python -m pip install $(grep -ivE "psycopg2" requirements.txt | cut -d'#' -f1) --no-cache-dir --compile
+                  python -m pip install psycopg2-binary --no-cache-dir --compile
+            - uses: actions/setup-node@v1
+              with:
+                  node-version: 14
+            - uses: actions/cache@v2
+              id: cypress-node-modules-cache-3
+              with:
+                  path: |
+                      **/node_modules
+                      ~/.cache/Cypress
+                  key: ${{ runner.os }}-cypress-node-modules-3-${{ hashFiles('**/yarn.lock') }}
+                  restore-keys: |
+                      ${{ runner.os }}-cypress-node-modules-3-
+            - name: Yarn install deps
+              # NOTE: we always try to run yarn install, as we'rie using a cache
+              # from the prep phase that hasn't been proven to be correct. We
+              # should still get some cache benefits.
+              run: |
+                  yarn install --frozen-lockfile
+                  yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
+                  cd plugin-server
+                  yarn install --frozen-lockfile
+            - name: Yarn build
+              env:
+                  GENERATE_SOURCEMAP: 'false'
+              run: |
+                  yarn build
+
+            - name: Wait for Clickhouse & Kafka
+              run: bin/check_kafka_clickhouse_up
+
+            - name: Boot PostHog
+              run: |
+                  python manage.py collectstatic --noinput &
+                  ./bin/migrate &
+                  wait
+                  python manage.py setup_dev
+                  mkdir -p /tmp/logs
+                  ./bin/docker-worker &> /tmp/logs/worker.txt &
+                  ./bin/docker-server &> /tmp/logs/server.txt &
 
             - name: Cypress run
               uses: cypress-io/github-action@v2
