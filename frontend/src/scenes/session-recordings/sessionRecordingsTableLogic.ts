@@ -152,10 +152,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
         propertyFilters: [
             DEFAULT_PROPERTY_FILTERS as AnyPropertyFilter[],
             {
-                setPropertyFilters: (_, { filters }) => {
-                    console.log('setPropertyFilters', filters)
-                    return [...filters]
-                },
+                setPropertyFilters: (_, { filters }) => [...filters],
             },
         ],
         durationFilter: [

@@ -4,7 +4,6 @@ import { Button, Card, Divider, Input, Skeleton } from 'antd'
 import { IPCapture } from './IPCapture'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { SessionRecording } from './SessionRecording'
-import { EditAppUrls } from 'lib/components/AppEditorLink/EditAppUrls'
 import { WebhookIntegration } from './WebhookIntegration'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
@@ -32,6 +31,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { CorrelationConfig } from './CorrelationConfig'
 import { urls } from 'scenes/urls'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
+import { AuthorizedUrlsTable } from 'scenes/toolbar-launch/AuthorizedUrlsTable'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -234,10 +234,10 @@ export function ProjectSettings(): JSX.Element {
                     in) and where we'll <b>record sessions</b> (if <a href="#session-recording">enabled</a>).
                 </p>
                 <p>
-                    Wilcard subdomains are permitted: <pre>https://*.example.com</pre>. You cannot wildcard domains or
-                    top-level domains as this could present a security risk.
+                    <b>Wilcard subdomains are permitted</b>: <code>https://*.example.com</code>. You cannot wildcard
+                    domains or top-level domains as this could present a security risk.
                 </p>
-                <EditAppUrls />
+                <AuthorizedUrlsTable />
                 <Divider />
                 <h2 className="subtitle" id="attributes">
                     Data attributes

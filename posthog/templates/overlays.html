@@ -1,4 +1,14 @@
 {% if debug %}
+<script>
+    // Replace the favicon with a reverse hog to distinguish dev and production environments
+    for (const elem of document.querySelectorAll("link[rel~='icon']")) {
+        elem.remove()
+    }
+    const link = document.createElement('link');
+    link.rel = 'icon';
+    link.href = '/static/icons/favicon-dev.png';
+    document.getElementsByTagName('head')[0].appendChild(link);
+</script>
 <div id="bottom-notice" class="tricolor click-close" style="display: none">
     <div>
         <span>

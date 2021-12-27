@@ -34,7 +34,6 @@ import { urls } from '~/scenes/urls'
 import { InsightType } from '~/types'
 import './SideBar.scss'
 import { navigationLogic } from '../navigationLogic'
-import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { groupsModel } from '~/models/groupsModel'
@@ -126,7 +125,7 @@ function PageButton({ title, sideAction, identifier, highlight, ...buttonProps }
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
-    const { showToolbarModal, hideSideBarMobile } = useActions(navigationLogic)
+    const { hideSideBarMobile } = useActions(navigationLogic)
     const { pinnedDashboards } = useValues(dashboardsModel)
     const { featureFlags } = useValues(featureFlagLogic)
     const { showGroupsOptions } = useValues(groupsModel)
@@ -210,7 +209,7 @@ function Pages(): JSX.Element {
                 icon={<IconPerson />}
                 identifier={Scene.Persons}
                 to={urls.persons()}
-                title={`Persons${showGroupsOptions ? ' & groups' : ''}`}
+                title={`Persons${showGroupsOptions ? ' & Groups' : ''}`}
             />
             <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
             <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
@@ -218,7 +217,7 @@ function Pages(): JSX.Element {
             {canViewPlugins(currentOrganization) && (
                 <PageButton icon={<IconExtension />} identifier={Scene.Plugins} to={urls.plugins()} />
             )}
-            <PageButton title="Toolbar" icon={<IconTools />} identifier="Toolbar" onClick={showToolbarModal} />
+            <PageButton icon={<IconTools />} identifier={Scene.ToolbarLaunch} to={urls.toolbarLaunch()} />
             <PageButton icon={<IconSettings />} identifier={Scene.ProjectSettings} to={urls.projectSettings()} />
         </div>
     )
@@ -226,8 +225,8 @@ function Pages(): JSX.Element {
 
 export function SideBar({ children }: { children: React.ReactNode }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { isSideBarShown, isToolbarModalShown } = useValues(navigationLogic)
-    const { hideSideBarMobile, hideToolbarModal } = useActions(navigationLogic)
+    const { isSideBarShown } = useValues(navigationLogic)
+    const { hideSideBarMobile } = useActions(navigationLogic)
 
     return (
         <div className={clsx('SideBar', 'SideBar__layout', !isSideBarShown && 'SideBar--hidden')}>
@@ -244,7 +243,6 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
             </div>
             <div className="SideBar__overlay" onClick={hideSideBarMobile} />
             {children}
-            <ToolbarModal visible={isToolbarModalShown} onCancel={hideToolbarModal} />
         </div>
     )
 }

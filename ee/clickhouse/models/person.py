@@ -14,10 +14,11 @@ from ee.clickhouse.sql.person import (
     DELETE_PERSON_BY_ID,
     DELETE_PERSON_EVENTS_BY_ID,
     INSERT_PERSON_DISTINCT_ID,
+    INSERT_PERSON_DISTINCT_ID2,
     INSERT_PERSON_SQL,
 )
 from ee.kafka_client.client import ClickhouseProducer
-from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
+from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.utils import UUIDT
 from posthog.settings import TEST
@@ -74,10 +75,16 @@ def create_person(
     return uuid
 
 
-def create_person_distinct_id(team_id: int, distinct_id: str, person_id: str, sign=1) -> None:
+def create_person_distinct_id(team_id: int, distinct_id: str, person_id: str, version=0, sign=1) -> None:
     data = {"distinct_id": distinct_id, "person_id": person_id, "team_id": team_id, "_sign": sign}
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_PERSON_UNIQUE_ID, sql=INSERT_PERSON_DISTINCT_ID, data=data)
+    if sign == 1:
+        p.produce(
+            topic=KAFKA_PERSON_DISTINCT_ID,
+            sql=INSERT_PERSON_DISTINCT_ID2,
+            data={"distinct_id": distinct_id, "person_id": person_id, "team_id": team_id, "version": version,},
+        )
 
 
 def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> QuerySet:
@@ -117,7 +124,7 @@ def count_duplicate_distinct_ids_for_team(team_id: Union[str, int]) -> Dict:
     cutoff_date = (datetime.datetime.now() - datetime.timedelta(weeks=1)).strftime("%Y-%m-%d %H:%M:%S")
     query_result = sync_execute(
         """
-        SELECT 
+        SELECT
             count(if(startdate < toDate(%(cutoff_date)s), 1, NULL)) as prev_ids_with_duplicates,
             minus(sum(if(startdate < toDate(%(cutoff_date)s), count, 0)), prev_ids_with_duplicates) as prev_total_extra_distinct_id_rows,
             count(if(startdate >= toDate(%(cutoff_date)s), 1, NULL)) as new_ids_with_duplicates,
