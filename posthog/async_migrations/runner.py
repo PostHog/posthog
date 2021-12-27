@@ -30,6 +30,8 @@ MAX_CONCURRENT_ASYNC_MIGRATIONS = 1
 def start_async_migration(migration_name: str, ignore_posthog_version=False) -> bool:
     """
     Performs some basic checks to ensure the migration can indeed run, and then kickstarts the chain of operations
+
+    Returns whether migration was successful
     Checks:
     1. We're not over the concurrent migrations limit
     2. The migration can be run with the current PostHog version
@@ -80,15 +82,19 @@ def start_async_migration(migration_name: str, ignore_posthog_version=False) -> 
     return run_async_migration_operations(migration_name, migration_instance)
 
 
-def run_async_migration_operations(migration_name: str, migration_instance: Optional[AsyncMigration] = None):
-    while run_async_migration_next_op(migration_name, migration_instance):
-        pass
+def run_async_migration_operations(migration_name: str, migration_instance: Optional[AsyncMigration] = None) -> bool:
+    while True:
+        run_next, success = run_async_migration_next_op(migration_name, migration_instance)
+        if not run_next:
+            return success
 
 
 def run_async_migration_next_op(migration_name: str, migration_instance: Optional[AsyncMigration] = None):
     """
     Runs the next operation specified by the currently running migration
     We run the next operation of the migration which needs attention
+
+    Returns (run_next, success)
     Terminology:
     - migration_instance: The migration object as stored in the DB
     - migration_definition: The actual migration class outlining the operations (e.g. async_migrations/examples/example.py)
@@ -98,7 +104,7 @@ def run_async_migration_next_op(migration_name: str, migration_instance: Optiona
         try:
             migration_instance = AsyncMigration.objects.get(name=migration_name, status=MigrationStatus.Running)
         except AsyncMigration.DoesNotExist:
-            return False
+            return (False, False)
     else:
         migration_instance.refresh_from_db()
 
@@ -107,7 +113,7 @@ def run_async_migration_next_op(migration_name: str, migration_instance: Optiona
     migration_definition = get_async_migration_definition(migration_name)
     if migration_instance.current_operation_index > len(migration_definition.operations) - 1:
         complete_migration(migration_instance)
-        return True
+        return (False, True)
 
     op = migration_definition.operations[migration_instance.current_operation_index]
 
@@ -128,10 +134,10 @@ def run_async_migration_next_op(migration_name: str, migration_instance: Optiona
         process_error(migration_instance, error)
 
     if error:
-        return False
+        return (False, False)
 
     update_migration_progress(migration_instance)
-    return True
+    return (True, False)
 
 
 def run_migration_healthcheck(migration_instance: AsyncMigration):

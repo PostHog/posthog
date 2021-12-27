@@ -138,8 +138,8 @@ class Migration(AsyncMigrationDefinition):
 
         return len(rows) > 0 and rows[0][0] != "skip_0003_fill_person_distinct_id2"
 
-    def precheck(self):
-        raise NotImplementedError("todo")
+    # def precheck(self):
+    #     raise NotImplementedError("todo")
 
-    def healthcheck(self):
-        raise NotImplementedError("todo")
+    # def healthcheck(self):
+    #     raise NotImplementedError("todo")
