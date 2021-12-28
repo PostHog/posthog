@@ -63,9 +63,7 @@ class TotalIntervalsDerivedMixin(IntervalMixin, StickinessDateMixin):
 
         _num_intervals = 0
         _total_seconds = (self.date_to - self.date_from).total_seconds()
-        if self.interval == "minute":
-            _num_intervals = int(divmod(_total_seconds, 60)[0])
-        elif self.interval == "hour":
+        if self.interval == "hour":
             _num_intervals = int(divmod(_total_seconds, 3600)[0])
         elif self.interval == "day":
             _num_intervals = int(divmod(_total_seconds, 86400)[0])

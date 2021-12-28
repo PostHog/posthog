@@ -42,13 +42,12 @@ def parse_timestamps(
 
 
 def format_ch_timestamp(timestamp: datetime, filter, default_hour_min: str = " 00:00:00"):
-    is_hour_or_min = (
+    is_hour = (
         (filter.interval and filter.interval.lower() == "hour")
-        or (filter.interval and filter.interval.lower() == "minute")
         or (filter._date_from == "-24h")
         or (filter._date_from == "-48h")
     )
-    return timestamp.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if is_hour_or_min else default_hour_min))
+    return timestamp.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if is_hour else default_hour_min))
 
 
 def get_earliest_timestamp(team_id: int) -> datetime:
@@ -87,7 +86,6 @@ def get_time_diff(
 
 
 PERIOD_TO_TRUNC_FUNC: Dict[str, str] = {
-    "minute": "toStartOfMinute",
     "hour": "toStartOfHour",
     "week": "toStartOfWeek",
     "day": "toStartOfDay",
@@ -105,7 +103,6 @@ def get_trunc_func_ch(period: Optional[str]) -> str:
 
 
 PERIOD_TO_INTERVAL_FUNC: Dict[str, str] = {
-    "minute": "toIntervalMinute",
     "hour": "toIntervalHour",
     "week": "toIntervalWeek",
     "day": "toIntervalDay",
