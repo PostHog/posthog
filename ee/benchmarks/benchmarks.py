@@ -13,6 +13,7 @@ from ee.clickhouse.queries.funnels import ClickhouseFunnel
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.session_recordings.clickhouse_session_recording_list import ClickhouseSessionRecordingList
 from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
+from ee.clickhouse.queries.util import get_earliest_timestamp
 from posthog.models import Action, ActionStep, Cohort, Team, Organization
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
@@ -491,6 +492,10 @@ class QuerySuite:
         )
 
         ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_earliest_timestamp(self):
+        get_earliest_timestamp(2)
 
     def setup(self):
         for table, property in MATERIALIZED_PROPERTIES:
