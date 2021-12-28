@@ -1,7 +1,7 @@
 from typing import Dict, Literal
 
 BreakdownType = Literal["event", "person", "cohort", "group"]
-IntervalType = Literal["minute", "hour", "day", "week", "month"]
+IntervalType = Literal["hour", "day", "week", "month"]
 
 
 class BaseParamMixin:
