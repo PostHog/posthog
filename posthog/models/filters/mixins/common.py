@@ -55,7 +55,7 @@ class IntervalMixin(BaseParamMixin):
     @cached_property
     def interval(self) -> IntervalType:
         interval_candidate = self._data.get(INTERVAL)
-        if interval_candidate is None:
+        if not interval_candidate:
             return "day"
         if not isinstance(interval_candidate, str):
             raise ValueError(f"Interval must be a string!")
