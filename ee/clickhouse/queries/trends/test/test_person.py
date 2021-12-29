@@ -6,6 +6,7 @@ from freezegun.api import freeze_time
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
+from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.clickhouse.queries.trends.person import TrendsPersonQuery
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models.entity import Entity
@@ -25,6 +26,18 @@ def _create_event(uuid=None, **kwargs):
     create_event(**kwargs)
 
 
+def _create_session_recording_event(team_id, distinct_id, session_id, timestamp, window_id="", has_full_snapshot=True):
+    create_session_recording_event(
+        uuid=uuid4(),
+        team_id=team_id,
+        distinct_id=distinct_id,
+        timestamp=timestamp,
+        session_id=session_id,
+        window_id=window_id,
+        snapshot_data={"timestamp": timestamp.timestamp(), "has_full_snapshot": has_full_snapshot,},
+    )
+
+
 class TestPerson(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     @test_with_materialized_columns(event_properties=["$session_id", "$window_id"])
@@ -32,8 +45,18 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
     def test_person_query_includes_recording_events(self):
         _create_person(team_id=self.team.pk, distinct_ids=["u1"], properties={"email": "bla"})
         _create_event(
-            event="pageview", distinct_id=f"u1", team=self.team, timestamp=timezone.now()
+            event="pageview", distinct_id="u1", team=self.team, timestamp=timezone.now()
         )  # No $session_id, so not included
+        _create_event(
+            event="pageview",
+            distinct_id="u1",
+            team=self.team,
+            timestamp=timezone.now(),
+            properties={"$session_id": "s2", "$window_id": "w2"},
+        )  # No associated recording, so not included
+        _create_session_recording_event(
+            self.team.pk, "u1", "s1", timestamp=timezone.now(),
+        )
         _create_event(
             event="pageview",
             distinct_id="u1",
@@ -87,7 +110,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_person_query_does_not_include_recording_events_if_flag_not_set(self):
         _create_person(team_id=self.team.pk, distinct_ids=["u1"], properties={"email": "bla"})
-        _create_event(event="pageview", distinct_id=f"u1", team=self.team, timestamp=timezone.now())
+        _create_event(event="pageview", distinct_id="u1", team=self.team, timestamp=timezone.now())
 
         event = {
             "id": "pageview",
@@ -109,16 +132,19 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
     def test_group_query_includes_recording_events(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         create_group(team_id=self.team.pk, group_type_index=0, group_key="bla", properties={})
+        _create_session_recording_event(
+            self.team.pk, "u1", "s1", timestamp=timezone.now(),
+        )
         _create_event(
             event="pageview",
-            distinct_id=f"u1",
+            distinct_id="u1",
             team=self.team,
             timestamp=timezone.now(),
             properties={"$group_0": "bla"},
         )
         _create_event(
             event="pageview",
-            distinct_id=f"u1",
+            distinct_id="u1",
             team=self.team,
             timestamp=timezone.now() + relativedelta(hours=2),
             properties={"$session_id": "s1", "$window_id": "w1", "$group_0": "bla"},

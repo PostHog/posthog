@@ -24,6 +24,16 @@
   OFFSET 0
   '
 ---
+# name: TestPerson.test_group_query_includes_recording_events.1
+  '
+  
+  SELECT distinct session_id
+  FROM session_recording_events
+  WHERE team_id = 2
+    and has_full_snapshot = 1
+    and session_id in ['s1']
+  '
+---
 # name: TestPerson.test_person_query_does_not_include_recording_events_if_flag_not_set
   '
   
@@ -109,5 +119,15 @@
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0
+  '
+---
+# name: TestPerson.test_person_query_includes_recording_events.1
+  '
+  
+  SELECT distinct session_id
+  FROM session_recording_events
+  WHERE team_id = 2
+    and has_full_snapshot = 1
+    and session_id in ['s2', 's1']
   '
 ---
