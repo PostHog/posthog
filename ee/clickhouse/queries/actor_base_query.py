@@ -24,16 +24,21 @@ from posthog.models.person import Person
 
 
 class EventInfoForRecording(TypedDict):
+    uuid: uuid.UUID
     timestamp: datetime
     window_id: str
+
+
+class MatchedRecording(TypedDict):
     session_id: str
+    events: List[EventInfoForRecording]
 
 
 class CommonAttributes(TypedDict, total=False):
     id: Union[uuid.UUID, str]
     created_at: Optional[str]
     properties: Dict[str, Any]
-    matching_events_for_recording: List[EventInfoForRecording]
+    matched_recordings: List[MatchedRecording]
 
 
 class SerializedPerson(CommonAttributes):
@@ -73,8 +78,8 @@ class ActorBaseQuery:
         return False
 
     @cached_property
-    def should_include_matching_events_for_recordings(self) -> bool:
-        """Override in child class with insight specific logic to determine when to include events for recordings"""
+    def should_include_matched_recordings(self) -> bool:
+        """Override in child class with insight specific logic to determine when to include recordings"""
         return False
 
     def get_actors(
@@ -85,30 +90,40 @@ class ActorBaseQuery:
         raw_result = sync_execute(query, params)
         actors, serialized_actors = self.get_actors_from_result(raw_result)
 
-        if self.should_include_matching_events_for_recordings:
-            serialized_actors = self.add_matching_events_to_serialized_actors(serialized_actors, raw_result)
+        if self.should_include_matched_recordings:
+            serialized_actors = self.add_matched_recordings_to_serialized_actors(serialized_actors, raw_result)
 
         return actors, serialized_actors
 
     @staticmethod
-    def add_matching_events_to_serialized_actors(
+    def add_matched_recordings_to_serialized_actors(
         serialized_actors: Union[List[SerializedGroup], List[SerializedPerson]], raw_result
     ) -> Union[List[SerializedGroup], List[SerializedPerson]]:
-        matching_events_by_actor_id = {}
+        matched_recordings_by_actor_id: Dict[Union[uuid.UUID, str], List[MatchedRecording]] = {}
         for row in raw_result:
-            matching_events_by_actor_id[row[0]] = [
-                EventInfoForRecording(timestamp=event[0], session_id=event[1], window_id=event[2]) for event in row[1]
+            recording_events_by_session_id: Dict[str, List[EventInfoForRecording]] = {}
+            for event in row[1]:
+                event_session_id = event[2]
+                if event_session_id:
+                    recording_events_by_session_id.setdefault(event_session_id, []).append(
+                        EventInfoForRecording(uuid=event[0], timestamp=event[1], window_id=event[3])
+                    )
+            recordings = [
+                MatchedRecording(session_id=session_id, events=events)
+                for session_id, events in recording_events_by_session_id.items()
             ]
+
+            matched_recordings_by_actor_id[row[0]] = recordings
 
         # Casting Union[SerializedActor, SerializedGroup] as SerializedPerson because mypy yells
         # when you do an indexed assignment on a Union even if all items in the Union support it
         serialized_actors = cast(List[SerializedPerson], serialized_actors)
-        serialized_actors_with_events = []
+        serialized_actors_with_recordings = []
         for actor in serialized_actors:
-            actor["matching_events_for_recording"] = matching_events_by_actor_id[actor["id"]]
-            serialized_actors_with_events.append(actor)
+            actor["matched_recordings"] = matched_recordings_by_actor_id[actor["id"]]
+            serialized_actors_with_recordings.append(actor)
 
-        return serialized_actors_with_events
+        return serialized_actors_with_recordings
 
     def get_actors_from_result(
         self, raw_result

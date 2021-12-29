@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
@@ -39,16 +39,14 @@ class TrendsPersonQuery(ActorBaseQuery):
     entity: Entity
     _filter: Filter
 
-    def __init__(
-        self, team: Team, entity: Optional[Entity], filter: Filter, include_matching_events_for_recordings: bool = False
-    ):
+    def __init__(self, team: Team, entity: Optional[Entity], filter: Filter, include_matched_recordings: bool = False):
         if not entity:
             raise ValueError("Entity is required")
 
         if filter.display != TRENDS_CUMULATIVE and not filter.display in TRENDS_DISPLAY_BY_VALUE:
             filter = _handle_date_interval(filter)
 
-        self._include_matching_events_for_recordings = include_matching_events_for_recordings
+        self._include_matched_recordings = include_matched_recordings
         super().__init__(team, filter, entity)
 
     @cached_property
@@ -56,8 +54,8 @@ class TrendsPersonQuery(ActorBaseQuery):
         return self.entity.math == "unique_group"
 
     @cached_property
-    def should_include_matching_events_for_recordings(self) -> bool:
-        return self._include_matching_events_for_recordings
+    def should_include_matched_recordings(self) -> bool:
+        return self._include_matched_recordings
 
     def actor_query(self) -> Tuple[str, Dict]:
         if self._filter.breakdown_type == "cohort" and self._filter.breakdown_value != "all":
@@ -84,21 +82,23 @@ class TrendsPersonQuery(ActorBaseQuery):
 
             self._filter = self._filter.with_data({"properties": self._filter.properties + [breakdown_prop]})
 
+        extra_fields: List[str] = ["distinct_id", "team_id"] if not self.is_aggregating_by_groups else []
+        if self.should_include_matched_recordings:
+            extra_fields += ["uuid"]
+
         events_query, params = TrendsEventQuery(
             filter=self._filter,
             team_id=self._team.pk,
             entity=self.entity,
             should_join_distinct_ids=not self.is_aggregating_by_groups,
             should_join_persons=not self.is_aggregating_by_groups,
-            extra_event_properties=["$window_id", "$session_id"]
-            if self.should_include_matching_events_for_recordings
-            else [],
-            extra_fields=[] if self.is_aggregating_by_groups else ["distinct_id", "team_id"],
+            extra_event_properties=["$window_id", "$session_id"] if self.should_include_matched_recordings else [],
+            extra_fields=extra_fields,
         ).get_query()
 
         matching_events_select_statement = (
-            ", groupUniqArray(10)((timestamp, $session_id, $window_id)) as matching_events"
-            if self.should_include_matching_events_for_recordings
+            ", groupUniqArray(10)((uuid, timestamp, $session_id, $window_id)) as matching_events"
+            if self.should_include_matched_recordings
             else ""
         )
 

@@ -1,4 +1,4 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
@@ -20,8 +20,8 @@ def _create_person(**kwargs):
     return Person(id=person.uuid, uuid=person.uuid)
 
 
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
+def _create_event(uuid=None, **kwargs):
+    kwargs.update({"event_uuid": uuid if uuid else uuid4()})
     create_event(**kwargs)
 
 
@@ -31,13 +31,24 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_person_query_includes_recording_events(self):
         _create_person(team_id=self.team.pk, distinct_ids=["u1"], properties={"email": "bla"})
-        _create_event(event="pageview", distinct_id=f"u1", team=self.team, timestamp=timezone.now())
+        _create_event(
+            event="pageview", distinct_id=f"u1", team=self.team, timestamp=timezone.now()
+        )  # No $session_id, so not included
         _create_event(
             event="pageview",
-            distinct_id=f"u1",
+            distinct_id="u1",
             team=self.team,
             timestamp=timezone.now() + relativedelta(hours=2),
             properties={"$session_id": "s1", "$window_id": "w1"},
+            uuid="b06e5a5e-e001-4293-af81-ac73e194569d",
+        )
+        _create_event(
+            event="pageview",
+            distinct_id="u1",
+            team=self.team,
+            timestamp=timezone.now() + relativedelta(hours=3),
+            properties={"$session_id": "s1", "$window_id": "w1"},
+            uuid="206e5a5e-e001-4293-af81-ac73e194569d",
         )
         event = {
             "id": "pageview",
@@ -51,13 +62,24 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         entity = Entity(event)
 
         _, serialized_actors = TrendsPersonQuery(
-            self.team, entity, filter, include_matching_events_for_recordings=True
+            self.team, entity, filter, include_matched_recordings=True
         ).get_actors()
+        self.assertEqual(len(serialized_actors), 1)
+        self.assertEqual(len(serialized_actors[0]["matched_recordings"]), 1)
+        self.assertEqual(serialized_actors[0]["matched_recordings"][0]["session_id"], "s1")
         self.assertCountEqual(
-            serialized_actors[0].get("matching_events_for_recording", []),
+            serialized_actors[0]["matched_recordings"][0]["events"],
             [
-                {"timestamp": timezone.now() + relativedelta(hours=2), "session_id": "s1", "window_id": "w1"},
-                {"timestamp": timezone.now(), "session_id": "", "window_id": ""},
+                {
+                    "window_id": "w1",
+                    "timestamp": timezone.now() + relativedelta(hours=3),
+                    "uuid": UUID("206e5a5e-e001-4293-af81-ac73e194569d"),
+                },
+                {
+                    "window_id": "w1",
+                    "timestamp": timezone.now() + relativedelta(hours=2),
+                    "uuid": UUID("b06e5a5e-e001-4293-af81-ac73e194569d"),
+                },
             ],
         )
 
@@ -100,6 +122,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             timestamp=timezone.now() + relativedelta(hours=2),
             properties={"$session_id": "s1", "$window_id": "w1", "$group_0": "bla"},
+            uuid="b06e5a5e-e001-4293-af81-ac73e194569d",
         )
 
         event = {
@@ -117,13 +140,21 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         entity = Entity(event)
 
         _, serialized_actors = TrendsPersonQuery(
-            self.team, entity, filter, include_matching_events_for_recordings=True
+            self.team, entity, filter, include_matched_recordings=True
         ).get_actors()
 
         self.assertCountEqual(
-            serialized_actors[0].get("matching_events_for_recording", []),
+            serialized_actors[0].get("matched_recordings", []),
             [
-                {"timestamp": timezone.now() + relativedelta(hours=2), "session_id": "s1", "window_id": "w1"},
-                {"timestamp": timezone.now(), "session_id": "", "window_id": ""},
+                {
+                    "session_id": "s1",
+                    "events": [
+                        {
+                            "window_id": "w1",
+                            "timestamp": timezone.now() + relativedelta(hours=2),
+                            "uuid": UUID("b06e5a5e-e001-4293-af81-ac73e194569d"),
+                        }
+                    ],
+                }
             ],
         )

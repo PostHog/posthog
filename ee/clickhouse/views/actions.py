@@ -45,7 +45,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
 
         current_url = request.get_full_path()
         actors, serialized_actors = TrendsPersonQuery(
-            team, entity, filter, include_matching_events_for_recordings=True
+            team, entity, filter, include_matched_recordings=True
         ).get_actors()
 
         current_url = request.get_full_path()
