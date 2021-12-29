@@ -258,6 +258,40 @@ class TestActionPeople(
         ).json()
         self.assertEqual(len(people["results"][0]["people"]), 1)
 
+    def test_trends_people_endpoint_includes_recordings(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={})
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-09T14:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-09T12:00:00Z",
+            properties={"$session_id": "s1", "$window_id": "w1"},
+        )
+
+        people = self.client.get(
+            f"/api/projects/{self.team.id}/actions/people/",
+            data={
+                "date_from": "2020-01-08",
+                "date_to": "2020-01-12",
+                ENTITY_TYPE: "events",
+                ENTITY_ID: "$pageview",
+                "display": TRENDS_CUMULATIVE,  # ensure that the date range is used as is
+                "breakdown_type": "event",
+                "breakdown_value": "",
+                "breakdown": "key",
+            },
+        ).json()
+        self.assertEqual(
+            people["results"][0]["people"][0]["matching_events_for_recording"],
+            [
+                {"timestamp": "2020-01-09T12:00:00Z", "session_id": "s1", "window_id": "w1",},
+                {"timestamp": "2020-01-09T14:00:00Z", "session_id": "", "window_id": "",},
+            ],
+        )
+
     def _test_interval(self, date_from, interval, timestamps):
         for index, ts in enumerate(timestamps):
             _create_person(team_id=self.team.pk, distinct_ids=[f"person{index}"])

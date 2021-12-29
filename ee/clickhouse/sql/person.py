@@ -374,6 +374,7 @@ ORDER BY count DESC, key ASC
 GET_ACTORS_FROM_EVENT_QUERY = """
 SELECT
     {id_field} AS actor_id
+    {matching_events_select_statement}
 FROM ({events_query})
 GROUP BY actor_id
 LIMIT %(limit)s
