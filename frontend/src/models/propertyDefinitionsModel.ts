@@ -96,5 +96,17 @@ export const propertyDefinitionsModel = kea<
             (transformedPropertyDefinitions): PropertySelectOption[] =>
                 transformedPropertyDefinitions.filter((definition) => definition.is_numerical),
         ],
+        describeProperty: [
+            (s) => [s.propertyDefinitions],
+            (propertyDefinitions: PropertyDefinition[]): ((s: string) => string | null) =>
+                (propertyName: string) => {
+                    const match = propertyDefinitions.find((pd) => pd.name === propertyName)
+                    if (match?.property_type) {
+                        const formatDescription = match?.property_type_format ? ` (${match.property_type_format})` : ''
+                        return `${match.property_type}${formatDescription}`
+                    }
+                    return null
+                },
+        ],
     },
 })
