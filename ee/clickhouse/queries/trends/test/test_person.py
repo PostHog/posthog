@@ -53,7 +53,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         _, serialized_actors = TrendsPersonQuery(
             self.team, entity, filter, include_matching_events_for_recordings=True
         ).get_actors()
-        self.assertEqual(
+        self.assertCountEqual(
             serialized_actors[0].get("matching_events_for_recording"),
             [
                 {"timestamp": timezone.now() + relativedelta(hours=2), "session_id": "s1", "window_id": "w1"},
@@ -120,7 +120,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             self.team, entity, filter, include_matching_events_for_recordings=True
         ).get_actors()
 
-        self.assertEqual(
+        self.assertCountEqual(
             serialized_actors[0].get("matching_events_for_recording"),
             [
                 {"timestamp": timezone.now() + relativedelta(hours=2), "session_id": "s1", "window_id": "w1"},
