@@ -54,7 +54,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             self.team, entity, filter, include_matching_events_for_recordings=True
         ).get_actors()
         self.assertCountEqual(
-            serialized_actors[0].get("matching_events_for_recording"),
+            serialized_actors[0].get("matching_events_for_recording", []),
             [
                 {"timestamp": timezone.now() + relativedelta(hours=2), "session_id": "s1", "window_id": "w1"},
                 {"timestamp": timezone.now(), "session_id": "", "window_id": ""},
@@ -121,7 +121,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         ).get_actors()
 
         self.assertCountEqual(
-            serialized_actors[0].get("matching_events_for_recording"),
+            serialized_actors[0].get("matching_events_for_recording", []),
             [
                 {"timestamp": timezone.now() + relativedelta(hours=2), "session_id": "s1", "window_id": "w1"},
                 {"timestamp": timezone.now(), "session_id": "", "window_id": ""},

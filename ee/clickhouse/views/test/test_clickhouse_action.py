@@ -4,11 +4,11 @@ from uuid import uuid4
 from rest_framework import status
 
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.api.test.test_action import factory_test_action_api
 from posthog.api.test.test_action_people import action_people_test_factory
 from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE, TRENDS_CUMULATIVE
-from posthog.models import Action, ActionStep, Cohort, Organization, Person
+from posthog.models import Action, ActionStep, Cohort, Person
 
 
 def _create_action(**kwargs):
@@ -258,6 +258,7 @@ class TestActionPeople(
         ).json()
         self.assertEqual(len(people["results"][0]["people"]), 1)
 
+    @snapshot_clickhouse_queries
     def test_trends_people_endpoint_includes_recordings(self):
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={})
         _create_event(
