@@ -84,9 +84,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         entity = Entity(event)
 
-        _, serialized_actors = TrendsPersonQuery(
-            self.team, entity, filter, include_matched_recordings=True
-        ).get_actors()
+        _, serialized_actors = TrendsPersonQuery(self.team, entity, filter, include_recordings=True).get_actors()
         self.assertEqual(len(serialized_actors), 1)
         self.assertEqual(len(serialized_actors[0]["matched_recordings"]), 1)
         self.assertEqual(serialized_actors[0]["matched_recordings"][0]["session_id"], "s1")
@@ -165,9 +163,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         entity = Entity(event)
 
-        _, serialized_actors = TrendsPersonQuery(
-            self.team, entity, filter, include_matched_recordings=True
-        ).get_actors()
+        _, serialized_actors = TrendsPersonQuery(self.team, entity, filter, include_recordings=True).get_actors()
 
         self.assertCountEqual(
             serialized_actors[0].get("matched_recordings", []),

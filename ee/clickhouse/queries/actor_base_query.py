@@ -79,7 +79,7 @@ class ActorBaseQuery:
         return False
 
     @cached_property
-    def should_include_matched_recordings(self) -> bool:
+    def should_include_recordings(self) -> bool:
         """Override in child class with insight specific logic to determine when to include recordings"""
         return False
 
@@ -91,7 +91,7 @@ class ActorBaseQuery:
         raw_result = sync_execute(query, params)
         actors, serialized_actors = self.get_actors_from_result(raw_result)
 
-        if self.should_include_matched_recordings:
+        if self.should_include_recordings:
             serialized_actors = self.add_matched_recordings_to_serialized_actors(serialized_actors, raw_result)
 
         return actors, serialized_actors

@@ -43,9 +43,11 @@ class ClickhouseActionsViewSet(ActionViewSet):
         filter = Filter(request=request, team=self.team)
         entity = get_target_entity(request)
 
-        current_url = request.get_full_path()
+        # Used to keep feature behind feature flag. Can be removed once that's removed.
+        include_recordings = request.GET.get("include_recordings")
+
         actors, serialized_actors = TrendsPersonQuery(
-            team, entity, filter, include_matched_recordings=True
+            team, entity, filter, include_recordings=include_recordings
         ).get_actors()
 
         current_url = request.get_full_path()
