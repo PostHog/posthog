@@ -247,18 +247,6 @@ class QuerySuite:
             ClickhouseTrends().run(filter, self.team)
 
     @benchmark_clickhouse
-    def track_trends_person_query(self):
-        event = {"id": "$pageview"}
-        filter = Filter(data={"events": [event], **DATE_RANGE,})
-        TrendsPersonQuery(self.team, Entity(event), filter).get_actors()
-
-    @benchmark_clickhouse
-    def track_trends_person_query_with_recordings(self):
-        event = {"id": "$pageview"}
-        filter = Filter(data={"events": [event], **DATE_RANGE,})
-        TrendsPersonQuery(self.team, Entity(event), filter, include_recordings=True).get_actors()
-
-    @benchmark_clickhouse
     def track_funnel_normal(self):
         filter = Filter(
             data={
