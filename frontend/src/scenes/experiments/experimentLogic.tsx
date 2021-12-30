@@ -42,7 +42,7 @@ export const experimentLogic = kea<experimentLogicType>({
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
         setExperimentId: (experimentId: number | 'new') => ({ experimentId }),
         setNewExperimentData: (experimentData: Partial<Experiment>) => ({ experimentData }),
-        emptyData: true,
+        emptyNewExperiment: true,
         launchExperiment: true,
         endExperiment: true,
         editExperiment: true,
@@ -55,7 +55,7 @@ export const experimentLogic = kea<experimentLogicType>({
             },
         ],
         newExperimentData: [
-            null as Partial<Experiment> | null,
+            { feature_flag_variants: ['Control group', 'Test group'] } as Partial<Experiment>,
             {
                 setNewExperimentData: (vals, { experimentData }) => {
                     if (experimentData.filters) {
@@ -64,7 +64,7 @@ export const experimentLogic = kea<experimentLogicType>({
                     }
                     return { ...vals, ...experimentData }
                 },
-                emptyData: () => null,
+                emptyNewExperiment: () => ({ feature_flag_variants: ['Control group', 'Test group'] }),
             },
         ],
         experimentResults: [
@@ -311,7 +311,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 // like in featureFlagLogic.tsx
                 if (parsedId === 'new') {
                     actions.createNewExperimentFunnel()
-                    actions.emptyData()
+                    actions.emptyNewExperiment()
                 }
                 if (parsedId !== values.experimentId) {
                     actions.setExperimentId(parsedId)

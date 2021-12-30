@@ -1,5 +1,5 @@
 import SaveOutlined from '@ant-design/icons/lib/icons/SaveOutlined'
-import { Alert, Button, Card, Col, Collapse, Form, Input, Row, Slider, Tag, Tooltip } from 'antd'
+import { Alert, Button, Card, Col, Collapse, Form, Input, InputNumber, Row, Slider, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -107,12 +107,13 @@ export function Experiment(): JSX.Element {
                                         rules={[
                                             {
                                                 required: true,
-                                                message: 'You have to choose a new feature flag key.',
+                                                message: 'You have to enter a feature flag key name.',
                                             },
                                         ]}
                                         help={
                                             <span className="text-small text-muted">
-                                                Create a new feature flag that is unique to the experiment
+                                                Enter a new and unique name for the feature flag key to be associated
+                                                with this experiment.
                                             </span>
                                         }
                                     >
@@ -128,15 +129,13 @@ export function Experiment(): JSX.Element {
                                             placeholder="Adding a helpful description can ensure others know what this experiment is about."
                                         />
                                     </Form.Item>
-                                    <Form.Item
-                                        label="Select participants"
-                                        name="person-selection"
-                                        className="person-selection"
-                                    >
+                                </Col>
+                                <Col span={12}>
+                                    <Form.Item label="Select participants" name="person-selection">
                                         <Col>
                                             <div className="text-muted">
-                                                Select the entities who will participate in this experiment. We'll split
-                                                all participants evenly into a <b>control</b> and <b>test</b> group.{' '}
+                                                Select the entities who will participate in this experiment.
+                                                Participants are divided into experiment groups.
                                             </div>
                                             <div style={{ flex: 3, marginRight: 5 }}>
                                                 <PropertyFilters
@@ -164,122 +163,52 @@ export function Experiment(): JSX.Element {
                                             </div>
                                         </Col>
                                     </Form.Item>
-                                </Col>
-                                <Col span={12}>
-                                    <Card className="experiment-preview">
-                                        <Row className="preview-row">
-                                            <Col>
-                                                <div className="card-secondary">Preview</div>
-                                                <div>
-                                                    <span className="mr-05">
-                                                        <b>{newExperimentData?.name}</b>
-                                                    </span>
-                                                    {newExperimentData?.feature_flag_key && (
-                                                        <CopyToClipboardInline
-                                                            explicitValue={newExperimentData.feature_flag_key}
-                                                            iconStyle={{ color: 'var(--text-muted-alt)' }}
-                                                            description="feature flag key"
-                                                        >
-                                                            <span className="text-muted">
-                                                                {newExperimentData.feature_flag_key}
-                                                            </span>
-                                                        </CopyToClipboardInline>
-                                                    )}
-                                                </div>
-                                            </Col>
-                                        </Row>
-                                        <Row className="preview-row">
-                                            <Col span={12}>
-                                                <div className="card-secondary">Target Participant Count</div>
-                                                <div className="pb">
-                                                    <span className="l4">~{sampleSize}</span> persons
-                                                </div>
-                                                <div className="card-secondary">Baseline Conversion Rate</div>
-                                                <div className="l4">{conversionRate.toFixed(1)}%</div>
-                                            </Col>
-                                            <Col span={12}>
-                                                <div className="card-secondary">Target duration</div>
-                                                <div>
-                                                    <span className="l4">~{runningTime}</span> days
-                                                </div>
-                                            </Col>
-                                        </Row>
-                                        <Row className="preview-row">
-                                            <Col>
-                                                <div className="l4">
-                                                    Conversion goal threshold
-                                                    <Tooltip
-                                                        title={`The minimum % change in conversion rate you care about. 
-                                                This means you don't care about variants whose
-                                                conversion rate is between these two percentages.`}
-                                                    >
-                                                        <InfoCircleOutlined style={{ marginLeft: 4 }} />
-                                                    </Tooltip>
-                                                </div>
-                                                <div className="pb text-small text-muted">
-                                                    Apply a threshold to broaden the acceptable range of conversion
-                                                    rates for this experiment. The acceptable range will be the baseline
-                                                    conversion goal +/- the goal threshold.
-                                                </div>
-                                                <div>
-                                                    <span className="l4 pr">Threshold value</span>
-                                                    <Slider
-                                                        min={1}
-                                                        max={20}
-                                                        defaultValue={5}
-                                                        tipFormatter={(value) => `${value}%`}
-                                                        onChange={(value) =>
-                                                            setNewExperimentData({
-                                                                parameters: { minimum_detectable_effect: value },
-                                                            })
-                                                        }
-                                                        marks={{ 5: `5%`, 10: `10%` }}
-                                                    />
-                                                </div>
-                                            </Col>
-                                        </Row>
-                                        <Row className="preview-row">
-                                            <Col>
-                                                <div className="card-secondary mb-05">Conversion goal range</div>
-                                                <div>
-                                                    <b>
-                                                        {Math.max(
-                                                            0,
-                                                            conversionRate - minimumDetectableChange
-                                                        ).toFixed()}
-                                                        % -{' '}
-                                                        {Math.min(
-                                                            100,
-                                                            conversionRate + minimumDetectableChange
-                                                        ).toFixed()}
-                                                        %
-                                                    </b>
-                                                </div>
-                                            </Col>
-                                        </Row>
-                                    </Card>
-                                    <Collapse>
-                                        <Collapse.Panel
-                                            header={
-                                                <div
-                                                    style={{
-                                                        display: 'flex',
-                                                        fontWeight: 'bold',
-                                                        alignItems: 'center',
-                                                    }}
-                                                >
-                                                    <IconJavascript style={{ marginRight: 6 }} /> Javascript integration
-                                                    instructions
-                                                </div>
-                                            }
-                                            key="js"
-                                        >
-                                            <JSSnippet
-                                                variants={['control', 'test']}
-                                                flagKey={newExperimentData?.feature_flag_key || ''}
-                                            />
-                                        </Collapse.Panel>
-                                    </Collapse>
+                                    {newExperimentData?.feature_flag_variants && (
+                                        <Col>
+                                            <label>
+                                                <b>Experiment groups</b>
+                                            </label>
+                                            <div className="text-muted">
+                                                Participants are divided into experiment groups. All experiments must
+                                                consist of a control group and at least one test group.
+                                            </div>
+                                            <Row
+                                                align="middle"
+                                                justify="space-between"
+                                                className="default-control-group"
+                                            >
+                                                {newExperimentData.feature_flag_variants.map((variant, idx) => (
+                                                    <Row key={idx}>
+                                                        <Input
+                                                            style={{ width: '30%' }}
+                                                            value={variant}
+                                                            onChange={(e) => {
+                                                                const featureFlagVariants =
+                                                                    newExperimentData.feature_flag_variants || []
+                                                                featureFlagVariants[idx] = e.target.value
+                                                                setNewExperimentData({
+                                                                    feature_flag_variants: featureFlagVariants,
+                                                                })
+                                                            }}
+                                                        />
+                                                        <div className="ml-05">
+                                                            {' '}
+                                                            Roll out to{' '}
+                                                            <InputNumber
+                                                                defaultValue={
+                                                                    100 /
+                                                                    (newExperimentData?.feature_flag_variants?.length ||
+                                                                        2)
+                                                                }
+                                                                formatter={(value) => `${value}%`}
+                                                            />{' '}
+                                                            of <b>participants</b>
+                                                        </div>
+                                                    </Row>
+                                                ))}
+                                            </Row>
+                                        </Col>
+                                    )}
                                 </Col>
                             </Row>
 
@@ -340,6 +269,112 @@ export function Experiment(): JSX.Element {
                                     Save
                                 </Button>
                             </div>
+                            <Card className="experiment-preview">
+                                <Row className="preview-row">
+                                    <Col>
+                                        <div className="card-secondary">Preview</div>
+                                        <div>
+                                            <span className="mr-05">
+                                                <b>{newExperimentData?.name}</b>
+                                            </span>
+                                            {newExperimentData?.feature_flag_key && (
+                                                <CopyToClipboardInline
+                                                    explicitValue={newExperimentData.feature_flag_key}
+                                                    iconStyle={{ color: 'var(--text-muted-alt)' }}
+                                                    description="feature flag key"
+                                                >
+                                                    <span className="text-muted">
+                                                        {newExperimentData.feature_flag_key}
+                                                    </span>
+                                                </CopyToClipboardInline>
+                                            )}
+                                        </div>
+                                    </Col>
+                                </Row>
+                                <Row className="preview-row">
+                                    <Col span={12}>
+                                        <div className="card-secondary">Target Participant Count</div>
+                                        <div className="pb">
+                                            <span className="l4">~{sampleSize}</span> persons
+                                        </div>
+                                        <div className="card-secondary">Baseline Conversion Rate</div>
+                                        <div className="l4">{conversionRate.toFixed(1)}%</div>
+                                    </Col>
+                                    <Col span={12}>
+                                        <div className="card-secondary">Target duration</div>
+                                        <div>
+                                            <span className="l4">~{runningTime}</span> days
+                                        </div>
+                                    </Col>
+                                </Row>
+                                <Row className="preview-row">
+                                    <Col>
+                                        <div className="l4">
+                                            Conversion goal threshold
+                                            <Tooltip
+                                                title={`The minimum % change in conversion rate you care about. 
+                                                This means you don't care about variants whose
+                                                conversion rate is between these two percentages.`}
+                                            >
+                                                <InfoCircleOutlined style={{ marginLeft: 4 }} />
+                                            </Tooltip>
+                                        </div>
+                                        <div className="pb text-small text-muted">
+                                            Apply a threshold to broaden the acceptable range of conversion rates for
+                                            this experiment. The acceptable range will be the baseline conversion goal
+                                            +/- the goal threshold.
+                                        </div>
+                                        <div>
+                                            <span className="l4 pr">Threshold value</span>
+                                            <Slider
+                                                min={1}
+                                                max={20}
+                                                defaultValue={5}
+                                                tipFormatter={(value) => `${value}%`}
+                                                onChange={(value) =>
+                                                    setNewExperimentData({
+                                                        parameters: { minimum_detectable_effect: value },
+                                                    })
+                                                }
+                                                marks={{ 5: `5%`, 10: `10%` }}
+                                            />
+                                        </div>
+                                    </Col>
+                                </Row>
+                                <Row className="preview-row">
+                                    <Col>
+                                        <div className="card-secondary mb-05">Conversion goal range</div>
+                                        <div>
+                                            <b>
+                                                {Math.max(0, conversionRate - minimumDetectableChange).toFixed()}% -{' '}
+                                                {Math.min(100, conversionRate + minimumDetectableChange).toFixed()}%
+                                            </b>
+                                        </div>
+                                    </Col>
+                                </Row>
+                            </Card>
+                            <Collapse>
+                                <Collapse.Panel
+                                    header={
+                                        <div
+                                            style={{
+                                                display: 'flex',
+                                                fontWeight: 'bold',
+                                                alignItems: 'center',
+                                            }}
+                                        >
+                                            <IconJavascript style={{ marginRight: 6 }} /> Javascript integration
+                                            instructions
+                                        </div>
+                                    }
+                                    key="js"
+                                >
+                                    <JSSnippet
+                                        variants={['control', 'test']}
+                                        flagKey={newExperimentData?.feature_flag_key || ''}
+                                    />
+                                </Collapse.Panel>
+                            </Collapse>
                         </div>
                     </Form>
                 </>
