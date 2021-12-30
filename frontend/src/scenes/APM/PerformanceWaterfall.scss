@@ -3,8 +3,14 @@
 .apm-performance-waterfall {
     line-height: 32px;
     padding-right: 3em;
+
+    .in-front {
+        z-index: 200;
+    }
+
     .marker-row {
         height: 32px;
+        margin-bottom: 1px;
     }
     .marker-name {
         background-color: var(--bg-mid);
