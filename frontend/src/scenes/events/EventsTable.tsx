@@ -323,55 +323,57 @@ export function EventsTable({
         <div data-attr="manage-events-table">
             <div className="events" data-attr="events-table">
                 <EventPageHeader activeTab={EventsTab.Events} hideTabs={!sceneIsEventsPage} />
-                <div
-                    className="mb"
-                    style={{
-                        display: 'flex',
-                        gap: '0.75rem',
-                        flexWrap: 'wrap',
-                        justifyContent: 'space-between',
-                        alignItems: 'start',
-                    }}
-                >
-                    <div style={{ display: 'flex', gap: '0.75rem', flexDirection: 'column', flexGrow: 1 }}>
-                        <EventName
-                            value={eventFilter}
-                            onChange={(value: string) => {
-                                setEventFilter(value || '')
-                            }}
-                        />
-                        {filtersEnabled && (
-                            <PropertyFilters
-                                pageKey={pageKey}
-                                style={{ marginBottom: 0 }}
-                                eventNames={eventFilter ? [eventFilter] : []}
+                {filtersEnabled && (
+                    <div
+                        className="mb"
+                        style={{
+                            display: 'flex',
+                            gap: '0.75rem',
+                            flexWrap: 'wrap',
+                            justifyContent: 'space-between',
+                            alignItems: 'start',
+                        }}
+                    >
+                        <div style={{ display: 'flex', gap: '0.75rem', flexDirection: 'column', flexGrow: 1 }}>
+                            <EventName
+                                value={eventFilter}
+                                onChange={(value: string) => {
+                                    setEventFilter(value || '')
+                                }}
                             />
-                        )}
-                    </div>
+                            {filtersEnabled && (
+                                <PropertyFilters
+                                    pageKey={pageKey}
+                                    style={{ marginBottom: 0 }}
+                                    eventNames={eventFilter ? [eventFilter] : []}
+                                />
+                            )}
+                        </div>
 
-                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.75rem' }}>
-                        <LemonSwitch
-                            id="autoload-switch"
-                            label="Automatically load new events"
-                            checked={automaticLoadEnabled}
-                            onChange={toggleAutomaticLoad}
-                        />
-                        {!hideTableConfig && (
-                            <TableConfig
-                                availableColumns={propertyNames}
-                                immutableColumns={['event', 'person']}
-                                defaultColumns={defaultColumns.map((e) => e.key || '')}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.75rem' }}>
+                            <LemonSwitch
+                                id="autoload-switch"
+                                label="Automatically load new events"
+                                checked={automaticLoadEnabled}
+                                onChange={toggleAutomaticLoad}
                             />
-                        )}
-                        {exportUrl && (
-                            <Tooltip title="Export up to 10,000 latest events." placement="left">
-                                <Button icon={<DownloadOutlined />} onClick={startDownload}>
-                                    Export events
-                                </Button>
-                            </Tooltip>
-                        )}
+                            {!hideTableConfig && (
+                                <TableConfig
+                                    availableColumns={propertyNames}
+                                    immutableColumns={['event', 'person']}
+                                    defaultColumns={defaultColumns.map((e) => e.key || '')}
+                                />
+                            )}
+                            {exportUrl && (
+                                <Tooltip title="Export up to 10,000 latest events." placement="left">
+                                    <Button icon={<DownloadOutlined />} onClick={startDownload}>
+                                        Export events
+                                    </Button>
+                                </Tooltip>
+                            )}
+                        </div>
                     </div>
-                </div>
+                )}
 
                 <LemonTable
                     dataSource={eventsFormatted}
