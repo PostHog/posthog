@@ -198,14 +198,28 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             (events, newEvents) => formatEvents(events, newEvents),
         ],
         exportUrl: [
-            () => [selectors.currentTeamId, selectors.eventFilter, selectors.orderBy, selectors.properties],
-            (teamId, eventFilter, orderBy, properties) =>
+            () => [
+                selectors.currentTeamId,
+                selectors.eventFilter,
+                selectors.orderBy,
+                selectors.properties,
+                selectors.afterParam,
+            ],
+            (teamId, eventFilter, orderBy, properties, after) =>
                 `/api/projects/${teamId}/events.csv?${toParams({
                     ...(props.fixedFilters || {}),
                     properties: [...properties, ...(props.fixedFilters?.properties || [])],
                     ...(eventFilter ? { event: eventFilter } : {}),
                     orderBy: [orderBy],
+                    after,
                 })}`,
+        ],
+        afterParam: [
+            () => [selectors.events],
+            (events) =>
+                events?.length > 0 && events[0].timestamp
+                    ? events[0].timestamp
+                    : dayjs().subtract(6, 'months').toISOString(),
         ],
     }),
 
@@ -288,20 +302,21 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                     })
                 }
 
-                const urlParams = toParams({
+                const params = {
                     ...(props.fixedFilters || {}),
                     properties,
                     ...(nextParams || {}),
                     ...(values.eventFilter ? { event: values.eventFilter } : {}),
                     orderBy: [values.orderBy],
-                })
+                    after: values.afterParam,
+                }
 
                 let apiResponse = null
 
                 try {
-                    apiResponse = await api.get(`api/projects/${values.currentTeamId}/events/?${urlParams}`)
+                    apiResponse = await api.get(`api/projects/${values.currentTeamId}/events/?${toParams(params)}`)
                 } catch (error) {
-                    actions.fetchOrPollFailure(error)
+                    actions.fetchOrPollFailure(error as ApiError)
                     return
                 }
 
@@ -338,12 +353,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 properties,
                 ...(values.eventFilter ? { event: values.eventFilter } : {}),
                 orderBy: [values.orderBy],
-            }
-
-            const event = values.events[0]
-
-            if (event && event.timestamp) {
-                params.after = event.timestamp
+                after: values.afterParam,
             }
 
             const urlParams = toParams(params)

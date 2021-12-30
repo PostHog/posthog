@@ -381,7 +381,7 @@ export function EventsTable({
                     className="ph-no-capture"
                     emptyState={
                         isLoading ? undefined : filters.some((filter) => Object.keys(filter).length) || eventFilter ? (
-                            'No events matching filters!'
+                            'No events matching filters found in the last 6 months!'
                         ) : (
                             <>
                                 This project doesn't have any events. If you haven't integrated PostHog yet,{' '}
