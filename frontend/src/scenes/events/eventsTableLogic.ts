@@ -91,7 +91,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         fetchEventsSuccess: (apiResponse: OnFetchEventsSuccess) => apiResponse,
         fetchNextEvents: true,
         fetchOrPollFailure: (error: ApiError) => ({ error }),
-        flipSort: true,
         pollEvents: true,
         pollEventsSuccess: (events: EventType[]) => ({ events }),
         prependEvents: (events: EventType[]) => ({ events }),
@@ -152,7 +151,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 fetchEventsSuccess: (_, { hasNext }: OnFetchEventsSuccess) => hasNext,
             },
         ],
-        orderBy: ['-timestamp', { flipSort: (state) => (state === 'timestamp' ? '-timestamp' : 'timestamp') }],
+        orderBy: ['-timestamp', {}],
         selectedEvent: [
             null as unknown as EventType,
             {
@@ -255,16 +254,15 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             window.location.href = values.exportUrl
         },
         setProperties: () => actions.fetchEvents(),
-        flipSort: () => actions.fetchEvents(),
         setEventFilter: () => actions.fetchEvents(),
         fetchNextEvents: async () => {
-            const { events, orderBy } = values
+            const { events } = values
 
             if (events.length === 0) {
                 actions.fetchEvents()
             } else {
                 actions.fetchEvents({
-                    [orderBy === 'timestamp' ? 'after' : 'before']: events[events.length - 1].timestamp,
+                    before: events[events.length - 1].timestamp,
                 })
             }
         },
@@ -320,10 +318,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             },
         ],
         pollEvents: async (_, breakpoint) => {
-            // Poll events when they are ordered in ascending order based on timestamp
-            if (values.orderBy !== '-timestamp') {
-                return
-            }
             // Do not poll if the scene is in the background
             if (props.sceneUrl !== router.values.location.pathname) {
                 return

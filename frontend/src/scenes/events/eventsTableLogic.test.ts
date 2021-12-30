@@ -212,23 +212,6 @@ describe('eventsTableLogic', () => {
                 }).toMatchValues({ sceneIsEventsPage: true })
             })
 
-            it('can flip the sorting order', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.flipSort()
-                }).toMatchValues({
-                    orderBy: 'timestamp',
-                })
-            })
-
-            it('can flip the sorting order back', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.flipSort()
-                    logic.actions.flipSort()
-                }).toMatchValues({
-                    orderBy: '-timestamp',
-                })
-            })
-
             it('fetch events success can set hasNext (which is the URL of the next page of results, that we do not use)', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.fetchEventsSuccess({ events: [], hasNext: true, isNext: false })
@@ -412,14 +395,6 @@ describe('eventsTableLogic', () => {
                     exportUrl: `/api/projects/${MOCK_TEAM_ID}/events.csv?properties=%5B%7B%22key%22%3A%22fixed%20value%22%2C%22operator%22%3Anull%2C%22type%22%3A%22t%22%2C%22value%22%3A%22v%22%7D%5D&orderBy=%5B%22-timestamp%22%5D`,
                 })
             })
-
-            it('can build the export URL when orderby changes', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.flipSort()
-                }).toMatchValues({
-                    exportUrl: `/api/projects/${MOCK_TEAM_ID}/events.csv?properties=%5B%5D&orderBy=%5B%22timestamp%22%5D`,
-                })
-            })
         })
 
         it('writes properties to the URL', async () => {
@@ -449,12 +424,6 @@ describe('eventsTableLogic', () => {
             it('triggers fetch events on set properties', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.setProperties([])
-                }).toDispatchActions(['fetchEvents'])
-            })
-
-            it('triggers fetch events on flipsort', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.flipSort()
                 }).toDispatchActions(['fetchEvents'])
             })
 
