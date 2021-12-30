@@ -42,7 +42,7 @@ export interface FixedFilters {
 
 interface EventsTable {
     fixedFilters?: FixedFilters
-    filtersEnabled?: boolean
+    disableActions?: boolean
     pageKey?: string
     hidePersonColumn?: boolean
     hideTableConfig?: boolean
@@ -51,14 +51,14 @@ interface EventsTable {
 
 export function EventsTable({
     fixedFilters,
-    filtersEnabled = true,
+    disableActions,
     pageKey = 'EventsTable',
     hidePersonColumn,
     hideTableConfig,
     sceneUrl,
 }: EventsTable = {}): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const logic = eventsTableLogic({ fixedFilters, key: pageKey, sceneUrl: sceneUrl || urls.events() })
+    const logic = eventsTableLogic({ fixedFilters, key: pageKey, sceneUrl: sceneUrl || urls.events(), disableActions })
     const {
         properties,
         eventsFormatted,
@@ -148,7 +148,7 @@ export function EventsTable({
                         return { props: { colSpan: 0 } }
                     }
                     const param = event.properties['$current_url'] ? '$current_url' : '$screen_name'
-                    if (filtersEnabled) {
+                    if (!disableActions) {
                         return (
                             <FilterPropertyLink
                                 className="ph-no-capture"
@@ -169,7 +169,7 @@ export function EventsTable({
                     if (!event) {
                         return { props: { colSpan: 0 } }
                     }
-                    if (filtersEnabled) {
+                    if (!disableActions) {
                         return (
                             <FilterPropertyLink
                                 property="$lib"
@@ -206,7 +206,7 @@ export function EventsTable({
                                           return { props: { colSpan: 0 } }
                                       }
                                   }
-                                  if (filtersEnabled) {
+                                  if (!disableActions) {
                                       return (
                                           <FilterPropertyLink
                                               className="ph-no-capture "
@@ -323,7 +323,7 @@ export function EventsTable({
         <div data-attr="manage-events-table">
             <div className="events" data-attr="events-table">
                 <EventPageHeader activeTab={EventsTab.Events} hideTabs={!sceneIsEventsPage} />
-                {filtersEnabled && (
+                {!disableActions && (
                     <div
                         className="mb"
                         style={{
@@ -341,13 +341,11 @@ export function EventsTable({
                                     setEventFilter(value || '')
                                 }}
                             />
-                            {filtersEnabled && (
-                                <PropertyFilters
-                                    pageKey={pageKey}
-                                    style={{ marginBottom: 0 }}
-                                    eventNames={eventFilter ? [eventFilter] : []}
-                                />
-                            )}
+                            <PropertyFilters
+                                pageKey={pageKey}
+                                style={{ marginBottom: 0 }}
+                                eventNames={eventFilter ? [eventFilter] : []}
+                            />
                         </div>
 
                         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.75rem' }}>
