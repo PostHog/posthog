@@ -8,7 +8,7 @@ import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter } from
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
-import { dayjs } from 'lib/dayjs'
+import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -220,7 +220,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             (events) =>
                 events?.length > 0 && events[0].timestamp
                     ? events[0].timestamp
-                    : dayjs().subtract(6, 'months').toISOString(),
+                    : now().subtract(6, 'months').toISOString(),
         ],
     }),
 

@@ -13,6 +13,10 @@ const errorToastSpy = jest.spyOn(utils, 'errorToast')
 const successToastSpy = jest.spyOn(utils, 'successToast')
 
 jest.mock('lib/api')
+jest.mock('lib/dayjs', () => {
+    const dayjs = jest.requireActual('lib/dayjs')
+    return { ...dayjs, now: () => dayjs.dayjs('2021-05-05T00:00:00Z') }
+})
 
 const randomBool = (): boolean => Math.random() < 0.5
 
@@ -384,7 +388,7 @@ describe('eventsTableLogic', () => {
 
             it('can build the export URL when there are no properties or filters', async () => {
                 await expectLogic(logic, () => {}).toMatchValues({
-                    exportUrl: `/api/projects/${MOCK_TEAM_ID}/events.csv?properties=%5B%5D&orderBy=%5B%22-timestamp%22%5D`,
+                    exportUrl: `/api/projects/${MOCK_TEAM_ID}/events.csv?properties=%5B%5D&orderBy=%5B%22-timestamp%22%5D&after=2020-11-05T00%3A00%3A00.000Z`,
                 })
             })
 
@@ -392,7 +396,7 @@ describe('eventsTableLogic', () => {
                 await expectLogic(logic, () => {
                     logic.actions.setProperties([makePropertyFilter('fixed value')])
                 }).toMatchValues({
-                    exportUrl: `/api/projects/${MOCK_TEAM_ID}/events.csv?properties=%5B%7B%22key%22%3A%22fixed%20value%22%2C%22operator%22%3Anull%2C%22type%22%3A%22t%22%2C%22value%22%3A%22v%22%7D%5D&orderBy=%5B%22-timestamp%22%5D`,
+                    exportUrl: `/api/projects/997/events.csv?properties=%5B%7B%22key%22%3A%22fixed%20value%22%2C%22operator%22%3Anull%2C%22type%22%3A%22t%22%2C%22value%22%3A%22v%22%7D%5D&orderBy=%5B%22-timestamp%22%5D&after=2020-11-05T00%3A00%3A00.000Z`,
                 })
             })
         })
