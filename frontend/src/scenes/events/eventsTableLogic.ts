@@ -41,6 +41,7 @@ export interface EventsTableLogicProps {
     fixedFilters?: FixedFilters
     key?: string
     sceneUrl: string
+    disableActions?: boolean
 }
 
 export interface OnFetchEventsSuccess {
@@ -335,6 +336,11 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         pollEvents: async (_, breakpoint) => {
             // Do not poll if the scene is in the background
             if (props.sceneUrl !== router.values.location.pathname) {
+                return
+            }
+
+            // Do not poll if polling is disabled
+            if (props.disableActions) {
                 return
             }
 
