@@ -11,6 +11,7 @@ import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 import { actionLogic, ActionLogicProps } from 'scenes/actions/actionLogic'
+import { PageHeader } from 'lib/components/PageHeader'
 
 export const scene: SceneExport = {
     logic: actionLogic,
@@ -74,7 +75,19 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
                             </p>{' '}
                         </>
                     ) : null}
-                    {id && <EventsTable fixedFilters={fixedFilters} disableActions sceneUrl={urls.action(id)} />}
+                    {id && (
+                        <>
+                            <PageHeader
+                                title="Matching events"
+                                caption={
+                                    <>
+                                        This is the list of <strong>recent</strong> events that match this action.
+                                    </>
+                                }
+                            />
+                            <EventsTable fixedFilters={fixedFilters} disableActions sceneUrl={urls.action(id)} />
+                        </>
+                    )}
                 </div>
             )}
         </div>

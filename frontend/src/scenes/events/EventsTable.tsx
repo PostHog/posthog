@@ -322,7 +322,7 @@ export function EventsTable({
     return (
         <div data-attr="manage-events-table">
             <div className="events" data-attr="events-table">
-                <EventPageHeader activeTab={EventsTab.Events} hideTabs={!sceneIsEventsPage} />
+                {!disableActions && <EventPageHeader activeTab={EventsTab.Events} hideTabs={!sceneIsEventsPage} />}
                 {!disableActions && (
                     <div
                         className="mb"
