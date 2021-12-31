@@ -62,7 +62,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
     // Set a unique key based on the fixed filters.
     // This way if we move back/forward between /events and /person/ID, the logic is reloaded.
     key: (props) =>
-        [props.fixedFilters ? JSON.stringify(props.fixedFilters) : 'all', props.key || 'EventsTable', props.sceneUrl]
+        [props.fixedFilters ? JSON.stringify(props.fixedFilters) : 'all', props.key, props.sceneUrl]
             .filter((keyPart) => !!keyPart)
             .join('-'),
     connect: {
