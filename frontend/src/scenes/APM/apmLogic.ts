@@ -3,8 +3,13 @@ import { EventType, FilterType, PropertyOperator } from '~/types'
 import api from 'lib/api'
 
 import { apmLogicType } from './apmLogicType'
+import { getChartColors } from 'lib/colors'
+
 const eventApiProps: Partial<FilterType> = {
-    properties: [{ key: '$performance_raw', value: 'is_set', operator: PropertyOperator.IsSet, type: 'event' }],
+    properties: [
+        { key: '$performance_pageLoaded', value: '0', operator: PropertyOperator.GreaterThan, type: 'event' },
+        { key: '$performance_raw', value: 'is_set', operator: PropertyOperator.IsSet, type: 'event' },
+    ],
 }
 
 interface EventPerformanceMeasure {
@@ -12,9 +17,14 @@ interface EventPerformanceMeasure {
     end: number
 }
 
+interface PointInTimeMarker {
+    time: number
+    color: string
+}
+
 export interface EventPerformanceData {
     id: string | number
-    pointsInTime: Record<string, number>
+    pointsInTime: Record<string, PointInTimeMarker>
     durations: Record<string, EventPerformanceMeasure>
     maxTime: number
     gridMarkers: number[]
@@ -25,17 +35,28 @@ function forWaterfallDisplay(pageViewEvent: EventType): EventPerformanceData {
     const navTiming: PerformanceNavigationTiming = perfData.navigation[0]
     let maxTime = 0
 
+    const colors = getChartColors('blue', 5)
+
     const pointsInTime = {}
     if (navTiming.domComplete) {
-        pointsInTime['domComplete'] = navTiming.domComplete
+        pointsInTime['domComplete'] = { time: navTiming.domComplete, color: colors[0] }
     }
     if (navTiming.domInteractive) {
-        pointsInTime['domInteractive'] = navTiming.domInteractive
+        pointsInTime['domInteractive'] = { time: navTiming.domInteractive, color: colors[1] }
     }
 
     if (navTiming.duration) {
-        pointsInTime['pageLoaded'] = navTiming.duration
+        pointsInTime['pageLoaded'] = { time: navTiming.duration, color: colors[2] }
         maxTime = navTiming.duration > maxTime ? navTiming.duration : maxTime
+    }
+
+    const paintTimings: PerformanceEntryList = perfData.paint || ([] as PerformanceEntryList)
+    const fcp: PerformanceEntry | undefined = paintTimings.find(
+        (p: PerformanceEntry) => p.name === 'first-contentful-paint'
+    )
+    if (fcp) {
+        pointsInTime['firstContentfulPaint'] = { time: fcp.startTime, color: colors[3] }
+        maxTime = fcp.startTime > maxTime ? fcp.startTime : maxTime
     }
 
     const durations: Record<string, EventPerformanceMeasure> = {}
@@ -86,6 +107,7 @@ export const apmLogic = kea<apmLogicType<EventPerformanceData>>({
             null as EventPerformanceData | null,
             { setEventToDisplay: (_, { eventToDisplay }) => forWaterfallDisplay(eventToDisplay) },
         ],
+        currentEvent: [null as EventType | null, { setEventToDisplay: (_, { eventToDisplay }) => eventToDisplay }],
     },
     loaders: () => ({
         pageViewEvents: {

@@ -70,6 +70,20 @@ function WaterfallChart(): JSX.Element {
         <>
             {eventToDisplay && (
                 <div className="waterfall-chart">
+                    <Row style={{ marginBottom: '8px' }}>
+                        <Col span={6}>
+                            <div className={'color-legend'}>Event Timings</div>
+                        </Col>
+                        {Object.entries(eventToDisplay.pointsInTime).map(([marker, { color }]) => {
+                            return (
+                                <Col key={marker} span={6}>
+                                    <div className={'color-legend'}>
+                                        {marker} <span className={'color-block'} style={{ backgroundColor: color }} />
+                                    </div>
+                                </Col>
+                            )
+                        })}
+                    </Row>
                     <Row>
                         <Col span={8}>
                             {Object.entries(eventToDisplay.durations).map(([marker]) => {
@@ -81,15 +95,14 @@ function WaterfallChart(): JSX.Element {
                             })}
                         </Col>
                         <Col span={16}>
-                            {Object.entries(eventToDisplay.pointsInTime).map(([key, time]) => (
-                                <Tooltip title={key} key={key}>
-                                    <VerticalMarker
-                                        position={time}
-                                        max={eventToDisplay?.maxTime}
-                                        color={'red'}
-                                        bringToFront={true}
-                                    />
-                                </Tooltip>
+                            {Object.entries(eventToDisplay.pointsInTime).map(([key, pointInTimeMarker]) => (
+                                <VerticalMarker
+                                    key={key}
+                                    position={pointInTimeMarker.time}
+                                    max={eventToDisplay?.maxTime}
+                                    color={pointInTimeMarker.color}
+                                    bringToFront={true}
+                                />
                             ))}
                             {eventToDisplay.gridMarkers.map((gridMarker) => (
                                 <VerticalMarker
@@ -199,6 +212,15 @@ function EventsWithPerformanceTable(): JSX.Element {
     )
 }
 
+function DebugPerfData(): JSX.Element {
+    const { currentEvent } = useValues(apmLogic)
+    return (
+        <pre>
+            {currentEvent ? JSON.stringify(JSON.parse(currentEvent.properties.$performance_raw), undefined, 2) : null}
+        </pre>
+    )
+}
+
 export function PerformanceWaterfall(): JSX.Element {
     return (
         <div className="apm-performance-waterfall">
@@ -218,6 +240,9 @@ export function PerformanceWaterfall(): JSX.Element {
                 </Col>
                 <Col span={24}>
                     <WaterfallChart />
+                </Col>
+                <Col span={24}>
+                    <DebugPerfData />
                 </Col>
             </Row>
         </div>

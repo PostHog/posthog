@@ -12,6 +12,22 @@
         border: 1px solid var(--border);
         padding: 4px;
 
+        .color-legend {
+            display: flex;
+            justify-content: center;
+            align-content: center;
+
+            .color-block {
+                width: 64px;
+                height: 16px;
+                line-height: 32px;
+                display: inline-block;
+                margin-top: auto;
+                margin-bottom: auto;
+                margin-left: 4px;
+            }
+        }
+
         .in-front {
             z-index: 200;
         }
