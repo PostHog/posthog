@@ -13,6 +13,7 @@ const errorToastSpy = jest.spyOn(utils, 'errorToast')
 const successToastSpy = jest.spyOn(utils, 'successToast')
 
 jest.mock('lib/api')
+import api from 'lib/api'
 
 const randomBool = (): boolean => Math.random() < 0.5
 
@@ -449,6 +450,39 @@ describe('eventsTableLogic', () => {
                 logic.actions.setEventFilter(eventFilter)
             })
             expect(router.values.searchParams).toHaveProperty('eventFilter', eventFilter)
+        })
+
+        describe('polling for events', () => {
+            it('starts active', async () => {
+                await expectLogic(logic).toMatchValues({ pollingIsActive: true })
+            })
+
+            it('can pause polling for events', async () => {
+                ;(api.get as jest.Mock).mockClear() // because it will have been called on mount
+
+                await expectLogic(logic, () => {
+                    logic.actions.setPollingActive(false)
+                    logic.actions.pollEvents()
+                }).toMatchValues({
+                    pollingIsActive: false,
+                })
+
+                expect(api.get).not.toHaveBeenCalled()
+            })
+
+            it('can restart polling for events', async () => {
+                ;(api.get as jest.Mock).mockClear() // because it will have been called on mount
+
+                await expectLogic(logic, () => {
+                    logic.actions.setPollingActive(false)
+                    logic.actions.setPollingActive(true)
+                    logic.actions.pollEvents()
+                }).toMatchValues({
+                    pollingIsActive: true,
+                })
+
+                expect(api.get).toHaveBeenCalled()
+            })
         })
 
         describe('the listeners', () => {

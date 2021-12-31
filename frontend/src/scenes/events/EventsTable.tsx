@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useEffect, useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { DownloadOutlined } from '@ant-design/icons'
@@ -74,10 +74,37 @@ export function EventsTable({
     } = useValues(logic)
     const { tableWidth, selectedColumns } = useValues(tableConfigLogic)
     const { propertyNames } = useValues(propertyDefinitionsModel)
-    const { fetchNextEvents, prependNewEvents, setEventFilter, toggleAutomaticLoad, startDownload } = useActions(logic)
+    const { fetchNextEvents, prependNewEvents, setEventFilter, toggleAutomaticLoad, startDownload, setPollingActive } =
+        useActions(logic)
     const { filters } = useValues(propertyFilterLogic({ pageKey }))
 
     const showLinkToPerson = !fixedFilters?.person_id
+
+    useEffect(() => {
+        // adapted from https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API#example
+        // Opera 12.10 and Firefox 18 and later support
+        let hidden = 'hidden'
+        let visibilityChange = 'visibilitychange'
+        // @ts-ignore - to avoid complaint that msHidden isn't on document
+        if (typeof document.msHidden !== 'undefined') {
+            hidden = 'msHidden'
+            visibilityChange = 'msvisibilitychange'
+            // @ts-ignore - to avoid complaint that webkitHidden isn't on document
+        } else if (typeof document.webkitHidden !== 'undefined') {
+            hidden = 'webkitHidden'
+            visibilityChange = 'webkitvisibilitychange'
+        }
+
+        const onVisibilityChange = (): void => {
+            setPollingActive(!document[hidden])
+        }
+
+        document.addEventListener(visibilityChange, onVisibilityChange)
+
+        return function cleanUp() {
+            document.removeEventListener(visibilityChange, onVisibilityChange)
+        }
+    }, [])
 
     const newEventsRender = (
         { date_break, new_events }: EventsTableRowItem,
