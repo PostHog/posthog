@@ -13,6 +13,7 @@ export const urls = {
     eventStats: () => '/events/stats',
     eventPropertyStats: () => '/events/properties',
     events: () => '/events',
+    apm: () => '/apm/waterfall',
     insightNew: (filters?: Partial<FilterType>) => `/insights/new${filters ? combineUrl('', filters).search : ''}`,
     insightRouter: (id: string) => `/i/${id}`,
     insightEdit: (id: InsightShortId, filters?: Partial<FilterType>) =>

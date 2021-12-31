@@ -4,28 +4,33 @@
     line-height: 32px;
     padding-right: 3em;
 
-    .in-front {
-        z-index: 200;
-    }
+    .waterfall-chart {
+        border: 1px solid var(--border);
+        padding: 4px;
 
-    .marker-row {
-        height: 32px;
-        margin-bottom: 1px;
-    }
-    .marker-name {
-        background-color: var(--bg-mid);
-    }
-    .positioned {
-        position: absolute;
-        min-width: 2px;
-        height: 32px;
-    }
-    .performance-block {
-        background-color: #1c94c4;
-    }
-    .vertical-marker {
-        height: 100%;
-        position: absolute;
-        width: 2px;
+        .in-front {
+            z-index: 200;
+        }
+
+        .marker-row {
+            height: 32px;
+            margin-bottom: 1px;
+        }
+        .marker-name {
+            background-color: var(--bg-mid);
+        }
+        .positioned {
+            position: absolute;
+            min-width: 2px;
+            height: 32px;
+        }
+        .performance-block {
+            background-color: #1c94c4;
+        }
+        .vertical-marker {
+            height: 100%;
+            position: absolute;
+            width: 2px;
+        }
     }
 }

@@ -38,6 +38,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
+import { CoffeeOutlined } from '@ant-design/icons'
 
 function ProjectSwitcherInternal(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -202,6 +203,9 @@ function Pages(): JSX.Element {
             <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
             {featureFlags[FEATURE_FLAGS.EXPERIMENTATION] && (
                 <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
+            )}
+            {featureFlags[FEATURE_FLAGS.APM] && (
+                <PageButton icon={<CoffeeOutlined />} identifier={Scene.APM} to={urls.apm()} />
             )}
             <LemonSpacer />
             <PageButton icon={<IconGroupedEvents />} identifier={Scene.Events} to={urls.events()} />
