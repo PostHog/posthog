@@ -1,5 +1,5 @@
 import React from 'react'
-import { Button, Col, Row, Space, Typography } from 'antd'
+import { Button, Col, Row, Typography } from 'antd'
 import './PerformanceWaterfall.scss'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -113,7 +113,7 @@ function WaterfallChart(): JSX.Element {
 }
 
 function EventsWithPerformanceTable(): JSX.Element {
-    const { pageViewEventsLoading, pageViewEvents } = useValues(apmLogic)
+    const { pageViewEventsLoading, pageViewEvents, eventToDisplay } = useValues(apmLogic)
     const { setEventToDisplay } = useActions(apmLogic)
     const columns: LemonTableColumns<EventType> = [
         {
@@ -176,12 +176,24 @@ function EventsWithPerformanceTable(): JSX.Element {
             dataSource={pageViewEvents || []}
             columns={columns}
             loading={pageViewEventsLoading}
+            emptyState={
+                pageViewEventsLoading ? (
+                    <div>Loading last ten events with performance measures</div>
+                ) : (
+                    <div>No events available</div>
+                )
+            }
+            rowClassName={(pageViewEvent) => {
+                return clsx({
+                    'current-event': pageViewEvent.id === eventToDisplay?.id,
+                    'cursor-pointer': true,
+                })
+            }}
             onRow={(pageViewEvent) => ({
                 onClick: () => {
                     setEventToDisplay(pageViewEvent)
                 },
             })}
-            rowClassName="cursor-pointer"
             data-attr="apm-waterfall-events-table"
         />
     )
@@ -200,10 +212,14 @@ export function PerformanceWaterfall(): JSX.Element {
                     </Row>
                 }
             />
-            <Space direction="vertical">
-                <EventsWithPerformanceTable />
-                <WaterfallChart />
-            </Space>
+            <Row gutter={[0, 32]}>
+                <Col span={24}>
+                    <EventsWithPerformanceTable />
+                </Col>
+                <Col span={24}>
+                    <WaterfallChart />
+                </Col>
+            </Row>
         </div>
     )
 }

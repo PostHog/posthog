@@ -4,6 +4,10 @@
     line-height: 32px;
     padding-right: 3em;
 
+    tr.current-event {
+        background-color: $mark_color;
+    }
+
     .waterfall-chart {
         border: 1px solid var(--border);
         padding: 4px;

@@ -13,6 +13,7 @@ interface EventPerformanceMeasure {
 }
 
 export interface EventPerformanceData {
+    id: string | number
     pointsInTime: Record<string, number>
     durations: Record<string, EventPerformanceMeasure>
     maxTime: number
@@ -65,6 +66,7 @@ function forWaterfallDisplay(pageViewEvent: EventType): EventPerformanceData {
     })
 
     return {
+        id: pageViewEvent.id,
         pointsInTime,
         durations: durations,
         maxTime,
