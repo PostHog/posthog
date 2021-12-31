@@ -1,4 +1,5 @@
 import json
+import calendar
 from datetime import datetime, time
 from typing import Any, Callable, Dict, List, Optional, Union, cast
 
@@ -83,13 +84,21 @@ def handle_compare(filter, func: Callable, team: Team, **kwargs) -> List:
     return entities_list
 
 
+days_of_months = calendar.mdays
+
+if calendar.isleap(datetime.now().year):
+    days_of_months[2] = 29
+
+month = datetime.now().month
+
 TIME_IN_SECONDS: Dict[str, Any] = {
     "minute": 60,
     "hour": 3600,
     "day": 3600 * 24,
     "week": 3600 * 24 * 7,
-    "month": 3600 * 24 * 30,  # TODO: Let's get rid of this lie! Months are not all 30 days long
+    "month": 3600 * 24 * days_of_months[month],
 }
+
 
 """
 filter_events takes team_id, filter, entity and generates a Q objects that you can use to filter a QuerySet
