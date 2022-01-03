@@ -1,5 +1,5 @@
 import SaveOutlined from '@ant-design/icons/lib/icons/SaveOutlined'
-import { Alert, Button, Card, Col, Collapse, Form, Input, InputNumber, Row, Slider, Tag, Tooltip } from 'antd'
+import { Alert, Button, Card, Col, Form, Input, InputNumber, Row, Select, Slider, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -15,8 +15,8 @@ import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { JSSnippet } from 'scenes/feature-flags/FeatureFlagSnippets'
-import { IconJavascript } from 'lib/components/icons'
-import { InfoCircleOutlined } from '@ant-design/icons'
+import { IconJavascript, IconOpenInNew } from 'lib/components/icons'
+import { InfoCircleOutlined, CaretDownOutlined } from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
@@ -260,14 +260,6 @@ export function Experiment(): JSX.Element {
                                         </Row>
                                     </BindLogic>
                                 </Row>
-                                <Button
-                                    icon={<SaveOutlined />}
-                                    className="float-right"
-                                    type="primary"
-                                    htmlType="submit"
-                                >
-                                    Save
-                                </Button>
                             </div>
                             <Card className="experiment-preview">
                                 <Row className="preview-row">
@@ -341,7 +333,7 @@ export function Experiment(): JSX.Element {
                                         </div>
                                     </Col>
                                 </Row>
-                                <Row className="preview-row">
+                                <Row>
                                     <Col>
                                         <div className="card-secondary mb-05">Conversion goal range</div>
                                         <div>
@@ -353,29 +345,10 @@ export function Experiment(): JSX.Element {
                                     </Col>
                                 </Row>
                             </Card>
-                            <Collapse>
-                                <Collapse.Panel
-                                    header={
-                                        <div
-                                            style={{
-                                                display: 'flex',
-                                                fontWeight: 'bold',
-                                                alignItems: 'center',
-                                            }}
-                                        >
-                                            <IconJavascript style={{ marginRight: 6 }} /> Javascript integration
-                                            instructions
-                                        </div>
-                                    }
-                                    key="js"
-                                >
-                                    <JSSnippet
-                                        variants={['control', 'test']}
-                                        flagKey={newExperimentData?.feature_flag_key || ''}
-                                    />
-                                </Collapse.Panel>
-                            </Collapse>
                         </div>
+                        <Button icon={<SaveOutlined />} className="float-right" type="primary" htmlType="submit">
+                            Save
+                        </Button>
                     </Form>
                 </>
             ) : experimentData ? (
@@ -442,7 +415,29 @@ export function Experiment(): JSX.Element {
                             </Row>
                         </Col>
                         <Col span={14}>
-                            <div>
+                            <div className="text-default">
+                                <Row align="middle">
+                                    <b>How to run this experiment in your code</b>
+                                    <div className="ml-05">
+                                        <CodeLanguageSelect />
+                                    </div>
+                                </Row>
+                                <JSSnippet
+                                    variants={['control', 'test']}
+                                    flagKey={newExperimentData?.feature_flag_key || ''}
+                                />
+                                <a
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    href="https://posthog.com/docs/user-guides/feature-flags"
+                                >
+                                    <Row align="middle">
+                                        Learn more about feature flags
+                                        <IconOpenInNew className="ml-05" />
+                                    </Row>
+                                </a>
+                            </div>
+                            <div className="mt">
                                 Test that your code works properly for each variant:{' '}
                                 <a
                                     target="_blank"
@@ -450,7 +445,7 @@ export function Experiment(): JSX.Element {
                                     href="https://posthog.com/docs/user-guides/feature-flags#develop-locally"
                                 >
                                     {' '}
-                                    Follow this guide.{' '}
+                                    Follow this guide{' '}
                                 </a>
                                 <div>
                                     For your Feature Flag, the override code looks like:
@@ -517,5 +512,17 @@ export function Experiment(): JSX.Element {
                 <div>Loading Data...</div>
             )}
         </>
+    )
+}
+
+export function CodeLanguageSelect(): JSX.Element {
+    return (
+        <Select defaultValue="JavaScript" suffixIcon={<CaretDownOutlined />}>
+            <Select.Option value="JavaScript">
+                <Row align="middle">
+                    <IconJavascript style={{ marginRight: 6 }} /> JavaScript
+                </Row>
+            </Select.Option>
+        </Select>
     )
 }

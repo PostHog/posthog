@@ -133,7 +133,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 toast.success(
                     <div data-attr="success-toast">
                         <h1>Experiment {isUpdate ? 'updated' : 'created'} successfully!</h1>
-                        {!isUpdate && <p>Click here to launch this experiment.</p>}
+                        {!isUpdate && <p>Click here to view this experiment.</p>}
                     </div>,
                     {
                         onClick: () => {
