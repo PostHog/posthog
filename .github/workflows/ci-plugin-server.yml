@@ -215,7 +215,7 @@ jobs:
                   ping -c 1 kafka
                   ping -c 1 zookeeper
             - name: Start Kafka, ClickHouse, Zookeeper
-              run: docker-compose -f ee/docker-compose.ch.yml up -d zookeeper kafka clickhouse
+              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse
 
             - name: Set up Python
               uses: actions/setup-python@v2
@@ -298,7 +298,7 @@ jobs:
                   ping -c 1 kafka
                   ping -c 1 zookeeper
             - name: Start Kafka, ClickHouse, Zookeeper
-              run: docker-compose -f ee/docker-compose.ch.yml up -d zookeeper kafka clickhouse
+              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse
 
             - name: Set up Python
               uses: actions/setup-python@v2
