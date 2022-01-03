@@ -103,18 +103,24 @@ describe('eventsTableLogic', () => {
             it('can toggle autoloading on', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.toggleAutomaticLoad(true)
-                }).toMatchValues({
-                    automaticLoadEnabled: true,
                 })
+                    .toMatchValues({
+                        automaticLoadEnabled: true,
+                    })
+                    .toDispatchActions(['fetchEvents', 'toggleAutomaticLoad'])
+                    .toNotHaveDispatchedActions(['fetchEvents'])
             })
 
             it('can toggle autoloading on and off', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.toggleAutomaticLoad(true)
                     logic.actions.toggleAutomaticLoad(false)
-                }).toMatchValues({
-                    automaticLoadEnabled: false,
                 })
+                    .toMatchValues({
+                        automaticLoadEnabled: false,
+                    })
+                    .toDispatchActions(['fetchEvents', 'toggleAutomaticLoad'])
+                    .toNotHaveDispatchedActions(['fetchEvents'])
             })
 
             it('does not call prependNewEvents when there are zero new events', async () => {
@@ -423,11 +429,6 @@ describe('eventsTableLogic', () => {
                 logic.actions.setProperties([propertyFilter])
             })
             expect(router.values.searchParams).toHaveProperty('properties', [propertyFilter])
-        })
-
-        it('reads autoload from the URL', async () => {
-            router.actions.push(urls.events(), { autoload: true })
-            await expectLogic(logic, () => {}).toMatchValues({ automaticLoadEnabled: true })
         })
 
         it('reads properties from the URL', async () => {
