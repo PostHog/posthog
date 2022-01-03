@@ -33,10 +33,17 @@ class SignupSerializer(serializers.Serializer):
                 queryset=User.objects.all(), message="There is already an account with this email address."
             )
         ]
+        if not settings.DEMO
+        else []  # In the demo environment, we treat an email collision in signup as login
     )
-    password: serializers.Field = serializers.CharField(allow_null=True)
+    password: serializers.Field = serializers.CharField(allow_null=True, required=not settings.DEMO)
     organization_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
     email_opt_in: serializers.Field = serializers.BooleanField(default=True)
+
+    # Slightly hacky: self vars for internal use
+    _user: User
+    _team: Team
+    _organization: Organization
 
     def validate_password(self, value):
         if value is not None:
@@ -44,6 +51,9 @@ class SignupSerializer(serializers.Serializer):
         return value
 
     def create(self, validated_data, **kwargs):
+        if settings.DEMO:
+            return self.enter_demo(validated_data)
+
         is_instance_first_user: bool = not User.objects.exists()
 
         organization_name = validated_data.pop("organization_name", validated_data["first_name"])
@@ -77,15 +87,36 @@ class SignupSerializer(serializers.Serializer):
 
         return user
 
+    def enter_demo(self, validated_data) -> User:
+        """Demo signup/login flow."""
+
+        # If there's an email collision in signup in the demo environment, we treat it as a login
+        matching_user = User.objects.filter(email=validated_data["email"]).first()
+        if matching_user is None:
+            validated_data["password"] = None
+            self._organization, self._team, self._user = User.objects.bootstrap(
+                create_team=self.create_team, **validated_data
+            )
+        else:
+            self._organization, self._team, self._user = matching_user.organization, matching_user.team, matching_user
+
+        login(
+            self.context["request"], self._user, backend="django.contrib.auth.backends.ModelBackend",
+        )
+
+        return self._user
+
     def create_team(self, organization: Organization, user: User) -> Team:
-        if self.enable_new_onboarding(user):
+        if settings.DEMO or self.enable_new_onboarding(user):
             return create_demo_team(organization=organization)
         else:
             return Team.objects.create_with_data(user=user, organization=organization)
 
     def to_representation(self, instance) -> Dict:
         data = UserBasicSerializer(instance=instance).data
-        data["redirect_url"] = "/personalization" if self.enable_new_onboarding() else "/ingestion"
+        data["redirect_url"] = (
+            "/personalization" if self.enable_new_onboarding() else "/ingestion" if not settings.DEMO else "/"
+        )
         return data
 
     def enable_new_onboarding(self, user: Optional[User] = None) -> bool:
