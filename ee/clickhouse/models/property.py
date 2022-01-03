@@ -371,6 +371,9 @@ def get_property_string_expr(
     if allow_denormalized_props and property_name in materialized_columns:
         return materialized_columns[property_name], True
 
+    if "properties" in column and table in ["events", "person"]:
+        return f"property_values[indexOf(property_keys, {var})]", False
+
     return f"trim(BOTH '\"' FROM JSONExtractRaw({column}, {var}))", False
 
 
