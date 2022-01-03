@@ -18,6 +18,7 @@ export function TaxonomicFilter({
     onClose,
     taxonomicGroupTypes,
     optionsFromProp,
+    eventNames,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -35,6 +36,7 @@ export function TaxonomicFilter({
         onChange,
         taxonomicGroupTypes,
         optionsFromProp,
+        eventNames,
     }
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
     const { searchQuery, searchPlaceholder } = useValues(logic)

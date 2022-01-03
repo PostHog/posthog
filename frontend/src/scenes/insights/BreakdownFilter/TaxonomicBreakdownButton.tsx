@@ -12,6 +12,7 @@ import { PlusCircleOutlined } from '@ant-design/icons'
 import { useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import { ButtonType } from 'antd/lib/button'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export interface TaxonomicBreakdownButtonProps {
     breakdownType?: TaxonomicFilterGroupType
@@ -27,6 +28,7 @@ export function TaxonomicBreakdownButton({
     buttonType = 'link',
 }: TaxonomicBreakdownButtonProps): JSX.Element {
     const [open, setOpen] = useState(false)
+    const { allEventNames } = useValues(insightLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     return (
@@ -40,6 +42,7 @@ export function TaxonomicBreakdownButton({
                             setOpen(false)
                         }
                     }}
+                    eventNames={allEventNames}
                     taxonomicGroupTypes={
                         onlyCohorts
                             ? [TaxonomicFilterGroupType.CohortsWithAllUsers]

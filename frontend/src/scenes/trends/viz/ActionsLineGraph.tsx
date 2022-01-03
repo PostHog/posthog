@@ -45,13 +45,9 @@ export function ActionsLineGraph({
                 dashboardItemId || isMultiSeriesFormula(filters.formula) || !showPersonsModal
                     ? undefined
                     : (payload) => {
-                          const { index, points } = payload
+                          const { index, points, crossDataset, seriesId } = payload
 
-                          // For now, take first point when clicking a specific point.
-                          // TODO: Implement case when if the entire line was clicked, show people for that entire day across actions.
-                          const dataset = points.clickedPointNotLine
-                              ? points.pointsIntersectingClick[0].dataset
-                              : points.pointsIntersectingLine[0].dataset
+                          const dataset = points.referencePoint.dataset
                           const day = dataset?.days?.[index] ?? ''
                           const label = dataset?.label ?? dataset?.labels?.[index] ?? ''
 
@@ -65,8 +61,12 @@ export function ActionsLineGraph({
                               date_from: day,
                               date_to: day,
                               filters,
-                              breakdown_value: points.clickedPointNotLine ? dataset.breakdown_value : undefined,
+                              breakdown_value: points.clickedPointNotLine
+                                  ? dataset.breakdown_value || dataset.status
+                                  : undefined,
                               saveOriginal: true,
+                              crossDataset,
+                              seriesId,
                               pointValue: dataset?.data?.[index] ?? undefined,
                           }
                           if (dataset.persons_urls?.[index].url) {

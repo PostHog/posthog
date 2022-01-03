@@ -87,7 +87,7 @@
                                    distinct_id,
                                    team_id
                           HAVING max(is_deleted) = 0)
-                       GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                       GROUP BY distinct_id) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['$pageleave', '$pageview']
                       AND timestamp >= '2020-01-01 00:00:00'

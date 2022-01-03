@@ -448,7 +448,6 @@ export function FunnelStepTable(): JSX.Element | null {
                         iconStyle={{ marginRight: 12 }}
                         hideIcon
                         allowWrap
-                        useCustomName
                         showEventName={step.isBreakdownParent}
                     />
                 )

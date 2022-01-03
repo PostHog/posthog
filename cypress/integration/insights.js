@@ -29,6 +29,7 @@ describe('Insights', () => {
         cy.get('[data-attr=prop-val-0]').click({ force: true })
 
         // Save
+        cy.wait(500) // TODO: hoxfix until we disable "save" when loading
         cy.get('[data-attr="insight-save-button"]').click()
         cy.get('[data-attr="insight-edit-button"]').click()
 

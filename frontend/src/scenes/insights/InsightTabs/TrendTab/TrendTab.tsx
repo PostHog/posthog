@@ -24,7 +24,7 @@ export interface TrendTabProps {
 }
 
 export function TrendTab({ view }: TrendTabProps): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, allEventNames } = useValues(insightLogic)
     const { filters } = useValues(trendsLogic(insightProps))
     const { setFilters, toggleLifecycle } = useActions(trendsLogic(insightProps))
     const { preflight } = useValues(preflightLogic)
@@ -109,6 +109,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                                     TaxonomicFilterGroupType.Elements,
                                 ]}
                                 pageKey="trends-filters"
+                                eventNames={allEventNames}
                             />
                             <TestAccountFilter filters={filters} onChange={setFilters} />
                             {formulaAvailable && (

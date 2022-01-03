@@ -29,7 +29,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { groupsModel } from '~/models/groupsModel'
 
 export function PathTab(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, allEventNames } = useValues(insightLogic)
     const { filter, wildcards } = useValues(pathsLogic(insightProps))
     const { setFilter, updateExclusions } = useActions(pathsLogic(insightProps))
 
@@ -530,6 +530,7 @@ export function PathTab(): JSX.Element {
                             TaxonomicFilterGroupType.Cohorts,
                             TaxonomicFilterGroupType.Elements,
                         ]}
+                        eventNames={allEventNames}
                     />
                     <TestAccountFilter filters={filter} onChange={setFilter} />
                     {hasAdvancedPaths && (

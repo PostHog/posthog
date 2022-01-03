@@ -79,7 +79,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         if self._should_join_distinct_ids:
             return f"""
             INNER JOIN ({get_team_distinct_ids_query(self._team_id)}) AS {self.DISTINCT_ID_TABLE_ALIAS}
-            ON events.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id
+            ON {self.EVENT_TABLE_ALIAS}.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id
             """
         else:
             return ""

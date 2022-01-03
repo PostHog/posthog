@@ -46,27 +46,24 @@ export function Experiments(): JSX.Element {
         {
             title: 'Duration',
             render: function Render(_, experiment: Experiment) {
-                return (
-                    <div>
-                        {`${
-                            experiment.end_date
-                                ? dayjs(experiment.start_date).diff(dayjs(experiment.end_date), 'day')
-                                : 0
-                        }`}{' '}
-                        days
-                    </div>
-                )
+                const duration = experiment.end_date
+                    ? dayjs(experiment.end_date).diff(dayjs(experiment.start_date), 'day')
+                    : experiment.start_date
+                    ? dayjs().diff(dayjs(experiment.start_date), 'day')
+                    : undefined
+
+                return <div>{duration !== undefined ? `${duration} day${duration > 1 ? 's' : ''}` : 'N.A'}</div>
             },
         },
         {
             title: 'Status',
             render: function Render(_, experiment: Experiment) {
-                const statusColors = { active: 'green', draft: 'default', complete: 'purple' }
+                const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
                 const status = (): string => {
                     if (!experiment.start_date) {
                         return 'draft'
                     } else if (!experiment.end_date) {
-                        return 'active'
+                        return 'running'
                     }
                     return 'complete'
                 }
@@ -101,7 +98,7 @@ export function Experiments(): JSX.Element {
                 rowKey="id"
                 loading={experimentsLoading}
                 defaultSorting={{ columnKey: 'id', order: 1 }}
-                pagination={{ pageSize: 20 }}
+                pagination={{ pageSize: 100 }}
                 nouns={['Experiment', 'Experiments']}
                 data-attr="experiment-table"
             />

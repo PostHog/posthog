@@ -20,7 +20,7 @@
                     distinct_id,
                     team_id
            HAVING max(is_deleted) = 0)
-        GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+        GROUP BY distinct_id) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-02-15 23:59:59'
@@ -53,7 +53,7 @@
                     distinct_id,
                     team_id
            HAVING max(is_deleted) = 0)
-        GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+        GROUP BY distinct_id) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-02-15 23:59:59'
@@ -86,7 +86,7 @@
                     distinct_id,
                     team_id
            HAVING max(is_deleted) = 0)
-        GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+        GROUP BY distinct_id) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-02-15 23:59:59'
@@ -119,7 +119,7 @@
                     distinct_id,
                     team_id
            HAVING max(is_deleted) = 0)
-        GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+        GROUP BY distinct_id) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-02-15 23:59:59'
@@ -153,7 +153,7 @@
                     distinct_id,
                     team_id
            HAVING max(is_deleted) = 0)
-        GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+        GROUP BY distinct_id) AS pdi ON e.distinct_id = pdi.distinct_id
      INNER JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
@@ -194,7 +194,7 @@
                     distinct_id,
                     team_id
            HAVING max(is_deleted) = 0)
-        GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+        GROUP BY distinct_id) AS pdi ON e.distinct_id = pdi.distinct_id
      INNER JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
@@ -235,7 +235,7 @@
                     distinct_id,
                     team_id
            HAVING max(is_deleted) = 0)
-        GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+        GROUP BY distinct_id) AS pdi ON e.distinct_id = pdi.distinct_id
      INNER JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
@@ -276,7 +276,7 @@
                     distinct_id,
                     team_id
            HAVING max(is_deleted) = 0)
-        GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+        GROUP BY distinct_id) AS pdi ON e.distinct_id = pdi.distinct_id
      INNER JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0

@@ -3,7 +3,7 @@ import { Link } from 'lib/components/Link'
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
-import { errorToast, toParams } from 'lib/utils'
+import { errorToast, isGroupType, pluralize, toParams } from 'lib/utils'
 import {
     ActionFilter,
     FilterType,
@@ -12,6 +12,7 @@ import {
     PropertyFilter,
     FunnelCorrelationResultsType,
     ActorType,
+    GraphDataset,
 } from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -27,7 +28,7 @@ import { dayjs } from 'lib/dayjs'
 import { groupsModel } from '~/models/groupsModel'
 
 export interface PersonsModalParams {
-    action: ActionFilter | 'session' // todo, refactor this session string param out
+    action: ActionFilter | 'session' // TODO: refactor this session string param out
     label: string // Contains the step name
     date_from: string | number
     date_to: string | number
@@ -38,6 +39,8 @@ export interface PersonsModalParams {
     funnelStep?: number
     pathsDropoff?: boolean
     pointValue?: number // The y-axis value of the data point (i.e. count, unique persons, ...)
+    crossDataset?: GraphDataset[]
+    seriesId?: number
 }
 
 export interface PeopleParamType {
@@ -92,7 +95,7 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
 // NOTE: this interface isn't particularly clean. Separation of concerns of load
 // and displaying of people and the display of the modal would be helpful to
 // keep this interfaces smaller.
-type LoadPeopleFromUrlProps = {
+interface LoadPeopleFromUrlProps {
     // The url from which we can load urls
     url: string
     // The funnel step the dialog should display as the complete/dropped step.
@@ -111,6 +114,12 @@ type LoadPeopleFromUrlProps = {
     action: ActionFilter | 'session'
     // Copied from `PersonsModalParams`, likely needed for diplay logic
     pathsDropoff?: boolean
+    // The y-axis value of the data point (i.e. count, unique persons, ...)
+    pointValue?: number
+    // Contains the data set for all the points in the same x-axis point; allows switching between matching points
+    crossDataset?: GraphDataset[]
+    // The frontend ID that identifies this particular series (i.e. if breakdowns are applied, each breakdown value is its own series)
+    seriesId?: number
 }
 
 export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProps, PersonsModalParams>>({
@@ -120,6 +129,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         setCohortModalVisible: (visible: boolean) => ({ visible }),
         loadPeople: (peopleParams: PersonsModalParams) => ({ peopleParams }),
         loadPeopleFromUrl: (props: LoadPeopleFromUrlProps) => props,
+        switchToDataPoint: (seriesId: number) => ({ seriesId }), // Changes data point shown on PersonModal
         loadMorePeople: true,
         hidePeople: true,
         saveCohortWithFilters: (cohortName: string, filters: Partial<FilterType>) => ({ cohortName, filters }),
@@ -151,21 +161,28 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         people: [
             null as TrendActors | null,
             {
-                loadPeople: (_, { peopleParams: { action, label, date_from, breakdown_value } }) => ({
+                loadPeople: (
+                    _,
+                    { peopleParams: { action, label, date_from, breakdown_value, crossDataset, seriesId } }
+                ) => ({
                     people: [],
                     count: 0,
                     action,
                     label,
                     day: date_from,
                     breakdown_value,
+                    crossDataset,
+                    seriesId,
                 }),
-                loadPeopleFromUrl: (_, { label, date_from = '', action, breakdown_value }) => ({
+                loadPeopleFromUrl: (_, { label, date_from = '', action, breakdown_value, crossDataset, seriesId }) => ({
                     people: [],
                     count: 0,
                     day: date_from,
                     label,
                     action,
                     breakdown_value,
+                    crossDataset,
+                    seriesId,
                 }),
                 setFilters: () => null,
                 setFirstLoadedActors: (_, { firstLoadedPeople }) => firstLoadedPeople,
@@ -199,6 +216,13 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                 loadPeople: (_, { peopleParams }) => peopleParams,
             },
         ],
+        peopleUrlParams: [
+            // peopleParams when loaded from URL
+            null as LoadPeopleFromUrlProps | null,
+            {
+                loadPeopleFromUrl: (_, props) => props,
+            },
+        ],
     }),
     selectors: {
         isInitialLoad: [
@@ -208,6 +232,20 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         clickhouseFeaturesEnabled: [
             () => [preflightLogic.selectors.preflight],
             (preflight) => !!preflight?.is_clickhouse_enabled,
+        ],
+        isGroupType: [(s) => [s.people], (people) => people?.people?.[0] && isGroupType(people.people[0])],
+        actorLabel: [
+            (s) => [s.people, s.isGroupType, s.groupTypes],
+            (result, _isGroupType, groupTypes) => {
+                if (_isGroupType && result?.action !== 'session') {
+                    return result?.action.math_group_type_index != undefined &&
+                        groupTypes.length > result?.action.math_group_type_index
+                        ? `${groupTypes[result?.action.math_group_type_index].group_type}(s)`
+                        : ''
+                } else {
+                    return pluralize(result?.count || 0, 'person', undefined, false)
+                }
+            },
         ],
     },
     loaders: ({ actions, values }) => ({
@@ -228,6 +266,8 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     searchTerm,
                     funnelStep,
                     pathsDropoff,
+                    crossDataset,
+                    seriesId,
                 } = peopleParams
 
                 const searchTermParam = searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : ''
@@ -294,6 +334,8 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     next: actors?.next,
                     funnelStep,
                     pathsDropoff,
+                    crossDataset,
+                    seriesId,
                 } as TrendActors
 
                 eventUsageLogic.actions.reportPersonsModalViewed(peopleParams, peopleResult.count, !!actors?.next)
@@ -312,6 +354,8 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                 action,
                 label,
                 pathsDropoff,
+                crossDataset,
+                seriesId,
             }) => {
                 const people = await api.get(url)
 
@@ -325,6 +369,8 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     action: action,
                     next: people?.next,
                     pathsDropoff,
+                    crossDataset,
+                    seriesId,
                 }
             },
             loadMorePeople: async ({}, breakpoint) => {
@@ -338,6 +384,8 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                         breakdown_value,
                         next,
                         funnelStep,
+                        crossDataset,
+                        seriesId,
                     } = values.people
                     if (!next) {
                         throw new Error('URL of next page of persons is not known.')
@@ -354,6 +402,8 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                         breakdown_value,
                         next: people.next,
                         funnelStep,
+                        crossDataset,
+                        seriesId,
                     }
                 }
                 return null
@@ -390,7 +440,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             }
         },
         setPersonsModalFilters: async ({ searchTerm, people, filters }) => {
-            const { label, action, day, breakdown_value, funnelStep } = people
+            const { label, action, day, breakdown_value, funnelStep, crossDataset, seriesId } = people
             const date_from = day
             const date_to = day
             const saveOriginal = false
@@ -404,7 +454,34 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                 saveOriginal,
                 searchTerm,
                 funnelStep,
+                crossDataset,
+                seriesId,
             })
+        },
+        switchToDataPoint: async ({ seriesId }) => {
+            const data = values.people?.crossDataset?.find(({ id: _id }) => _id === seriesId)
+
+            if (data && data.action) {
+                const commonParams = {
+                    seriesId,
+                    breakdown_value: data.breakdown_value,
+                    action: data.action,
+                    pointValue: data.pointValue,
+                }
+                if (values.peopleParams) {
+                    actions.loadPeople({
+                        ...values.peopleParams,
+                        ...commonParams,
+                    })
+                }
+                if (data.personUrl && values.peopleUrlParams) {
+                    actions.loadPeopleFromUrl({
+                        ...values.peopleUrlParams,
+                        ...commonParams,
+                        url: data.personUrl,
+                    })
+                }
+            }
         },
     }),
     actionToUrl: ({ values }) => ({

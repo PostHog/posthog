@@ -46,7 +46,6 @@ export async function startPluginsServer(
     let pingJob: schedule.Job | undefined
     let piscinaStatsJob: schedule.Job | undefined
     let internalMetricsStatsJob: schedule.Job | undefined
-    let flushLastSeenAtCacheJob: schedule.Job | undefined
     let pluginMetricsJob: schedule.Job | undefined
     let piscina: Piscina | undefined
     let queue: Queue | undefined // ingestion queue
@@ -198,13 +197,6 @@ export async function startPluginsServer(
             })
         }
 
-        // every minute flush lastSeenAt cache
-        if (serverConfig.EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED) {
-            flushLastSeenAtCacheJob = schedule.scheduleJob('0 * * * * *', async () => {
-                await hub!.teamManager.flushLastSeenAtCache()
-            })
-        }
-
         pluginMetricsJob = schedule.scheduleJob('*/30 * * * *', async () => {
             await piscina!.broadcastTask({ task: 'sendPluginMetrics' })
         })
@@ -265,10 +257,6 @@ export async function stopPiscina(piscina: Piscina): Promise<void> {
     // Wait *up to* 5 seconds to shut down VMs.
     await Promise.race([piscina.broadcastTask({ task: 'teardownPlugins' }), delay(5000)])
     // Wait 2 seconds to flush the last queues and caches
-    await Promise.all([
-        piscina.broadcastTask({ task: 'flushKafkaMessages' }),
-        piscina.broadcastTask({ task: 'flushLastSeenAtCache' }),
-        delay(2000),
-    ])
+    await Promise.all([piscina.broadcastTask({ task: 'flushKafkaMessages' }), delay(2000)])
     await piscina.destroy()
 }
