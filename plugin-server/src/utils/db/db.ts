@@ -1240,7 +1240,7 @@ export class DB {
     }
 
     public async fetchWriteToPersonUniqueId(): Promise<boolean> {
-        if (this.writeToPersonUniqueId != undefined) {
+        if (this.writeToPersonUniqueId === undefined) {
             this.writeToPersonUniqueId = !(await this.fetchAsyncMigrationComplete('0003_fill_person_distinct_id2'))
         }
         return this.writeToPersonUniqueId as boolean
