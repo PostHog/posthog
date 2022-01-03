@@ -96,7 +96,7 @@ describe('Trends', () => {
         cy.get('[data-attr=math-total-0]').click()
 
         // Should contain more than label column
-        cy.get('[data-attr=insights-table-graph]').find('.ant-table-cell').its('length').should('be.gte', 1)
+        cy.get('[data-attr=insights-table-graph]').find('td').its('length').should('be.gte', 1)
     })
 
     it('Apply date filter', () => {
@@ -121,6 +121,13 @@ describe('Trends', () => {
     })
 
     it('Save to dashboard', () => {
+        // apply random filter
+        cy.get('[data-attr=new-prop-filter-trends-filters]').click()
+        cy.get('[data-attr=taxonomic-filter-searchfield]').click()
+        cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
+        cy.get('[data-attr=prop-val]').click()
+        cy.get('[data-attr=prop-val-0]').click({ force: true })
+
         cy.get('[data-attr=save-to-dashboard-button]').click()
         cy.get('form > .ant-select > .ant-select-selector').click()
         cy.get(':nth-child(1) > .ant-select-item-option-content').click()

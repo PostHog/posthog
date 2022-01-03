@@ -210,7 +210,7 @@ export function AsyncMigrations(): JSX.Element {
                     </div>
                     <Space />
                     <Table
-                        pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                        pagination={false}
                         loading={asyncMigrationsLoading}
                         columns={columns}
                         dataSource={asyncMigrations}

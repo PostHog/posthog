@@ -198,12 +198,20 @@ mark {
     border-radius: $radius;
 }
 
+.uppercase {
+    text-transform: uppercase;
+}
+
 // Supplement text, such as email under user name
 .supplement {
     text-overflow: ellipsis;
     overflow: hidden;
     color: var(--muted-alt);
     font-size: 0.8125rem;
+    &--danger {
+        color: var(--danger);
+        font-weight: 600;
+    }
 }
 
 code.code {
@@ -763,14 +771,14 @@ code.code {
 
 .main-app-content {
     min-width: 0;
-    padding: 0 2rem 2rem;
+    padding: 0 2rem 4rem;
 
     @media (min-width: $sm) and (max-width: $lg) {
         padding: 0 1rem 2rem;
     }
 
     @media (max-width: $sm) {
-        padding: 0 1rem;
+        padding: 0 1rem 1rem;
     }
 }
 

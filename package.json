@@ -94,7 +94,7 @@
         "kea-waitfor": "^0.2.1",
         "kea-window-values": "^0.1.0",
         "md5": "^2.3.0",
-        "posthog-js": "1.16.7",
+        "posthog-js": "1.16.8",
         "posthog-js-lite": "^0.0.3",
         "prop-types": "^15.7.2",
         "query-selector-shadow-dom": "0.8.0",
@@ -210,7 +210,7 @@
         "(frontend/**).{js,jsx,mjs,ts,tsx}": "eslint -c .eslintrc.js --fix",
         "(plugin-server/**).{js,jsx,mjs,ts,tsx}": "eslint -c plugin-server/.eslintrc.js --fix",
         "*.{py,pyi}": [
-            "flake8 --select=E9,F63,F7,F82,W605",
+            "flake8",
             "black",
             "isort"
         ]

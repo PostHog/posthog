@@ -1,8 +1,8 @@
 import SaveOutlined from '@ant-design/icons/lib/icons/SaveOutlined'
-import { Alert, Button, Card, Col, Collapse, Form, Input, Row, Slider, Tooltip } from 'antd'
+import { Alert, Button, Card, Col, Collapse, Form, Input, Row, Slider, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { PropertyFilters } from 'lib/components/PropertyFilters'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React from 'react'
@@ -17,7 +17,6 @@ import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { JSSnippet } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { IconJavascript } from 'lib/components/icons'
 import { InfoCircleOutlined } from '@ant-design/icons'
-import { LemonButton } from 'lib/components/LemonButton'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
@@ -38,8 +37,9 @@ export function Experiment(): JSX.Element {
         expectedRunningTime,
         experimentResults,
         conversionRateForVariant,
+        editingExistingExperiment,
     } = useValues(experimentLogic)
-    const { setNewExperimentData, createExperiment, launchExperiment, setFilters, endExperiment } =
+    const { setNewExperimentData, createExperiment, launchExperiment, setFilters, editExperiment, endExperiment } =
         useActions(experimentLogic)
 
     const [form] = Form.useForm()
@@ -56,10 +56,19 @@ export function Experiment(): JSX.Element {
     const entrants = results?.[0]?.count
     const sampleSize = recommendedSampleSize(conversionRate)
     const runningTime = expectedRunningTime(entrants, sampleSize)
+    const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
+    const status = (): string => {
+        if (!experimentData?.start_date) {
+            return 'draft'
+        } else if (!experimentData?.end_date) {
+            return 'running'
+        }
+        return 'complete'
+    }
 
     return (
         <>
-            {experimentId === 'new' ? (
+            {experimentId === 'new' || editingExistingExperiment ? (
                 <>
                     <Row
                         align="middle"
@@ -334,28 +343,51 @@ export function Experiment(): JSX.Element {
                         </div>
                     </Form>
                 </>
-            ) : !experimentData?.start_date ? (
+            ) : experimentData ? (
                 <div className="confirmation">
-                    {newExperimentData?.description && <Row>Description: {newExperimentData?.description}</Row>}
-                    <Row className="mt">
-                        <Col span={10}>
+                    <Row className="draft-header">
+                        <Row justify="space-between" align="middle" className="full-width">
                             <Row>
-                                Feature flag key: <b>{newExperimentData?.feature_flag_key}</b>
+                                <PageHeader style={{ margin: 0, paddingRight: 8 }} title={`${experimentData?.name}`} />
+                                <Tag style={{ alignSelf: 'center' }} color={statusColors[status()]}>
+                                    <b className="uppercase">{status()}</b>
+                                </Tag>
                             </Row>
-                            <Row>Variants: 'control' and 'test'</Row>
-                            <Row>The following users will participate in the experiment</Row>
+                            {experimentData && !experimentData.start_date && (
+                                <div>
+                                    <Button className="mr-05" onClick={() => editExperiment()}>
+                                        Edit
+                                    </Button>
+                                    <Button type="primary" onClick={() => launchExperiment()}>
+                                        Launch
+                                    </Button>
+                                </div>
+                            )}
+                            {experimentData && experimentData.start_date && !experimentData.end_date && (
+                                <Button className="stop-experiment" onClick={() => endExperiment()}>
+                                    Stop experiment
+                                </Button>
+                            )}
+                        </Row>
+                        {experimentData.description && <Row>Description: {experimentData.description}</Row>}
+                    </Row>
+                    <Row>
+                        <Col span={10}>
+                            <div className="mb-05">
+                                <span>Feature flag key:</span> <b>{experimentData.feature_flag_key}</b>
+                            </div>
+                            <div className="mb-05">Variants: 'control' and 'test'</div>
+                            <div className="mb-05">The following users will participate in the experiment</div>
                             <ul>
-                                {newExperimentData?.filters?.properties?.length ? (
-                                    newExperimentData.filters.properties.map(
-                                        (property: PropertyFilter, idx: number) => (
-                                            <li key={idx}>
-                                                Users with {property.key} {property.operator}{' '}
-                                                {Array.isArray(property.value)
-                                                    ? property.value.map((val) => `${val}, `)
-                                                    : property.value}
-                                            </li>
-                                        )
-                                    )
+                                {experimentData.filters?.properties?.length ? (
+                                    experimentData.filters.properties.map((property: PropertyFilter, idx: number) => (
+                                        <li key={idx}>
+                                            Users with {property.key} {property.operator}{' '}
+                                            {Array.isArray(property.value)
+                                                ? property.value.map((val) => `${val}, `)
+                                                : property.value}
+                                        </li>
+                                    ))
                                 ) : (
                                     <li key={'all users'}>All users</li>
                                 )}
@@ -364,12 +396,12 @@ export function Experiment(): JSX.Element {
                             <Row>
                                 <ul>
                                     <li>
-                                        Recommended running time: ~
-                                        {newExperimentData?.parameters?.recommended_running_time} days
+                                        Recommended running time: ~{experimentData.parameters?.recommended_running_time}{' '}
+                                        days
                                     </li>
                                     <li>
-                                        Recommended sample size: ~
-                                        {newExperimentData?.parameters?.recommended_sample_size} people
+                                        Recommended sample size: ~{experimentData.parameters?.recommended_sample_size}{' '}
+                                        people
                                     </li>
                                 </ul>
                             </Row>
@@ -377,7 +409,11 @@ export function Experiment(): JSX.Element {
                         <Col span={14}>
                             <div>
                                 Test that your code works properly for each variant:{' '}
-                                <a href="https://posthog.com/docs/user-guides/feature-flags#develop-locally">
+                                <a
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    href="https://posthog.com/docs/user-guides/feature-flags#develop-locally"
+                                >
                                     {' '}
                                     Follow this guide.{' '}
                                 </a>
@@ -388,7 +424,7 @@ export function Experiment(): JSX.Element {
                                             {' '}
                                             {variant}:
                                             <CodeSnippet language={Language.JavaScript}>
-                                                {`posthog.feature_flags.override({'${newExperimentData?.feature_flag_key}': '${variant}'})`}
+                                                {`posthog.feature_flags.override({'${experimentData.feature_flag_key}': '${variant}'})`}
                                             </CodeSnippet>
                                         </div>
                                     ))}
@@ -397,65 +433,53 @@ export function Experiment(): JSX.Element {
                             <div>Warning: Remember to not change this code until the experiment ends</div>
                         </Col>
                     </Row>
-                    <Row justify="space-between">
-                        <Button type="primary" onClick={() => launchExperiment()}>
-                            Launch
-                        </Button>
-                    </Row>
-                </div>
-            ) : experimentData ? (
-                <div className="experiment-result">
-                    {experimentData.end_date && <Alert type="info" message="This experiment has ended" />}
-                    <div>
-                        <PageHeader title={experimentData.name} />
-                        <div>{experimentData?.description}</div>
-                        <div>Owner: {experimentData.created_by?.first_name}</div>
-                        <div>Feature flag key: {experimentData?.feature_flag_key}</div>
-                        <div>Experiment start date: {dayjs(experimentData.start_date).format('D MMM YYYY')}</div>
-                    </div>
+                    {experimentData.start_date && (
+                        <div className="experiment-result">
+                            {experimentData.end_date && <Alert type="info" message="This experiment has ended" />}
+                            <div>Experiment start date: {dayjs(experimentData.start_date).format('D MMM YYYY')}</div>
 
-                    {experimentResults && (
-                        <BindLogic
-                            logic={insightLogic}
-                            props={{
-                                dashboardItemId: experimentResults.itemID,
-                                filters: {
-                                    ...experimentResults.filters,
-                                    insight: 'FUNNELS',
-                                    funnel_viz_type: FunnelVizType.Steps,
-                                    display: 'FunnelViz',
-                                },
-                                cachedResults: experimentResults.funnel,
-                                syncWithUrl: false,
-                                doNotLoad: true,
-                            }}
-                        >
-                            <div>
-                                <PageHeader title="Results" />
-                                <div>
-                                    Probability that test has higher conversion than control:{' '}
-                                    <b>{(experimentResults?.probability * 100).toFixed(1)}%</b>
-                                </div>
-                                {experimentResults.funnel.length === 0 && (
-                                    <div className="l4">There were no events related to this experiment.</div>
-                                )}
+                            {experimentResults && (
+                                <BindLogic
+                                    logic={insightLogic}
+                                    props={{
+                                        dashboardItemId: experimentResults.itemID,
+                                        filters: {
+                                            ...experimentResults.filters,
+                                            insight: 'FUNNELS',
+                                            funnel_viz_type: FunnelVizType.Steps,
+                                            display: 'FunnelViz',
+                                        },
+                                        cachedResults: experimentResults.funnel,
+                                        syncWithUrl: false,
+                                        doNotLoad: true,
+                                    }}
+                                >
+                                    <div>
+                                        <PageHeader title="Results" />
+                                        <div>
+                                            Probability that test has higher conversion than control:{' '}
+                                            <b>{(experimentResults?.probability * 100).toFixed(1)}%</b>
+                                        </div>
+                                        {experimentResults.funnel.length === 0 && (
+                                            <div className="l4">There were no events related to this experiment.</div>
+                                        )}
 
-                                <div>
-                                    Test variant conversion rate: <b>{conversionRateForVariant('test')}</b>
-                                </div>
-                                <div>
-                                    Control variant conversion rate: <b>{conversionRateForVariant('control')}</b>
-                                </div>
-                                <InsightContainer disableTable={true} />
-                            </div>
-                        </BindLogic>
-                    )}
-                    {!experimentData.end_date && (
-                        <LemonButton onClick={() => endExperiment()}>End experiment</LemonButton>
+                                        <div>
+                                            Test variant conversion rate: <b>{conversionRateForVariant('test')}</b>
+                                        </div>
+                                        <div>
+                                            Control variant conversion rate:{' '}
+                                            <b>{conversionRateForVariant('control')}</b>
+                                        </div>
+                                        <InsightContainer disableTable={true} />
+                                    </div>
+                                </BindLogic>
+                            )}
+                        </div>
                     )}
                 </div>
             ) : (
-                <div>Loading...</div>
+                <div>Loading Data...</div>
             )}
         </>
     )

@@ -12,8 +12,11 @@ import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import './LineGraph.scss'
 import { InsightLabel } from 'lib/components/InsightLabel'
-import { InsightTooltip } from '../InsightTooltip/InsightTooltip'
+import { LEGACY_InsightTooltip } from '../InsightTooltip/LEGACY_InsightTooltip'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
 //--Chart Style Options--//
 Chart.defaults.global.legend.display = false
@@ -60,6 +63,7 @@ export function LEGACY_LineGraph({
     const { annotationsList, annotationsLoading } = !inSharedMode
         ? useValues(annotationsLogic({ insightId }))
         : { annotationsList: [], annotationsLoading: false }
+    const { featureFlags } = useValues(featureFlagLogic)
     const [leftExtent, setLeftExtent] = useState(0)
     const [boundaryInterval, setBoundaryInterval] = useState(0)
     const [topExtent, setTopExtent] = useState(0)
@@ -275,7 +279,6 @@ export function LEGACY_LineGraph({
                                     : entityData.breakdown_value
                             }
                             seriesStatus={entityData.status}
-                            useCustomName
                         />
                     )
                 },
@@ -313,7 +316,7 @@ export function LEGACY_LineGraph({
                     const altTitle =
                         tooltipModel.title && (dataset.compare || tooltipPreferAltTitle) ? tooltipModel.title[0] : '' // When comparing we show the whole range for clarity; when on stickiness we show the relative timeframe (e.g. `5 days`)
                     const referenceDate = !dataset.compare ? dataset.days[referenceDataPoint.index] : undefined
-                    const bodyLines = tooltipModel.body
+                    const seriesData = tooltipModel.body
                         .flatMap(({ lines }) => lines)
                         .map((component, idx) => ({
                             id: idx,
@@ -322,15 +325,26 @@ export function LEGACY_LineGraph({
 
                     ReactDOM.render(
                         <Provider store={getContext().store}>
-                            <InsightTooltip
-                                altTitle={altTitle}
-                                referenceDate={referenceDate}
-                                interval={interval}
-                                bodyLines={bodyLines}
-                                inspectPersonsLabel={onClick && showPersonsModal}
-                                preferAltTitle={tooltipPreferAltTitle}
-                                hideHeader={type === 'horizontalBar'}
-                            />
+                            {featureFlags[FEATURE_FLAGS.NEW_INSIGHT_TOOLTIPS] ? (
+                                <InsightTooltip
+                                    referenceDate={referenceDate}
+                                    altTitle={altTitle}
+                                    seriesData={seriesData}
+                                    useAltTitle={tooltipPreferAltTitle}
+                                    hideHeader={type === 'horizontalBar'}
+                                    hideInspectActorsSection={!(onClick && showPersonsModal)}
+                                />
+                            ) : (
+                                <LEGACY_InsightTooltip
+                                    altTitle={altTitle}
+                                    referenceDate={referenceDate}
+                                    interval={interval}
+                                    bodyLines={seriesData}
+                                    inspectPersonsLabel={onClick && showPersonsModal}
+                                    preferAltTitle={tooltipPreferAltTitle}
+                                    hideHeader={type === 'horizontalBar'}
+                                />
+                            )}
                         </Provider>,
                         tooltipEl
                     )
@@ -406,6 +420,7 @@ export function LEGACY_LineGraph({
                             pointsIntersectingLine: [{ ...point, dataset }],
                             pointsIntersectingClick: [{ ...point, dataset }],
                             clickedPointNotLine: true,
+                            referencePoint: { ...point, dataset },
                         },
                         index: point._index,
                     })

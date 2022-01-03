@@ -38,6 +38,7 @@ export enum Scene {
     BillingSubscribed = 'BillingSubscribed',
     Plugins = 'Plugins',
     SavedInsights = 'SavedInsights',
+    ToolbarLaunch = 'ToolbarLaunch',
     // Authentication & onboarding routes
     Login = 'Login',
     Signup = 'Signup',

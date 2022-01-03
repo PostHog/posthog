@@ -26,13 +26,14 @@ import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { AnnotationMarker, Annotations, annotationsLogic } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import './LineGraph.scss'
-import { InsightTooltip } from '../InsightTooltip/InsightTooltip'
+import { LEGACY_InsightTooltip } from '../InsightTooltip/LEGACY_InsightTooltip'
 import { dayjs } from 'lib/dayjs'
-import { AnnotationType, GraphDataset, GraphPointPayload, GraphType, IntervalType } from '~/types'
+import { AnnotationType, GraphDataset, GraphPointPayload, GraphType, IntervalType, GraphPoint } from '~/types'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { LEGACY_LineGraph } from './LEGACY_LineGraph.jsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
 //--Chart Style Options--//
 Chart.register(CrosshairPlugin)
@@ -314,7 +315,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                             const referenceDate = !dataset.compare
                                 ? dataset.days?.[referenceDataPoint.dataIndex]
                                 : undefined
-                            const bodyLines = tooltip.body
+                            const seriesData = tooltip.body
                                 .flatMap(({ lines }) => lines)
                                 .map((component, idx) => ({
                                     id: idx,
@@ -323,15 +324,26 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
 
                             ReactDOM.render(
                                 <Provider store={getContext().store}>
-                                    <InsightTooltip
-                                        altTitle={altTitle}
-                                        referenceDate={referenceDate}
-                                        interval={interval}
-                                        bodyLines={bodyLines}
-                                        inspectPersonsLabel={onClick && showPersonsModal}
-                                        preferAltTitle={tooltipPreferAltTitle}
-                                        hideHeader={isHorizontal}
-                                    />
+                                    {featureFlags[FEATURE_FLAGS.NEW_INSIGHT_TOOLTIPS] ? (
+                                        <InsightTooltip
+                                            referenceDate={referenceDate}
+                                            altTitle={altTitle}
+                                            seriesData={seriesData}
+                                            useAltTitle={tooltipPreferAltTitle}
+                                            hideHeader={isHorizontal}
+                                            hideInspectActorsSection={!(onClick && showPersonsModal)}
+                                        />
+                                    ) : (
+                                        <LEGACY_InsightTooltip
+                                            referenceDate={referenceDate}
+                                            altTitle={altTitle}
+                                            interval={interval}
+                                            bodyLines={seriesData}
+                                            preferAltTitle={tooltipPreferAltTitle}
+                                            hideHeader={isHorizontal}
+                                            inspectPersonsLabel={onClick && showPersonsModal}
+                                        />
+                                    )}
                                 </Provider>,
                                 tooltipEl
                             )
@@ -403,7 +415,6 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                                             : entityData.breakdown_value
                                     }
                                     seriesStatus={entityData.status}
-                                    useCustomName
                                 />
                             )
                         },
@@ -489,6 +500,20 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
 
                 const clickedPointNotLine = pointsIntersectingClick.length !== 0
 
+                // For now, take first point when clicking a specific point.
+                // TODO: Implement case when if the entire line was clicked, show people for that entire day across actions.
+                const referencePoint: GraphPoint = clickedPointNotLine
+                    ? { ...pointsIntersectingClick[0], dataset: datasets[pointsIntersectingClick[0].datasetIndex] }
+                    : { ...pointsIntersectingLine[0], dataset: datasets[pointsIntersectingLine[0].datasetIndex] }
+
+                const crossDataset = datasets
+                    .filter((_dt) => !_dt.dotted)
+                    .map((_dt) => ({
+                        ..._dt,
+                        personUrl: _dt.persons_urls?.[referencePoint.index].url,
+                        pointValue: _dt.data[referencePoint.index],
+                    }))
+
                 onClick?.({
                     points: {
                         pointsIntersectingLine: pointsIntersectingLine.map((p) => ({
@@ -500,10 +525,11 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                             dataset: datasets[p.datasetIndex],
                         })),
                         clickedPointNotLine,
+                        referencePoint,
                     },
-                    index: clickedPointNotLine
-                        ? pointsIntersectingClick?.[0]?.index
-                        : pointsIntersectingLine?.[0]?.index,
+                    index: referencePoint.index,
+                    crossDataset,
+                    seriesId: datasets[referencePoint.datasetIndex].id,
                 })
             },
         }

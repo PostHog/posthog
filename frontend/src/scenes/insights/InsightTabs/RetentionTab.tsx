@@ -24,7 +24,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function RetentionTab(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { insightProps, clickhouseFeaturesEnabled } = useValues(insightLogic)
+    const { insightProps, clickhouseFeaturesEnabled, allEventNames } = useValues(insightLogic)
     const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
     const { filters, actionFilterTargetEntity, actionFilterReturningEntity } = useValues(
         retentionTableLogic(insightProps)
@@ -75,7 +75,7 @@ export function RetentionTab(): JSX.Element {
                                                 }
                                             />
                                         ) : (
-                                            <b>unique users</b>
+                                            <b>Unique users</b>
                                         )}{' '}
                                         who did
                                     </>
@@ -169,6 +169,7 @@ export function RetentionTab(): JSX.Element {
                             TaxonomicFilterGroupType.Cohorts,
                             TaxonomicFilterGroupType.Elements,
                         ]}
+                        eventNames={allEventNames}
                     />
                     <TestAccountFilter filters={filters} onChange={setFilters} />
 

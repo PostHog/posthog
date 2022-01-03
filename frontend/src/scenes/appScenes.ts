@@ -29,6 +29,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.ProjectSettings]: () => import('./project/Settings'),
     [Scene.ProjectCreateFirst]: () => import('./project/Create'),
     [Scene.SystemStatus]: () => import('./instance/SystemStatus'),
+    [Scene.ToolbarLaunch]: () => import('./toolbar-launch/ToolbarLaunch'),
     [Scene.Licenses]: () => import('./instance/Licenses'),
     [Scene.AsyncMigrations]: () => import('./instance/AsyncMigrations'),
     [Scene.MySettings]: () => import('./me/Settings'),

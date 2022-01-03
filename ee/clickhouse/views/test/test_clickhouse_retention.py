@@ -1,5 +1,5 @@
 from dataclasses import asdict, dataclass
-from typing import List, Literal, Optional, TypedDict, Union
+from typing import Any, List, Literal, Optional, TypedDict, Union
 
 from django.test import TestCase
 from django.test.client import Client
@@ -14,7 +14,7 @@ from posthog.test.base import test_with_materialized_columns
 from posthog.utils import encode_get_request_params
 
 
-class RetentionBreakdownTests(TestCase, ClickhouseTestMixin):
+class BreakdownTests(TestCase, ClickhouseTestMixin):
     def test_can_get_retention_cohort_breakdown(self):
         organization = create_organization(name="test")
         team = create_team(organization=organization)
@@ -279,7 +279,7 @@ class RetentionBreakdownTests(TestCase, ClickhouseTestMixin):
         assert [distinct_id for person in people for distinct_id in person["distinct_ids"]] == ["person 1"]
 
 
-class RetentionIntervalTests(TestCase, ClickhouseTestMixin):
+class IntervalTests(TestCase, ClickhouseTestMixin):
     def test_can_get_retention_week_interval(self):
         organization = create_organization(name="test")
         team = create_team(organization=organization)
@@ -320,6 +320,42 @@ class RetentionIntervalTests(TestCase, ClickhouseTestMixin):
         }
 
 
+class RegressionTests(TestCase, ClickhouseTestMixin):
+    def test_can_get_actors_and_use_percent_char_filter(self):
+        """
+        References https://github.com/PostHog/posthog/issues/7747
+
+        Essentially we were performing a double string substitution, which
+        causes issues if, in that case, we use a string substitution that
+        includes a '%' character, and then run substitution again.
+
+        This was the case for instance when you wanted to filter out test users
+        e.g. by postgres LIKE matching '%posthog.com%'
+        """
+        organization = create_organization(name="test")
+        team = create_team(organization=organization)
+        user = create_user(email="test@posthog.com", password="1234", organization=organization)
+
+        self.client.force_login(user)
+
+        response = get_retention_people(
+            client=self.client,
+            team_id=team.pk,
+            request=RetentionRequest(
+                target_entity={"id": "target event", "type": "events"},
+                returning_entity={"id": "target event", "type": "events"},
+                date_from="2020-01-01",
+                total_intervals=2,
+                date_to="2020-01-08",
+                period="Week",
+                retention_type="retention_first_time",
+                properties=[{"key": "email", "value": "posthog.com", "operator": "not_icontains", "type": "person"}],
+            ),
+        )
+
+        assert response.status_code == 200
+
+
 def setup_user_activity_by_day(daily_activity, team):
     _create_all_events(
         [
@@ -337,6 +373,13 @@ class Breakdown:
     property: str
 
 
+class PropertyFilter(TypedDict):
+    key: str
+    value: str
+    operator: Literal["not_icontains"]  # NOTE: not exhaustive
+    type: Literal["person"]  # NOTE: not exhaustive
+
+
 @dataclass
 class RetentionRequest:
     date_from: str  # From what I can tell, this doesn't do anything, rather `total_intervals` is used
@@ -349,6 +392,8 @@ class RetentionRequest:
 
     breakdowns: Optional[List[Breakdown]] = None
     breakdown_type: Optional[Literal["person", "event"]] = None
+
+    properties: Optional[List[PropertyFilter]] = None
 
 
 class Value(TypedDict):
@@ -388,6 +433,14 @@ def get_retention_ok(client: Client, team_id: int, request: RetentionRequest) ->
 def get_retention(client: Client, team_id: int, request: RetentionRequest):
     return client.get(
         f"/api/projects/{team_id}/insights/retention/",
+        # NOTE: for get requests we need to JSON encode non-scalars
+        data=encode_get_request_params(asdict(request)),
+    )
+
+
+def get_retention_people(client: Client, team_id: int, request: RetentionRequest):
+    return client.get(
+        f"/api/person/retention/",
         # NOTE: for get requests we need to JSON encode non-scalars
         data=encode_get_request_params(asdict(request)),
     )

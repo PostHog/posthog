@@ -12,6 +12,7 @@ import {
     dateMappingOption,
     GroupActorType,
     ActorType,
+    ActionType,
 } from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
@@ -366,6 +367,8 @@ export const operatorMap: Record<string, string> = {
     lt: '< lower than',
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
+    is_date_before: '< before',
+    is_date_after: '> after',
 }
 
 export function isOperatorMulti(operator: string): boolean {
@@ -379,6 +382,10 @@ export function isOperatorFlag(operator: string): boolean {
 
 export function isOperatorRegex(operator: string): boolean {
     return ['regex', 'not_regex'].includes(operator)
+}
+
+export function isOperatorDate(operator: string): boolean {
+    return ['is_date_before', 'is_date_after'].includes(operator)
 }
 
 export function formatPropertyLabel(
@@ -450,28 +457,6 @@ export function idToKey(array: Record<string, any>[], keyField: string = 'id'): 
 
 export function delay(ms: number): Promise<number> {
     return new Promise((resolve) => window.setTimeout(resolve, ms))
-}
-
-/**
- * Trigger a resize event on window.
- */
-export function triggerResize(): void {
-    try {
-        window.dispatchEvent(new Event('resize'))
-    } catch (error) {
-        // will break on IE11
-    }
-}
-
-/**
- * Trigger a resize event on window a few times between 10 to 2000 ms after the menu was collapsed/expanded.
- * We need this so the dashboard resizes itself properly, as the available div width will still
- * change when the sidebar's expansion is animating.
- */
-export function triggerResizeAfterADelay(): void {
-    for (const duration of [10, 100, 500, 750, 1000, 2000]) {
-        window.setTimeout(triggerResize, duration)
-    }
 }
 
 export function clearDOMTextSelection(): void {
@@ -1279,4 +1264,11 @@ export function isGroupType(actor: ActorType): actor is GroupActorType {
 
 export function mapRange(value: number, x1: number, y1: number, x2: number, y2: number): number {
     return Math.floor(((value - x1) * (y2 - x2)) / (y1 - x1) + x2)
+}
+
+export function getEventNamesForAction(actionId: string | number, allActions: ActionType[]): string[] {
+    const id = parseInt(String(actionId))
+    return allActions
+        .filter((a) => a.id === id)
+        .flatMap((a) => a.steps?.filter((step) => step.event).map((step) => String(step.event)) as string[])
 }
