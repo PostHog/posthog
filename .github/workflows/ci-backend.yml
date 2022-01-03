@@ -220,15 +220,11 @@ jobs:
 
             - name: Run SAML tests
               if: ${{ matrix.saml }}
-              env:
-                  PRIMARY_DB: 'clickhouse'
               run: |
                   pytest ee -m "saml_only"
 
             - name: Run ee/ tests
               if: ${{ matrix.ee }}
-              env:
-                  PRIMARY_DB: 'clickhouse'
               run: |
                   pytest ee -m "not saml_only" \
                       --splits ${{ matrix.concurrency }} \
@@ -239,8 +235,6 @@ jobs:
 
             - name: Run pytest.mark.ee tests
               if: ${{ matrix.ee && matrix.group == '1' }}
-              env:
-                  PRIMARY_DB: 'clickhouse'
               run: |
                   pytest posthog -m "ee"
 
@@ -350,8 +344,6 @@ jobs:
                   touch frontend/dist/shared_dashboard.html
 
             - name: Run cloud tests (posthog-cloud)
-              env:
-                  PRIMARY_DB: 'clickhouse'
               run: |
                   source .env.template
                   cd deploy

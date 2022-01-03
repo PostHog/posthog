@@ -17,7 +17,6 @@ env:
     EMAIL_HOST: 'email.test.posthog.net' # used to test password resets
     SITE_URL: 'test.posthog.net' # used to test password resets
     NO_RESTART_LOOP: 1
-    PRIMARY_DB: clickhouse
     CLICKHOUSE_SECURE: 0
 
 jobs:
@@ -122,10 +121,9 @@ jobs:
             - name: Boot PostHog
               run: |
                   python manage.py collectstatic --noinput &
-                  ./bin/docker-migrate &
+                  ./bin/migrate &
                   wait
                   bin/check_kafka_clickhouse_up
-                  python manage.py migrate_clickhouse
                   python manage.py setup_dev
                   mkdir -p /tmp/logs
                   ./bin/docker-worker &> /tmp/logs/worker.txt &

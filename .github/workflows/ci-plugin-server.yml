@@ -245,7 +245,6 @@ jobs:
               env:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/posthog'
-                  PRIMARY_DB: 'clickhouse'
                   TEST: 'true'
               run: python manage.py setup_test_environment
 
@@ -328,7 +327,6 @@ jobs:
               env:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/posthog'
-                  PRIMARY_DB: 'clickhouse'
                   TEST: 'true'
               run: python manage.py setup_test_environment
 
