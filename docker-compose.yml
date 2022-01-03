@@ -24,10 +24,10 @@ services:
             - '9440:9440'
             - '9009:9009'
         volumes:
-            - ./idl:/idl
-            - ../docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
-            - ../docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
-            - ../docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
+            - ./ee/idl:/idl
+            - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ./docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
     zookeeper:
         image: wurstmeister/zookeeper
     kafka:
