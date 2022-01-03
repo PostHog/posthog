@@ -8,7 +8,7 @@ env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     REDIS_URL: 'redis://localhost'
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-    KAFKA_URL: 'kafka://kafka'
+    KAFKA_URL: 'kafka://kafka:9092'
     DISABLE_SECURE_SSL_REDIRECT: 1
     SECURE_COOKIES: 0
     OPT_OUT_CAPTURE: 1
@@ -17,10 +17,8 @@ env:
     EMAIL_HOST: 'email.test.posthog.net' # used to test password resets
     SITE_URL: 'test.posthog.net' # used to test password resets
     NO_RESTART_LOOP: 1
-    CLICKHOUSE_HOST: 'localhost'
-    CLICKHOUSE_SECURE: 'False'
-    CLICKHOUSE_VERIFY: 'False'
-    SAML_DISABLED: 1
+    PRIMARY_DB: clickhouse
+    CLICKHOUSE_SECURE: 0
 
 jobs:
     # Job that lists and chunks spec file names and caches node modules
@@ -52,10 +50,9 @@ jobs:
                   yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
                   cd plugin-server
                   yarn install --frozen-lockfile
-
     cypress:
         name: Cypress E2E tests (${{ strategy.job-index }})
-        if: ${{ github.ref != 'refs/heads/master' }} # Don't run on master, we only cace about node_modules cache
+        if: ${{ github.ref != 'refs/heads/master' }} # Don't run on master, we only cace about node_modules cache
         runs-on: ubuntu-18.04
         needs: [cypress_prep]
 
@@ -66,7 +63,6 @@ jobs:
             fail-fast: false
             matrix:
                 specs: ${{ fromJson(needs.cypress_prep.outputs.specs) }}
-
         steps:
             - name: Checkout
               uses: actions/checkout@v2
@@ -74,7 +70,9 @@ jobs:
             - name: Start stack with Docker Compose
               run: |
                   docker-compose -f ee/docker-compose.ch.yml down
-                  docker-compose -f ee/docker-compose.ch.yml up -d db clickhouse zookeeper kafka redis
+                  docker-compose -f ee/docker-compose.ch.yml up -d db clickhouse zookeeper kafka redis &
+            - name: Add kafka host to /etc/hosts for kafka connectivity
+              run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
             - name: Set up Python 3.8
               uses: actions/setup-python@v2
@@ -106,7 +104,7 @@ jobs:
                   restore-keys: |
                       ${{ runner.os }}-cypress-node-modules-3-
             - name: Yarn install deps
-              # NOTE: we always try to run yarn install, as we'rie using a cache
+              # NOTE: we always try to run yarn install, as we're using a cache
               # from the prep phase that hasn't been proven to be correct. We
               # should still get some cache benefits.
               run: |
@@ -121,23 +119,17 @@ jobs:
                   yarn build
                   cd plugin-server
                   yarn build
-
-            - name: Add kafka host to /etc/hosts for kafka connectivity
-              run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
-
-            - name: Wait for Clickhouse & Kafka
-              run: bin/check_kafka_clickhouse_up
-
             - name: Boot PostHog
               run: |
                   python manage.py collectstatic --noinput &
-                  ./bin/migrate &
+                  ./bin/docker-migrate &
                   wait
+                  bin/check_kafka_clickhouse_up
+                  python manage.py migrate_clickhouse
                   python manage.py setup_dev
                   mkdir -p /tmp/logs
                   ./bin/docker-worker &> /tmp/logs/worker.txt &
                   ./bin/docker-server &> /tmp/logs/server.txt &
-
             - name: Cypress run
               uses: cypress-io/github-action@v2
               with:
