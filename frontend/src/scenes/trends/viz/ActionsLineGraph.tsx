@@ -40,7 +40,7 @@ export function ActionsLineGraph({
             showPersonsModal={showPersonsModal}
             tooltipPreferAltTitle={filters.insight === InsightType.STICKINESS}
             isCompare={!!filters.compare}
-            isInProgress={incompletenessOffsetFromEnd < 0}
+            isInProgress={filters.insight !== InsightType.STICKINESS && incompletenessOffsetFromEnd < 0}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             onClick={
                 dashboardItemId || isMultiSeriesFormula(filters.formula) || !showPersonsModal
