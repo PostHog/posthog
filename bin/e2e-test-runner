@@ -1,7 +1,6 @@
 #!/bin/bash
 set -e
 
-<<<<<<< HEAD
 
 export DEBUG=1
 export NO_RESTART_LOOP=1 
