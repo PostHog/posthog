@@ -40,6 +40,11 @@ class SignupSerializer(serializers.Serializer):
     organization_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
     email_opt_in: serializers.Field = serializers.BooleanField(default=True)
 
+    # Slightly hacky: self vars for internal use
+    _user: User
+    _team: Team
+    _organization: Organization
+
     def validate_password(self, value):
         if value is not None:
             password_validation.validate_password(value)
@@ -86,14 +91,14 @@ class SignupSerializer(serializers.Serializer):
         """Demo signup/login flow."""
 
         # If there's an email collision in signup in the demo environment, we treat it as a login
-        self._user = User.objects.filter(email=validated_data["email"]).first()
-        if self._user is None:
+        matching_user = User.objects.filter(email=validated_data["email"]).first()
+        if matching_user is None:
             validated_data["password"] = None
             self._organization, self._team, self._user = User.objects.bootstrap(
                 create_team=self.create_team, **validated_data
             )
         else:
-            self._organization, self._team = self._user.organization, self._user.team
+            self._organization, self._team, self._user = matching_user.organization, matching_user.team, matching_user
 
         login(
             self.context["request"], self._user, backend="django.contrib.auth.backends.ModelBackend",
