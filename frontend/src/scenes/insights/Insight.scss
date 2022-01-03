@@ -1,6 +1,6 @@
 @import '~/vars';
 
-$funnel_canvas_background: #fafafa;
+$funnel_canvas_background: #fff;
 
 .insights-page {
     .top-bar {
@@ -102,7 +102,7 @@ $funnel_canvas_background: #fafafa;
 
     .insights-graph-container {
         margin-bottom: $default_spacing;
-        background-color: $bg_side;
+        background-color: #fff;
 
         .ant-card-head {
             border-bottom: 1px solid $border;
@@ -271,7 +271,6 @@ $funnel_canvas_background: #fafafa;
     align-items: center;
     padding-top: $default_spacing * 2;
     padding-bottom: $default_spacing * 2;
-    background-color: $bg_side;
     color: $text_muted;
     font-size: 1.1em;
     flex-grow: 1;
