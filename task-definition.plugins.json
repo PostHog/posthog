@@ -87,6 +87,10 @@
                 {
                     "name": "PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS",
                     "value": "2,2635"
+                },
+                {
+                    "name": "EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED",
+                    "value": "False"
                 }
             ],
             "secrets": [

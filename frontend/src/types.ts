@@ -304,6 +304,8 @@ export enum PropertyOperator {
     LessThan = 'lt',
     IsSet = 'is_set',
     IsNotSet = 'is_not_set',
+    IsDateBefore = 'is_date_before',
+    IsDateAfter = 'is_date_after',
 }
 
 export enum SavedInsightsTabs {
@@ -1534,17 +1536,29 @@ export type GraphDataset = ChartDataset<ChartType> &
             | 'persons'
         >
     > & {
-        id: number // used in filtering out visibility of datasets. Set internally by chart.js
-        dotted?: boolean // toggled on to draw incompleteness lines in LineGraph.tsx
-        breakdownValues?: (string | number | undefined)[] // array of breakdown values used only in ActionsHorizontalBar.tsx data
-        personsValues?: (Person | undefined)[] // array of persons ussed only in (ActionsHorizontalBar|ActionsPie).tsx
+        /** Used in filtering out visibility of datasets. Set internally by chart.js */
+        id: number
+        /** Toggled on to draw incompleteness lines in LineGraph.tsx */
+        dotted?: boolean
+        /** Array of breakdown values used only in ActionsHorizontalBar.tsx data */
+        breakdownValues?: (string | number | undefined)[]
+        /** Array of persons ussed only in (ActionsHorizontalBar|ActionsPie).tsx */
+        personsValues?: (Person | undefined)[]
         index?: number
+        /** Value (count) for specific data point; only valid in the context of an xy intercept */
+        pointValue?: number
+        /** Value (count) for specific data point; only valid in the context of an xy intercept */
+        personUrl?: string
+        /** Action/event filter defition */
+        action?: ActionFilter
     }
 
+export type GraphPoint = InteractionItem & { dataset: GraphDataset }
 interface PointsPayload {
-    pointsIntersectingLine: (InteractionItem & { dataset: GraphDataset })[]
-    pointsIntersectingClick: (InteractionItem & { dataset: GraphDataset })[]
+    pointsIntersectingLine: GraphPoint[]
+    pointsIntersectingClick: GraphPoint[]
     clickedPointNotLine: boolean
+    referencePoint: GraphPoint
 }
 
 export interface GraphPointPayload {
@@ -1553,4 +1567,8 @@ export interface GraphPointPayload {
     label?: string // Soon to be deprecated with LEGACY_LineGraph
     day?: string // Soon to be deprecated with LEGACY_LineGraph
     value?: number
+    /** Contains the dataset for all the points in the same x-axis point; allows switching between matching points in the x-axis */
+    crossDataset?: GraphDataset[]
+    /** ID for the currently selected series */
+    seriesId?: number
 }
