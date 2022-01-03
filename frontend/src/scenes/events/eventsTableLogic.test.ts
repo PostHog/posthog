@@ -416,13 +416,6 @@ describe('eventsTableLogic', () => {
             })
         })
 
-        it('writes autoload toggle to the URL', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.toggleAutomaticLoad(true)
-            })
-            expect(router.values.searchParams).toHaveProperty('autoload', true)
-        })
-
         it('writes properties to the URL', async () => {
             const value = randomString()
             const propertyFilter = makePropertyFilter(value)
