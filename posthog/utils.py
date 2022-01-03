@@ -605,7 +605,7 @@ def get_instance_realm() -> str:
     """
     if settings.MULTI_TENANCY:
         return "cloud"
-    if settings.DEMO:
+    elif settings.DEMO:
         return "demo"
     elif is_clickhouse_enabled():
         return "hosted-clickhouse"

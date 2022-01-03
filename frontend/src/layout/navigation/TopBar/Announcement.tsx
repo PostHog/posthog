@@ -20,8 +20,7 @@ export function Announcement(): JSX.Element | null {
         message = (
             <b>
                 Welcome to PostHog's demo environment. To level up,{' '}
-                <a href="https://posthog.com/signup/self-host">easily deploy PostHog yourself</a> or{' '}
-                <a href="https://app.posthog.com/signup">sign up for a free PostHog Cloud account</a>.
+                <a href="https://posthog.com/signup">deploy your own PostHog instance or sign up for PostHog Cloud</a>.
             </b>
         )
     } else if (shownAnnouncementType === AnnouncementType.CloudFlag && cloudAnnouncement) {

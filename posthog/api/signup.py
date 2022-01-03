@@ -46,32 +46,19 @@ class SignupSerializer(serializers.Serializer):
         return value
 
     def create(self, validated_data, **kwargs):
-        already_existing_demo_user = (
-            None if not settings.DEMO else User.objects.filter(email=validated_data["email"]).first()
+        if settings.DEMO:
+            return self.enter_demo(validated_data)
+
+        is_instance_first_user: bool = not User.objects.exists()
+
+        organization_name = validated_data.pop("organization_name", validated_data["first_name"])
+
+        self._organization, self._team, self._user = User.objects.bootstrap(
+            organization_name=organization_name,
+            create_team=self.create_team,
+            **validated_data,
+            is_staff=is_instance_first_user,
         )
-
-        if not already_existing_demo_user:
-            # Normal signup flow
-            is_instance_first_user: bool = not User.objects.exists()
-
-            organization_name = validated_data.pop("organization_name", validated_data["first_name"])
-            if settings.DEMO:
-                validated_data["password"] = None
-
-            self._organization, self._team, self._user = User.objects.bootstrap(
-                organization_name=organization_name,
-                create_team=self.create_team,
-                **validated_data,
-                is_staff=is_instance_first_user,
-            )
-        else:
-            # If there's an email collision in signup in the demo environment, we treat it as a login
-            is_instance_first_user = False
-
-            self._user = already_existing_demo_user
-            self._organization = already_existing_demo_user.organization
-            self._team = already_existing_demo_user.team
-
         user = self._user
 
         # Temp (due to FF-release [`new-onboarding-2822`]): Activate the setup/onboarding process if applicable
@@ -94,6 +81,25 @@ class SignupSerializer(serializers.Serializer):
         )
 
         return user
+
+    def enter_demo(self, validated_data) -> User:
+        """Demo signup/login flow."""
+
+        # If there's an email collision in signup in the demo environment, we treat it as a login
+        self._user = User.objects.filter(email=validated_data["email"]).first()
+        if self._user is None:
+            validated_data["password"] = None
+            self._organization, self._team, self._user = User.objects.bootstrap(
+                create_team=self.create_team, **validated_data
+            )
+        else:
+            self._organization, self._team = self._user.organization, self._user.team
+
+        login(
+            self.context["request"], self._user, backend="django.contrib.auth.backends.ModelBackend",
+        )
+
+        return self._user
 
     def create_team(self, organization: Organization, user: User) -> Team:
         if settings.DEMO or self.enable_new_onboarding(user):
