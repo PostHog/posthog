@@ -102,6 +102,17 @@ def get_decide(request: HttpRequest):
                 generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
             )
 
+        if not "distinct_id" in data:
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "decide",
+                    "The `distinct_id` property must be passed to this request.",
+                    code="required",
+                    attr="distinct_id",
+                ),
+            )
+
         token = get_token(data, request)
         team = Team.objects.get_team_from_token(token)
         if team is None and token:
