@@ -138,6 +138,16 @@ const normalise_url = (url: string): string => {
     return url
 }
 
+const validate_project_scoped_url = (url: string): void => {
+    const regex = /\/api\/projects\/(\w+)\//
+    const match = regex.exec(url)
+    if (match) {
+        if (match[1] === 'null' || match[1] === 'undefined') {
+            throw { status: 0, detail: 'Attempting request when no project is set. Please refresh this page.' }
+        }
+    }
+}
+
 const api = {
     actions: {
         async get(actionId: ActionType['id']): Promise<ActionType> {
@@ -249,6 +259,7 @@ const api = {
 
     async get(url: string, signal?: AbortSignal): Promise<any> {
         url = normalise_url(url)
+        validate_project_scoped_url(url)
         let response
         const startTime = new Date().getTime()
         try {
@@ -267,6 +278,7 @@ const api = {
 
     async update(url: string, data: any): Promise<any> {
         url = normalise_url(url)
+        validate_project_scoped_url(url)
         const isFormData = data instanceof FormData
         const startTime = new Date().getTime()
         const response = await fetch(url, {
@@ -291,6 +303,7 @@ const api = {
 
     async create(url: string, data?: any): Promise<any> {
         url = normalise_url(url)
+        validate_project_scoped_url(url)
         const isFormData = data instanceof FormData
         const startTime = new Date().getTime()
         const response = await fetch(url, {
@@ -315,6 +328,7 @@ const api = {
 
     async delete(url: string): Promise<any> {
         url = normalise_url(url)
+        validate_project_scoped_url(url)
         const startTime = new Date().getTime()
         const response = await fetch(url, {
             method: 'DELETE',
