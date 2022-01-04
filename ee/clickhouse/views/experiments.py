@@ -50,10 +50,21 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         return value
 
+    def validate_parameters(self, value):
+        variants = value.get("feature_flag_variants", [])
+
+        if len(variants) > 4:
+            raise ValidationError("Feature flag variants must be less than 5")
+        elif len(variants) > 0:
+            if "control" not in [variant["key"] for variant in variants]:
+                raise ValidationError("Feature flag variants must contain a control variant")
+
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
 
         if not validated_data.get("filters"):
             raise ValidationError("Filters are required to create an Experiment")
+
+        variants = validated_data["parameters"].get("feature_flag_variants", [])
 
         request = self.context["request"]
         validated_data["created_by"] = request.user
@@ -64,14 +75,15 @@ class ExperimentSerializer(serializers.ModelSerializer):
         is_draft = "start_date" in validated_data
 
         properties = validated_data["filters"].get("properties", [])
+
+        default_variants = [
+            {"key": "control", "name": "Control Group", "rollout_percentage": 50},
+            {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
+        ]
+
         filters = {
             "groups": [{"properties": properties, "rollout_percentage": None}],
-            "multivariate": {
-                "variants": [
-                    {"key": "control", "name": "Control Group", "rollout_percentage": 50},
-                    {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
-                ]
-            },
+            "multivariate": {"variants": variants or default_variants},
         }
 
         feature_flag = FeatureFlag.objects.create(
