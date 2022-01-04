@@ -56,7 +56,7 @@
                      min(latest_1) over (PARTITION by aggregation_target,
                                                       prop
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                        if(has([['control'], ['test']], prop), prop, ['Other']) as prop
+                                        if(has([['test'], ['control']], prop), prop, ['Other']) as prop
               FROM
                 (SELECT aggregation_target,
                         timestamp,

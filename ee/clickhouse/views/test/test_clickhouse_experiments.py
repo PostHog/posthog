@@ -170,6 +170,9 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, LicensedTestMix
                 "person4": [
                     {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "test"},},
                 ],
+                "person5": [
+                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test"},},
+                ],
             },
             self.team,
         )
@@ -213,7 +216,7 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, LicensedTestMix
         self.assertEqual("control", result[0][1]["breakdown_value"][0])
 
         self.assertEqual(result[1][0]["name"], "$pageview")
-        self.assertEqual(result[1][0]["count"], 2)
+        self.assertEqual(result[1][0]["count"], 3)
         self.assertEqual("test", result[1][0]["breakdown_value"][0])
 
         self.assertEqual(result[1][1]["name"], "$pageleave")
@@ -222,7 +225,7 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, LicensedTestMix
 
         # Variant with test: Beta(2, 3) and control: Beta(3, 1) distribution
         # The variant has very low probability of being better.
-        self.assertAlmostEqual(response_data["probability"], 0.357, places=3)
+        self.assertAlmostEqual(response_data["probability"], 0.2619, places=3)
 
 
 class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
@@ -250,7 +253,7 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, LicensedTestMixi
 
         ff_key = "a-b-test"
         # generates the FF which should result in the above events^
-        response = self.client.post(
+        creation_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
                 "name": "Test Experiment",
@@ -271,7 +274,7 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, LicensedTestMixi
             },
         )
 
-        id = response.json()["id"]
+        id = creation_response.json()["id"]
 
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
         self.assertEqual(200, response.status_code)
