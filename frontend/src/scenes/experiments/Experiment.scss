@@ -97,6 +97,19 @@
             margin-bottom: $default_spacing;
         }
     }
+
+    .feature-flag-variant {
+        border: 1px solid $border;
+        border-radius: 4px;
+        padding-left: 12px;
+        padding-top: $default_spacing / 2;
+        padding-bottom: $default_spacing / 2;
+        margin-top: 20px;
+
+        .ant-form-item-explain-error {
+            padding-top: $default_spacing / 2;
+        }
+    }
 }
 
 .confirmation {

@@ -46,6 +46,8 @@ export const experimentLogic = kea<experimentLogicType>({
         launchExperiment: true,
         endExperiment: true,
         editExperiment: true,
+        addExperimentGroup: true,
+        updateExperimentGroup: (variant: string, idx: number) => ({ variant, idx }),
     },
     reducers: {
         experimentId: [
@@ -55,7 +57,12 @@ export const experimentLogic = kea<experimentLogicType>({
             },
         ],
         newExperimentData: [
-            { feature_flag_variants: ['Control group', 'Test group'] } as Partial<Experiment>,
+            {
+                feature_flag_variants: [
+                    { key: 'Control group', rollout_percentage: 50 },
+                    { key: 'Test group', rollout_percentage: 50 },
+                ],
+            } as Partial<Experiment>,
             {
                 setNewExperimentData: (vals, { experimentData }) => {
                     if (experimentData.filters) {
@@ -64,7 +71,37 @@ export const experimentLogic = kea<experimentLogicType>({
                     }
                     return { ...vals, ...experimentData }
                 },
-                emptyNewExperiment: () => ({ feature_flag_variants: ['Control group', 'Test group'] }),
+                updateExperimentGroup: (state, { variant, idx }) => {
+                    const featureFlagVariants = [...(state?.feature_flag_variants || [])]
+                    featureFlagVariants[idx] = { ...featureFlagVariants[idx], ...variant }
+                    return { ...state, feature_flag_variants: featureFlagVariants }
+                },
+                addExperimentGroup: (state) => {
+                    if (state?.feature_flag_variants) {
+                        const newRolloutPercentage = Math.round(100 / (state.feature_flag_variants.length + 1))
+                        const updatedRolloutPercentageVariants = state.feature_flag_variants.map((variant) => ({
+                            ...variant,
+                            rollout_percentage: newRolloutPercentage,
+                        }))
+                        return {
+                            ...state,
+                            feature_flag_variants: [
+                                ...updatedRolloutPercentageVariants,
+                                {
+                                    key: `test_group_${state.feature_flag_variants.length + 1}`,
+                                    rollout_percentage: newRolloutPercentage,
+                                },
+                            ],
+                        }
+                    }
+                    return state
+                },
+                emptyNewExperiment: () => ({
+                    feature_flag_variants: [
+                        { key: 'control_group', rollout_percentage: 50 },
+                        { key: 'test_group', rollout_percentage: 50 },
+                    ],
+                }),
             },
         ],
         experimentResults: [

@@ -1178,7 +1178,7 @@ export interface FeatureFlagGroupType {
 
 export interface MultivariateFlagVariant {
     key: string
-    name: string | null
+    name?: string | null
     rollout_percentage: number
 }
 
@@ -1382,7 +1382,7 @@ export interface Experiment {
     end_date?: string
     created_at: string
     created_by: UserBasicType | null
-    feature_flag_variants: string[]
+    feature_flag_variants: MultivariateFlagVariant[]
 }
 export interface ExperimentResults {
     funnel: FunnelStep[][]

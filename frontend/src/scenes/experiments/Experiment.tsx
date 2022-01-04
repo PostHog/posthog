@@ -16,7 +16,7 @@ import { experimentLogic } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { JSSnippet } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { IconJavascript, IconOpenInNew } from 'lib/components/icons'
-import { InfoCircleOutlined, CaretDownOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined, CaretDownOutlined, PlusOutlined } from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
@@ -39,8 +39,16 @@ export function Experiment(): JSX.Element {
         conversionRateForVariant,
         editingExistingExperiment,
     } = useValues(experimentLogic)
-    const { setNewExperimentData, createExperiment, launchExperiment, setFilters, editExperiment, endExperiment } =
-        useActions(experimentLogic)
+    const {
+        setNewExperimentData,
+        createExperiment,
+        launchExperiment,
+        setFilters,
+        editExperiment,
+        endExperiment,
+        addExperimentGroup,
+        updateExperimentGroup,
+    } = useActions(experimentLogic)
 
     const [form] = Form.useForm()
 
@@ -172,41 +180,70 @@ export function Experiment(): JSX.Element {
                                                 Participants are divided into experiment groups. All experiments must
                                                 consist of a control group and at least one test group.
                                             </div>
-                                            <Row
-                                                align="middle"
-                                                justify="space-between"
-                                                className="default-control-group"
-                                            >
+                                            <Col>
                                                 {newExperimentData.feature_flag_variants.map((variant, idx) => (
-                                                    <Row key={idx}>
-                                                        <Input
-                                                            style={{ width: '30%' }}
-                                                            value={variant}
-                                                            onChange={(e) => {
-                                                                const featureFlagVariants =
-                                                                    newExperimentData.feature_flag_variants || []
-                                                                featureFlagVariants[idx] = e.target.value
-                                                                setNewExperimentData({
-                                                                    feature_flag_variants: featureFlagVariants,
-                                                                })
-                                                            }}
-                                                        />
-                                                        <div className="ml-05">
-                                                            {' '}
-                                                            Roll out to{' '}
-                                                            <InputNumber
-                                                                defaultValue={
-                                                                    100 /
-                                                                    (newExperimentData?.feature_flag_variants?.length ||
-                                                                        2)
-                                                                }
-                                                                formatter={(value) => `${value}%`}
-                                                            />{' '}
-                                                            of <b>participants</b>
-                                                        </div>
-                                                    </Row>
+                                                    <Form
+                                                        key={`${variant}-${idx}`}
+                                                        initialValues={newExperimentData.feature_flag_variants}
+                                                        onValuesChange={(changedValues) => {
+                                                            updateExperimentGroup(changedValues, idx)
+                                                        }}
+                                                        validateTrigger={['onChange', 'onBlur']}
+                                                    >
+                                                        <Row className="feature-flag-variant">
+                                                            <Form.Item
+                                                                name="key"
+                                                                rules={[
+                                                                    {
+                                                                        required: true,
+                                                                        message: 'Key should not be empty.',
+                                                                    },
+                                                                    {
+                                                                        pattern: /^([A-z]|[a-z]|[0-9]|-|_)+$/,
+                                                                        message:
+                                                                            'Only letters, numbers, hyphens (-) & underscores (_) are allowed.',
+                                                                    },
+                                                                ]}
+                                                            >
+                                                                <Input
+                                                                    defaultValue={variant.key}
+                                                                    data-attr="feature-flag-variant-key"
+                                                                    data-key-index={idx.toString()}
+                                                                    className="ph-ignore-input"
+                                                                    style={{ maxWidth: 150 }}
+                                                                    placeholder={`example-variant-${idx + 1}`}
+                                                                    autoComplete="off"
+                                                                    autoCapitalize="off"
+                                                                    autoCorrect="off"
+                                                                    spellCheck={false}
+                                                                />
+                                                            </Form.Item>
+                                                            <div className="ml-05">
+                                                                {' '}
+                                                                Roll out to{' '}
+                                                                <InputNumber
+                                                                    defaultValue={variant.rollout_percentage}
+                                                                    value={variant.rollout_percentage}
+                                                                    formatter={(value) => `${value}%`}
+                                                                />{' '}
+                                                                of <b>participants</b>
+                                                            </div>
+                                                        </Row>
+                                                    </Form>
                                                 ))}
-                                            </Row>
+
+                                                <Button
+                                                    style={{
+                                                        color: 'var(--primary)',
+                                                        border: 'none',
+                                                        boxShadow: 'none',
+                                                    }}
+                                                    icon={<PlusOutlined />}
+                                                    onClick={() => addExperimentGroup()}
+                                                >
+                                                    Add test group
+                                                </Button>
+                                            </Col>
                                         </Col>
                                     )}
                                 </Col>
