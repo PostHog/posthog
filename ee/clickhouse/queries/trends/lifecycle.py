@@ -64,6 +64,7 @@ class ClickhouseLifecycle(LifecycleTrend):
         return (
             LIFECYCLE_SQL.format(
                 interval=interval_string,
+                interval_keyword=interval_string[2:],
                 trunc_func=trunc_func,
                 event_query=event_query,
                 filters=prop_filters,
@@ -75,6 +76,7 @@ class ClickhouseLifecycle(LifecycleTrend):
                 "prev_date_from": (date_from - interval_increment).strftime(
                     "%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" else " 00:00:00")
                 ),
+                "interval": filter.interval,
                 "num_intervals": num_intervals,
                 "seconds_in_interval": seconds_in_interval,
                 **event_params,
@@ -139,6 +141,7 @@ class ClickhouseLifecycle(LifecycleTrend):
         result = sync_execute(
             LIFECYCLE_PEOPLE_SQL.format(
                 interval=interval_string,
+                interval_keyword=interval_string[2:],
                 trunc_func=trunc_func,
                 event_query=event_query,
                 filters=prop_filters,
@@ -150,6 +153,7 @@ class ClickhouseLifecycle(LifecycleTrend):
                 "prev_date_from": (date_from - interval_increment).strftime(
                     "%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" else " 00:00:00")
                 ),
+                "interval": filter.interval,
                 "num_intervals": num_intervals,
                 "seconds_in_interval": seconds_in_interval,
                 **event_params,
