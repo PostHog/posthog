@@ -18,6 +18,7 @@ import {
     InsightModel,
     InsightType,
     InsightShortId,
+    MultivariateFlagVariant,
 } from '~/types'
 import { experimentLogicType } from './experimentLogicType'
 import { router } from 'kea-router'
@@ -47,7 +48,7 @@ export const experimentLogic = kea<experimentLogicType>({
         endExperiment: true,
         editExperiment: true,
         addExperimentGroup: true,
-        updateExperimentGroup: (variant: string, idx: number) => ({ variant, idx }),
+        updateExperimentGroup: (variant: MultivariateFlagVariant, idx: number) => ({ variant, idx }),
     },
     reducers: {
         experimentId: [
