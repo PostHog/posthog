@@ -64,6 +64,10 @@ RUN apk --update --no-cache --virtual .build-deps add \
     "git~=2" \
     "libffi-dev~=3.3" \
     "postgresql-dev~=13" \
+    "gcc" \
+    "gfortran" \
+    "openblas-dev" \
+    "lapack-dev" \
     && \
     pip install -r requirements.txt --compile --no-cache-dir \
     && \
