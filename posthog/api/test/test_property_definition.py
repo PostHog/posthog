@@ -1,10 +1,9 @@
-import logging
 import random
 from typing import Dict
 
 from rest_framework import status
 
-from posthog.demo import create_demo_team
+from posthog.demo.hogflix import hogflix_data_generator
 from posthog.models import EventProperty, Organization, PropertyDefinition, Team
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import APIBaseTest
@@ -29,7 +28,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
     def setUpTestData(cls):
         random.seed(900)
         super().setUpTestData()
-        cls.demo_team = create_demo_team(cls.organization)
+        cls.demo_team = hogflix_data_generator.create_team(cls.organization)
         calculate_event_property_usage_for_team(cls.demo_team.pk)
         cls.user.current_team = cls.demo_team
         cls.user.save()

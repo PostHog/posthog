@@ -1,88 +1,125 @@
-from typing import Dict, List
+import datetime as dt
+import random
+import sys
+import uuid
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
-from posthog.models import Action, Event, Person, PersonDistinctId, Team
-from posthog.models.session_recording_event import SessionRecordingEvent
-from posthog.models.utils import UUIDT
-from posthog.utils import is_clickhouse_enabled
+from posthog.models import Action, Organization, Person, Team, User
+
+try:
+    from ee.clickhouse.models.event import create_event
+    from ee.clickhouse.models.person import create_person, create_person_distinct_id
+except ImportError:
+    pass
 
 
-class DataGenerator:
-    def __init__(self, team: Team, n_days=14, n_people=100):
+@dataclass
+class SimEvent:
+    """A simulated event."""
+
+    event: str
+    properties: Dict[str, Any]
+    timestamp: dt.datetime
+
+
+class SimPerson:
+    """A simulated person for creation of demo journeys."""
+
+    DUPLICATED_INITIAL_PROPERTIES = [
+        "current_url",
+        "referrer",
+        "referring_domain",
+        "device_type",
+        "geoip_latitude",
+        "geoip_city_name",
+        "geoip_longitude",
+        "geoip_time_zone",
+        "geoip_postal_code",
+        "geoip_country_code",
+        "geoip_country_name",
+        "geoip_continent_code",
+        "geoip_continent_name",
+    ]
+
+    team: Team
+    uuid: str
+    distinct_id: str
+    properties: Dict[str, Any]
+    events: List[SimEvent]
+
+    _saved: bool
+
+    def __init__(self, team: Team):
         self.team = team
-        self.n_days = n_days
+        self.uuid = str(uuid.uuid4())
+        self.distinct_id = str(uuid.uuid4())
+        self.properties = {}
+        self.events = []
+        self._saved = False
+
+    def add_event(self, event: str, properties: Dict[str, Any], timestamp: dt.datetime):
+        if properties:
+            if properties.get("$set_once"):
+                for key, value in properties["$set_once"].items():
+                    if key not in self.properties:
+                        self.properties[key] = value
+            if properties.get("$set"):
+                self.properties.update(properties["$set"])
+        self.events.append(SimEvent(event=event, properties=properties, timestamp=timestamp))
+
+    def _save(self):
+        if self._saved:
+            raise Exception("Cannot save a SimPerson more than once!")
+        self._saved = True
+        person = Person.objects.create(
+            team=self.team, properties=self.properties, uuid=self.uuid, distinct_ids=[self.distinct_id]
+        )
+        create_person(
+            uuid=self.uuid, team_id=self.team.id, properties=self.properties,
+        )
+        create_person_distinct_id(team_id=self.team.id, distinct_id=self.distinct_id, person_id=person.id)
+        for event in self.events:
+            create_event(
+                event_uuid=uuid.uuid4(),
+                event=event.event,
+                team=self.team,
+                distinct_id=self.distinct_id,
+                timestamp=event.timestamp,
+                properties=event.properties,
+            )
+        return person
+
+
+class DataGenerator(ABC):
+    n_people: int
+    seed: int
+
+    def __init__(self, *, n_people: int, seed: Optional[int] = None):
+        if seed is None:
+            seed = random.randint(0, sys.maxsize)
         self.n_people = n_people
-        self.events: List[Dict] = []
-        self.snapshots: List[Dict] = []
-        self.distinct_ids: List[str] = []
+        self.seed = seed
 
-    def create(self, dashboards=True):
-        self.create_missing_events_and_properties()
-        self.create_people()
+    def create_team(self, organization: Organization, user: User) -> Team:
+        team = Team.objects.create(
+            organization=organization, ingested_event=True, completed_snippet_onboarding=True, is_demo=True,
+        )
+        self._set_project_up(team, user)
+        for i in range(self.n_people):
+            self._create_person_with_journey(team, user, i)._save()
+        team.save()
+        for action in Action.objects.filter(team=team):
+            action.calculate_events()
+        return team
 
-        for index, (person, distinct_id) in enumerate(zip(self.people, self.distinct_ids)):
-            self.populate_person_events(person, distinct_id, index)
-            self.populate_session_recording(person, distinct_id, index)
-
-        self.bulk_import_events()
-        if dashboards:
-            self.create_actions_dashboards()
-        self.team.save()
-        _recalculate(team=self.team)
-
-    def create_people(self):
-        self.people = [self.make_person(i) for i in range(self.n_people)]
-        self.distinct_ids = [str(UUIDT()) for _ in self.people]
-        Person.objects.bulk_create(self.people)
-
-        pids = [
-            PersonDistinctId(team=self.team, person=person, distinct_id=distinct_id)
-            for person, distinct_id in zip(self.people, self.distinct_ids)
-        ]
-        PersonDistinctId.objects.bulk_create(pids)
-        if is_clickhouse_enabled():
-            from ee.clickhouse.models.person import create_person, create_person_distinct_id
-
-            for person in self.people:
-                create_person(team_id=person.team.pk, properties=person.properties, is_identified=person.is_identified)
-            for pid in pids:
-                create_person_distinct_id(pid.team.pk, pid.distinct_id, str(pid.person.uuid))  # use dummy number for id
-
-    def make_person(self, index):
-        return Person(team=self.team, properties={"is_demo": True})
-
-    def create_missing_events_and_properties(self):
-        raise NotImplementedError("You need to implement create_missing_events_and_properties")
-
-    def create_actions_dashboards(self):
-        raise NotImplementedError("You need to implement create_actions_dashboards")
-
-    def populate_person_events(self, person: Person, distinct_id: str, _index: int):
-        raise NotImplementedError("You need to implement populate_person_events")
-
-    def populate_session_recording(self, person: Person, distinct_id: str, index: int):
+    @abstractmethod
+    def _set_project_up(self, team: Team, user: User):
+        """Project setup, such as insights, dashboards, feature flags, etc. """
         pass
 
-    def bulk_import_events(self):
-        if is_clickhouse_enabled():
-            from ee.clickhouse.demo import bulk_create_events, bulk_create_session_recording_events
-
-            bulk_create_events(self.events, team=self.team)
-            bulk_create_session_recording_events(self.snapshots, team_id=self.team.pk)
-        else:
-            Event.objects.bulk_create([Event(**kw, team=self.team) for kw in self.events])
-            SessionRecordingEvent.objects.bulk_create(
-                [SessionRecordingEvent(**kw, team=self.team) for kw in self.snapshots]
-            )
-
-    def add_if_not_contained(self, array, value):
-        if value not in array:
-            array.append(value)
-
-    def add_event(self, **kw):
-        self.events.append(kw)
-
-
-def _recalculate(team: Team) -> None:
-    actions = Action.objects.filter(team=team)
-    for action in actions:
-        action.calculate_events()
+    @abstractmethod
+    def _create_person_with_journey(self, team: Team, user: User, index: int) -> SimPerson:
+        """Creation of a single person along with their full user journey."""
+        pass

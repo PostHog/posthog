@@ -3,7 +3,7 @@ from typing import Callable
 
 from freezegun import freeze_time
 
-from posthog.demo import create_demo_team
+from posthog.demo.hogflix import hogflix_data_generator
 from posthog.models import Event, Insight, Organization, Team
 from posthog.models.event_definition import EventDefinition
 from posthog.models.property_definition import PropertyDefinition
@@ -16,7 +16,7 @@ def calculate_event_property_usage_test_factory(create_event: Callable) -> Calla
         def test_updating_team_events_or_related_updates_event_definitions(self) -> None:
             random.seed(900)  # ensure random data is consistent
             org = Organization.objects.create(name="Demo Org")
-            team = create_demo_team(org, None, None)
+            team = hogflix_data_generator.create_team(org)
 
             expected_events = [
                 "watched_movie",
@@ -55,7 +55,7 @@ def calculate_event_property_usage_test_factory(create_event: Callable) -> Calla
         def test_updating_event_properties_or_related_updates_property_definitions(self) -> None:
             random.seed(900)
             org = Organization.objects.create(name="Demo Org")
-            team = create_demo_team(org, None, None)
+            team = hogflix_data_generator.create_team(org)
 
             expected_properties = [
                 "purchase",

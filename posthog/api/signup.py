@@ -16,10 +16,11 @@ from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 
 from posthog.api.shared import UserBasicSerializer
-from posthog.demo import create_demo_team
+from posthog.demo import prepare_demo
+from posthog.demo.hogflix import hogflix_data_generator
 from posthog.event_usage import report_user_joined_organization, report_user_signed_up
 from posthog.models import Organization, Team, User
-from posthog.models.organization import OrganizationInvite
+from posthog.models.organization import OrganizationInvite, OrganizationMembership
 from posthog.permissions import CanCreateOrg
 from posthog.tasks import user_identify
 from posthog.utils import get_can_create_org, mask_email_address
@@ -52,7 +53,8 @@ class SignupSerializer(serializers.Serializer):
 
     def create(self, validated_data, **kwargs):
         if settings.DEMO:
-            return self.enter_demo(validated_data)
+            with transaction.atomic():
+                return self.enter_demo(validated_data)
 
         is_instance_first_user: bool = not User.objects.exists()
 
@@ -89,26 +91,19 @@ class SignupSerializer(serializers.Serializer):
 
     def enter_demo(self, validated_data) -> User:
         """Demo signup/login flow."""
-
-        # If there's an email collision in signup in the demo environment, we treat it as a login
-        matching_user = User.objects.filter(email=validated_data["email"]).first()
-        if matching_user is None:
-            validated_data["password"] = None
-            self._organization, self._team, self._user = User.objects.bootstrap(
-                create_team=self.create_team, **validated_data
-            )
-        else:
-            self._organization, self._team, self._user = matching_user.organization, matching_user.team, matching_user
-
+        self._organization, self._team, self._user = prepare_demo(
+            email=validated_data["email"],
+            first_name=validated_data["first_name"],
+            organization_name=validated_data["organization_name"],
+        )
         login(
             self.context["request"], self._user, backend="django.contrib.auth.backends.ModelBackend",
         )
-
         return self._user
 
     def create_team(self, organization: Organization, user: User) -> Team:
-        if settings.DEMO or self.enable_new_onboarding(user):
-            return create_demo_team(organization=organization)
+        if self.enable_new_onboarding(user):
+            return hogflix_data_generator.create_team(organization, user)
         else:
             return Team.objects.create_with_data(user=user, organization=organization)
 
