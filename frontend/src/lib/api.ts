@@ -7,6 +7,9 @@ import { LOGS_PORTION_LIMIT } from 'scenes/plugins/plugin/pluginLogsLogic'
 import { toParams } from 'lib/utils'
 import { getAppContext } from './utils/getAppContext'
 
+/** Allowed API requests that can be sent even when unauthenticated.  */
+const UNAUTHENTICATED_ROUTES = ['api/reset', 'api/shared_dashboards', 'api/signup', '_preflight']
+
 export interface PaginatedResponse<T> {
     results: T[]
     next?: string
@@ -140,7 +143,11 @@ const normalise_url = (url: string): string => {
 }
 
 const validate_authenticated_request = (url: string): boolean => {
-    if (getAppContext()?.anonymous && !url.startsWith('http') && !url.startsWith('/api/shared_dashboards')) {
+    if (
+        getAppContext()?.anonymous &&
+        !url.startsWith('http') &&
+        !UNAUTHENTICATED_ROUTES.find((route) => url.indexOf(route) > -1)
+    ) {
         return false
     }
     return true
