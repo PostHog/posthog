@@ -87,4 +87,4 @@ class Migration(AsyncMigrationDefinition):
 
     @cached_property
     def _team_ids(self):
-        return [row[0] for row in sync_execute("SELECT DISTINCT team_id FROM person_distinct_id")]
+        return list(sorted(row[0] for row in sync_execute("SELECT DISTINCT team_id FROM person_distinct_id")))
