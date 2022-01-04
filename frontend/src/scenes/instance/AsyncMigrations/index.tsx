@@ -10,6 +10,7 @@ import {
     migrationStatusNumberToMessage,
     asyncMigrationsLogic,
     AsyncMigrationsTab,
+    AsyncMigrationStatus,
 } from './asyncMigrationsLogic'
 import {
     PlayCircleOutlined,
@@ -30,19 +31,19 @@ export const scene: SceneExport = {
 
 const { TabPane } = Tabs
 
-export const tooltipMessageForStatus = {
-    0: 'Run migration',
-    1: 'Force stop migration',
-    2: 'Migration completed',
-    3: 'Re-run migration',
-    4: 'Re-run migration',
-}
-
 export function AsyncMigrations(): JSX.Element {
     const { user } = useValues(userLogic)
     const { asyncMigrations, asyncMigrationsLoading, activeTab, asyncMigrationSettings } =
         useValues(asyncMigrationsLogic)
-    const { triggerMigration, forceStopMigration, loadAsyncMigrations, setActiveTab } = useActions(asyncMigrationsLogic)
+    const {
+        triggerMigration,
+        resumeMigration,
+        rollbackMigration,
+        forceStopMigration,
+        forceStopMigrationWithoutRollback,
+        loadAsyncMigrations,
+        setActiveTab,
+    } = useActions(asyncMigrationsLogic)
 
     const columns = [
         {
@@ -50,28 +51,67 @@ export function AsyncMigrations(): JSX.Element {
             render: function RenderTriggerButton(asyncMigration: AsyncMigration): JSX.Element {
                 const status = asyncMigration.status
                 return (
-                    <Tooltip title={tooltipMessageForStatus[status]}>
-                        {status === 0 ? (
-                            <PlayCircleOutlined
-                                className="migration-btn success"
-                                onClick={() => triggerMigration(asyncMigration.id)}
-                            />
-                        ) : status === 1 ? (
-                            <StopOutlined
-                                className="migration-btn danger"
-                                onClick={() => forceStopMigration(asyncMigration.id)}
-                            />
-                        ) : status === 2 ? (
-                            <CheckCircleOutlined className="success" />
-                        ) : status === 3 || status === 4 ? (
-                            <RedoOutlined
-                                className="migration-btn warning"
-                                onClick={() => triggerMigration(asyncMigration.id)}
-                            />
-                        ) : status === 5 ? (
+                    <div>
+                        {status === AsyncMigrationStatus.NotStarted ? (
+                            <Tooltip title="Run migration">
+                                <PlayCircleOutlined
+                                    className="migration-btn success"
+                                    onClick={() => triggerMigration(asyncMigration.id)}
+                                />
+                            </Tooltip>
+                        ) : status === AsyncMigrationStatus.Running ? (
+                            <div>
+                                <Tooltip title="Force stop migration">
+                                    <StopOutlined
+                                        className="migration-btn danger"
+                                        onClick={() => forceStopMigration(asyncMigration.id)}
+                                    />
+                                </Tooltip>
+                                <Tooltip title="Force stop migration without rollback">
+                                    <StopOutlined
+                                        className="migration-btn danger"
+                                        onClick={() => forceStopMigrationWithoutRollback(asyncMigration.id)}
+                                    />
+                                </Tooltip>
+                            </div>
+                        ) : status === AsyncMigrationStatus.CompletedSuccessfully ? (
+                            <Tooltip title="Migration Completed">
+                                <CheckCircleOutlined className="success" />
+                            </Tooltip>
+                        ) : status === AsyncMigrationStatus.Errored ? (
+                            <div>
+                                <Tooltip title="Resume migration">
+                                    <PlayCircleOutlined
+                                        className="migration-btn success"
+                                        onClick={() => resumeMigration(asyncMigration.id)}
+                                    />
+                                </Tooltip>
+                                <Tooltip title="Restart migration without rollback">
+                                    <RedoOutlined
+                                        className="migration-btn warning"
+                                        onClick={() => triggerMigration(asyncMigration.id)}
+                                    />
+                                </Tooltip>
+                                <Tooltip title="Rollback migration">
+                                    <RedoOutlined
+                                        className="migration-btn warning"
+                                        onClick={() => rollbackMigration(asyncMigration.id)}
+                                    />
+                                </Tooltip>
+                            </div>
+                        ) : status === AsyncMigrationStatus.RolledBack ? (
+                            <Tooltip title="Restart migration">
+                                <RedoOutlined
+                                    className="migration-btn warning"
+                                    onClick={() => triggerMigration(asyncMigration.id)}
+                                />
+                            </Tooltip>
+                        ) : status === AsyncMigrationStatus.Starting ? (
                             <Spinner size="sm" />
-                        ) : null}
-                    </Tooltip>
+                        ) : (
+                            <Spinner size="sm" />
+                        )}
+                    </div>
                 )
             },
         },

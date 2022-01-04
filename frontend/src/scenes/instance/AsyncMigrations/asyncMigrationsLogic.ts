@@ -49,7 +49,10 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType<AsyncMigration,
     path: ['scenes', 'instance', 'AsyncMigrations', 'asyncMigrationsLogic'],
     actions: {
         triggerMigration: (migrationId: number) => ({ migrationId }),
+        resumeMigration: (migrationId: number) => ({ migrationId }),
+        rollbackMigration: (migrationId: number) => ({ migrationId }),
         forceStopMigration: (migrationId: number) => ({ migrationId }),
+        forceStopMigrationWithoutRollback: (migrationId: number) => ({ migrationId }),
         setActiveTab: (tab: AsyncMigrationsTab) => ({ tab }),
         updateSetting: (settingKey: string, newValue: string) => ({ settingKey, newValue }),
     },
@@ -93,6 +96,24 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType<AsyncMigration,
                 errorToast('Failed to trigger migration', res.error)
             }
         },
+        resumeMigration: async ({ migrationId }) => {
+            const res = await api.create(`/api/async_migrations/${migrationId}/resume`)
+            if (res.success) {
+                successToast('Migration resume triggered successfully')
+                actions.loadAsyncMigrations()
+            } else {
+                errorToast('Failed to resume migration', res.error)
+            }
+        },
+        rollbackMigration: async ({ migrationId }) => {
+            const res = await api.create(`/api/async_migrations/${migrationId}/rollback`)
+            if (res.success) {
+                successToast('Migration rolledback triggered successfully')
+                actions.loadAsyncMigrations()
+            } else {
+                errorToast('Failed to rollback migration', res.error)
+            }
+        },
         forceStopMigration: async ({ migrationId }) => {
             const res = await api.create(`/api/async_migrations/${migrationId}/force_stop`)
             if (res.success) {
@@ -100,6 +121,15 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType<AsyncMigration,
                 actions.loadAsyncMigrations()
             } else {
                 errorToast('Failed to trigger force stop', res.error)
+            }
+        },
+        forceStopMigrationWithoutRollback: async ({ migrationId }) => {
+            const res = await api.create(`/api/async_migrations/${migrationId}/force_stop_without_rollback`)
+            if (res.success) {
+                successToast('Force stop without rollback triggered successfully')
+                actions.loadAsyncMigrations()
+            } else {
+                errorToast('Failed to trigger force stop without rollback', res.error)
             }
         },
         updateSetting: async ({ settingKey, newValue }) => {
