@@ -237,6 +237,7 @@ export function Experiment(): JSX.Element {
                                                         color: 'var(--primary)',
                                                         border: 'none',
                                                         boxShadow: 'none',
+                                                        marginTop: '1rem',
                                                     }}
                                                     icon={<PlusOutlined />}
                                                     onClick={() => addExperimentGroup()}
