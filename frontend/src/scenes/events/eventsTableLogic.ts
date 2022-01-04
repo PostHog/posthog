@@ -42,6 +42,7 @@ export interface EventsTableLogicProps {
     key?: string
     sceneUrl: string
     disableActions?: boolean
+    fetchMonths?: number
 }
 
 export interface OnFetchEventsSuccess {
@@ -215,12 +216,13 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                     after,
                 })}`,
         ],
+        months: [() => [], () => props.fetchMonths || 12],
         afterParam: [
-            () => [selectors.events],
-            (events) =>
+            () => [selectors.events, selectors.months],
+            (events, months) =>
                 events?.length > 0 && events[0].timestamp
                     ? events[0].timestamp
-                    : now().subtract(6, 'months').toISOString(),
+                    : now().subtract(months, 'months').toISOString(),
         ],
     }),
 

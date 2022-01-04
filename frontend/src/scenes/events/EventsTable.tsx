@@ -47,18 +47,28 @@ interface EventsTable {
     hidePersonColumn?: boolean
     hideTableConfig?: boolean
     sceneUrl?: string
+    fetchMonths?: number
 }
 
 export function EventsTable({
     fixedFilters,
-    disableActions,
     pageKey = 'EventsTable',
     hidePersonColumn,
     hideTableConfig,
     sceneUrl,
+    // Disables all interactivity and polling for filters
+    disableActions,
+    // How many months of data to fetch?
+    fetchMonths,
 }: EventsTable = {}): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const logic = eventsTableLogic({ fixedFilters, key: pageKey, sceneUrl: sceneUrl || urls.events(), disableActions })
+    const logic = eventsTableLogic({
+        fixedFilters,
+        key: pageKey,
+        sceneUrl: sceneUrl || urls.events(),
+        disableActions,
+        fetchMonths,
+    })
     const {
         properties,
         eventsFormatted,
@@ -71,6 +81,7 @@ export function EventsTable({
         exportUrl,
         highlightEvents,
         sceneIsEventsPage,
+        months,
     } = useValues(logic)
     const { tableWidth, selectedColumns } = useValues(tableConfigLogic)
     const { propertyNames } = useValues(propertyDefinitionsModel)
@@ -381,7 +392,7 @@ export function EventsTable({
                     className="ph-no-capture"
                     emptyState={
                         isLoading ? undefined : filters.some((filter) => Object.keys(filter).length) || eventFilter ? (
-                            'No events matching filters found in the last 6 months!'
+                            `No events matching filters found in the last ${months} months!`
                         ) : (
                             <>
                                 This project doesn't have any events. If you haven't integrated PostHog yet,{' '}
