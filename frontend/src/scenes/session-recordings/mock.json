@@ -1,0 +1,4188 @@
+{
+    "next": null,
+    "results": [
+        {
+            "id": "017de0d3-68d6-0000-d734-984a0786beb6",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.moment.get.at": "2021-12-22T08:28:08+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.moment.get.at": "2021-12-22T08:28:08+02:00"
+                },
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 62426.435904,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.5"
+            },
+            "event": "moment.get",
+            "timestamp": "2021-12-22T06:28:08.683000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d3-68da-0000-0ac5-7fc15b76d368",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/moments",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:28:08+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:28:08+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/moments"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.046152,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 62426.445923,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:28:08.690000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d3-67f1-0000-77b2-ab87bdaa64c4",
+            "distinct_id": "17de0d31506a9d-055e317a48f01f-133f6452-fa000-17de0d315071597",
+            "properties": {
+                "$os": "Mac OS X",
+                "$browser": "Chrome",
+                "$device_type": "Desktop",
+                "$current_url": "http://localhost:3000/see-the-good",
+                "$host": "localhost:3000",
+                "$pathname": "/see-the-good",
+                "$browser_version": 96,
+                "$screen_height": 800,
+                "$screen_width": 1280,
+                "$viewport_height": 700,
+                "$viewport_width": 451,
+                "$lib": "web",
+                "$lib_version": "1.16.8",
+                "$insert_id": "30wzwajtuarf458o",
+                "$time": 1640154488.592,
+                "distinct_id": "17de0d31506a9d-055e317a48f01f-133f6452-fa000-17de0d315071597",
+                "$device_id": "17de0d31506a9d-055e317a48f01f-133f6452-fa000-17de0d315071597",
+                "sys.release.web": "5250d699b3078052560c2e2dba45b2f9d2e1223b",
+                "$initial_referrer": "$direct",
+                "$initial_referring_domain": "$direct",
+                "$referrer": "$direct",
+                "$referring_domain": "$direct",
+                "$active_feature_flags": [],
+                "$user_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+                "document.title": "Undervisa | See the Good!",
+                "token": "nb3ArEDdh-MknHgsTHLxt8WB7QP5cTfLnWhmgoynrn8",
+                "$session_id": "17de0d3150a3fb-0d90964d3d91f6-133f6452-fa000-17de0d3150b1215",
+                "$window_id": "17de0d3150cd8e-07f199be7e75da-133f6452-fa000-17de0d3150d5f4",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.4",
+                "$set_once": {
+                    "$initial_os": "Mac OS X",
+                    "$initial_browser": "Chrome",
+                    "$initial_device_type": "Desktop",
+                    "$initial_current_url": "http://localhost:3000/see-the-good",
+                    "$initial_browser_version": 96,
+                    "$initial_referrer": "$direct",
+                    "$initial_referring_domain": "$direct"
+                }
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:28:08.707000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d3-68db-0000-c752-0e662b08ed2d",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/summary",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:28:08+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:28:08+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/summary"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.017953,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 62426.520665,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:28:08.766000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-06f2-0000-f00b-285650b063f3",
+            "distinct_id": "17de0d31506a9d-055e317a48f01f-133f6452-fa000-17de0d315071597",
+            "properties": {
+                "$os": "Mac OS X",
+                "$browser": "Chrome",
+                "$device_type": "Desktop",
+                "$current_url": "http://localhost:3000/see-the-good",
+                "$host": "localhost:3000",
+                "$pathname": "/see-the-good",
+                "$browser_version": 96,
+                "$screen_height": 800,
+                "$screen_width": 1280,
+                "$viewport_height": 700,
+                "$viewport_width": 451,
+                "$lib": "web",
+                "$lib_version": "1.16.8",
+                "$insert_id": "ae1uvc61dpqf3qww",
+                "$time": 1640154527.551,
+                "distinct_id": "17de0d31506a9d-055e317a48f01f-133f6452-fa000-17de0d315071597",
+                "$device_id": "17de0d31506a9d-055e317a48f01f-133f6452-fa000-17de0d315071597",
+                "sys.release.web": "5250d699b3078052560c2e2dba45b2f9d2e1223b",
+                "$initial_referrer": "$direct",
+                "$initial_referring_domain": "$direct",
+                "$referrer": "$direct",
+                "$referring_domain": "$direct",
+                "$active_feature_flags": [],
+                "$user_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+                "document.title": "See the Good!",
+                "token": "nb3ArEDdh-MknHgsTHLxt8WB7QP5cTfLnWhmgoynrn8",
+                "$session_id": "17de0d3150a3fb-0d90964d3d91f6-133f6452-fa000-17de0d3150b1215",
+                "$window_id": "17de0d3150cd8e-07f199be7e75da-133f6452-fa000-17de0d3150d5f4",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.4",
+                "$set_once": {
+                    "$initial_os": "Mac OS X",
+                    "$initial_browser": "Chrome",
+                    "$initial_device_type": "Desktop",
+                    "$initial_current_url": "http://localhost:3000/see-the-good",
+                    "$initial_browser_version": 96,
+                    "$initial_referrer": "$direct",
+                    "$initial_referring_domain": "$direct"
+                }
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:28:47.672000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-0528-0001-061c-8f02aa8dbfe8",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/summary",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:28:47+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:28:47+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/summary"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.020047,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 62465.449124,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:28:47.695000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-0528-0000-da60-e8b5947fb2f9",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.moment.get.at": "2021-12-22T08:28:47+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.moment.get.at": "2021-12-22T08:28:47+02:00"
+                },
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 62465.44919,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.5"
+            },
+            "event": "moment.get",
+            "timestamp": "2021-12-22T06:28:47.695000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-052c-0000-4bc5-93e42428e76c",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/moments",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:28:47+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:28:47+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/moments"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.028134,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 62465.451448,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:28:47.696000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-052c-0002-36e5-cd8ab1ddbe0f",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/summary",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:28:47+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:28:47+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/summary"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.008375,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 62465.664047,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:28:47.910000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-2476-0000-ae1c-f8349189df2f",
+            "distinct_id": "17de0d31506a9d-055e317a48f01f-133f6452-fa000-17de0d315071597",
+            "properties": {
+                "$os": "Mac OS X",
+                "$browser": "Chrome",
+                "$device_type": "Desktop",
+                "$current_url": "http://localhost:3000/see-the-good",
+                "$host": "localhost:3000",
+                "$pathname": "/see-the-good",
+                "$browser_version": 96,
+                "$screen_height": 800,
+                "$screen_width": 1280,
+                "$viewport_height": 700,
+                "$viewport_width": 451,
+                "$lib": "web",
+                "$lib_version": "1.16.8",
+                "$insert_id": "v15ak1m3lkj9pms5",
+                "$time": 1640154539,
+                "distinct_id": "17de0d31506a9d-055e317a48f01f-133f6452-fa000-17de0d315071597",
+                "$device_id": "17de0d31506a9d-055e317a48f01f-133f6452-fa000-17de0d315071597",
+                "sys.release.web": "5250d699b3078052560c2e2dba45b2f9d2e1223b",
+                "$initial_referrer": "$direct",
+                "$initial_referring_domain": "$direct",
+                "$referrer": "$direct",
+                "$referring_domain": "$direct",
+                "$active_feature_flags": [],
+                "$user_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+                "token": "nb3ArEDdh-MknHgsTHLxt8WB7QP5cTfLnWhmgoynrn8",
+                "$session_id": "17de0d3150a3fb-0d90964d3d91f6-133f6452-fa000-17de0d3150b1215",
+                "$window_id": "17de0d3150cd8e-07f199be7e75da-133f6452-fa000-17de0d3150d5f4",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.4",
+                "$set_once": {
+                    "$initial_os": "Mac OS X",
+                    "$initial_browser": "Chrome",
+                    "$initial_device_type": "Desktop",
+                    "$initial_current_url": "http://localhost:3000/see-the-good",
+                    "$initial_browser_version": 96,
+                    "$initial_referrer": "$direct",
+                    "$initial_referring_domain": "$direct"
+                }
+            },
+            "event": "$pageleave",
+            "timestamp": "2021-12-22T06:28:59.117000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-2c88-0000-d1ea-9146173fd7d8",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/version",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:28:59+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:28:59+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/version"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.012919,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 62477.470105,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:28:59.718000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-2718-0000-9a47-6fc33a8d2da3",
+            "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+            "properties": {
+                "$os": "Mac OS X",
+                "$browser": "Chrome",
+                "$device_type": "Desktop",
+                "$current_url": "http://localhost:3000/see-the-good",
+                "$host": "localhost:3000",
+                "$pathname": "/see-the-good",
+                "$browser_version": 96,
+                "$screen_height": 800,
+                "$screen_width": 1280,
+                "$viewport_height": 700,
+                "$viewport_width": 451,
+                "$lib": "web",
+                "$lib_version": "1.16.8",
+                "$insert_id": "ume9cpjh4mnv9hei",
+                "$time": 1640154539.663,
+                "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "$device_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "sys.release.web": "5250d699b3078052560c2e2dba45b2f9d2e1223b",
+                "$initial_referrer": "$direct",
+                "$initial_referring_domain": "$direct",
+                "$referrer": "$direct",
+                "$referring_domain": "$direct",
+                "token": "nb3ArEDdh-MknHgsTHLxt8WB7QP5cTfLnWhmgoynrn8",
+                "$session_id": "17de0d4268bd90-0a3621702539dd-133f6452-fa000-17de0d4268c16fb",
+                "$window_id": "17de0d4268d16e2-0c588b02fa21b1-133f6452-fa000-17de0d4268e15f7",
+                "$active_feature_flags": [],
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.4",
+                "$set_once": {
+                    "$initial_os": "Mac OS X",
+                    "$initial_browser": "Chrome",
+                    "$initial_device_type": "Desktop",
+                    "$initial_current_url": "http://localhost:3000/see-the-good",
+                    "$initial_browser_version": 96,
+                    "$initial_referrer": "$direct",
+                    "$initial_referring_domain": "$direct"
+                }
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:28:59.792000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-2737-0000-ef15-4708520a517e",
+            "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+            "properties": {
+                "$lib": "posthog-plugin-server",
+                "$lib_version": "1.10.5",
+                "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "session.start",
+            "timestamp": "2021-12-22T06:28:59.792000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-2c8a-0000-b765-3ff4ce1e1c5b",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$set": {
+                    "contact.email": "mike+broccoliface@positive.fi",
+                    "created-at": "2021-12-21T15:07:42+02:00",
+                    "created-at.day": 21,
+                    "created-at.month": 12,
+                    "created-at.wday": "Tuesday",
+                    "created-at.year": 2021,
+                    "name": "Broccoli Börje",
+                    "plan": "Free",
+                    "roles": ["teacher"],
+                    "subject.type": "user",
+                    "sys.env": "local-development",
+                    "sys.identify.at": "2021-12-22T08:29:00+02:00",
+                    "sys.identify.at.day": 22,
+                    "sys.identify.at.month": 12,
+                    "sys.identify.at.wday": "Wednesday",
+                    "sys.identify.at.year": 2021
+                },
+                "$ip": "10.110.0.5"
+            },
+            "event": "$identify",
+            "timestamp": "2021-12-22T06:29:00.449000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-2c8e-0000-a6e7-7797810cbd0f",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/session",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:29:00+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:29:00+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/session"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.03835,
+                "req.http.method": "POST",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 62478.2279,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:29:00.472000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-2c8f-0000-384f-9b6d04d3cf64",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/users/:userID/invitations",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:29:00+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:29:00+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/users/:userID/invitations"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.008011,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 62478.31973,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "user.id": "user:01FQEHNMH444D81PZPVR1PS14M",
+                "user.plan": "Free",
+                "user.roles": ["teacher"],
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:29:00.565000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-2c95-0000-e486-a2684fce5743",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:29:00+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:29:00+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.005512,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 62478.3423,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:29:00.586000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-2a4a-0000-6d4c-23f8bc676be6",
+            "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+            "properties": {
+                "$os": "Mac OS X",
+                "$browser": "Chrome",
+                "$device_type": "Desktop",
+                "$current_url": "http://localhost:3000/see-the-good",
+                "$host": "localhost:3000",
+                "$pathname": "/see-the-good",
+                "$browser_version": 96,
+                "$screen_height": 800,
+                "$screen_width": 1280,
+                "$viewport_height": 700,
+                "$viewport_width": 451,
+                "$lib": "web",
+                "$lib_version": "1.16.8",
+                "$insert_id": "nghmotpz0a9sx2k8",
+                "$time": 1640154540.482,
+                "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "$device_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "sys.release.web": "5250d699b3078052560c2e2dba45b2f9d2e1223b",
+                "$initial_referrer": "$direct",
+                "$initial_referring_domain": "$direct",
+                "$referrer": "$direct",
+                "$referring_domain": "$direct",
+                "$active_feature_flags": [],
+                "alias": "user:01FQEHNMH444D81PZPVR1PS14M",
+                "token": "nb3ArEDdh-MknHgsTHLxt8WB7QP5cTfLnWhmgoynrn8",
+                "$session_id": "17de0d4268bd90-0a3621702539dd-133f6452-fa000-17de0d4268c16fb",
+                "$window_id": "17de0d4268d16e2-0c588b02fa21b1-133f6452-fa000-17de0d4268e15f7",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.4",
+                "$set_once": {
+                    "$initial_os": "Mac OS X",
+                    "$initial_browser": "Chrome",
+                    "$initial_device_type": "Desktop",
+                    "$initial_current_url": "http://localhost:3000/see-the-good",
+                    "$initial_browser_version": 96,
+                    "$initial_referrer": "$direct",
+                    "$initial_referring_domain": "$direct"
+                }
+            },
+            "event": "$create_alias",
+            "timestamp": "2021-12-22T06:29:00.605000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-2a52-0000-6cc4-c2bc8e53e81b",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$os": "Mac OS X",
+                "$browser": "Chrome",
+                "$device_type": "Desktop",
+                "$current_url": "http://localhost:3000/see-the-good",
+                "$host": "localhost:3000",
+                "$pathname": "/see-the-good",
+                "$browser_version": 96,
+                "$screen_height": 800,
+                "$screen_width": 1280,
+                "$viewport_height": 700,
+                "$viewport_width": 451,
+                "$lib": "web",
+                "$lib_version": "1.16.8",
+                "$insert_id": "0zuoxnbqhpdj5xrt",
+                "$time": 1640154540.485,
+                "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+                "$device_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "sys.release.web": "5250d699b3078052560c2e2dba45b2f9d2e1223b",
+                "$initial_referrer": "$direct",
+                "$initial_referring_domain": "$direct",
+                "$referrer": "$direct",
+                "$referring_domain": "$direct",
+                "$active_feature_flags": [],
+                "$user_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+                "$anon_distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "token": "nb3ArEDdh-MknHgsTHLxt8WB7QP5cTfLnWhmgoynrn8",
+                "$session_id": "17de0d4268bd90-0a3621702539dd-133f6452-fa000-17de0d4268c16fb",
+                "$window_id": "17de0d4268d16e2-0c588b02fa21b1-133f6452-fa000-17de0d4268e15f7",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$set": {},
+                "$ip": "10.110.0.4",
+                "$set_once": {
+                    "$initial_os": "Mac OS X",
+                    "$initial_browser": "Chrome",
+                    "$initial_device_type": "Desktop",
+                    "$initial_current_url": "http://localhost:3000/see-the-good",
+                    "$initial_browser_version": 96,
+                    "$initial_referrer": "$direct",
+                    "$initial_referring_domain": "$direct"
+                }
+            },
+            "event": "$identify",
+            "timestamp": "2021-12-22T06:29:00.613000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-2c9c-0000-ab5c-d3c3e3dfe9b9",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.goal.get.at": "2021-12-22T08:29:00+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.goal.get.at": "2021-12-22T08:29:00+02:00"
+                },
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 62478.497702,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.5"
+            },
+            "event": "goal.get",
+            "timestamp": "2021-12-22T06:29:00.745000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-2caa-0000-6609-29b2fd89d789",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/goals",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:29:00+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:29:00+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/goals"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.033417,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 62478.501852,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:29:00.746000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-2caf-0000-173a-6696caa69e9a",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/invitations",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:29:00+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:29:00+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/invitations"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.029198,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 62478.4998,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:29:00.747000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-2cab-0000-a270-bb6a9d79aef7",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/members",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:29:00+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:29:00+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/members"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.037016,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 62478.499297,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:29:00.747000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-2cb8-0000-2175-aaa2c581c6dd",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.moment.get.at": "2021-12-22T08:29:00+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.moment.get.at": "2021-12-22T08:29:00+02:00"
+                },
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 62478.500728,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.5"
+            },
+            "event": "moment.get",
+            "timestamp": "2021-12-22T06:29:00.748000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-2cc1-0001-e99d-006035b27129",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/moments",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:29:00+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:29:00+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/moments"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.052017,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 62478.506047,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:29:00.750000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-2cc0-0000-37a0-bfb689905a7d",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/summary",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:29:00+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:29:00+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/summary"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.030718,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 62478.500838,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:29:00.750000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-33e3-0000-5ce6-614a2041187e",
+            "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+            "properties": {
+                "$os": "Mac OS X",
+                "$browser": "Chrome",
+                "$device_type": "Desktop",
+                "$current_url": "http://localhost:3000/see-the-good",
+                "$host": "localhost:3000",
+                "$pathname": "/see-the-good",
+                "$browser_version": 96,
+                "$screen_height": 800,
+                "$screen_width": 1280,
+                "$viewport_height": 700,
+                "$viewport_width": 451,
+                "$lib": "web",
+                "$lib_version": "1.16.8",
+                "$insert_id": "evzo3609tv5k4tp1",
+                "$time": 1640154540.551,
+                "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "$device_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "sys.release.web": "5250d699b3078052560c2e2dba45b2f9d2e1223b",
+                "$initial_referrer": "$direct",
+                "$initial_referring_domain": "$direct",
+                "$referrer": "$direct",
+                "$referring_domain": "$direct",
+                "$active_feature_flags": [],
+                "$user_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+                "document.title": "See the Good! | Huomaa Hyvä!",
+                "token": "nb3ArEDdh-MknHgsTHLxt8WB7QP5cTfLnWhmgoynrn8",
+                "$session_id": "17de0d4268bd90-0a3621702539dd-133f6452-fa000-17de0d4268c16fb",
+                "$window_id": "17de0d4268d16e2-0c588b02fa21b1-133f6452-fa000-17de0d4268e15f7",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.4",
+                "$set_once": {
+                    "$initial_os": "Mac OS X",
+                    "$initial_browser": "Chrome",
+                    "$initial_device_type": "Desktop",
+                    "$initial_current_url": "http://localhost:3000/see-the-good",
+                    "$initial_browser_version": 96,
+                    "$initial_referrer": "$direct",
+                    "$initial_referring_domain": "$direct"
+                }
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:29:00.878000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-3f73-0000-7217-c18904afbed1",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/summary",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:29:00+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:29:00+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/summary"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.018695,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 62478.729666,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:29:00.977000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-572b-0000-53ea-9e8511ee368c",
+            "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+            "properties": {
+                "$os": "Mac OS X",
+                "$browser": "Chrome",
+                "$device_type": "Desktop",
+                "$current_url": "http://localhost:3000/teach",
+                "$host": "localhost:3000",
+                "$pathname": "/teach/students-v2",
+                "$browser_version": 96,
+                "$screen_height": 800,
+                "$screen_width": 1280,
+                "$viewport_height": 700,
+                "$viewport_width": 451,
+                "$lib": "web",
+                "$lib_version": "1.16.8",
+                "$insert_id": "kgxe0sysh19g2jh8",
+                "$time": 1640154549.307,
+                "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "$device_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "sys.release.web": "5250d699b3078052560c2e2dba45b2f9d2e1223b",
+                "$initial_referrer": "$direct",
+                "$initial_referring_domain": "$direct",
+                "$referrer": "$direct",
+                "$referring_domain": "$direct",
+                "$active_feature_flags": [],
+                "$user_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+                "document.title": "See the Good!",
+                "token": "nb3ArEDdh-MknHgsTHLxt8WB7QP5cTfLnWhmgoynrn8",
+                "$session_id": "17de0d4268bd90-0a3621702539dd-133f6452-fa000-17de0d4268c16fb",
+                "$window_id": "17de0d4268d16e2-0c588b02fa21b1-133f6452-fa000-17de0d4268e15f7",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.4",
+                "$set_once": {
+                    "$initial_os": "Mac OS X",
+                    "$initial_browser": "Chrome",
+                    "$initial_device_type": "Desktop",
+                    "$initial_current_url": "http://localhost:3000/teach",
+                    "$initial_browser_version": 96,
+                    "$initial_referrer": "$direct",
+                    "$initial_referring_domain": "$direct"
+                }
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:29:09.622000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-572c-0000-9f65-101ad54c434f",
+            "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+            "properties": {
+                "$os": "Mac OS X",
+                "$browser": "Chrome",
+                "$device_type": "Desktop",
+                "$current_url": "http://localhost:3000/teach/students-v2",
+                "$host": "localhost:3000",
+                "$pathname": "/teach/students-v2",
+                "$browser_version": 96,
+                "$screen_height": 800,
+                "$screen_width": 1280,
+                "$viewport_height": 700,
+                "$viewport_width": 451,
+                "$lib": "web",
+                "$lib_version": "1.16.8",
+                "$insert_id": "dqkku40vwn7bte4o",
+                "$time": 1640154549.46,
+                "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "$device_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "sys.release.web": "5250d699b3078052560c2e2dba45b2f9d2e1223b",
+                "$initial_referrer": "$direct",
+                "$initial_referring_domain": "$direct",
+                "$referrer": "$direct",
+                "$referring_domain": "$direct",
+                "$active_feature_flags": [],
+                "$user_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+                "document.title": "Teach | See the Good!",
+                "token": "nb3ArEDdh-MknHgsTHLxt8WB7QP5cTfLnWhmgoynrn8",
+                "$session_id": "17de0d4268bd90-0a3621702539dd-133f6452-fa000-17de0d4268c16fb",
+                "$window_id": "17de0d4268d16e2-0c588b02fa21b1-133f6452-fa000-17de0d4268e15f7",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.4",
+                "$set_once": {
+                    "$initial_os": "Mac OS X",
+                    "$initial_browser": "Chrome",
+                    "$initial_device_type": "Desktop",
+                    "$initial_current_url": "http://localhost:3000/teach/students-v2",
+                    "$initial_browser_version": 96,
+                    "$initial_referrer": "$direct",
+                    "$initial_referring_domain": "$direct"
+                }
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:29:09.775000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-6264-0000-3dc5-1ce28af3e530",
+            "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+            "properties": {
+                "$os": "Mac OS X",
+                "$browser": "Chrome",
+                "$device_type": "Desktop",
+                "$current_url": "http://localhost:3000/teach/secondary",
+                "$host": "localhost:3000",
+                "$pathname": "/teach/secondary",
+                "$browser_version": 96,
+                "$screen_height": 800,
+                "$screen_width": 1280,
+                "$viewport_height": 700,
+                "$viewport_width": 1280,
+                "$lib": "web",
+                "$lib_version": "1.16.8",
+                "$insert_id": "em8gzz6jnpvmkhus",
+                "$time": 1640154552.939,
+                "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "$device_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "sys.release.web": "5250d699b3078052560c2e2dba45b2f9d2e1223b",
+                "$initial_referrer": "$direct",
+                "$initial_referring_domain": "$direct",
+                "$referrer": "$direct",
+                "$referring_domain": "$direct",
+                "$active_feature_flags": [],
+                "$user_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+                "document.title": "Teach | See the Good!",
+                "token": "nb3ArEDdh-MknHgsTHLxt8WB7QP5cTfLnWhmgoynrn8",
+                "$session_id": "17de0d4268bd90-0a3621702539dd-133f6452-fa000-17de0d4268c16fb",
+                "$window_id": "17de0d4268d16e2-0c588b02fa21b1-133f6452-fa000-17de0d4268e15f7",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.4",
+                "$set_once": {
+                    "$initial_os": "Mac OS X",
+                    "$initial_browser": "Chrome",
+                    "$initial_device_type": "Desktop",
+                    "$initial_current_url": "http://localhost:3000/teach/secondary",
+                    "$initial_browser_version": 96,
+                    "$initial_referrer": "$direct",
+                    "$initial_referring_domain": "$direct"
+                }
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:29:13.119000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-6264-0001-2bd9-071277edccd8",
+            "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+            "properties": {
+                "$os": "Mac OS X",
+                "$browser": "Chrome",
+                "$device_type": "Desktop",
+                "$current_url": "http://localhost:3000/teach/early_years",
+                "$host": "localhost:3000",
+                "$pathname": "/teach/early_years",
+                "$browser_version": 96,
+                "$screen_height": 800,
+                "$screen_width": 1280,
+                "$viewport_height": 700,
+                "$viewport_width": 1280,
+                "$lib": "web",
+                "$lib_version": "1.16.8",
+                "$insert_id": "xnm52ryma6j8l3d4",
+                "$time": 1640154553.953,
+                "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "$device_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "sys.release.web": "5250d699b3078052560c2e2dba45b2f9d2e1223b",
+                "$initial_referrer": "$direct",
+                "$initial_referring_domain": "$direct",
+                "$referrer": "$direct",
+                "$referring_domain": "$direct",
+                "$active_feature_flags": [],
+                "$user_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+                "document.title": "Teach | See the Good!",
+                "token": "nb3ArEDdh-MknHgsTHLxt8WB7QP5cTfLnWhmgoynrn8",
+                "$session_id": "17de0d4268bd90-0a3621702539dd-133f6452-fa000-17de0d4268c16fb",
+                "$window_id": "17de0d4268d16e2-0c588b02fa21b1-133f6452-fa000-17de0d4268e15f7",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.4",
+                "$set_once": {
+                    "$initial_os": "Mac OS X",
+                    "$initial_browser": "Chrome",
+                    "$initial_device_type": "Desktop",
+                    "$initial_current_url": "http://localhost:3000/teach/early_years",
+                    "$initial_browser_version": 96,
+                    "$initial_referrer": "$direct",
+                    "$initial_referring_domain": "$direct"
+                }
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:29:14.134000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-6f9a-0000-e488-5d7f42d658b9",
+            "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+            "properties": {
+                "$os": "Mac OS X",
+                "$browser": "Chrome",
+                "$device_type": "Desktop",
+                "$current_url": "http://localhost:3000/teach/early_years/xmas-calendar",
+                "$host": "localhost:3000",
+                "$pathname": "/teach/early_years/xmas-calendar",
+                "$browser_version": 96,
+                "$screen_height": 800,
+                "$screen_width": 1280,
+                "$viewport_height": 700,
+                "$viewport_width": 1280,
+                "$lib": "web",
+                "$lib_version": "1.16.8",
+                "$insert_id": "1or5jfu10jissiq2",
+                "$time": 1640154555.243,
+                "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "$device_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "sys.release.web": "5250d699b3078052560c2e2dba45b2f9d2e1223b",
+                "$initial_referrer": "$direct",
+                "$initial_referring_domain": "$direct",
+                "$referrer": "$direct",
+                "$referring_domain": "$direct",
+                "$active_feature_flags": [],
+                "$user_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+                "document.title": "Teach | See the Good!",
+                "token": "nb3ArEDdh-MknHgsTHLxt8WB7QP5cTfLnWhmgoynrn8",
+                "$session_id": "17de0d4268bd90-0a3621702539dd-133f6452-fa000-17de0d4268c16fb",
+                "$window_id": "17de0d4268d16e2-0c588b02fa21b1-133f6452-fa000-17de0d4268e15f7",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.4",
+                "$set_once": {
+                    "$initial_os": "Mac OS X",
+                    "$initial_browser": "Chrome",
+                    "$initial_device_type": "Desktop",
+                    "$initial_current_url": "http://localhost:3000/teach/early_years/xmas-calendar",
+                    "$initial_browser_version": 96,
+                    "$initial_referrer": "$direct",
+                    "$initial_referring_domain": "$direct"
+                }
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:29:15.463000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-6fa7-0000-d174-45658d99331d",
+            "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+            "properties": {
+                "$os": "Mac OS X",
+                "$browser": "Chrome",
+                "$device_type": "Desktop",
+                "$current_url": "http://localhost:3000/teach/early_years/xmas-calendar/intro-to-christmas-calendar",
+                "$host": "localhost:3000",
+                "$pathname": "/teach/early_years/xmas-calendar/intro-to-christmas-calendar",
+                "$browser_version": 96,
+                "$screen_height": 800,
+                "$screen_width": 1280,
+                "$viewport_height": 700,
+                "$viewport_width": 1280,
+                "$lib": "web",
+                "$lib_version": "1.16.8",
+                "$insert_id": "1f8dw5j3nugcyafo",
+                "$time": 1640154556.095,
+                "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "$device_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "sys.release.web": "5250d699b3078052560c2e2dba45b2f9d2e1223b",
+                "$initial_referrer": "$direct",
+                "$initial_referring_domain": "$direct",
+                "$referrer": "$direct",
+                "$referring_domain": "$direct",
+                "$active_feature_flags": [],
+                "$user_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+                "document.title": "Teach | See the Good!",
+                "token": "nb3ArEDdh-MknHgsTHLxt8WB7QP5cTfLnWhmgoynrn8",
+                "$session_id": "17de0d4268bd90-0a3621702539dd-133f6452-fa000-17de0d4268c16fb",
+                "$window_id": "17de0d4268d16e2-0c588b02fa21b1-133f6452-fa000-17de0d4268e15f7",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.4",
+                "$set_once": {
+                    "$initial_os": "Mac OS X",
+                    "$initial_browser": "Chrome",
+                    "$initial_device_type": "Desktop",
+                    "$initial_current_url": "http://localhost:3000/teach/early_years/xmas-calendar/intro-to-christmas-calendar",
+                    "$initial_browser_version": 96,
+                    "$initial_referrer": "$direct",
+                    "$initial_referring_domain": "$direct"
+                }
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:29:16.314000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-7a46-0000-0477-0ccb061218cc",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.moment.get.at": "2021-12-22T08:29:20+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.moment.get.at": "2021-12-22T08:29:20+02:00"
+                },
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 62498.118361,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.5"
+            },
+            "event": "moment.get",
+            "timestamp": "2021-12-22T06:29:20.366000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-7a50-0000-e5d0-0398e3037fc4",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/moments",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:29:20+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:29:20+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/moments"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.023282,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 62498.123222,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:29:20.368000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-7a51-0001-964e-22490fefc38d",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/summary",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:29:20+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:29:20+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/summary"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.008256,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 62498.210524,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:29:20.459000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d4-7cac-0000-3c4d-047ad1a26d9d",
+            "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+            "properties": {
+                "$os": "Mac OS X",
+                "$browser": "Chrome",
+                "$device_type": "Desktop",
+                "$current_url": "http://localhost:3000/see-the-good",
+                "$host": "localhost:3000",
+                "$pathname": "/see-the-good",
+                "$browser_version": 96,
+                "$screen_height": 800,
+                "$screen_width": 1280,
+                "$viewport_height": 700,
+                "$viewport_width": 1280,
+                "$lib": "web",
+                "$lib_version": "1.16.8",
+                "$insert_id": "a8fv0ovd687ortxe",
+                "$time": 1640154560.317,
+                "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "$device_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "sys.release.web": "5250d699b3078052560c2e2dba45b2f9d2e1223b",
+                "$initial_referrer": "$direct",
+                "$initial_referring_domain": "$direct",
+                "$referrer": "$direct",
+                "$referring_domain": "$direct",
+                "$active_feature_flags": [],
+                "$user_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+                "document.title": "Christmas Calendar | See the Good!",
+                "token": "nb3ArEDdh-MknHgsTHLxt8WB7QP5cTfLnWhmgoynrn8",
+                "$session_id": "17de0d4268bd90-0a3621702539dd-133f6452-fa000-17de0d4268c16fb",
+                "$window_id": "17de0d4268d16e2-0c588b02fa21b1-133f6452-fa000-17de0d4268e15f7",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.4",
+                "$set_once": {
+                    "$initial_os": "Mac OS X",
+                    "$initial_browser": "Chrome",
+                    "$initial_device_type": "Desktop",
+                    "$initial_current_url": "http://localhost:3000/see-the-good",
+                    "$initial_browser_version": 96,
+                    "$initial_referrer": "$direct",
+                    "$initial_referring_domain": "$direct"
+                }
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:29:20.531000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d9-709b-0000-d5bc-c9673d1a0eeb",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.moment.get.at": "2021-12-22T08:34:44+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.moment.get.at": "2021-12-22T08:34:44+02:00"
+                },
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 62821.957836,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.5"
+            },
+            "event": "moment.get",
+            "timestamp": "2021-12-22T06:34:44.205000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d9-709e-0000-c9ed-af9f112f877b",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/moments",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:34:44+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:34:44+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/moments"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.032478,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 62821.961599,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:34:44.206000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d9-70a0-0000-47fd-79dffab2253a",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/summary",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:34:44+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:34:44+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/summary"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.052383,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 62821.960628,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:34:44.207000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d9-70a2-0000-823d-7f00e0ed5019",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/summary",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:34:44+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:34:44+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/summary"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.007555,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 62822.157182,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:34:44.405000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0d9-74d9-0000-30ff-a67f4fd01058",
+            "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+            "properties": {
+                "$os": "Mac OS X",
+                "$browser": "Chrome",
+                "$device_type": "Desktop",
+                "$current_url": "http://localhost:3000/see-the-good",
+                "$host": "localhost:3000",
+                "$pathname": "/see-the-good",
+                "$browser_version": 96,
+                "$screen_height": 800,
+                "$screen_width": 1280,
+                "$viewport_height": 700,
+                "$viewport_width": 1280,
+                "$lib": "web",
+                "$lib_version": "1.16.8",
+                "$insert_id": "c0d118xxnx8ov6d2",
+                "$time": 1640154884.096,
+                "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "$device_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "sys.release.web": "5250d699b3078052560c2e2dba45b2f9d2e1223b",
+                "$initial_referrer": "$direct",
+                "$initial_referring_domain": "$direct",
+                "$referrer": "$direct",
+                "$referring_domain": "$direct",
+                "$active_feature_flags": [],
+                "$user_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+                "document.title": "See the Good!",
+                "token": "nb3ArEDdh-MknHgsTHLxt8WB7QP5cTfLnWhmgoynrn8",
+                "$session_id": "17de0d4268bd90-0a3621702539dd-133f6452-fa000-17de0d4268c16fb",
+                "$window_id": "17de0d4268d16e2-0c588b02fa21b1-133f6452-fa000-17de0d4268e15f7",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.4",
+                "$set_once": {
+                    "$initial_os": "Mac OS X",
+                    "$initial_browser": "Chrome",
+                    "$initial_device_type": "Desktop",
+                    "$initial_current_url": "http://localhost:3000/see-the-good",
+                    "$initial_browser_version": 96,
+                    "$initial_referrer": "$direct",
+                    "$initial_referring_domain": "$direct"
+                }
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:34:44.526000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0e9-eb92-0000-1054-8ea0c337cbd0",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$set": {
+                    "contact.email": "mike+broccoliface@positive.fi",
+                    "created-at": "2021-12-21T15:07:42+02:00",
+                    "created-at.day": 21,
+                    "created-at.month": 12,
+                    "created-at.wday": "Tuesday",
+                    "created-at.year": 2021,
+                    "name": "Broccoli Börje",
+                    "plan": "Free",
+                    "roles": ["teacher"],
+                    "subject.type": "user",
+                    "sys.env": "local-development",
+                    "sys.identify.at": "2021-12-22T08:52:41+02:00",
+                    "sys.identify.at.day": 22,
+                    "sys.identify.at.month": 12,
+                    "sys.identify.at.wday": "Wednesday",
+                    "sys.identify.at.year": 2021
+                },
+                "$ip": "10.110.0.4"
+            },
+            "event": "$identify",
+            "timestamp": "2021-12-22T06:52:41.769000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0e9-eb99-0000-21fb-c58f53e03713",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/session",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:52:41+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:52:41+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/session"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.028742,
+                "req.http.method": "POST",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 63899.535472,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:52:41.780000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0e9-eb9a-0000-b816-6c09ed340960",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:52:41+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:52:41+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.021128,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 63899.578849,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:52:41.823000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0e9-eb9a-0001-8828-b90eb41f1dda",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.goal.get.at": "2021-12-22T08:52:41+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.goal.get.at": "2021-12-22T08:52:41+02:00"
+                },
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 63899.577922,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.4"
+            },
+            "event": "goal.get",
+            "timestamp": "2021-12-22T06:52:41.824000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0e9-eb9a-0002-d746-f4f35640e9a5",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/invitations",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:52:41+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:52:41+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/invitations"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.020759,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 63899.578621,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:52:41.825000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0e9-eb9b-0002-f133-0a5e9f3a6dcc",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/goals",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:52:41+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:52:41+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/goals"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.025267,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 63899.581853,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:52:41.826000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0e9-eb9c-0001-6374-886b6ffdd845",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/members",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:52:41+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:52:41+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/members"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.02275,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 63899.580725,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:52:41.827000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0e9-eb9d-0000-684e-4d97c46fbd2e",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.moment.get.at": "2021-12-22T08:52:41+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.moment.get.at": "2021-12-22T08:52:41+02:00"
+                },
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 63899.590169,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.4"
+            },
+            "event": "moment.get",
+            "timestamp": "2021-12-22T06:52:41.836000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0e9-eb9d-0002-8c5e-cd7932d584d2",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/moments",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:52:41+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:52:41+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/moments"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.03557,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 63899.592131,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:52:41.836000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0e9-eb9e-0000-8cb4-3d591eca897e",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/summary",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:52:41+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:52:41+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/summary"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.007179,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 63899.731983,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:52:41.977000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0e9-e5cd-0000-4a33-3feac89d40d3",
+            "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+            "properties": {
+                "$os": "Mac OS X",
+                "$browser": "Chrome",
+                "$device_type": "Desktop",
+                "$current_url": "http://localhost:3000/see-the-good",
+                "$host": "localhost:3000",
+                "$pathname": "/see-the-good",
+                "$browser_version": 96,
+                "$screen_height": 800,
+                "$screen_width": 1280,
+                "$viewport_height": 700,
+                "$viewport_width": 1280,
+                "$lib": "web",
+                "$lib_version": "1.16.8",
+                "$insert_id": "z98vwcotmegzlshv",
+                "$time": 1640155961.698,
+                "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "$device_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "sys.release.web": "5250d699b3078052560c2e2dba45b2f9d2e1223b",
+                "$initial_referrer": "$direct",
+                "$initial_referring_domain": "$direct",
+                "$referrer": "$direct",
+                "$referring_domain": "$direct",
+                "$active_feature_flags": [],
+                "$user_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+                "document.title": "See the Good!",
+                "token": "nb3ArEDdh-MknHgsTHLxt8WB7QP5cTfLnWhmgoynrn8",
+                "$session_id": "17de0d4268bd90-0a3621702539dd-133f6452-fa000-17de0d4268c16fb",
+                "$window_id": "17de0d4268d16e2-0c588b02fa21b1-133f6452-fa000-17de0d4268e15f7",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.5",
+                "$set_once": {
+                    "$initial_os": "Mac OS X",
+                    "$initial_browser": "Chrome",
+                    "$initial_device_type": "Desktop",
+                    "$initial_current_url": "http://localhost:3000/see-the-good",
+                    "$initial_browser_version": 96,
+                    "$initial_referrer": "$direct",
+                    "$initial_referring_domain": "$direct"
+                }
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:52:42.148000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0ea-4c1d-0000-ee3d-cd6f2a56df60",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/summary",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:53:10+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:53:10+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/summary"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.034634,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 63928.389463,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:53:10.636000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0ea-4c1e-0001-1820-71dad8d03bc4",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.moment.get.at": "2021-12-22T08:53:10+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.moment.get.at": "2021-12-22T08:53:10+02:00"
+                },
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 63928.39284,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.4"
+            },
+            "event": "moment.get",
+            "timestamp": "2021-12-22T06:53:10.656000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0ea-4c26-0000-1cf0-908286bfea12",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/moments",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:53:10+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:53:10+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/moments"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.039421,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 63928.412585,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:53:10.657000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0ea-c70e-0000-2934-0ed5fc363a41",
+            "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+            "properties": {
+                "$os": "Mac OS X",
+                "$browser": "Chrome",
+                "$device_type": "Desktop",
+                "$current_url": "http://localhost:3000/see-the-good",
+                "$host": "localhost:3000",
+                "$pathname": "/see-the-good",
+                "$browser_version": 96,
+                "$screen_height": 800,
+                "$screen_width": 1280,
+                "$viewport_height": 700,
+                "$viewport_width": 1280,
+                "$lib": "web",
+                "$lib_version": "1.16.8",
+                "$insert_id": "dzxvtvzhl7doxr43",
+                "$time": 1640155990.534,
+                "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "$device_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "sys.release.web": "5250d699b3078052560c2e2dba45b2f9d2e1223b",
+                "$initial_referrer": "$direct",
+                "$initial_referring_domain": "$direct",
+                "$referrer": "$direct",
+                "$referring_domain": "$direct",
+                "$active_feature_flags": [],
+                "$user_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+                "document.title": "See the Good!",
+                "token": "nb3ArEDdh-MknHgsTHLxt8WB7QP5cTfLnWhmgoynrn8",
+                "$session_id": "17de0d4268bd90-0a3621702539dd-133f6452-fa000-17de0d4268c16fb",
+                "$window_id": "17de0d4268d16e2-0c588b02fa21b1-133f6452-fa000-17de0d4268e15f7",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.5",
+                "$set_once": {
+                    "$initial_os": "Mac OS X",
+                    "$initial_browser": "Chrome",
+                    "$initial_device_type": "Desktop",
+                    "$initial_current_url": "http://localhost:3000/see-the-good",
+                    "$initial_browser_version": 96,
+                    "$initial_referrer": "$direct",
+                    "$initial_referring_domain": "$direct"
+                }
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:53:10.801000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0ea-4c27-0001-69ed-db836bd80b65",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/summary",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:53:10+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:53:10+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/summary"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.00744,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 63928.563597,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:53:10.809000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0ea-7385-0000-a7d2-1fca0eda8851",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/summary",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:53:17+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:53:17+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/summary"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.009571,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 63935.239015,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:53:17.484000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0ea-7386-0001-aec9-2c690888a9ac",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.moment.get.at": "2021-12-22T08:53:17+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.moment.get.at": "2021-12-22T08:53:17+02:00"
+                },
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 63935.251277,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.4"
+            },
+            "event": "moment.get",
+            "timestamp": "2021-12-22T06:53:17.496000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0ea-738a-0001-24da-415f324deb37",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/moments",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:53:17+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:53:17+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/moments"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.009448,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 63935.252886,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:53:17.497000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0ea-738d-0000-69c9-136a43f24e39",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/summary",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T08:53:17+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T08:53:17+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/summary"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.006271,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 63935.382417,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:53:17.629000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0ea-c70e-0001-b87b-da30dc2c7fec",
+            "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+            "properties": {
+                "$os": "Mac OS X",
+                "$browser": "Chrome",
+                "$device_type": "Desktop",
+                "$current_url": "http://localhost:3000/see-the-good",
+                "$host": "localhost:3000",
+                "$pathname": "/see-the-good",
+                "$browser_version": 96,
+                "$screen_height": 800,
+                "$screen_width": 1280,
+                "$viewport_height": 700,
+                "$viewport_width": 1280,
+                "$lib": "web",
+                "$lib_version": "1.16.8",
+                "$insert_id": "ze6gps3huc758riq",
+                "$time": 1640155997.424,
+                "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "$device_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "sys.release.web": "5250d699b3078052560c2e2dba45b2f9d2e1223b",
+                "$initial_referrer": "$direct",
+                "$initial_referring_domain": "$direct",
+                "$referrer": "$direct",
+                "$referring_domain": "$direct",
+                "$active_feature_flags": [],
+                "$user_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+                "document.title": "See the Good!",
+                "token": "nb3ArEDdh-MknHgsTHLxt8WB7QP5cTfLnWhmgoynrn8",
+                "$session_id": "17de0d4268bd90-0a3621702539dd-133f6452-fa000-17de0d4268c16fb",
+                "$window_id": "17de0d4268d16e2-0c588b02fa21b1-133f6452-fa000-17de0d4268e15f7",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.5",
+                "$set_once": {
+                    "$initial_os": "Mac OS X",
+                    "$initial_browser": "Chrome",
+                    "$initial_device_type": "Desktop",
+                    "$initial_current_url": "http://localhost:3000/see-the-good",
+                    "$initial_browser_version": 96,
+                    "$initial_referrer": "$direct",
+                    "$initial_referring_domain": "$direct"
+                }
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T06:53:17.691000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0f7-1e9f-0000-6e4f-5c48ed695bef",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/summary",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T09:07:06+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T09:07:06+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/summary"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.041746,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 64764.347772,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T07:07:06.594000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0f7-1ea1-0000-1577-a5fc21a65cfb",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.moment.get.at": "2021-12-22T09:07:06+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.moment.get.at": "2021-12-22T09:07:06+02:00"
+                },
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 64764.352239,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.5"
+            },
+            "event": "moment.get",
+            "timestamp": "2021-12-22T07:07:06.599000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0f7-1ea5-0001-57de-3303f24a3b15",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/moments",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T09:07:06+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T09:07:06+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/moments"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.033474,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 64764.355782,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T07:07:06.600000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0f7-1ea6-0000-f9dd-e0901b5073d3",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/summary",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T09:07:06+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T09:07:06+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/summary"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.00741,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 64764.469041,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "individual",
+                "target.id": "group:01FQEHNWEF0MZB87A4W1P9RMA3",
+                "target.member.count": 1,
+                "target.name": "mike+broccoliface@positive.fi's Portfolio",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T07:07:06.715000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de0f7-18a1-0000-ba04-d79bd821a3a4",
+            "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+            "properties": {
+                "$os": "Mac OS X",
+                "$browser": "Chrome",
+                "$device_type": "Desktop",
+                "$current_url": "http://localhost:3000/see-the-good",
+                "$host": "localhost:3000",
+                "$pathname": "/see-the-good",
+                "$browser_version": 96,
+                "$screen_height": 800,
+                "$screen_width": 1280,
+                "$viewport_height": 700,
+                "$viewport_width": 1280,
+                "$lib": "web",
+                "$lib_version": "1.16.8",
+                "$insert_id": "kr0n34g3z3xav2sd",
+                "$time": 1640156826.488,
+                "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "$device_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "sys.release.web": "5250d699b3078052560c2e2dba45b2f9d2e1223b",
+                "$initial_referrer": "$direct",
+                "$initial_referring_domain": "$direct",
+                "$referrer": "$direct",
+                "$referring_domain": "$direct",
+                "$active_feature_flags": [],
+                "$user_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+                "document.title": "See the Good!",
+                "token": "nb3ArEDdh-MknHgsTHLxt8WB7QP5cTfLnWhmgoynrn8",
+                "$session_id": "17de0d4268bd90-0a3621702539dd-133f6452-fa000-17de0d4268c16fb",
+                "$window_id": "17de0d4268d16e2-0c588b02fa21b1-133f6452-fa000-17de0d4268e15f7",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.4",
+                "$set_once": {
+                    "$initial_os": "Mac OS X",
+                    "$initial_browser": "Chrome",
+                    "$initial_device_type": "Desktop",
+                    "$initial_current_url": "http://localhost:3000/see-the-good",
+                    "$initial_browser_version": 96,
+                    "$initial_referrer": "$direct",
+                    "$initial_referring_domain": "$direct"
+                }
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T07:07:07.036000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de100-f3b6-0000-a656-72650d9baf87",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$set": {
+                    "contact.email": "mike+broccoliface@positive.fi",
+                    "created-at": "2021-12-21T15:07:42+02:00",
+                    "created-at.day": 21,
+                    "created-at.month": 12,
+                    "created-at.wday": "Tuesday",
+                    "created-at.year": 2021,
+                    "name": "Broccoli Börje",
+                    "plan": "Free",
+                    "roles": ["teacher"],
+                    "subject.type": "user",
+                    "sys.env": "local-development",
+                    "sys.identify.at": "2021-12-22T09:17:52+02:00",
+                    "sys.identify.at.day": 22,
+                    "sys.identify.at.month": 12,
+                    "sys.identify.at.wday": "Wednesday",
+                    "sys.identify.at.year": 2021
+                },
+                "$ip": "10.110.0.4"
+            },
+            "event": "$identify",
+            "timestamp": "2021-12-22T07:17:52.191000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de100-f3b7-0000-041e-55c73ce662b2",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/session",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T09:17:52+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T09:17:52+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/session"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.856117,
+                "req.http.method": "POST",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 65409.95494,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T07:17:52.199000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de100-f3b7-0001-48bd-7dead1c3e570",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/invitations",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T09:17:52+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T09:17:52+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/invitations"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.017194,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 65410.004347,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "class",
+                "target.id": "group:01FQEMG0HDHFBF6R1S7X87T3AP",
+                "target.member.count": 1,
+                "target.name": "Börjesson",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T07:17:52.255000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de100-f3b8-0000-7dfc-d9f0238f0885",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.moment.get.at": "2021-12-22T09:17:52+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.moment.get.at": "2021-12-22T09:17:52+02:00"
+                },
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 65410.015822,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "class",
+                "target.id": "group:01FQEMG0HDHFBF6R1S7X87T3AP",
+                "target.member.count": 1,
+                "target.name": "Börjesson",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.4"
+            },
+            "event": "moment.get",
+            "timestamp": "2021-12-22T07:17:52.262000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de100-f3b8-0002-ff58-60ff5cbce786",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/moments",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T09:17:52+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T09:17:52+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/moments"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.035707,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 65410.01947,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "class",
+                "target.id": "group:01FQEMG0HDHFBF6R1S7X87T3AP",
+                "target.member.count": 1,
+                "target.name": "Börjesson",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T07:17:52.264000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de100-f3bf-0000-1e39-195ebdc592d7",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.goal.get.at": "2021-12-22T09:17:52+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.goal.get.at": "2021-12-22T09:17:52+02:00"
+                },
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 65410.023778,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "class",
+                "target.id": "group:01FQEMG0HDHFBF6R1S7X87T3AP",
+                "target.member.count": 1,
+                "target.name": "Börjesson",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.4"
+            },
+            "event": "goal.get",
+            "timestamp": "2021-12-22T07:17:52.269000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de100-f3b9-0001-fab5-689d6804a407",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/members",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T09:17:52+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T09:17:52+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/members"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.034881,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 65410.023271,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "class",
+                "target.id": "group:01FQEMG0HDHFBF6R1S7X87T3AP",
+                "target.member.count": 1,
+                "target.name": "Börjesson",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T07:17:52.269000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de100-f3c0-0001-dd1e-a4da5920dbf6",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/goals",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T09:17:52+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T09:17:52+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/goals"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.041687,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 65410.025838,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "class",
+                "target.id": "group:01FQEMG0HDHFBF6R1S7X87T3AP",
+                "target.member.count": 1,
+                "target.name": "Börjesson",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T07:17:52.270000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de100-f3c1-0000-389e-40eb05f2a038",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/summary",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T09:17:52+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T09:17:52+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/summary"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.008317,
+                "req.http.method": "GET",
+                "req.http.status": 200,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 65410.08538,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "class",
+                "target.id": "group:01FQEMG0HDHFBF6R1S7X87T3AP",
+                "target.member.count": 1,
+                "target.name": "Börjesson",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T07:17:52.331000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de100-ef45-0000-999e-d920d384f447",
+            "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+            "properties": {
+                "$os": "Mac OS X",
+                "$browser": "Chrome",
+                "$device_type": "Desktop",
+                "$current_url": "http://localhost:3000/see-the-good/people",
+                "$host": "localhost:3000",
+                "$pathname": "/see-the-good/people",
+                "$browser_version": 96,
+                "$screen_height": 800,
+                "$screen_width": 1280,
+                "$viewport_height": 700,
+                "$viewport_width": 1280,
+                "$lib": "web",
+                "$lib_version": "1.16.8",
+                "$insert_id": "rleat9m487b99tv7",
+                "$time": 1640157472.051,
+                "distinct_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "$device_id": "17de0d42685147-0713bc3a655d3-133f6452-fa000-17de0d426888d6",
+                "sys.release.web": "5250d699b3078052560c2e2dba45b2f9d2e1223b",
+                "$initial_referrer": "$direct",
+                "$initial_referring_domain": "$direct",
+                "$referrer": "$direct",
+                "$referring_domain": "$direct",
+                "$active_feature_flags": [],
+                "$user_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+                "document.title": "See the Good!",
+                "token": "nb3ArEDdh-MknHgsTHLxt8WB7QP5cTfLnWhmgoynrn8",
+                "$session_id": "17de0d4268bd90-0a3621702539dd-133f6452-fa000-17de0d4268c16fb",
+                "$window_id": "17de0d4268d16e2-0c588b02fa21b1-133f6452-fa000-17de0d4268e15f7",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"],
+                "$ip": "10.110.0.4",
+                "$set_once": {
+                    "$initial_os": "Mac OS X",
+                    "$initial_browser": "Chrome",
+                    "$initial_device_type": "Desktop",
+                    "$initial_current_url": "http://localhost:3000/see-the-good/people",
+                    "$initial_browser_version": 96,
+                    "$initial_referrer": "$direct",
+                    "$initial_referring_domain": "$direct"
+                }
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T07:17:52.441000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        },
+        {
+            "id": "017de101-19b2-0001-8d98-4f1c92007d55",
+            "distinct_id": "user:01FQEHNMH444D81PZPVR1PS14M",
+            "properties": {
+                "$current_url": "http://localhost/api/v1/groups/:groupID/members",
+                "$ip": "127.0.0.1",
+                "$lib": "posthog-go",
+                "$lib_version": "1.0.1",
+                "$set": {
+                    "plan": "Free",
+                    "sys.event.last.pageview.at": "2021-12-22T09:18:01+02:00"
+                },
+                "$set_once": {
+                    "subject.type": "user",
+                    "sys.event.first.pageview.at": "2021-12-22T09:18:01+02:00",
+                    "$initial_current_url": "http://localhost/api/v1/groups/:groupID/members"
+                },
+                "$useragent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "req.duration.seconds": 0.066468,
+                "req.http.method": "POST",
+                "req.http.status": 201,
+                "req.type": "backend",
+                "subject.created-at": "2021-12-21T15:07:42+02:00",
+                "subject.created-at.day": 21,
+                "subject.created-at.elapsed-since.seconds": 65419.20887,
+                "subject.created-at.month": 12,
+                "subject.created-at.wday": "Tuesday",
+                "subject.created-at.year": 2021,
+                "subject.group-role": "owner",
+                "subject.type": "user",
+                "sys.env": "local-development",
+                "target.group-type": "class",
+                "target.id": "group:01FQEMG0HDHFBF6R1S7X87T3AP",
+                "target.member.count": 1,
+                "target.name": "Börjesson",
+                "target.role.owner.count": 1,
+                "target.subgroup.count": 0,
+                "target.type": "group",
+                "$plugins_succeeded": ["GeoIP (1)"],
+                "$plugins_failed": [],
+                "$plugins_deferred": ["Session Tracker (5)"]
+            },
+            "event": "$pageview",
+            "timestamp": "2021-12-22T07:18:01.453000+00:00",
+            "person": {
+                "is_identified": true,
+                "distinct_ids": ["17ddd1a8752428-06a9819ef246dd-133f6452-2a3000-17ddd1a87531828"],
+                "properties": {
+                    "name": "Broccoli Börje"
+                }
+            },
+            "elements": [],
+            "elements_chain": ""
+        }
+    ]
+}
