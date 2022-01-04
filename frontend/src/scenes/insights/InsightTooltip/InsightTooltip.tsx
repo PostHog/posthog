@@ -56,7 +56,16 @@ InsightTooltipProps): JSX.Element {
         })
 
         if (dataSource?.[0]?.seriesData.length > 0) {
-            dataSource[0]
+            dataSource[0].seriesData.forEach((seriesColumn, colIdx) => {
+                columns.push({
+                    key: `series-column-data-${colIdx}`,
+                    align: 'right',
+                    title: seriesColumn.action?.name,
+                    render: function renderSeriesColumnData(_, datum) {
+                        return <div>{datum.seriesData?.[colIdx]?.count}</div>
+                    },
+                })
+            })
         }
 
         return <LemonTable dataSource={dataSource} columns={columns} rowKey="id" size="small" />
