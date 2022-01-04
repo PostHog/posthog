@@ -1446,6 +1446,7 @@ export interface AppContext {
     preflight: PreflightStatus
     default_event_name: string
     persisted_feature_flags?: string[]
+    anonymous: boolean
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'

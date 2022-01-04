@@ -245,6 +245,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
 
     posthog_app_context: Dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
+        "anonymous": not request.user or not request.user.is_authenticated,
     }
 
     # Set the frontend app context

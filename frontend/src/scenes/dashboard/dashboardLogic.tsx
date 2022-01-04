@@ -26,6 +26,7 @@ import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { getInsightId } from 'scenes/insights/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAppContext } from 'lib/utils/getAppContext'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
@@ -534,6 +535,9 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         },
         saveLayouts: async (_, breakpoint) => {
             await breakpoint(300)
+            if (getAppContext()?.anonymous) {
+                return
+            }
             await api.update(`api/projects/${values.currentTeamId}/insights/layouts`, {
                 items:
                     values.items?.map((item) => {

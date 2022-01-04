@@ -51,6 +51,10 @@ export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePay
             null as OrganizationType | null,
             {
                 loadCurrentOrganization: async () => {
+                    if (getAppContext()?.anonymous) {
+                        return null
+                    }
+
                     try {
                         return await api.get('api/organizations/@current')
                     } catch {
