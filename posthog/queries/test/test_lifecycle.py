@@ -2,6 +2,7 @@ import json
 
 from freezegun import freeze_time
 from rest_framework.test import APIRequestFactory
+from dateutil.parser import isoparse
 
 from posthog.constants import FILTER_TEST_ACCOUNTS, TRENDS_LIFECYCLE
 from posthog.models import Action, ActionStep, Cohort, Event, Filter, Person, Team
@@ -17,14 +18,15 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
             person_result = []
             for person in data:
                 id = person[0]
+                timestamps = person[1]
                 person_result.append(
                     person_factory(
                         team_id=self.team.pk,
                         distinct_ids=[id],
+                        created_at=isoparse(min(timestamps)),
                         properties={"name": id, **({"email": "test@posthog.com"} if id == "p1" else {})},
                     ),
                 )
-                timestamps = person[1]
                 for timestamp in timestamps:
                     event_factory(
                         team=self.team, event="$pageview", distinct_id=id, timestamp=timestamp,
@@ -77,7 +79,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
 
         def test_lifecycle_trend_prop_filtering(self):
 
-            p1 = person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+            p1 = person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"}, created_at="2020-01-11T12:00:00Z")
             event_factory(
                 team=self.team,
                 event="$pageview",
@@ -124,7 +126,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 properties={"$number": 1},
             )
 
-            p2 = person_factory(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+            p2 = person_factory(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"}, created_at="2020-01-09T12:00:00Z")
             event_factory(
                 team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-09T12:00:00Z",
             )
@@ -132,12 +134,12 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-12T12:00:00Z",
             )
 
-            p3 = person_factory(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "p3"})
+            p3 = person_factory(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "p3"}, created_at="2020-01-12T12:00:00Z")
             event_factory(
                 team=self.team, event="$pageview", distinct_id="p3", timestamp="2020-01-12T12:00:00Z",
             )
 
-            p4 = person_factory(team_id=self.team.pk, distinct_ids=["p4"], properties={"name": "p4"})
+            p4 = person_factory(team_id=self.team.pk, distinct_ids=["p4"], properties={"name": "p4"}, created_at="2020-01-15T12:00:00Z")
             event_factory(
                 team=self.team, event="$pageview", distinct_id="p4", timestamp="2020-01-15T12:00:00Z",
             )
@@ -168,7 +170,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                     self.assertEqual(res["data"], [0, 0, 0, 0, 0, 0, 0, 0])
 
         def test_lifecycle_trends_distinct_id_repeat(self):
-            p1 = person_factory(team_id=self.team.pk, distinct_ids=["p1", "another_p1"], properties={"name": "p1"})
+            p1 = person_factory(team_id=self.team.pk, distinct_ids=["p1", "another_p1"], properties={"name": "p1"}, created_at="2020-01-12T12:00:00Z")
             event_factory(
                 team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-12T12:00:00Z",
             )
@@ -403,7 +405,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
 
         def test_lifecycle_trend_weeks(self):
             # lifecycle weeks rounds the date to the nearest following week  2/5 -> 2/10
-            p1 = person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+            p1 = person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"}, created_at="2020-02-01T12:00:00Z")
             event_factory(
                 team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-02-01T12:00:00Z",
             )
@@ -426,7 +428,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-03-02T12:00:00Z",
             )
 
-            p2 = person_factory(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+            p2 = person_factory(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"}, created_at="2020-02-11T12:00:00Z")
             event_factory(
                 team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-02-11T12:00:00Z",
             )
@@ -434,12 +436,12 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-02-18T12:00:00Z",
             )
 
-            p3 = person_factory(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "p3"})
+            p3 = person_factory(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "p3"}, created_at="2020-02-12T12:00:00Z")
             event_factory(
                 team=self.team, event="$pageview", distinct_id="p3", timestamp="2020-02-12T12:00:00Z",
             )
 
-            p4 = person_factory(team_id=self.team.pk, distinct_ids=["p4"], properties={"name": "p4"})
+            p4 = person_factory(team_id=self.team.pk, distinct_ids=["p4"], properties={"name": "p4"}, created_at="2020-02-27T12:00:00Z")
             event_factory(
                 team=self.team, event="$pageview", distinct_id="p4", timestamp="2020-02-27T12:00:00Z",
             )
@@ -477,7 +479,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
 
         def test_lifecycle_trend_months(self):
 
-            p1 = person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+            p1 = person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"}, created_at="2020-01-11T12:00:00Z")
             event_factory(
                 team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-11T12:00:00Z",
             )
@@ -500,7 +502,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-09-19T12:00:00Z",
             )
 
-            p2 = person_factory(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+            p2 = person_factory(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"}, created_at="2019-12-09T12:00:00Z")
             event_factory(
                 team=self.team, event="$pageview", distinct_id="p2", timestamp="2019-12-09T12:00:00Z",
             )
@@ -508,12 +510,12 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-02-12T12:00:00Z",
             )
 
-            p3 = person_factory(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "p3"})
+            p3 = person_factory(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "p3"}, created_at="2020-02-12T12:00:00Z")
             event_factory(
                 team=self.team, event="$pageview", distinct_id="p3", timestamp="2020-02-12T12:00:00Z",
             )
 
-            p4 = person_factory(team_id=self.team.pk, distinct_ids=["p4"], properties={"name": "p4"})
+            p4 = person_factory(team_id=self.team.pk, distinct_ids=["p4"], properties={"name": "p4"}, created_at="2020-05-15T12:00:00Z")
             event_factory(
                 team=self.team, event="$pageview", distinct_id="p4", timestamp="2020-05-15T12:00:00Z",
             )

@@ -142,19 +142,16 @@ FROM (
         )
 ) activity_pairs
 
-    -- Get the earliest event for each person
+    -- Get the created_at date for each person
+    -- TODO: add person filtering prior to join, to reduce the join size
     JOIN (
-        SELECT DISTINCT 
-            person_id, 
-            {trunc_func}(min(events.timestamp)) earliest 
-
-        FROM events
-
-            JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi 
-                ON events.distinct_id = pdi.distinct_id
-
-        WHERE team_id = %(team_id)s AND {event_query} {filters}
-        GROUP BY person_id
+        SELECT DISTINCT
+            person.id as person_id, 
+            {trunc_func}(argMax(person.created_at, _timestamp)) as earliest
+        FROM person
+        WHERE person.team_id = %(team_id)s
+        GROUP BY person.id
+        HAVING argMax(person.is_deleted, _timestamp) = 0
     ) earliest ON activity_pairs.person_id = earliest.person_id
 
 """

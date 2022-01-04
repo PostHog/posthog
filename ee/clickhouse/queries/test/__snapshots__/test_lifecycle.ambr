@@ -130,33 +130,12 @@
                 OR ((neighbor(person_id, -1) = person_id)
                     AND neighbor(next_period, -1) < next_period - INTERVAL 1 DAY) ) activity_pairs
            JOIN
-             (SELECT DISTINCT person_id,
-                              toStartOfDay(min(events.timestamp)) earliest
-              FROM events
-              JOIN
-                (SELECT distinct_id,
-                        argMax(person_id, _timestamp) as person_id
-                 FROM
-                   (SELECT distinct_id,
-                           person_id,
-                           max(_timestamp) as _timestamp
-                    FROM person_distinct_id
-                    WHERE team_id = 2
-                    GROUP BY person_id,
-                             distinct_id,
-                             team_id
-                    HAVING max(is_deleted) = 0)
-                 GROUP BY distinct_id) pdi ON events.distinct_id = pdi.distinct_id
-              WHERE team_id = 2
-                AND event = '$pageview'
-                AND $group_0 IN
-                  (SELECT DISTINCT group_key
-                   FROM groups
-                   WHERE team_id = 2
-                     AND group_type_index = 0
-                     AND has(['value'], trim(BOTH '"'
-                                             FROM JSONExtractRaw(group_properties, 'key'))) )
-              GROUP BY person_id) earliest ON activity_pairs.person_id = earliest.person_id)
+             (SELECT DISTINCT person.id as person_id,
+                              toStartOfDay(argMax(person.created_at, _timestamp)) as earliest
+              FROM person
+              WHERE person.team_id = 2
+              GROUP BY person.id
+              HAVING argMax(person.is_deleted, _timestamp) = 0) earliest ON activity_pairs.person_id = earliest.person_id)
         WHERE next_period <= toDateTime('2020-01-19 23:59:59')
           AND next_period >= toDateTime('2020-01-12 00:00:00')
         GROUP BY next_period,

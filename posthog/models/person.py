@@ -1,4 +1,5 @@
 from typing import Any, List, Optional
+from dateutil.parser import isoparse
 
 from django.db import models, transaction
 from django.utils import timezone
@@ -33,6 +34,14 @@ class Person(models.Model):
             .order_by("id")
             .values_list("distinct_id")
         ]
+
+    def save(self, *args: Any, **kwargs: Any):
+        if not self.pk:
+            if isinstance(self.created_at, str):
+                self.created_at = isoparse(self.created_at)
+            elif self.created_at is None:
+                self.created_at = timezone.now()
+        return super().save(*args, **kwargs)
 
     # :DEPRECATED: This should happen through the plugin server
     def add_distinct_id(self, distinct_id: str) -> None:
@@ -86,7 +95,7 @@ class Person(models.Model):
                     )
 
     objects = PersonManager()
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
+    created_at: models.DateTimeField = models.DateTimeField(blank=True)
 
     # used to prevent race conditions with set and set_once
     properties_last_updated_at: models.JSONField = models.JSONField(default=dict, null=True, blank=True)

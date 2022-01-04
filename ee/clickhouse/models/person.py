@@ -34,6 +34,7 @@ if is_clickhouse_enabled() and TEST:
             properties=instance.properties,
             uuid=str(instance.uuid),
             is_identified=instance.is_identified,
+            timestamp=instance.created_at,
         )
 
     @receiver(post_save, sender=PersonDistinctId)

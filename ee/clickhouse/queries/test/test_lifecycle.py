@@ -40,8 +40,8 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(Clickh
         create_group(self.team.pk, group_type_index=0, group_key="in", properties={"key": "value"})
         create_group(self.team.pk, group_type_index=0, group_key="out", properties={"key": "othervalue"})
 
-        Person.objects.create(distinct_ids=["person1"], team_id=self.team.pk)
-        Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk)
+        Person.objects.create(distinct_ids=["person1"], team_id=self.team.pk, created_at=datetime(2020, 1, 11, 12))
+        Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, created_at=datetime(2020, 1, 9, 12))
         journeys_for(
             {
                 "person1": [
