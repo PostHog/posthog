@@ -85,13 +85,13 @@ class TestRunner(BaseTest):
 
         update_async_migration(sm, status=MigrationStatus.Running)
 
-        run_async_migration_next_op("test", sm, run_all=False)
+        run_async_migration_next_op("test", sm)
 
         sm.refresh_from_db()
         self.assertEqual(sm.current_operation_index, 1)
         self.assertEqual(sm.progress, int(100 * 1 / 4))
 
-        run_async_migration_next_op("test", sm, run_all=False)
+        run_async_migration_next_op("test", sm)
 
         sm.refresh_from_db()
         self.assertEqual(sm.current_operation_index, 2)
@@ -103,9 +103,9 @@ class TestRunner(BaseTest):
 
         self.assertEqual(res, ("a", "b"))
 
-        run_async_migration_next_op("test", sm, run_all=False)
-        run_async_migration_next_op("test", sm, run_all=False)
-        run_async_migration_next_op("test", sm, run_all=False)
+        run_async_migration_next_op("test", sm)
+        run_async_migration_next_op("test", sm)
+        run_async_migration_next_op("test", sm)
 
         sm.refresh_from_db()
         self.assertEqual(sm.current_operation_index, 4)
@@ -124,8 +124,8 @@ class TestRunner(BaseTest):
         sm.status = MigrationStatus.Running
         sm.save()
 
-        run_async_migration_next_op("test", sm, run_all=False)
-        run_async_migration_next_op("test", sm, run_all=False)
+        run_async_migration_next_op("test", sm)
+        run_async_migration_next_op("test", sm)
 
         sm.refresh_from_db()
         self.assertEqual(sm.current_operation_index, 2)
