@@ -91,9 +91,12 @@ HOOK_EVENTS: Dict[str, str] = {}
 
 # Support creating multiple organizations in a single instance. Requires a premium license.
 MULTI_ORG_ENABLED = get_from_env("MULTI_ORG_ENABLED", False, type_cast=str_to_bool)
-MULTI_TENANCY = False  # overriden by posthog-cloud
 
-# Broker
+# Overriden by posthog-cloud
+MULTI_TENANCY = False
+
+# Whether this is a managed demo environment
+DEMO = get_from_env("DEMO", False, type_cast=str_to_bool)
 
 CACHED_RESULTS_TTL = 7 * 24 * 60 * 60  # how long to keep cached results for
 TEMP_CACHE_RESULTS_TTL = 24 * 60 * 60  # how long to keep non dashboard cached results for
@@ -101,7 +104,7 @@ SESSION_RECORDING_TTL = 30  # how long to keep session recording cache. Relative
 
 AUTO_LOGIN = get_from_env("AUTO_LOGIN", False, type_cast=str_to_bool)
 
-# keep in sync with plugin-server
+# Keep in sync with plugin-server
 EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC = "events_added_to_dead_letter_queue"
 
 # Teams with access to an experimental query optimization. Only ready to be used on cloud.

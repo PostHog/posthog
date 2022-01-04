@@ -597,10 +597,12 @@ def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]
 
 def get_instance_realm() -> str:
     """
-    Returns the realm for the current instance. `cloud` or `hosted` or `hosted-clickhouse`.
+    Returns the realm for the current instance. `cloud` or 'demo' or `hosted-clickhouse`.
     """
     if settings.MULTI_TENANCY:
         return "cloud"
+    elif settings.DEMO:
+        return "demo"
     else:
         return "hosted-clickhouse"
 
@@ -618,6 +620,7 @@ def get_can_create_org() -> bool:
 
     if (
         settings.MULTI_TENANCY
+        or settings.DEMO
         or settings.E2E_TESTING
         or not Organization.objects.filter(for_internal_metrics=False).exists()
     ):

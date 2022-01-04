@@ -45,6 +45,7 @@ def create_demo_team(organization: Organization, *args) -> Team:
         name=TEAM_NAME,
         ingested_event=True,
         completed_snippet_onboarding=True,
+        session_recording_opt_in=True,
         is_demo=True,
     )
     create_demo_data(team)

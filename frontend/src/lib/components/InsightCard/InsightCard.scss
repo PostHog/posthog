@@ -8,13 +8,12 @@
     border-radius: var(--radius);
     border: 1px solid var(--border);
     z-index: 3;
-    background: var(--bg-side);
+    background: #fff;
     overflow: hidden;
     &--highlighted {
         border-color: var(--primary);
     }
     .InsightMeta {
-        background: #fff;
         border-top: 1px solid var(--border);
     }
 }
