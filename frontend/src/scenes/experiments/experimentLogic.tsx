@@ -43,12 +43,13 @@ export const experimentLogic = kea<experimentLogicType>({
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
         setExperimentId: (experimentId: number | 'new') => ({ experimentId }),
         setNewExperimentData: (experimentData: Partial<Experiment>) => ({ experimentData }),
-        emptyNewExperiment: true,
+        updateExperimentGroup: (variant: MultivariateFlagVariant, idx: number) => ({ variant, idx }),
+        removeExperimentGroup: (idx: number) => ({ idx }),
+        resetNewExperiment: true,
         launchExperiment: true,
         endExperiment: true,
         editExperiment: true,
         addExperimentGroup: true,
-        updateExperimentGroup: (variant: MultivariateFlagVariant, idx: number) => ({ variant, idx }),
     },
     reducers: {
         experimentId: [
@@ -58,12 +59,7 @@ export const experimentLogic = kea<experimentLogicType>({
             },
         ],
         newExperimentData: [
-            {
-                feature_flag_variants: [
-                    { key: 'Control group', rollout_percentage: 50 },
-                    { key: 'Test group', rollout_percentage: 50 },
-                ],
-            } as Partial<Experiment>,
+            null as Partial<Experiment> | null,
             {
                 setNewExperimentData: (vals, { experimentData }) => {
                     if (experimentData.filters) {
@@ -73,35 +69,67 @@ export const experimentLogic = kea<experimentLogicType>({
                     return { ...vals, ...experimentData }
                 },
                 updateExperimentGroup: (state, { variant, idx }) => {
-                    const featureFlagVariants = [...(state?.feature_flag_variants || [])]
+                    const featureFlagVariants = [...(state?.parameters?.feature_flag_variants || [])]
                     featureFlagVariants[idx] = { ...featureFlagVariants[idx], ...variant }
-                    return { ...state, feature_flag_variants: featureFlagVariants }
+                    return {
+                        ...state,
+                        parameters: { ...state?.parameters, feature_flag_variants: featureFlagVariants },
+                    }
                 },
                 addExperimentGroup: (state) => {
-                    if (state?.feature_flag_variants) {
-                        const newRolloutPercentage = Math.round(100 / (state.feature_flag_variants.length + 1))
-                        const updatedRolloutPercentageVariants = state.feature_flag_variants.map((variant) => ({
-                            ...variant,
-                            rollout_percentage: newRolloutPercentage,
-                        }))
+                    if (state?.parameters?.feature_flag_variants) {
+                        const newRolloutPercentage = Math.round(
+                            100 / (state.parameters.feature_flag_variants.length + 1)
+                        )
+                        const updatedRolloutPercentageVariants = state.parameters.feature_flag_variants.map(
+                            (variant: MultivariateFlagVariant) => ({
+                                ...variant,
+                                rollout_percentage: newRolloutPercentage,
+                            })
+                        )
                         return {
                             ...state,
-                            feature_flag_variants: [
-                                ...updatedRolloutPercentageVariants,
-                                {
-                                    key: `test_group_${state.feature_flag_variants.length + 1}`,
-                                    rollout_percentage: newRolloutPercentage,
-                                },
-                            ],
+                            parameters: {
+                                ...state.parameters,
+                                feature_flag_variants: [
+                                    ...updatedRolloutPercentageVariants,
+                                    {
+                                        key: `test_group_${state.parameters.feature_flag_variants.length}`,
+                                        rollout_percentage: newRolloutPercentage,
+                                    },
+                                ],
+                            },
                         }
                     }
                     return state
                 },
-                emptyNewExperiment: () => ({
-                    feature_flag_variants: [
-                        { key: 'control_group', rollout_percentage: 50 },
-                        { key: 'test_group', rollout_percentage: 50 },
-                    ],
+                removeExperimentGroup: (state, { idx }) => {
+                    if (!state) {
+                        return state
+                    }
+                    const variants = [...(state.parameters?.feature_flag_variants || [])]
+                    variants.splice(idx, 1)
+                    const newRolloutPercentage = Math.round(100 / (state?.parameters?.feature_flag_variants.length - 1))
+                    const updatedVariants = variants.map((variant: MultivariateFlagVariant) => ({
+                        ...variant,
+                        rollout_percentage: newRolloutPercentage,
+                    }))
+
+                    return {
+                        ...state,
+                        parameters: {
+                            ...state.parameters,
+                            feature_flag_variants: updatedVariants,
+                        },
+                    }
+                },
+                resetNewExperiment: () => ({
+                    parameters: {
+                        feature_flag_variants: [
+                            { key: 'control_group', rollout_percentage: 50 },
+                            { key: 'test_group', rollout_percentage: 50 },
+                        ],
+                    },
                 }),
             },
         ],
@@ -349,7 +377,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 // like in featureFlagLogic.tsx
                 if (parsedId === 'new') {
                     actions.createNewExperimentFunnel()
-                    actions.emptyNewExperiment()
+                    actions.resetNewExperiment()
                 }
                 if (parsedId !== values.experimentId) {
                     actions.setExperimentId(parsedId)

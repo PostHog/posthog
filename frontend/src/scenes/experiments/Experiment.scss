@@ -110,6 +110,14 @@
             padding-top: $default_spacing / 2;
         }
     }
+
+    .ant-input-number-disabled {
+        color: black;
+    }
+
+    .ant-input[disabled] {
+        color: black;
+    }
 }
 
 .confirmation {

@@ -1382,7 +1382,6 @@ export interface Experiment {
     end_date?: string
     created_at: string
     created_by: UserBasicType | null
-    feature_flag_variants: MultivariateFlagVariant[]
 }
 export interface ExperimentResults {
     funnel: FunnelStep[][]

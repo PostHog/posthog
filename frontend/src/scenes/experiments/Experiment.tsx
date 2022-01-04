@@ -10,13 +10,13 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { FunnelVizType, PropertyFilter } from '~/types'
+import { FunnelVizType, MultivariateFlagVariant, PropertyFilter } from '~/types'
 import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { JSSnippet } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { IconJavascript, IconOpenInNew } from 'lib/components/icons'
-import { InfoCircleOutlined, CaretDownOutlined, PlusOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined, CaretDownOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
@@ -48,6 +48,7 @@ export function Experiment(): JSX.Element {
         endExperiment,
         addExperimentGroup,
         updateExperimentGroup,
+        removeExperimentGroup,
     } = useActions(experimentLogic)
 
     const [form] = Form.useForm()
@@ -171,7 +172,7 @@ export function Experiment(): JSX.Element {
                                             </div>
                                         </Col>
                                     </Form.Item>
-                                    {newExperimentData?.feature_flag_variants && (
+                                    {newExperimentData?.parameters?.feature_flag_variants && (
                                         <Col>
                                             <label>
                                                 <b>Experiment groups</b>
@@ -181,69 +182,97 @@ export function Experiment(): JSX.Element {
                                                 consist of a control group and at least one test group.
                                             </div>
                                             <Col>
-                                                {newExperimentData.feature_flag_variants.map((variant, idx) => (
-                                                    <Form
-                                                        key={`${variant}-${idx}`}
-                                                        initialValues={newExperimentData.feature_flag_variants}
-                                                        onValuesChange={(changedValues) => {
-                                                            updateExperimentGroup(changedValues, idx)
-                                                        }}
-                                                        validateTrigger={['onChange', 'onBlur']}
-                                                    >
-                                                        <Row className="feature-flag-variant">
-                                                            <Form.Item
-                                                                name="key"
-                                                                rules={[
-                                                                    {
-                                                                        required: true,
-                                                                        message: 'Key should not be empty.',
-                                                                    },
-                                                                    {
-                                                                        pattern: /^([A-z]|[a-z]|[0-9]|-|_)+$/,
-                                                                        message:
-                                                                            'Only letters, numbers, hyphens (-) & underscores (_) are allowed.',
-                                                                    },
-                                                                ]}
-                                                            >
-                                                                <Input
-                                                                    defaultValue={variant.key}
-                                                                    data-attr="feature-flag-variant-key"
-                                                                    data-key-index={idx.toString()}
-                                                                    className="ph-ignore-input"
-                                                                    style={{ maxWidth: 150 }}
-                                                                    placeholder={`example-variant-${idx + 1}`}
-                                                                    autoComplete="off"
-                                                                    autoCapitalize="off"
-                                                                    autoCorrect="off"
-                                                                    spellCheck={false}
-                                                                />
-                                                            </Form.Item>
-                                                            <div className="ml-05">
-                                                                {' '}
-                                                                Roll out to{' '}
-                                                                <InputNumber
-                                                                    defaultValue={variant.rollout_percentage}
-                                                                    value={variant.rollout_percentage}
-                                                                    formatter={(value) => `${value}%`}
-                                                                />{' '}
-                                                                of <b>participants</b>
-                                                            </div>
-                                                        </Row>
-                                                    </Form>
-                                                ))}
+                                                {newExperimentData.parameters.feature_flag_variants.map(
+                                                    (variant: MultivariateFlagVariant, idx: number) => (
+                                                        <Form
+                                                            key={`${variant}-${idx}`}
+                                                            initialValues={
+                                                                newExperimentData.parameters?.feature_flag_variants
+                                                            }
+                                                            onValuesChange={(changedValues) => {
+                                                                updateExperimentGroup(changedValues, idx)
+                                                            }}
+                                                            validateTrigger={['onChange', 'onBlur']}
+                                                        >
+                                                            <Row className="feature-flag-variant">
+                                                                <Form.Item
+                                                                    name="key"
+                                                                    rules={[
+                                                                        {
+                                                                            required: true,
+                                                                            message: 'Key should not be empty.',
+                                                                        },
+                                                                        {
+                                                                            pattern: /^([A-z]|[a-z]|[0-9]|-|_)+$/,
+                                                                            message:
+                                                                                'Only letters, numbers, hyphens (-) & underscores (_) are allowed.',
+                                                                        },
+                                                                    ]}
+                                                                >
+                                                                    <Input
+                                                                        disabled={idx === 0}
+                                                                        defaultValue={variant.key}
+                                                                        data-attr="feature-flag-variant-key"
+                                                                        data-key-index={idx.toString()}
+                                                                        className="ph-ignore-input"
+                                                                        style={{ maxWidth: 150 }}
+                                                                        placeholder={`example-variant-${idx + 1}`}
+                                                                        autoComplete="off"
+                                                                        autoCapitalize="off"
+                                                                        autoCorrect="off"
+                                                                        spellCheck={false}
+                                                                    />
+                                                                </Form.Item>
+                                                                <div className="ml-05">
+                                                                    {' '}
+                                                                    Roll out to{' '}
+                                                                    <InputNumber
+                                                                        disabled={true}
+                                                                        defaultValue={variant.rollout_percentage}
+                                                                        value={variant.rollout_percentage}
+                                                                        formatter={(value) => `${value}%`}
+                                                                    />{' '}
+                                                                    of <b>participants</b>
+                                                                </div>
+                                                                <div className="float-right">
+                                                                    {!(idx === 0 || idx === 1) && (
+                                                                        <Tooltip
+                                                                            title="Delete this variant"
+                                                                            placement="bottomLeft"
+                                                                        >
+                                                                            <Button
+                                                                                type="link"
+                                                                                icon={<DeleteOutlined />}
+                                                                                onClick={() =>
+                                                                                    removeExperimentGroup(idx)
+                                                                                }
+                                                                                style={{
+                                                                                    color: 'var(--danger)',
+                                                                                    float: 'right',
+                                                                                }}
+                                                                            />
+                                                                        </Tooltip>
+                                                                    )}
+                                                                </div>
+                                                            </Row>
+                                                        </Form>
+                                                    )
+                                                )}
 
-                                                <Button
-                                                    style={{
-                                                        color: 'var(--primary)',
-                                                        border: 'none',
-                                                        boxShadow: 'none',
-                                                        marginTop: '1rem',
-                                                    }}
-                                                    icon={<PlusOutlined />}
-                                                    onClick={() => addExperimentGroup()}
-                                                >
-                                                    Add test group
-                                                </Button>
+                                                {newExperimentData.parameters.feature_flag_variants.length < 5 && (
+                                                    <Button
+                                                        style={{
+                                                            color: 'var(--primary)',
+                                                            border: 'none',
+                                                            boxShadow: 'none',
+                                                            marginTop: '1rem',
+                                                        }}
+                                                        icon={<PlusOutlined />}
+                                                        onClick={() => addExperimentGroup()}
+                                                    >
+                                                        Add test group
+                                                    </Button>
+                                                )}
                                             </Col>
                                         </Col>
                                     )}
