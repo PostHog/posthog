@@ -630,7 +630,7 @@ export function eventToDescription(
     shortForm: boolean = false
 ): string {
     if (['$pageview', '$pageleave'].includes(event.event)) {
-        return event.properties.$pathname ?? event.properties.$current_url ?? '<unknown url>'
+        return event.properties.$pathname ?? event.properties.$current_url ?? '<unknown URL>'
     }
     if (event.event === '$autocapture') {
         return autoCaptureEventToDescription(event, shortForm)
