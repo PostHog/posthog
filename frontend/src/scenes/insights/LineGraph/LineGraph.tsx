@@ -217,6 +217,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                         labels: [...(dataset.labels || [])].slice(0, sliceTo),
                         days: [...(dataset.days || [])].slice(0, sliceTo),
                     })
+                    console.log('SLICE to', sliceTo, dataset, datasetCopy)
                     return processDataset(datasetCopy, index)
                 }),
                 ...datasets.map((dataset, index) => {
@@ -234,6 +235,8 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                         ...(datasetCopy.data?.slice(0, sliceFrom).map(() => null) ?? []),
                         ...(datasetCopy.data?.slice(sliceFrom) ?? []),
                     ] as number[]
+
+                    console.log('SLICE from', sliceFrom, dataset, datasetCopy)
 
                     return processDataset(datasetCopy, index)
                 }),
@@ -286,7 +289,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                             document.body.appendChild(tooltipEl)
                         }
                         if (tooltip.opacity === 0) {
-                            tooltipEl.style.opacity = '0'
+                            tooltipEl.style.opacity = '1'
                             return
                         }
 
@@ -310,35 +313,50 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                             const referenceDataPoint = tooltip.dataPoints[0] // Use this point as reference to get the date
                             const dataset = datasets[referenceDataPoint.datasetIndex]
 
-                            const altTitle =
-                                tooltip.title && (dataset.compare || tooltipPreferAltTitle) ? tooltip.title[0] : '' // When comparing we show the whole range for clarity; when on stickiness we show the relative timeframe (e.g. `5 days`)
-                            const referenceDate = !dataset.compare
-                                ? dataset.days?.[referenceDataPoint.dataIndex]
-                                : undefined
-                            const seriesData = tooltip.body
-                                .flatMap(({ lines }) => lines)
-                                .map((component, idx) => ({
-                                    id: idx,
-                                    component,
-                                }))
-
                             ReactDOM.render(
                                 <Provider store={getContext().store}>
                                     {featureFlags[FEATURE_FLAGS.NEW_INSIGHT_TOOLTIPS] ? (
                                         <InsightTooltip
-                                            referenceDate={referenceDate}
-                                            altTitle={altTitle}
-                                            seriesData={seriesData}
-                                            useAltTitle={tooltipPreferAltTitle}
-                                            hideHeader={isHorizontal}
+                                            date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
+                                            seriesData={tooltip.dataPoints
+                                                ?.filter((dp: any) => !dp?.dataset?.dotted)
+                                                ?.map((dp, idx) => {
+                                                    const pointDataset = (dp?.dataset ?? {}) as GraphDataset
+                                                    return {
+                                                        id: idx,
+                                                        dataIndex: dp.dataIndex,
+                                                        datasetIndex: dp.datasetIndex,
+                                                        breakdown_value: pointDataset?.breakdown_value ?? undefined,
+                                                        compare_value: pointDataset?.compare_label ?? undefined,
+                                                        action:
+                                                            pointDataset?.action ??
+                                                            pointDataset?.actions?.[0] ??
+                                                            undefined,
+                                                        color: pointDataset.backgroundColor as string,
+                                                        count: pointDataset?.data?.[dp.dataIndex] ?? 0,
+                                                    }
+                                                })}
                                             hideInspectActorsSection={!(onClick && showPersonsModal)}
                                         />
                                     ) : (
                                         <LEGACY_InsightTooltip
-                                            referenceDate={referenceDate}
-                                            altTitle={altTitle}
+                                            referenceDate={
+                                                !dataset.compare
+                                                    ? dataset.days?.[referenceDataPoint.dataIndex]
+                                                    : undefined
+                                            }
+                                            altTitle={
+                                                tooltip.title && (dataset.compare || tooltipPreferAltTitle)
+                                                    ? tooltip.title[0]
+                                                    : ''
+                                            } // When comparing we show the whole range for clarity; when on stickiness we show the relative timeframe (e.g. `5 days`)
                                             interval={interval}
-                                            bodyLines={seriesData}
+                                            bodyLines={tooltip.body
+                                                .flatMap(({ lines }) => lines)
+                                                .map((component, idx) => ({
+                                                    id: idx,
+                                                    component,
+                                                }))}
                                             preferAltTitle={tooltipPreferAltTitle}
                                             hideHeader={isHorizontal}
                                             inspectPersonsLabel={onClick && showPersonsModal}
@@ -366,10 +384,14 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                         // @ts-ignore: label callback is typed to return string | string[], but practically can return ReactNode
                         label(tooltipItem: TooltipItem<any>) {
                             const entityData = tooltipItem.dataset
-                            const tooltipDatasets = this.dataPoints.map((point) => point.dataset as ChartDataset<any>)
-                            if (entityData.dotted && !(tooltipItem.dataIndex === entityData.data.length - 1)) {
+                            const tooltipDatasets = this.dataPoints
+                                .map((point) => point.dataset as ChartDataset<any>)
+                                .filter((dt) => !dt.dotted)
+                            if (!(tooltipItem.dataIndex === entityData.data.length - 1)) {
                                 return ''
                             }
+
+                            console.log('DATASETS', tooltipDatasets)
 
                             const label = entityData.chartLabel || entityData.label || tooltipItem.label || ''
                             const action =
