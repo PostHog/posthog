@@ -29,7 +29,7 @@ describe('<Person /> ', () => {
             orderBy: '["-timestamp"]',
             person_id: '1',
             properties: '[]',
-            after: '2019-07-05T12:00:00.000Z',
+            after: '2019-01-05T12:00:00.000Z',
         })
 
         cy.get('.event-row').should('have.length', 7)
