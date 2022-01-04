@@ -41,9 +41,6 @@ export const teamLogic = kea<teamLogicType>({
             null as TeamType | null,
             {
                 loadCurrentTeam: async () => {
-                    if (getAppContext()?.anonymous) {
-                        return null
-                    }
                     try {
                         return await api.get('api/projects/@current')
                     } catch {

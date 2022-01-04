@@ -9,7 +9,6 @@ import { dashboardsModelType } from './dashboardsModelType'
 import { InsightModel, DashboardType, InsightShortId } from '~/types'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
-import { getAppContext } from 'lib/utils/getAppContext'
 
 export const dashboardsModel = kea<dashboardsModelType>({
     path: ['models', 'dashboardsModel'],
@@ -51,12 +50,9 @@ export const dashboardsModel = kea<dashboardsModelType>({
             {} as Record<string, DashboardType>,
             {
                 loadDashboards: async (_, breakpoint) => {
-                    if (getAppContext()?.anonymous) {
-                        return {}
-                    }
                     await breakpoint(50)
                     const { results } = await api.get(`api/projects/${teamLogic.values.currentTeamId}/dashboards/`)
-                    return idToKey(results)
+                    return idToKey(results ?? [])
                 },
             },
         ],

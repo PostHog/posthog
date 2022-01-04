@@ -14,7 +14,6 @@ import {
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { getAppContext } from 'lib/utils/getAppContext'
 
 export type TabName = 'overview' | 'internal_metrics'
 
@@ -32,13 +31,10 @@ export const systemStatusLogic = kea<systemStatusLogicType<TabName>>({
             null as SystemStatus | null,
             {
                 loadSystemStatus: async () => {
-                    if (
-                        (preflightLogic.values.preflight?.cloud && !userLogic.values.user?.is_staff) ||
-                        getAppContext()?.anonymous
-                    ) {
+                    if (preflightLogic.values.preflight?.cloud && !userLogic.values.user?.is_staff) {
                         return null
                     }
-                    return (await api.get('api/instance_status')).results
+                    return (await api.get('api/instance_status')).results ?? null
                 },
             },
         ],
