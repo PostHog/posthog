@@ -1,16 +1,11 @@
 import dataclasses
 from datetime import datetime
 from math import exp, log
-from typing import List, Optional, Tuple, Type
+from typing import List, Optional, Type
 
 import scipy.special as sc
-from django.db.models import query
-from numpy.random import default_rng
-
-# from numpy import exp
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.queries.funnels import ClickhouseFunnel
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
@@ -73,6 +68,7 @@ class ClickhouseTrendExperimentResult:
         return {"insight": insight_results, "probability": probability, "filters": self.query_filter.to_dict()}
 
     def get_variants(self, insight_results):
+        # this assumes the Trend insight is Cumulative
         variants = []
         for result in insight_results:
             count = result["count"]
@@ -83,7 +79,6 @@ class ClickhouseTrendExperimentResult:
         # Default variant names: control and test
         return sorted(variants, key=lambda variant: variant.name)
 
-    # TODO: When I begin tomorrow, fix this file - get trends results working, write tests, and then figure out how to combine funnel/trend.
     @staticmethod
     def calculate_results(variants: List[Variant]) -> float:
         """
