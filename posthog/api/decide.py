@@ -102,17 +102,6 @@ def get_decide(request: HttpRequest):
                 generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
             )
 
-        if not "distinct_id" in data:
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "decide",
-                    "The `distinct_id` property must be passed to this request.",
-                    code="required",
-                    attr="distinct_id",
-                ),
-            )
-
         token = get_token(data, request)
         team = Team.objects.get_team_from_token(token)
         if team is None and token:
@@ -145,8 +134,11 @@ def get_decide(request: HttpRequest):
             team = user.teams.get(id=project_id)
 
         if team:
-            feature_flags = get_overridden_feature_flags(team, data["distinct_id"], data.get("groups", {}))
-            response["featureFlags"] = feature_flags if api_version >= 2 else list(feature_flags.keys())
+            if "distinct_id" in data:
+                feature_flags = get_overridden_feature_flags(team, data["distinct_id"], data.get("groups", {}))
+                response["featureFlags"] = feature_flags if api_version >= 2 else list(feature_flags.keys())
+            else:
+                response["featureFlags"] = []
 
             if team.session_recording_opt_in and (on_permitted_domain(team, request) or len(team.app_urls) == 0):
                 response["sessionRecording"] = {"endpoint": "/s/"}
