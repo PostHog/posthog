@@ -233,14 +233,13 @@ class TestDecide(BaseTest):
             team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user,
         )
 
-        with self.assertNumQueries(2):
-            response = self.client.post(
-                f"/decide/?v=2",
-                {"data": self._dict_to_b64({"token": self.team.api_token})},
-                HTTP_ORIGIN="http://127.0.0.1:8000",
-            )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json()["featureFlags"], [])
+        response = self.client.post(
+            f"/decide/?v=2",
+            {"data": self._dict_to_b64({"token": self.team.api_token})},
+            HTTP_ORIGIN="http://127.0.0.1:8000",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["featureFlags"], [])
 
     def test_feature_flags_v2_complex(self):
         self.team.app_urls = ["https://example.com"]
