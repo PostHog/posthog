@@ -384,7 +384,7 @@ export function EventsTable({
                     key={selectedColumns === 'DEFAULT' ? 'default' : selectedColumns.join('-')}
                     className="ph-no-capture"
                     emptyState={
-                        isLoading ? undefined : Object.keys(filters).length || eventFilter ? (
+                        isLoading ? undefined : filters.some((filter) => Object.keys(filter).length) || eventFilter ? (
                             'No events matching filters!'
                         ) : (
                             <>
