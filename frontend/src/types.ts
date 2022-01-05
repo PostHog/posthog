@@ -1178,7 +1178,7 @@ export interface FeatureFlagGroupType {
 
 export interface MultivariateFlagVariant {
     key: string
-    name: string | null
+    name?: string | null
     rollout_percentage: number
 }
 

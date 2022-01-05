@@ -8,8 +8,10 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from ee.clickhouse.queries.experiments.funnel_experiment_result import ClickhouseFunnelExperimentResult
+from ee.clickhouse.queries.experiments.trend_experiment_result import ClickhouseTrendExperimentResult
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.constants import INSIGHT_TRENDS
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
@@ -79,7 +81,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         feature_flag_key = validated_data.pop("get_feature_flag_key")
 
-        is_draft = validated_data["start_date"] is None
+        is_draft = "start_date" not in validated_data or validated_data["start_date"] is None
 
         properties = validated_data["filters"].get("properties", [])
 
@@ -154,11 +156,13 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
         if not experiment.filters:
             raise ValidationError("Experiment has no target metric")
 
-        result = ClickhouseFunnelExperimentResult(
-            Filter(experiment.filters),
-            self.team,
-            experiment.feature_flag.key,
-            experiment.start_date,
-            experiment.end_date,
-        ).get_results()
+        filter = Filter(experiment.filters)
+        experiment_class = (
+            ClickhouseTrendExperimentResult if filter.insight == INSIGHT_TRENDS else ClickhouseFunnelExperimentResult
+        )
+
+        result = experiment_class(
+            filter, self.team, experiment.feature_flag.key, experiment.start_date, experiment.end_date,
+        ).get_results()  # type: ignore # TODO: Fix type once I introduce base class
+
         return Response(result)
