@@ -249,7 +249,7 @@ export function PersonsModal({
                                                                 onOpenRecording={(sessionRecording) => {
                                                                     openRecordingModal(sessionRecording.session_id)
                                                                 }}
-                                                             />
+                                                            />
                                                         )
                                                     }
                                                 },
