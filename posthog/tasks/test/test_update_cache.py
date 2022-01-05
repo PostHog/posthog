@@ -29,13 +29,7 @@ class TestUpdateCache(APIBaseTest):
         }
         filter = Filter(data=filter_dict)
         shared_dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
-        funnel_filter = Filter(
-            data={
-                "events": [
-                    {"id": "user signed up", "type": "events", "order": 0},
-                ],
-            }
-        )
+        funnel_filter = Filter(data={"events": [{"id": "user signed up", "type": "events", "order": 0},],})
 
         item = Insight.objects.create(dashboard=shared_dashboard, filters=filter.to_dict(), team=self.team)
         funnel_item = Insight.objects.create(
@@ -119,10 +113,7 @@ class TestUpdateCache(APIBaseTest):
             update_cache_item(
                 generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
                 CacheType.TRENDS,
-                {
-                    "filter": filter.toJSON(),
-                    "team_id": self.team.pk,
-                },
+                {"filter": filter.toJSON(), "team_id": self.team.pk,},
             )
 
         updated_dashboard_item = Insight.objects.get(pk=dashboard_item.pk)
@@ -149,10 +140,7 @@ class TestUpdateCache(APIBaseTest):
             update_cache_item(
                 generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
                 CacheType.FUNNEL,
-                {
-                    "filter": filter.toJSON(),
-                    "team_id": self.team.pk,
-                },
+                {"filter": filter.toJSON(), "team_id": self.team.pk,},
             )
 
         updated_dashboard_item = Insight.objects.get(pk=dashboard_item.pk)
@@ -191,10 +179,7 @@ class TestUpdateCache(APIBaseTest):
             update_cache_item(
                 generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
                 CacheType.FUNNEL,
-                {
-                    "filter": filter.toJSON(),
-                    "team_id": self.team.pk,
-                },
+                {"filter": filter.toJSON(), "team_id": self.team.pk,},
             )
             funnel_mock.assert_called_once()
 
@@ -204,10 +189,7 @@ class TestUpdateCache(APIBaseTest):
             update_cache_item(
                 generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
                 CacheType.FUNNEL,
-                {
-                    "filter": filter.toJSON(),
-                    "team_id": self.team.pk,
-                },
+                {"filter": filter.toJSON(), "team_id": self.team.pk,},
             )
 
             funnel_trends_mock.assert_called_once()
@@ -220,10 +202,7 @@ class TestUpdateCache(APIBaseTest):
             update_cache_item(
                 generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
                 CacheType.FUNNEL,
-                {
-                    "filter": filter.toJSON(),
-                    "team_id": self.team.pk,
-                },
+                {"filter": filter.toJSON(), "team_id": self.team.pk,},
             )
 
             funnel_trends_mock.assert_called_once()
@@ -236,10 +215,7 @@ class TestUpdateCache(APIBaseTest):
             update_cache_item(
                 generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
                 CacheType.FUNNEL,
-                {
-                    "filter": filter.toJSON(),
-                    "team_id": self.team.pk,
-                },
+                {"filter": filter.toJSON(), "team_id": self.team.pk,},
             )
 
             funnel_time_to_convert_mock.assert_called_once()
@@ -252,19 +228,13 @@ class TestUpdateCache(APIBaseTest):
             update_cache_item(
                 generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
                 CacheType.FUNNEL,
-                {
-                    "filter": filter.toJSON(),
-                    "team_id": self.team.pk,
-                },
+                {"filter": filter.toJSON(), "team_id": self.team.pk,},
             )
 
             funnel_strict_mock.assert_called_once()
 
     def _test_refresh_dashboard_cache_types(
-        self,
-        filter: FilterType,
-        cache_type: CacheType,
-        patch_update_cache_item: MagicMock,
+        self, filter: FilterType, cache_type: CacheType, patch_update_cache_item: MagicMock,
     ) -> None:
         self._create_dashboard(filter)
 
@@ -273,10 +243,7 @@ class TestUpdateCache(APIBaseTest):
         expected_args = [
             generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
             cache_type,
-            {
-                "filter": filter.toJSON(),
-                "team_id": self.team.pk,
-            },
+            {"filter": filter.toJSON(), "team_id": self.team.pk,},
         ]
 
         patch_update_cache_item.assert_any_call(*expected_args)
@@ -341,14 +308,7 @@ class TestUpdateCache(APIBaseTest):
         )
         self.assertEqual(
             get_safe_cache(item_key)["result"][0]["labels"],
-            [
-                "10-Jan-2012",
-                "11-Jan-2012",
-                "12-Jan-2012",
-                "13-Jan-2012",
-                "14-Jan-2012",
-                "15-Jan-2012",
-            ],
+            ["10-Jan-2012", "11-Jan-2012", "12-Jan-2012", "13-Jan-2012", "14-Jan-2012", "15-Jan-2012",],
         )
 
     @patch("posthog.tasks.update_cache._calculate_by_filter")
@@ -357,10 +317,7 @@ class TestUpdateCache(APIBaseTest):
         item_to_cache = Insight.objects.create(
             dashboard=dashboard_to_cache,
             filters=Filter(
-                data={
-                    "events": [{"id": "$pageview"}],
-                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                }
+                data={"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}],}
             ).to_dict(),
             team=self.team,
         )
