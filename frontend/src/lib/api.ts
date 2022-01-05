@@ -138,13 +138,14 @@ const normalizeUrl = (url: string): string => {
     return url
 }
 
-const PROJECT_ID_REGEX = /\/api\/projects\/(\w+)(?:$|\/)/
+const PROJECT_ID_REGEX = /\/api\/projects\/(\w+)(?:$|[/?#])/
 
 const ensureProjectIdNotInvalid = (url: string): void => {
     const projectIdMatch = PROJECT_ID_REGEX.exec(url)
     if (projectIdMatch) {
-        if (projectIdMatch[1] === 'null' || projectIdMatch[1] === 'undefined') {
-            throw { status: 0, detail: 'Cannot make request – project ID is unknown.' }
+        const projectId = projectIdMatch[1].trim()
+        if (projectId === 'null' || projectId === 'undefined') {
+            throw { status: 0, detail: 'Cannot make request - project ID is unknown.' }
         }
     }
 }
