@@ -3320,12 +3320,6 @@
                         "query_usage_30_day": null
                     },
                     {
-                        "id": "017a9f32-b653-0001-303d-00cfe32e335c",
-                        "name": "session_distribution",
-                        "is_numerical": false,
-                        "query_usage_30_day": null
-                    },
-                    {
                         "id": "017ac0d0-69a7-0000-1dda-8110f6935f40",
                         "name": "source",
                         "is_numerical": false,

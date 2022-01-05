@@ -30,10 +30,5 @@ export function filterTrendsClientSideParams(filters: Partial<FilterType>): Part
 }
 
 export function isTrendsInsight(insight?: InsightType | InsightType): boolean {
-    return (
-        insight === InsightType.TRENDS ||
-        insight === InsightType.LIFECYCLE ||
-        insight === InsightType.STICKINESS ||
-        insight === InsightType.SESSIONS
-    )
+    return insight === InsightType.TRENDS || insight === InsightType.LIFECYCLE || insight === InsightType.STICKINESS
 }

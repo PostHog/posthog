@@ -3166,7 +3166,6 @@
                                 "$geoip_country_code": "AU",
                                 "$geoip_country_name": "Australia",
                                 "filter_test_accounts": false,
-                                "session_distribution": "avg",
                                 "$active_feature_flags": ["4050-query-ui-optB"],
                                 "$geoip_continent_code": "OC",
                                 "$geoip_continent_name": "Oceania",
@@ -7622,7 +7621,6 @@
                                 "$geoip_country_code": "AU",
                                 "$geoip_country_name": "Australia",
                                 "filter_test_accounts": false,
-                                "session_distribution": "avg",
                                 "$active_feature_flags": ["4050-query-ui-optB"],
                                 "$geoip_continent_code": "OC",
                                 "$geoip_continent_name": "Oceania",
@@ -7817,7 +7815,6 @@
                                 "$geoip_country_code": "AU",
                                 "$geoip_country_name": "Australia",
                                 "filter_test_accounts": false,
-                                "session_distribution": "avg",
                                 "$active_feature_flags": ["4050-query-ui-optB"],
                                 "$geoip_continent_code": "OC",
                                 "$geoip_continent_name": "Oceania",
@@ -14473,12 +14470,6 @@
                     {
                         "id": "0179fcb7-50bc-0000-2244-7da438ab0f0e",
                         "name": "scene",
-                        "is_numerical": false,
-                        "query_usage_30_day": null
-                    },
-                    {
-                        "id": "017a9f32-b653-0001-303d-00cfe32e335c",
-                        "name": "session_distribution",
                         "is_numerical": false,
                         "query_usage_30_day": null
                     },

@@ -34,7 +34,6 @@ const showIntervalFilter = function (activeView: InsightType, filter: FilterType
         case InsightType.TRENDS:
         case InsightType.STICKINESS:
         case InsightType.LIFECYCLE:
-        case InsightType.SESSIONS:
         default:
             return ![ACTIONS_PIE_CHART, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE].includes(filter.display || '') // sometimes insights aren't set for trends
     }
@@ -44,7 +43,6 @@ const showChartFilter = function (activeView: InsightType): boolean {
     switch (activeView) {
         case InsightType.TRENDS:
         case InsightType.STICKINESS:
-        case InsightType.SESSIONS:
             return true
         case InsightType.RETENTION:
         case InsightType.FUNNELS:
@@ -61,7 +59,6 @@ const showDateFilter = {
     [`${InsightType.TRENDS}`]: true,
     [`${InsightType.STICKINESS}`]: true,
     [`${InsightType.LIFECYCLE}`]: true,
-    [`${InsightType.SESSIONS}`]: true,
     [`${InsightType.FUNNELS}`]: true,
     [`${InsightType.RETENTION}`]: false,
     [`${InsightType.PATHS}`]: true,
@@ -71,7 +68,6 @@ const showComparePrevious = {
     [`${InsightType.TRENDS}`]: true,
     [`${InsightType.STICKINESS}`]: true,
     [`${InsightType.LIFECYCLE}`]: false,
-    [`${InsightType.SESSIONS}`]: true,
     [`${InsightType.FUNNELS}`]: false,
     [`${InsightType.RETENTION}`]: false,
     [`${InsightType.PATHS}`]: false,

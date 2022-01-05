@@ -185,8 +185,6 @@ export function DashboardItem({
             ? 'Paths'
             : item.filters.insight === InsightType.FUNNELS
             ? 'Funnel'
-            : item.filters.insight === InsightType.SESSIONS
-            ? 'Sessions'
             : item.filters.insight === InsightType.STICKINESS
             ? 'Stickiness'
             : 'Trends'

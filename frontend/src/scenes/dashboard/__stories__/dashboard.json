@@ -19235,16 +19235,6 @@
                         "query_usage_30_day": null
                     },
                     {
-                        "id": "01791516-333c-0000-2135-66d218ae1e30",
-                        "name": "session_distribution",
-                        "description": null,
-                        "tags": null,
-                        "is_numerical": false,
-                        "updated_at": null,
-                        "updated_by": null,
-                        "query_usage_30_day": 0
-                    },
-                    {
                         "id": "0179c6ab-a3a6-0000-42fc-705aa20621ed",
                         "name": "source",
                         "description": null,
