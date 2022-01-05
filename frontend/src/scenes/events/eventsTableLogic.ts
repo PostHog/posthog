@@ -195,6 +195,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         ],
         automaticLoadEnabled: [
             false,
+            { persist: true },
             {
                 toggleAutomaticLoad: (_, { automaticLoadEnabled }) => automaticLoadEnabled,
             },
@@ -230,17 +231,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 { replace: true },
             ]
         },
-        toggleAutomaticLoad: () => {
-            return [
-                router.values.location.pathname,
-                {
-                    ...router.values.searchParams,
-                    autoload: values.automaticLoadEnabled,
-                },
-                router.values.hashParams,
-                { replace: true },
-            ]
-        },
         setEventFilter: () => {
             return [
                 router.values.location.pathname,
@@ -257,10 +247,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
     urlToAction: ({ actions, values, props }) => ({
         [props.sceneUrl]: (_: Record<string, any>, searchParams: Record<string, any>): void => {
             actions.setProperties(searchParams.properties || values.properties || {})
-
-            if (searchParams.autoload) {
-                actions.toggleAutomaticLoad(searchParams.autoload)
-            }
 
             if (searchParams.eventFilter) {
                 actions.setEventFilter(searchParams.eventFilter)

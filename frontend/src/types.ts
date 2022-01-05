@@ -812,7 +812,7 @@ export enum ChartDisplayType {
 
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
 export type BreakdownType = 'cohort' | 'person' | 'event' | 'group'
-export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
+export type IntervalType = 'hour' | 'day' | 'week' | 'month'
 
 export enum InsightType {
     TRENDS = 'TRENDS',

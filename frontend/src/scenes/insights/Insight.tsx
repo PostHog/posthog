@@ -86,11 +86,6 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
         l: {
             action: () => handleHotkeyNavigation(InsightType.LIFECYCLE, 'l'),
         },
-        escape: {
-            // Exit edit mode with Esc. Full screen mode is also exited with Esc, but this behavior is native to the browser.
-            action: () => setInsightMode(ItemMode.View, InsightEventSource.Hotkey),
-            disabled: insightMode !== ItemMode.Edit,
-        },
         e: {
             action: () => setInsightMode(ItemMode.Edit, InsightEventSource.Hotkey),
             disabled: insightMode !== ItemMode.View,

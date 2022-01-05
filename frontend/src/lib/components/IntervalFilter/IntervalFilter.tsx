@@ -27,7 +27,7 @@ export function IntervalFilter({ view, disabled }: InvertalFilterProps): JSX.Ele
             ) : (
                 label
             ),
-        disabled: (key === 'minute' || key === 'hour') && view === InsightType.SESSIONS,
+        disabled: key === 'hour' && view === InsightType.SESSIONS,
     }))
     return (
         <Select
