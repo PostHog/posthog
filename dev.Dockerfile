@@ -46,6 +46,9 @@ RUN apk --update --no-cache --virtual .build-deps add \
     "musl-dev~=1.2" \
     "openssl-dev~=1.1" \
     "postgresql-dev~=13" \
+    "gfortran~=10.3" \
+    "openblas-dev~=0.3" \
+    "lapack-dev~=3.10" \
     && \
     pip install -r requirements-dev.txt --compile --no-cache-dir && \
     pip install -r requirements.txt --compile --no-cache-dir \
