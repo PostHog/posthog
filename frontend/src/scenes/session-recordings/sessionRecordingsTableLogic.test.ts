@@ -1,7 +1,6 @@
 import {
     sessionRecordingsTableLogic,
     PersonUUID,
-    SessionRecordingId,
     DEFAULT_ENTITY_FILTERS,
     DEFAULT_DURATION_FILTER,
 } from './sessionRecordingsTableLogic'
@@ -17,7 +16,7 @@ import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 jest.mock('lib/api')
 
 describe('sessionRecordingsTableLogic', () => {
-    let logic: BuiltLogic<sessionRecordingsTableLogicType<PersonUUID, SessionRecordingId>>
+    let logic: BuiltLogic<sessionRecordingsTableLogicType<PersonUUID>>
 
     mockAPI(async (url) => {
         const { pathname, searchParams } = url
