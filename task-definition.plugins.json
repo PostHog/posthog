@@ -91,10 +91,6 @@
                 {
                     "name": "EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED",
                     "value": "False"
-                },
-                {
-                    "name": "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
-                    "value": "1"
                 }
             ],
             "secrets": [
