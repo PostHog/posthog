@@ -8,6 +8,8 @@ import { PropertyOperator } from '~/types'
 import dayjs, { Dayjs } from 'dayjs'
 import generatePicker from 'antd/lib/date-picker/generatePicker'
 import dayjsGenerateConfig from 'rc-picker/es/generate/dayjs'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { useValues } from 'kea'
 
 export const DatePicker = generatePicker<Dayjs>(dayjsGenerateConfig)
 
@@ -75,6 +77,8 @@ export function PropertyValue({
     const [shouldBlur, setShouldBlur] = useState(false)
     const [options, setOptions] = useState({} as Record<string, Option>)
     const autoCompleteRef = useRef<HTMLElement>(null)
+
+    const { formatForDisplay } = useValues(propertyDefinitionsModel)
 
     // update the input field if passed a new `value` prop
     useEffect(() => {
@@ -222,7 +226,7 @@ export function PropertyValue({
                                 className="ph-no-capture"
                                 title={name}
                             >
-                                {name === '' ? <i>(empty string)</i> : name}
+                                {formatForDisplay(propertyKey, name === '' ? <i>(empty string)</i> : name)}
                             </Select.Option>
                         )
                     })}

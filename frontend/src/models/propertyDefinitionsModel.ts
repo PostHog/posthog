@@ -2,6 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { PropertyDefinition, SelectOption } from '~/types'
 import { propertyDefinitionsModelType } from './propertyDefinitionsModelType'
+import dayjs from 'dayjs'
 
 interface PropertySelectOption extends SelectOption {
     is_numerical?: boolean
@@ -106,6 +107,17 @@ export const propertyDefinitionsModel = kea<
                         return `${match.property_type}${formatDescription}`
                     }
                     return null
+                },
+        ],
+        formatForDisplay: [
+            (s) => [s.propertyDefinitions],
+            (propertyDefinitions: PropertyDefinition[]): ((propertyName: string, valueToFormat: unknown) => string) =>
+                (propertyName: string, valueToFormat: unknown) => {
+                    const match = propertyDefinitions.find((pd) => pd.name === propertyName)
+                    if (match?.property_type === 'DateTime' && match?.property_type_format === 'unix_timestamp') {
+                        return dayjs.unix(valueToFormat as number).format('YYYY-MM-DD hh:mm:ss')
+                    }
+                    return valueToFormat as string
                 },
         ],
     },
