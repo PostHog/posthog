@@ -225,7 +225,7 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
 
                     <Row gutter={16} style={verticalLayout ? { marginBottom: 64 } : undefined}>
                         <Col span={24} xl={verticalLayout ? 8 : undefined}>
-                            {featureFlags[FEATURE_FLAGS.FUNNEL_SIMPLE_MODE] && verticalLayout ? (
+                            {verticalLayout ? (
                                 insightTab
                             ) : (
                                 <Card className="insight-controls">
