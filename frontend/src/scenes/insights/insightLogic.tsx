@@ -1,14 +1,6 @@
 import { kea } from 'kea'
 import { prompt } from 'lib/logic/prompt'
-import {
-    dateFilterToText,
-    errorToast,
-    getEventNamesForAction,
-    getFormattedLastWeekDate,
-    objectsEqual,
-    toParams,
-    uuid,
-} from 'lib/utils'
+import { errorToast, getEventNamesForAction, objectsEqual, toParams, uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
@@ -482,20 +474,6 @@ export const insightLogic = kea<insightLogicType>({
                     short_id
                         ? urls.insightEdit(short_id, cleanFilters({ ...filters, insight: insightType }, filters))
                         : undefined,
-        ],
-        currentFormattedDateRange: [
-            (s) => [s.insight],
-            (insight) => {
-                return dateFilterToText(
-                    insight?.result?.[0]?.filter?.date_from ?? insight?.result?.[0]?.days?.[0],
-                    insight?.last_refresh ??
-                        insight?.result?.[0]?.filter?.date_to ??
-                        insight?.result?.[0]?.days?.[insight?.result?.[0]?.days.length - 1],
-                    getFormattedLastWeekDate(),
-                    undefined,
-                    true
-                )
-            },
         ],
         allEventNames: [
             (s) => [s.filters, actionsModel.selectors.actions],
