@@ -13,7 +13,6 @@ default_flag_persistence = [
     # Add hard-coded feature flags for static self-hosted releases here
     "new-paths-ui-edge-weights",
     "new-sessions-player-events-list",
-    "session-insight-removal",
     "funnel-simple-mode",
 ]
 
