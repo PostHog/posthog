@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import datetime
-from math import exp, log
+from math import exp, lgamma, log
 from typing import List, Optional, Tuple, Type
 
 import scipy.special as sc
@@ -21,6 +21,7 @@ class Variant:
 
 SIMULATION_COUNT = 100_000
 CONTROL_VARIANT_KEY = "control"
+
 
 class ClickhouseFunnelExperimentResult:
     """
@@ -59,9 +60,7 @@ class ClickhouseFunnelExperimentResult:
                 "date_to": experiment_end_date,
                 "breakdown": breakdown_key,
                 "breakdown_type": "event",
-                "properties": [
-                    {"key": breakdown_key, "value": variants, "operator": "exact", "type": "event"}
-                ],
+                "properties": [{"key": breakdown_key, "value": variants, "operator": "exact", "type": "event"}],
                 # :TRICKY: We don't use properties set on filters, instead using experiment variant options
             }
         )
@@ -91,7 +90,9 @@ class ClickhouseFunnelExperimentResult:
         return control_variant, test_variants
 
     @staticmethod
-    def calculate_results(control_variant: Variant, test_variants: List[Variant], priors: Tuple[int, int] = (1, 1)) -> float:
+    def calculate_results(
+        control_variant: Variant, test_variants: List[Variant], priors: Tuple[int, int] = (1, 1)
+    ) -> List[float]:
         """
         Calculates probability that A is better than B. First variant is control, rest are test variants.
         
@@ -117,43 +118,125 @@ class ClickhouseFunnelExperimentResult:
 
         # calculation:
         # https://www.evanmiller.org/bayesian-ab-testing.html#binary_ab
-
-        test_success = prior_success + test_variants[0].success_count
-        test_failure = prior_failure + test_variants[0].failure_count
-
         control_success = prior_success + control_variant.success_count
         control_failure = prior_failure + control_variant.failure_count
 
-        return probability_B_beats_A(control_success, control_failure, test_success, test_failure)
+        success_and_failures = [
+            (prior_success + test_variant.success_count, prior_failure + test_variant.failure_count)
+            for test_variant in test_variants
+        ]
+
+        return calculate_probability_of_winning_for_each([(control_success, control_failure), *success_and_failures])
+
+
+def calculate_probability_of_winning_for_each(variants: List[Tuple[int, int]]) -> List[float]:
+    """
+    Calculates the probability of winning for each variant.
+    """
+    if len(variants) == 2:
+        # simple case
+        probability = probability_B_beats_A(variants[0][0], variants[0][1], variants[1][0], variants[1][1])
+        return [1 - probability, probability]
+
+    elif len(variants) == 3:
+        probability_third_wins = probability_C_beats_A_and_B(
+            variants[0][0], variants[0][1], variants[1][0], variants[1][1], variants[2][0], variants[2][1]
+        )
+        probability_second_wins = probability_C_beats_A_and_B(
+            variants[0][0], variants[0][1], variants[2][0], variants[2][1], variants[1][0], variants[1][1]
+        )
+        return [1 - probability_third_wins - probability_second_wins, probability_second_wins, probability_third_wins]
+
+    elif len(variants) == 4:
+        probability_second_wins = probability_D_beats_A_B_and_C(
+            variants[0][0],
+            variants[0][1],
+            variants[2][0],
+            variants[2][1],
+            variants[3][0],
+            variants[3][1],
+            variants[1][0],
+            variants[1][1],
+        )
+        probability_third_wins = probability_D_beats_A_B_and_C(
+            variants[0][0],
+            variants[0][1],
+            variants[3][0],
+            variants[3][1],
+            variants[1][0],
+            variants[1][1],
+            variants[2][0],
+            variants[2][1],
+        )
+        probability_fourth_wins = probability_D_beats_A_B_and_C(
+            variants[0][0],
+            variants[0][1],
+            variants[1][0],
+            variants[1][1],
+            variants[2][0],
+            variants[2][1],
+            variants[3][0],
+            variants[3][1],
+        )
+        return [
+            1 - probability_second_wins - probability_third_wins - probability_fourth_wins,
+            probability_second_wins,
+            probability_third_wins,
+            probability_fourth_wins,
+        ]
+    else:
+        raise ValidationError("Can't calculate A/B test results for more than 4 variants", code="too_much_data")
+
+
+def logbeta(a, b):
+    return lgamma(a) + lgamma(b) - lgamma(a + b)
 
 
 def probability_B_beats_A(A_success: int, A_failure: int, B_success: int, B_failure: int) -> float:
     total: float = 0
     for i in range(B_success):
         total += exp(
-            sc.betaln(A_success + i, A_failure + B_failure)
+            logbeta(A_success + i, A_failure + B_failure)
             - log(B_failure + i)
-            - sc.betaln(1 + i, B_failure)
-            - sc.betaln(A_success, A_failure)
+            - logbeta(1 + i, B_failure)
+            - logbeta(A_success, A_failure)
         )
 
     return total
 
-def probability_C_beats_A_and_B(A_success: int, A_failure: int, B_success: int, B_failure: int, C_success: int, C_failure: int):
+
+def probability_C_beats_A_and_B(
+    A_success: int, A_failure: int, B_success: int, B_failure: int, C_success: int, C_failure: int
+):
 
     total: float = 0
     for i in range(A_success):
         for j in range(B_success):
             total += exp(
-                sc.betaln(C_success + i + j, C_failure + A_failure + B_failure)
+                logbeta(C_success + i + j, C_failure + A_failure + B_failure)
                 - log(A_failure + i)
                 - log(B_failure + j)
-                - sc.betaln(1 + i, A_failure)
-                - sc.betaln(1 + j, B_failure)
-                - sc.betaln(C_success, C_failure)
+                - logbeta(1 + i, A_failure)
+                - logbeta(1 + j, B_failure)
+                - logbeta(C_success, C_failure)
             )
-    
-    return 1 - probability_B_beats_A(C_success, C_failure, A_success, A_failure) - probability_B_beats_A(C_success, C_failure, B_success, B_failure) + total
 
-def probability_D_beats_A_B_and_C(A_success: int, A_failure: int, B_success: int, B_failure: int, C_success: int, C_failure: int, D_success: int, D_failure: int):
+    return (
+        1
+        - probability_B_beats_A(C_success, C_failure, A_success, A_failure)
+        - probability_B_beats_A(C_success, C_failure, B_success, B_failure)
+        + total
+    )
+
+
+def probability_D_beats_A_B_and_C(
+    A_success: int,
+    A_failure: int,
+    B_success: int,
+    B_failure: int,
+    C_success: int,
+    C_failure: int,
+    D_success: int,
+    D_failure: int,
+):
     pass
