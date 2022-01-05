@@ -1,5 +1,5 @@
 import SaveOutlined from '@ant-design/icons/lib/icons/SaveOutlined'
-import { Alert, Button, Card, Col, Form, Input, InputNumber, Row, Select, Slider, Tag, Tooltip } from 'antd'
+import { Alert, Button, Card, Col, Collapse, Form, Input, InputNumber, Row, Select, Slider, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -20,6 +20,7 @@ import { InfoCircleOutlined, CaretDownOutlined, PlusOutlined, DeleteOutlined } f
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
+import PropertyFilterButton from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -419,15 +420,29 @@ export function Experiment(): JSX.Element {
                     </Form>
                 </>
             ) : experimentData ? (
-                <div className="confirmation">
+                <div className="view-experiment">
                     <Row className="draft-header">
-                        <Row justify="space-between" align="middle" className="full-width">
-                            <Row>
-                                <PageHeader style={{ margin: 0, paddingRight: 8 }} title={`${experimentData?.name}`} />
-                                <Tag style={{ alignSelf: 'center' }} color={statusColors[status()]}>
-                                    <b className="uppercase">{status()}</b>
-                                </Tag>
-                            </Row>
+                        <Row justify="space-between" align="middle" className="full-width pb">
+                            <Col>
+                                <Row>
+                                    <PageHeader
+                                        style={{ margin: 0, paddingRight: 8 }}
+                                        title={`${experimentData?.name}`}
+                                    />
+                                    <CopyToClipboardInline iconStyle={{ color: 'var(--text-muted-alt)' }}>
+                                        <span className="text-muted">{experimentData.feature_flag_key}</span>
+                                    </CopyToClipboardInline>
+                                    <Tag
+                                        style={{ alignSelf: 'center', marginLeft: '1rem' }}
+                                        color={statusColors[status()]}
+                                    >
+                                        <b className="uppercase">{status()}</b>
+                                    </Tag>
+                                </Row>
+                                <span className="description">
+                                    {experimentData.description || 'There is no description for this experiment.'}
+                                </span>
+                            </Col>
                             {experimentData && !experimentData.start_date && (
                                 <div>
                                     <Button className="mr-05" onClick={() => editExperiment()}>
@@ -447,46 +462,75 @@ export function Experiment(): JSX.Element {
                         {experimentData.description && <Row>Description: {experimentData.description}</Row>}
                     </Row>
                     <Row>
-                        <Col span={10}>
-                            <div className="mb-05">
-                                <span>Feature flag key:</span> <b>{experimentData.feature_flag_key}</b>
-                            </div>
-                            <div className="mb-05">
-                                Variants:{' '}
-                                {experimentData.parameters?.feature_flag_variants?.map(
-                                    (variant: MultivariateFlagVariant, idx: number) => (
-                                        <li key={idx}>{variant.key}</li>
-                                    )
-                                )}
-                            </div>
-                            <div className="mb-05">The following users will participate in the experiment</div>
-                            <ul>
-                                {experimentData.filters?.properties?.length ? (
-                                    experimentData.filters.properties.map((property: PropertyFilter, idx: number) => (
-                                        <li key={idx}>
-                                            Users with {property.key} {property.operator}{' '}
-                                            {Array.isArray(property.value)
-                                                ? property.value.map((val) => `${val}, `)
-                                                : property.value}
-                                        </li>
-                                    ))
-                                ) : (
-                                    <li key={'all users'}>All users</li>
-                                )}
-                            </ul>
-                            <Row>Experiment parameters:</Row>
-                            <Row>
-                                <ul>
-                                    <li>
-                                        Recommended running time: ~{experimentData.parameters?.recommended_running_time}{' '}
-                                        days
-                                    </li>
-                                    <li>
-                                        Recommended sample size: ~{experimentData.parameters?.recommended_sample_size}{' '}
-                                        people
-                                    </li>
+                        <Col span={10} style={{ paddingRight: '1rem' }}>
+                            <Col>
+                                <div className="card-secondary">Participants</div>
+                                <div>
+                                    {experimentData.filters.properties ? (
+                                        <Collapse
+                                            expandIconPosition="right"
+                                            expandIcon={({ isActive }) => (
+                                                <span className="primary" style={{ fontSize: 13 }}>
+                                                    {isActive ? 'Hide' : 'View'} filters
+                                                </span>
+                                            )}
+                                        >
+                                            <Collapse.Panel className="participants" header="of users" key="1">
+                                                <div>
+                                                    {experimentData.filters.properties.map((item) => {
+                                                        return (
+                                                            <PropertyFilterButton
+                                                                key={item.key}
+                                                                item={item}
+                                                                greyBadges={true}
+                                                            />
+                                                        )
+                                                    })}
+                                                </div>
+                                            </Collapse.Panel>
+                                        </Collapse>
+                                    ) : (
+                                        '100% of users'
+                                    )}
+                                </div>
+                            </Col>
+                            <Col>
+                                <div className="card-secondary mt">Recommended running time</div>
+                                <span>
+                                    ~{experimentData.parameters?.recommended_running_time}{' '}
+                                    <span className="text-muted">days</span>
+                                </span>
+                            </Col>
+                            <Col>
+                                <div className="card-secondary mt">Recommended sample size</div>
+                                <span>
+                                    ~{experimentData.parameters?.recommended_sample_size}{' '}
+                                    <span className="text-muted">persons</span>
+                                </span>
+                            </Col>
+                            <Col>
+                                <div className="card-secondary mt">Variants</div>
+                                <ul className="variants-list">
+                                    {experimentData.parameters?.feature_flag_variants?.map(
+                                        (variant: MultivariateFlagVariant, idx: number) => (
+                                            <li key={idx}>{variant.key}</li>
+                                        )
+                                    )}
                                 </ul>
-                            </Row>
+                            </Col>
+                            <Col>
+                                <div className="card-secondary mt">Start date</div>
+                                {experimentData.start_date ? (
+                                    <span>{experimentData.start_date}</span>
+                                ) : (
+                                    <span className="description">Not started yet</span>
+                                )}
+                            </Col>
+                            {experimentData.end_date && (
+                                <Col>
+                                    <div className="card-secondary mt">Completed date</div>
+                                </Col>
+                            )}
                         </Col>
                         <Col span={14}>
                             <div className="text-default">
