@@ -29,8 +29,6 @@ class FunnelCorrelationActors(ActorBaseQuery):
         if not self._filter.correlation_person_limit:
             self._filter = self._filter.with_data({FUNNEL_CORRELATION_PERSON_LIMIT: 100})
 
-        super().__init__(team, filter)
-
     @cached_property
     def is_aggregating_by_groups(self) -> bool:
         return self._filter.aggregation_group_type_index is not None
