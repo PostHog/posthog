@@ -74,15 +74,15 @@ describe('sessionRecordingsTableLogic', () => {
                 ).toMatchValues({
                     sessionRecordingId: 'abc',
                 })
-                expect(router.values.searchParams).toHaveProperty('sessionRecordingId', 'abc')
+                expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')
 
                 expectLogic(logic, () => logic.actions.closeSessionPlayer()).toMatchValues({ sessionRecordingId: null })
-                expect(router.values.searchParams).not.toHaveProperty('sessionRecordingId')
+                expect(router.values.hashParams).not.toHaveProperty('sessionRecordingId')
             })
 
             it('is read from the URL on the session recording page', async () => {
-                router.actions.push('/recordings', { sessionRecordingId: 'recording1212' })
-                expect(router.values.searchParams).toHaveProperty('sessionRecordingId', 'recording1212')
+                router.actions.push('/recordings', {}, { sessionRecordingId: 'recording1212' })
+                expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'recording1212')
 
                 await expectLogic(logic)
                     .toDispatchActions(['openSessionPlayer'])
