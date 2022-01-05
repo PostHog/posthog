@@ -56,7 +56,6 @@ if is_clickhouse_enabled():
         try:
             KafkaProducer().produce(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=data)
         except Exception as e:
-            capture_exception(e, {"data": data})
             statsd.incr("capture_endpoint_log_event_error")
             print(f"Failed to produce event to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC} with error:", e)
             raise e
@@ -240,7 +239,8 @@ def get_event(request):
         statsd.incr("posthog_cloud_plugin_server_ingestion")
         try:
             capture_internal(event, distinct_id, ip, site_url, now, sent_at, team.pk, event_uuid)  # type: ignore
-        except Exception:
+        except Exception as e:
+            capture_exception(e, {"data": data})
             statsd.incr(
                 "posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture",},
             )
