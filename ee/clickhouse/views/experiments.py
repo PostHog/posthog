@@ -143,7 +143,7 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
         )
 
         result = experiment_class(
-            filter, self.team, experiment.feature_flag.key, experiment.start_date, experiment.end_date,
+            filter, self.team, experiment.feature_flag, experiment.start_date, experiment.end_date,
         ).get_results()  # type: ignore # TODO: Fix type once I introduce base class
 
         return Response(result)
