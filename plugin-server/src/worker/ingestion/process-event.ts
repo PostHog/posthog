@@ -1,7 +1,6 @@
 import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
-import { AnyMxRecord } from 'dns'
 import equal from 'fast-deep-equal'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime, Duration } from 'luxon'
@@ -273,7 +272,6 @@ export class EventsProcessor {
     }
 
     private async setIsIdentified(teamId: number, distinctId: string, isIdentified = true): Promise<void> {
-        // Needs to be in a transaction, but anyway used only in the alias function so maybe we can get rid of it?
         const personFound = await this.db.fetchPerson(teamId, distinctId)
         if (!personFound) {
             throw new Error(`Could not find person with distinct id "${distinctId}" in team "${teamId}" to identify`)
@@ -320,8 +318,8 @@ export class EventsProcessor {
     }
 
     private async mergeNew(
-        distinctId_1: string,
-        distinctId_2: string, // more optimal if this person has less properties compared to id_1
+        dId1: string,
+        dId2: string, // more optimal if this person has less properties compared to id1
         teamId: number,
         timestamp: DateTime,
         retriesLeft = MAX_FAILED_PERSON_MERGE_ATTEMPTS
@@ -330,52 +328,50 @@ export class EventsProcessor {
         try {
             await this.db.postgresTransaction(async (client) => {
                 // iff person exists, then corresponding posthog_person & posthog_persondistinctid are locked for changes
-                let person_1: Person | undefined = await this.db.fetchPerson(teamId, distinctId_1, client, {
+                let person1: Person | undefined = await this.db.fetchPerson(teamId, dId1, client, {
                     forUpdate: true,
                 })
-                let person_2: Person | undefined = await this.db.fetchPerson(teamId, distinctId_2, client, {
+                let person2: Person | undefined = await this.db.fetchPerson(teamId, dId2, client, {
                     forUpdate: true,
                 })
-                if (person_2 && !person_1) {
+                if (person2 && !person1) {
                     // swap variables as the logic is the same
-                    person_1 = [person_2, (person_2 = person_1)][0]
-                    distinctId_1 = [distinctId_2, (distinctId_2 = distinctId_1)][0]
+                    person1 = [person2, (person2 = person1)][0]
+                    dId1 = [dId2, (dId2 = dId1)][0]
                 }
 
-                if (person_1 && person_2) {
+                if (person1 && person2) {
                     // there are no races here as we locked both people and their corresponding distinctid mappings
-                    const moveDistinctIdMessages = await this.db.moveDistinctIds(person_2, person_1, client)
+                    const moveDistinctIdMessages = await this.db.moveDistinctIds(person2, person1, client)
                     const updatePropertiesMessages = await mergePersonProperties(
-                        // todo: created at update
                         this.db,
                         client,
-                        person_1,
-                        person_2,
+                        person1,
+                        person2,
                         timestamp
                     )
-                    const deletePersonMessages = await this.db.deletePerson(person_2, client)
+                    const deletePersonMessages = await this.db.deletePerson(person2, client)
 
                     kafkaMessages = [...moveDistinctIdMessages, ...updatePropertiesMessages, ...deletePersonMessages]
-                } else if (person_1 && !person_2) {
+                } else if (person1 && !person2) {
                     // race with secondary person being created
-                    kafkaMessages = await this.db.addDistinctIdPooled(person_1, distinctId_2, client)
+                    kafkaMessages = await this.db.addDistinctIdPooled(person1, dId2, client)
                 } else {
                     // race with either person being created
                     // doesn't need to be in this transaction as we couldn't lock anything anyway
                     // and kafka messages are handled in there
                     await this.createPerson(timestamp, {}, {}, teamId, null, false, new UUIDT().toString(), [
-                        distinctId_1,
-                        distinctId_2,
+                        dId1,
+                        dId2,
                     ])
                 }
             })
         } catch (error) {
             if (!retriesLeft) {
                 throw error
-            } else {
-                console.debug(`Failed to merge ${distinctId_1} and ${distinctId_2}, error ${error}`)
-                await this.mergeNew(distinctId_1, distinctId_2, teamId, timestamp, retriesLeft - 1)
             }
+            console.debug(`Failed to merge ${dId1} and ${dId2}, error ${error}`)
+            await this.mergeNew(dId1, dId2, teamId, timestamp, retriesLeft - 1)
             return
         }
 
@@ -411,7 +407,14 @@ export class EventsProcessor {
                 // integrity error
                 if (retryIfFailed) {
                     // run everything again to merge the users if needed
-                    await this.aliasDeprecated(previousDistinctId, distinctId, teamId, timestamp, shouldIdentifyPerson, false)
+                    await this.aliasDeprecated(
+                        previousDistinctId,
+                        distinctId,
+                        teamId,
+                        timestamp,
+                        shouldIdentifyPerson,
+                        false
+                    )
                 }
             }
         } else if (!oldPerson && newPerson) {
@@ -422,7 +425,14 @@ export class EventsProcessor {
                 // integrity error
                 if (retryIfFailed) {
                     // run everything again to merge the users if needed
-                    await this.aliasDeprecated(previousDistinctId, distinctId, teamId,timestamp,  shouldIdentifyPerson, false)
+                    await this.aliasDeprecated(
+                        previousDistinctId,
+                        distinctId,
+                        teamId,
+                        timestamp,
+                        shouldIdentifyPerson,
+                        false
+                    )
                 }
             }
         } else if (!oldPerson && !newPerson) {
@@ -436,7 +446,14 @@ export class EventsProcessor {
                 // another request already created this person
                 if (retryIfFailed) {
                     // Try once more, probably one of the two persons exists now
-                    await this.aliasDeprecated(previousDistinctId, distinctId, teamId, timestamp, shouldIdentifyPerson, false)
+                    await this.aliasDeprecated(
+                        previousDistinctId,
+                        distinctId,
+                        teamId,
+                        timestamp,
+                        shouldIdentifyPerson,
+                        false
+                    )
                 }
             }
         } else if (oldPerson && newPerson && oldPerson.id !== newPerson.id) {
