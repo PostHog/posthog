@@ -53,4 +53,4 @@ social-auth-core==4.1.0
 statshog==1.0.6
 toronado==0.1.0
 whitenoise==5.2.0
-scipy==1.7.3
+scipy==1.7.1
