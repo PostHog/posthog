@@ -453,7 +453,7 @@ export function Experiment(): JSX.Element {
                             </div>
                             <div className="mb-05">
                                 Variants:{' '}
-                                {experimentData.parameters.feature_flag_variants.map(
+                                {experimentData.parameters?.feature_flag_variants?.map(
                                     (variant: MultivariateFlagVariant, idx: number) => (
                                         <li key={idx}>{variant.key}</li>
                                     )
