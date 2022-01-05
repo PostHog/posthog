@@ -31,9 +31,6 @@ EVENTS_TABLE_MATERIALIZED_COLUMNS = """
     , $group_2 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_2')) COMMENT 'column_materializer::$group_2'
     , $group_3 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_3')) COMMENT 'column_materializer::$group_3'
     , $group_4 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_4')) COMMENT 'column_materializer::$group_4'
-    , $session_id VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$session_id')) COMMENT 'column_materializer::$session_id'
-    , $window_id VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$window_id')) COMMENT 'column_materializer::$window_id'
-
 """
 
 # :KLUDGE: This is not in sync with reality on cloud! Instead a distributed table engine is used with a sharded_events table.
