@@ -113,7 +113,6 @@ export const apmLogic = kea<apmLogicType<EventPerformanceData>>({
         pageViewEvents: {
             loadEvents: async () => {
                 const loadResult = await api.events.list(eventApiProps, 10)
-                console.log(loadResult)
                 return loadResult?.results || []
             },
         },
