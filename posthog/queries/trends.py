@@ -141,7 +141,6 @@ def group_events_to_date(
 
 def get_interval_annotation(key: str) -> Dict[str, Any]:
     map: Dict[str, Any] = {
-        "minute": functions.TruncMinute("timestamp"),
         "hour": functions.TruncHour("timestamp"),
         "day": functions.TruncDay("timestamp"),
         "week": functions.TruncWeek(

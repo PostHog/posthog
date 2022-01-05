@@ -2,6 +2,8 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from dateutil.relativedelta import relativedelta
+from django.utils.timezone import now
 from rest_framework import serializers
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -95,8 +97,15 @@ class ClickhouseActionsViewSet(ActionViewSet):
             return Response({"count": 0})
 
         results = sync_execute(
-            "SELECT count(1) FROM events WHERE team_id = %(team_id)s AND {}".format(query),
-            {"team_id": action.team_id, **params},
+            "SELECT count(1) FROM events WHERE team_id = %(team_id)s AND timestamp < %(before)s AND timestamp > %(after)s AND {}".format(
+                query
+            ),
+            {
+                "team_id": action.team_id,
+                "before": now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+                "after": (now() - relativedelta(months=3)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                **params,
+            },
         )
         return Response({"count": results[0][0]})
 

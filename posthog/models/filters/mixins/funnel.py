@@ -43,7 +43,7 @@ from posthog.constants import (
     FunnelOrderType,
     FunnelVizType,
 )
-from posthog.models.filters.mixins.base import BaseParamMixin, IntervalType
+from posthog.models.filters.mixins.base import BaseParamMixin, FunnelWindowIntervalType
 from posthog.models.filters.mixins.utils import cached_property, include_dict
 from posthog.utils import relative_date_parse, str_to_bool
 
@@ -103,7 +103,7 @@ class FunnelWindowMixin(BaseParamMixin):
         return _amt
 
     @cached_property
-    def funnel_window_interval_unit(self) -> Optional[IntervalType]:
+    def funnel_window_interval_unit(self) -> Optional[FunnelWindowIntervalType]:
         _unit = self._data.get(FUNNEL_WINDOW_INTERVAL_UNIT, None)
         return _unit.lower() if _unit is not None else _unit
 

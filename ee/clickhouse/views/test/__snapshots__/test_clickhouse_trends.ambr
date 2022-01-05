@@ -30,18 +30,11 @@
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
-               argMax(person_id, _timestamp) as person_id
-        FROM
-          (SELECT distinct_id,
-                  person_id,
-                  max(_timestamp) as _timestamp
-           FROM person_distinct_id
-           WHERE team_id = 2
-           GROUP BY person_id,
-                    distinct_id,
-                    team_id
-           HAVING max(is_deleted) = 0)
-        GROUP BY distinct_id) AS pdi ON e.distinct_id = pdi.distinct_id
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      INNER JOIN
        (SELECT id
         FROM person
@@ -79,18 +72,11 @@
            FROM events e
            INNER JOIN
              (SELECT distinct_id,
-                     argMax(person_id, _timestamp) as person_id
-              FROM
-                (SELECT distinct_id,
-                        person_id,
-                        max(_timestamp) as _timestamp
-                 FROM person_distinct_id
-                 WHERE team_id = 2
-                 GROUP BY person_id,
-                          distinct_id,
-                          team_id
-                 HAVING max(is_deleted) = 0)
-              GROUP BY distinct_id) AS pdi ON e.distinct_id = pdi.distinct_id
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
              AND event = '$pageview'
              AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2012-01-01 00:00:00'))
@@ -119,18 +105,11 @@
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
-               argMax(person_id, _timestamp) as person_id
-        FROM
-          (SELECT distinct_id,
-                  person_id,
-                  max(_timestamp) as _timestamp
-           FROM person_distinct_id
-           WHERE team_id = 2
-           GROUP BY person_id,
-                    distinct_id,
-                    team_id
-           HAVING max(is_deleted) = 0)
-        GROUP BY distinct_id) AS pdi ON e.distinct_id = pdi.distinct_id
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      INNER JOIN
        (SELECT id
         FROM person
@@ -193,18 +172,11 @@
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
-               argMax(person_id, _timestamp) as person_id
-        FROM
-          (SELECT distinct_id,
-                  person_id,
-                  max(_timestamp) as _timestamp
-           FROM person_distinct_id
-           WHERE team_id = 2
-           GROUP BY person_id,
-                    distinct_id,
-                    team_id
-           HAVING max(is_deleted) = 0)
-        GROUP BY distinct_id) AS pdi ON e.distinct_id = pdi.distinct_id
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      INNER JOIN
        (SELECT id
         FROM person
@@ -245,18 +217,11 @@
               FROM events e
               INNER JOIN
                 (SELECT distinct_id,
-                        argMax(person_id, _timestamp) as person_id
-                 FROM
-                   (SELECT distinct_id,
-                           person_id,
-                           max(_timestamp) as _timestamp
-                    FROM person_distinct_id
-                    WHERE team_id = 2
-                    GROUP BY person_id,
-                             distinct_id,
-                             team_id
-                    HAVING max(is_deleted) = 0)
-                 GROUP BY distinct_id) AS pdi ON e.distinct_id = pdi.distinct_id
+                        argMax(person_id, version) as person_id
+                 FROM person_distinct_id2
+                 WHERE team_id = 2
+                 GROUP BY distinct_id
+                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
               WHERE team_id = 2
                 AND event = '$pageview'
                 AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2012-01-01 00:00:00'))
@@ -286,18 +251,11 @@
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
-               argMax(person_id, _timestamp) as person_id
-        FROM
-          (SELECT distinct_id,
-                  person_id,
-                  max(_timestamp) as _timestamp
-           FROM person_distinct_id
-           WHERE team_id = 2
-           GROUP BY person_id,
-                    distinct_id,
-                    team_id
-           HAVING max(is_deleted) = 0)
-        GROUP BY distinct_id) AS pdi ON e.distinct_id = pdi.distinct_id
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      INNER JOIN
        (SELECT id
         FROM person
@@ -399,18 +357,11 @@
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
-               argMax(person_id, _timestamp) as person_id
-        FROM
-          (SELECT distinct_id,
-                  person_id,
-                  max(_timestamp) as _timestamp
-           FROM person_distinct_id
-           WHERE team_id = 2
-           GROUP BY person_id,
-                    distinct_id,
-                    team_id
-           HAVING max(is_deleted) = 0)
-        GROUP BY distinct_id) AS pdi ON e.distinct_id = pdi.distinct_id
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      INNER JOIN
        (SELECT id
         FROM person
@@ -489,18 +440,11 @@
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
-                           argMax(person_id, _timestamp) as person_id
-                    FROM
-                      (SELECT distinct_id,
-                              person_id,
-                              max(_timestamp) as _timestamp
-                       FROM person_distinct_id
-                       WHERE team_id = 2
-                       GROUP BY person_id,
-                                distinct_id,
-                                team_id
-                       HAVING max(is_deleted) = 0)
-                    GROUP BY distinct_id) as pdi ON events.distinct_id = pdi.distinct_id
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
                  WHERE e.team_id = 2
                    AND event = '$pageview'
                    AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2012-01-01 00:00:00'))
@@ -538,18 +482,11 @@
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
-               argMax(person_id, _timestamp) as person_id
-        FROM
-          (SELECT distinct_id,
-                  person_id,
-                  max(_timestamp) as _timestamp
-           FROM person_distinct_id
-           WHERE team_id = 2
-           GROUP BY person_id,
-                    distinct_id,
-                    team_id
-           HAVING max(is_deleted) = 0)
-        GROUP BY distinct_id) AS pdi ON e.distinct_id = pdi.distinct_id
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      INNER JOIN
        (SELECT id
         FROM person

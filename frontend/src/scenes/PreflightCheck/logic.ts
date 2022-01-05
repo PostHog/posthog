@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { PreflightStatus } from '~/types'
+import { PreflightStatus, Realm } from '~/types'
 import { preflightLogicType } from './logicType'
 import posthog from 'posthog-js'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -38,7 +38,7 @@ export const preflightLogic = kea<preflightLogicType<PreflightMode>>({
         clickhouseEnabled: [(s) => [s.preflight], (preflight): boolean => !!preflight?.is_clickhouse_enabled],
         realm: [
             (s) => [s.preflight],
-            (preflight): 'cloud' | 'hosted' | 'hosted-clickhouse' | null => {
+            (preflight): Realm | null => {
                 if (!preflight) {
                     return null
                 }

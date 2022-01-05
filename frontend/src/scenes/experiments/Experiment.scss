@@ -2,10 +2,6 @@
 
 .experiment-result,
 .experiment-form {
-    .person-selection {
-        padding-top: $default_spacing;
-        border-top: 1px solid $border;
-    }
     .metrics-selection {
         border-top: 1px solid $border;
         padding-top: $default_spacing;
@@ -25,7 +21,7 @@
 
     .insights-graph-container {
         margin-bottom: $default_spacing;
-        background-color: $bg_side;
+        background-color: #fff;
 
         .ant-card-head {
             border-bottom: 1px solid $border;
@@ -100,6 +96,27 @@
             padding-bottom: $default_spacing;
             margin-bottom: $default_spacing;
         }
+    }
+
+    .feature-flag-variant {
+        border: 1px solid $border;
+        border-radius: 4px;
+        padding-left: 12px;
+        padding-top: $default_spacing / 2;
+        padding-bottom: $default_spacing / 2;
+        margin-top: 20px;
+
+        .ant-form-item-explain-error {
+            padding-top: $default_spacing / 2;
+        }
+    }
+
+    .ant-input-number-disabled {
+        color: black;
+    }
+
+    .ant-input[disabled] {
+        color: black;
     }
 }
 

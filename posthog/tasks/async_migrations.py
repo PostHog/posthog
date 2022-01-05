@@ -4,7 +4,7 @@ from sentry_sdk.integrations import celery
 
 from posthog.async_migrations.runner import (
     is_current_operation_resumable,
-    run_async_migration_next_op,
+    run_async_migration_operations,
     run_migration_healthcheck,
     start_async_migration,
     update_migration_progress,
@@ -24,7 +24,7 @@ def run_async_migration(migration_name: str, fresh_start: bool = True) -> None:
         return
 
     # Resumable operations
-    run_async_migration_next_op(migration_name)
+    run_async_migration_operations(migration_name)
 
 
 # This task:

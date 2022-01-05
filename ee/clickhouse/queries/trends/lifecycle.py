@@ -24,8 +24,6 @@ class ClickhouseLifecycle(LifecycleTrend):
     def get_interval(self, interval: str) -> Tuple[Union[timedelta, relativedelta], str, str]:
         if interval == "hour":
             return timedelta(hours=1), "1 HOUR", "1 MINUTE"
-        elif interval == "minute":
-            return timedelta(minutes=1), "1 MINUTE", "1 SECOND"
         elif interval == "day":
             return timedelta(days=1), "1 DAY", "1 HOUR"
         elif interval == "week":
@@ -75,9 +73,7 @@ class ClickhouseLifecycle(LifecycleTrend):
             {
                 "team_id": team_id,
                 "prev_date_from": (date_from - interval_increment).strftime(
-                    "%Y-%m-%d{}".format(
-                        " %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else " 00:00:00"
-                    )
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" else " 00:00:00")
                 ),
                 "num_intervals": num_intervals,
                 "seconds_in_interval": seconds_in_interval,
@@ -152,9 +148,7 @@ class ClickhouseLifecycle(LifecycleTrend):
             {
                 "team_id": team_id,
                 "prev_date_from": (date_from - interval_increment).strftime(
-                    "%Y-%m-%d{}".format(
-                        " %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else " 00:00:00"
-                    )
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" else " 00:00:00")
                 ),
                 "num_intervals": num_intervals,
                 "seconds_in_interval": seconds_in_interval,
@@ -163,9 +157,7 @@ class ClickhouseLifecycle(LifecycleTrend):
                 **prop_filter_params,
                 "status": lifecycle_type,
                 "target_date": target_date.strftime(
-                    "%Y-%m-%d{}".format(
-                        " %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else " 00:00:00"
-                    )
+                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" else " 00:00:00")
                 ),
                 "offset": filter.offset,
                 "limit": limit,

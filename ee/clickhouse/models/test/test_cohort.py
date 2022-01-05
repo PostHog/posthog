@@ -674,34 +674,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             sql, _ = format_filter_query(cohort)
-            self.assertEqual(
-                sqlparse.format(sql, reindent=True),
-                sqlparse.format(
-                    f"""
-                SELECT distinct_id
-                FROM
-                (SELECT distinct_id,
-                        argMax(person_id, _timestamp) as person_id
-                FROM
-                    (SELECT distinct_id,
-                            person_id,
-                            max(_timestamp) as _timestamp
-                    FROM person_distinct_id
-                    WHERE team_id = {self.team.pk}
-                    GROUP BY person_id,
-                            distinct_id,
-                            team_id
-                    HAVING max(is_deleted) = 0)
-                GROUP BY distinct_id)
-                WHERE person_id IN
-                    (SELECT person_id
-                    FROM person_static_cohort
-                    WHERE cohort_id = %(_cohort_id_0)s
-                    AND team_id = %(team_id)s)
-                """,
-                    reindent=True,
-                ),
-            )
+            self.assertQueryMatchesSnapshot(sql)
 
     def test_cohortpeople_with_valid_other_cohort_filter(self):
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},)

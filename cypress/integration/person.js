@@ -41,7 +41,6 @@ describe('Merge person', () => {
         cy.contains('deborah.fernandez@gmail.com').click()
     })
 
-    // Note: This test also checks that the plugin server has processed an event.
     it('Should merge person', () => {
         cy.get('.extra-ids').should('not.exist') // No extra IDs
         cy.contains('$create_alias').should('not.exist')
@@ -55,8 +54,6 @@ describe('Merge person', () => {
         cy.contains('Merge persons').click()
 
         cy.contains('Automatically load new events').click()
-        cy.contains('$create_alias', { timeout: 20000 }).should('exist')
-        cy.get('span:contains(Pageview)').should('have.length', 2)
-        cy.get('span:contains(clicked)').should('have.length', 2)
+        cy.get('.extra-ids').should('contain', '+2')
     })
 })

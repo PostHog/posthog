@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-
+import { dayjs } from 'lib/dayjs'
 import api from 'lib/api'
 import { insightLogic } from '../insights/insightLogic'
 import { InsightLogicProps, FilterType, InsightType, TrendResult } from '~/types'
@@ -144,6 +144,23 @@ export const trendsLogic = kea<trendsLogicType>({
                 plural: string
             } => {
                 return aggregationLabel(targetAction.math_group_type_index)
+            },
+        ],
+        incompletenessOffsetFromEnd: [
+            (s) => [s.filters, s.insight],
+            (filters, insight) => {
+                // Returns negative number of points to paint over starting from end of array
+                if (insight?.result?.[0]?.days === undefined) {
+                    return 0
+                }
+                const startDate = dayjs().startOf(filters.interval ?? 'd')
+                const startIndex = insight.result[0].days.findIndex((day: string) => dayjs(day) >= startDate)
+
+                if (startIndex !== undefined && startIndex !== -1) {
+                    return startIndex - insight.result[0].days.length
+                } else {
+                    return 0
+                }
             },
         ],
     },

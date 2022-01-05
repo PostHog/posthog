@@ -360,15 +360,3 @@ class TestActionPeople(
                 "2021-09-05T17:00:10Z",
             ],
         )
-
-    def test_interval_minute(self):
-        self._test_interval(
-            date_from="2021-09-05T16:05:00Z",
-            interval="minute",
-            timestamps=[
-                "2021-09-05T16:04:55Z",
-                "2021-09-05T16:05:12Z",
-                "2021-09-05T16:05:58Z",
-                "2021-09-05T16:06:10Z",
-            ],
-        )

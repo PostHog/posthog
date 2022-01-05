@@ -318,10 +318,6 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
                 ],
             )
 
-        # retention doesn't support minute
-        def test_minute_interval(self):
-            pass
-
         # ensure that the first interval is properly rounded acoording to the specified period
         def test_interval_rounding(self):
             Person.objects.create(
