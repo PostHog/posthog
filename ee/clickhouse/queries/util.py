@@ -1,6 +1,7 @@
 import json
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple, Union
+from math import lgamma
+from typing import Any, Dict, Optional, Tuple
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
@@ -131,3 +132,7 @@ def deep_dump_object(params: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(params[key], dict) or isinstance(params[key], list):
             params[key] = json.dumps(params[key])
     return params
+
+
+def logbeta(x: int, y: int) -> float:
+    return lgamma(x) + lgamma(y) - lgamma(x + y)

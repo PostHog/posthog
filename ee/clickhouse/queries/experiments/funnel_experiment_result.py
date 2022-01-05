@@ -3,10 +3,10 @@ from datetime import datetime
 from math import exp, log
 from typing import List, Optional, Tuple, Type
 
-import scipy.special as sc
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.funnels import ClickhouseFunnel
+from ee.clickhouse.queries.util import logbeta
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 
@@ -127,10 +127,10 @@ def probability_B_beats_A(A_success: int, A_failure: int, B_success: int, B_fail
     total: float = 0
     for i in range(B_success):
         total += exp(
-            sc.betaln(A_success + i, A_failure + B_failure)
+            logbeta(A_success + i, A_failure + B_failure)
             - log(B_failure + i)
-            - sc.betaln(1 + i, B_failure)
-            - sc.betaln(A_success, A_failure)
+            - logbeta(1 + i, B_failure)
+            - logbeta(A_success, A_failure)
         )
 
     return total
