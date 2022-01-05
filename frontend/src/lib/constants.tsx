@@ -73,7 +73,6 @@ export const FEATURE_FLAGS = {
     FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui', // owner: @alexkim205
     DIVE_DASHBOARDS: 'hackathon-dive-dashboards', // owner: @tiina303
     NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights', // owner: @neilkakkar
-    NEW_SESSIONS_PLAYER_EVENTS_LIST: 'new-sessions-player-events-list', // owner: @rcmarron / @alexkim205
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
     SESSION_INSIGHT_REMOVAL: 'session-insight-removal', // owner: @paolodamico
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @paolodamico
