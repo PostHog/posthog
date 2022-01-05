@@ -259,7 +259,7 @@ export function Experiment(): JSX.Element {
                                                     )
                                                 )}
 
-                                                {newExperimentData.parameters.feature_flag_variants.length < 5 && (
+                                                {newExperimentData.parameters.feature_flag_variants.length < 4 && (
                                                     <Button
                                                         style={{
                                                             color: 'var(--primary)',
