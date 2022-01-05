@@ -71,6 +71,7 @@ export function ActionsHorizontalBar({
             data-attr="trend-bar-value-graph"
             type={GraphType.HorizontalBar}
             color={color}
+            tooltipAltTitle="Series"
             datasets={data}
             labels={data[0].labels}
             insightId={insight.id}

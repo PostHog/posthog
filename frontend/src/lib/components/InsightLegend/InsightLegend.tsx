@@ -67,6 +67,7 @@ export function InsightLegend(): JSX.Element {
                                             item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()
                                         }
                                         compareValue={filters.compare ? formatCompareLabel(item) : undefined}
+                                        pillMidEllipsis={item?.filter?.breakdown === '$current_url'}
                                         hideIcon
                                     />
                                 </Col>

@@ -14,9 +14,6 @@ import './LineGraph.scss'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { LEGACY_InsightTooltip } from '../InsightTooltip/LEGACY_InsightTooltip'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
 //--Chart Style Options--//
 Chart.defaults.global.legend.display = false
@@ -63,7 +60,6 @@ export function LEGACY_LineGraph({
     const { annotationsList, annotationsLoading } = !inSharedMode
         ? useValues(annotationsLogic({ insightId }))
         : { annotationsList: [], annotationsLoading: false }
-    const { featureFlags } = useValues(featureFlagLogic)
     const [leftExtent, setLeftExtent] = useState(0)
     const [boundaryInterval, setBoundaryInterval] = useState(0)
     const [topExtent, setTopExtent] = useState(0)
@@ -86,7 +82,7 @@ export function LEGACY_LineGraph({
     // Let's manually remove tooltips when the chart is being hovered over. #5061
     useEffect(() => {
         const removeTooltip = () => {
-            const tooltipEl = document.getElementById('ph-graph-tooltip')
+            const tooltipEl = document.getElementById('legacy-ph-graph-tooltip')
 
             if (tooltipEl && !tooltipVisible) {
                 tooltipEl.style.opacity = 0
@@ -279,17 +275,18 @@ export function LEGACY_LineGraph({
                                     : entityData.breakdown_value
                             }
                             seriesStatus={entityData.status}
+                            pillMidEllipsis={entityData?.filter?.breakdown === '$current_url'}
                         />
                     )
                 },
             },
             custom: function (tooltipModel) {
-                let tooltipEl = document.getElementById('ph-graph-tooltip')
+                let tooltipEl = document.getElementById('legacy-ph-graph-tooltip')
                 // Create element on first render
                 if (!tooltipEl) {
                     tooltipEl = document.createElement('div')
-                    tooltipEl.id = 'ph-graph-tooltip'
-                    tooltipEl.classList.add('ph-graph-tooltip')
+                    tooltipEl.id = 'legacy-ph-graph-tooltip'
+                    tooltipEl.classList.add('legacy-ph-graph-tooltip')
                     document.body.appendChild(tooltipEl)
                 }
                 if (tooltipModel.opacity === 0) {
@@ -325,26 +322,15 @@ export function LEGACY_LineGraph({
 
                     ReactDOM.render(
                         <Provider store={getContext().store}>
-                            {featureFlags[FEATURE_FLAGS.NEW_INSIGHT_TOOLTIPS] ? (
-                                <InsightTooltip
-                                    referenceDate={referenceDate}
-                                    altTitle={altTitle}
-                                    seriesData={seriesData}
-                                    useAltTitle={tooltipPreferAltTitle}
-                                    hideHeader={type === 'horizontalBar'}
-                                    hideInspectActorsSection={!(onClick && showPersonsModal)}
-                                />
-                            ) : (
-                                <LEGACY_InsightTooltip
-                                    altTitle={altTitle}
-                                    referenceDate={referenceDate}
-                                    interval={interval}
-                                    bodyLines={seriesData}
-                                    inspectPersonsLabel={onClick && showPersonsModal}
-                                    preferAltTitle={tooltipPreferAltTitle}
-                                    hideHeader={type === 'horizontalBar'}
-                                />
-                            )}
+                            <LEGACY_InsightTooltip
+                                altTitle={altTitle}
+                                referenceDate={referenceDate}
+                                interval={interval}
+                                bodyLines={seriesData}
+                                inspectPersonsLabel={onClick && showPersonsModal}
+                                preferAltTitle={tooltipPreferAltTitle}
+                                hideHeader={type === 'horizontalBar'}
+                            />
                         </Provider>,
                         tooltipEl
                     )

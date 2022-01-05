@@ -14,7 +14,6 @@ import {
     Color,
     InteractionItem,
     TickOptions,
-    TooltipItem,
     TooltipModel,
     TooltipOptions,
 } from 'chart.js'
@@ -26,10 +25,8 @@ import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { AnnotationMarker, Annotations, annotationsLogic } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import './LineGraph.scss'
-import { LEGACY_InsightTooltip } from '../InsightTooltip/LEGACY_InsightTooltip'
 import { dayjs } from 'lib/dayjs'
 import { AnnotationType, GraphDataset, GraphPointPayload, GraphType, IntervalType, GraphPoint } from '~/types'
-import { InsightLabel } from 'lib/components/InsightLabel'
 import { LEGACY_LineGraph } from './LEGACY_LineGraph.jsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -52,10 +49,11 @@ interface LineGraphProps {
     insightId?: number
     inSharedMode?: boolean
     percentage?: boolean
-    interval?: IntervalType
-    totalValue?: number
+    interval?: IntervalType // TODO: Depecrate once LEGACY_LineGraph is removed
+    totalValue?: number // TODO: Depecrate once LEGACY_LineGraph is removed
     showPersonsModal?: boolean
-    tooltipPreferAltTitle?: boolean
+    tooltipPreferAltTitle?: boolean // TODO: Depecrate once LEGACY_LineGraph is removed
+    tooltipAltTitle?: string
     isCompare?: boolean
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
 }
@@ -81,12 +79,10 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
         insightId,
         inSharedMode = false,
         percentage = false,
-        interval = undefined,
-        totalValue,
         showPersonsModal = true,
-        tooltipPreferAltTitle = false,
         isCompare = false,
         incompletenessOffsetFromEnd = -1,
+        tooltipAltTitle,
     } = props
     let datasets = _datasets
     const chartRef = useRef<HTMLCanvasElement | null>(null)
@@ -211,13 +207,12 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
         if (type === GraphType.Line) {
             datasets = [
                 ...datasets.map((dataset, index) => {
-                    const sliceTo = incompletenessOffsetFromEnd || (dataset.data?.length ?? 0)
+                    const sliceTo = incompletenessOffsetFromEnd
                     const datasetCopy = Object.assign({}, dataset, {
                         data: [...(dataset.data || [])].slice(0, sliceTo),
                         labels: [...(dataset.labels || [])].slice(0, sliceTo),
                         days: [...(dataset.days || [])].slice(0, sliceTo),
                     })
-                    console.log('SLICE to', sliceTo, dataset, datasetCopy)
                     return processDataset(datasetCopy, index)
                 }),
                 ...datasets.map((dataset, index) => {
@@ -230,13 +225,11 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                     }
 
                     // Nullify dates that don't have dotted line
-                    const sliceFrom = incompletenessOffsetFromEnd - 1 || (datasetCopy.data?.length ?? 0)
+                    const sliceFrom = incompletenessOffsetFromEnd - 1
                     datasetCopy.data = [
                         ...(datasetCopy.data?.slice(0, sliceFrom).map(() => null) ?? []),
                         ...(datasetCopy.data?.slice(sliceFrom) ?? []),
                     ] as number[]
-
-                    console.log('SLICE from', sliceFrom, dataset, datasetCopy)
 
                     return processDataset(datasetCopy, index)
                 }),
@@ -265,7 +258,6 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
         let options: ChartOptions & { plugins: ChartPluginsOptions } = {
             responsive: true,
             maintainAspectRatio: false,
-            scaleShowHorizontalLines: false,
             elements: {
                 line: {
                     tension: 0,
@@ -289,7 +281,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                             document.body.appendChild(tooltipEl)
                         }
                         if (tooltip.opacity === 0) {
-                            tooltipEl.style.opacity = '1'
+                            tooltipEl.style.opacity = '0'
                             return
                         }
 
@@ -315,53 +307,42 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
 
                             ReactDOM.render(
                                 <Provider store={getContext().store}>
-                                    {featureFlags[FEATURE_FLAGS.NEW_INSIGHT_TOOLTIPS] ? (
-                                        <InsightTooltip
-                                            date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
-                                            seriesData={tooltip.dataPoints
-                                                ?.filter((dp: any) => !dp?.dataset?.dotted)
-                                                ?.map((dp, idx) => {
-                                                    const pointDataset = (dp?.dataset ?? {}) as GraphDataset
-                                                    return {
-                                                        id: idx,
-                                                        dataIndex: dp.dataIndex,
-                                                        datasetIndex: dp.datasetIndex,
-                                                        breakdown_value: pointDataset?.breakdown_value ?? undefined,
-                                                        compare_value: pointDataset?.compare_label ?? undefined,
-                                                        action:
-                                                            pointDataset?.action ??
-                                                            pointDataset?.actions?.[0] ??
-                                                            undefined,
-                                                        color: pointDataset.backgroundColor as string,
-                                                        count: pointDataset?.data?.[dp.dataIndex] ?? 0,
-                                                    }
-                                                })}
-                                            hideInspectActorsSection={!(onClick && showPersonsModal)}
-                                        />
-                                    ) : (
-                                        <LEGACY_InsightTooltip
-                                            referenceDate={
-                                                !dataset.compare
-                                                    ? dataset.days?.[referenceDataPoint.dataIndex]
-                                                    : undefined
-                                            }
-                                            altTitle={
-                                                tooltip.title && (dataset.compare || tooltipPreferAltTitle)
-                                                    ? tooltip.title[0]
-                                                    : ''
-                                            } // When comparing we show the whole range for clarity; when on stickiness we show the relative timeframe (e.g. `5 days`)
-                                            interval={interval}
-                                            bodyLines={tooltip.body
-                                                .flatMap(({ lines }) => lines)
-                                                .map((component, idx) => ({
+                                    <InsightTooltip
+                                        date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
+                                        seriesData={tooltip.dataPoints
+                                            ?.map((dp, idx) => {
+                                                const pointDataset = (dp?.dataset ?? {}) as GraphDataset
+                                                return {
                                                     id: idx,
-                                                    component,
-                                                }))}
-                                            preferAltTitle={tooltipPreferAltTitle}
-                                            hideHeader={isHorizontal}
-                                            inspectPersonsLabel={onClick && showPersonsModal}
-                                        />
-                                    )}
+                                                    dataIndex: dp.dataIndex,
+                                                    datasetIndex: dp.datasetIndex,
+                                                    dotted: !!pointDataset?.dotted,
+                                                    breakdown_value: pointDataset?.breakdown_value ?? undefined,
+                                                    compare_label: pointDataset?.compare_label ?? undefined,
+                                                    action:
+                                                        pointDataset?.action ??
+                                                        pointDataset?.actions?.[dp.dataIndex] ??
+                                                        undefined,
+                                                    color: Array.isArray(pointDataset.backgroundColor)
+                                                        ? pointDataset.backgroundColor?.[dp.dataIndex]
+                                                        : pointDataset.backgroundColor,
+                                                    count: pointDataset?.data?.[dp.dataIndex] || 0,
+                                                }
+                                            })
+                                            ?.filter((dp) => {
+                                                const hasDotted =
+                                                    datasets.some((d) => d.dotted) &&
+                                                    dp.dataIndex - _datasets?.[0]?.data?.length >=
+                                                        incompletenessOffsetFromEnd
+                                                return (
+                                                    dp.datasetIndex >= (hasDotted ? _datasets.length : 0) &&
+                                                    dp.datasetIndex <
+                                                        (hasDotted ? _datasets.length * 2 : _datasets.length)
+                                                )
+                                            })}
+                                        hideInspectActorsSection={!(onClick && showPersonsModal)}
+                                        useAltTitle={tooltipAltTitle}
+                                    />
                                 </Provider>,
                                 tooltipEl
                             )
@@ -380,67 +361,6 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                         tooltipEl.style.top = tooltipClientTop + 'px'
                         tooltipEl.style.left = tooltipClientLeft + 'px'
                     },
-                    callbacks: {
-                        // @ts-ignore: label callback is typed to return string | string[], but practically can return ReactNode
-                        label(tooltipItem: TooltipItem<any>) {
-                            const entityData = tooltipItem.dataset
-                            const tooltipDatasets = this.dataPoints
-                                .map((point) => point.dataset as ChartDataset<any>)
-                                .filter((dt) => !dt.dotted)
-                            if (!(tooltipItem.dataIndex === entityData.data.length - 1)) {
-                                return ''
-                            }
-
-                            console.log('DATASETS', tooltipDatasets)
-
-                            const label = entityData.chartLabel || entityData.label || tooltipItem.label || ''
-                            const action =
-                                entityData.action || (entityData.actions && entityData.actions[tooltipItem.dataIndex])
-
-                            let value = tooltipItem.formattedValue.toLocaleString()
-                            const actionObjKey = isHorizontal ? 'actions' : 'action'
-
-                            if (isHorizontal && totalValue) {
-                                const perc = Math.round((Number(tooltipItem.raw) / totalValue) * 100)
-                                value = `${tooltipItem.label.toLocaleString()} (${perc}%)`
-                            }
-
-                            let showCountedByTag = false
-                            let numberOfSeries = 1
-                            if (tooltipDatasets.find((item) => item[actionObjKey])) {
-                                // The above statement will always be true except in Sessions tab
-                                showCountedByTag = !!tooltipDatasets.find(
-                                    ({ [actionObjKey]: actionObj }) => actionObj?.math && actionObj.math !== 'total'
-                                )
-                                numberOfSeries = new Set(
-                                    tooltipDatasets.flatMap(({ [actionObjKey]: actionObj }) => actionObj?.order)
-                                ).size
-                            }
-
-                            // This could either be a color or an array of colors (`horizontalBar`)
-                            const colorSet = entityData.backgroundColor || entityData.borderColor
-                            return (
-                                <InsightLabel
-                                    action={action}
-                                    seriesColor={isHorizontal ? colorSet[tooltipItem.dataIndex] : colorSet}
-                                    value={value}
-                                    fallbackName={label}
-                                    showCountedByTag={showCountedByTag}
-                                    hasMultipleSeries={numberOfSeries > 1}
-                                    breakdownValue={
-                                        entityData.breakdownValues // Used in `horizontalBar`
-                                            ? entityData.breakdownValues[tooltipItem.dataIndex] === ''
-                                                ? 'None'
-                                                : entityData.breakdownValues[tooltipItem.dataIndex]
-                                            : entityData.breakdown_value === ''
-                                            ? 'None'
-                                            : entityData.breakdown_value
-                                    }
-                                    seriesStatus={entityData.status}
-                                />
-                            )
-                        },
-                    },
                 },
                 ...(!isBar
                     ? {
@@ -455,13 +375,13 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                                   enabled: false, // Allow drag to zoom
                               },
                               line: {
-                                  color: colors.crosshair,
+                                  color: colors.crosshair ?? undefined,
                                   width: 1,
                               },
                           },
                       }
                     : {
-                          crosshair: false,
+                          crosshair: false as CrosshairOptions,
                       }),
             },
             hover: {

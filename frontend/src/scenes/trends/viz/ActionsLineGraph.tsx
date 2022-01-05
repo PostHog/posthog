@@ -40,6 +40,7 @@ export function ActionsLineGraph({
             interval={filters.interval}
             showPersonsModal={showPersonsModal}
             tooltipPreferAltTitle={filters.insight === InsightType.STICKINESS}
+            tooltipAltTitle={filters.insight === InsightType.LIFECYCLE ? 'Users' : undefined}
             isCompare={!!filters.compare}
             onClick={
                 dashboardItemId || isMultiSeriesFormula(filters.formula) || !showPersonsModal
