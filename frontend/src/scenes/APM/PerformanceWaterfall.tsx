@@ -172,7 +172,7 @@ function EventsWithPerformanceTable(): JSX.Element {
             },
         },
         {
-            render: function RenderPlayButton(_: any, pageViewEvent: EventType) {
+            render: function RenderButton(_: any, pageViewEvent: EventType) {
                 return (
                     <div>
                         <Button data-attr={`view-waterfall-button-${pageViewEvent.id}`} icon={<EyeOutlined />}>
