@@ -188,44 +188,6 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             calculate_actions_from_last_calculation()
             return person1, person2, person3, person4, person5, person6, person7
 
-        def test_minute_interval(self):
-            sign_up_action, person = self._create_events()
-
-            person1, person2, person3, person4, person5, person6, person7 = self._create_people_interval_events()
-            person = person_factory(team_id=self.team.pk, distinct_ids=["outside_range"])
-            event_factory(
-                team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-04T19:21:01Z",
-            )
-
-            # check grouped minute
-            min_grouped_action_response = self.client.get(
-                f"/api/projects/{self.team.id}/actions/people/",
-                data={
-                    "interval": "minute",
-                    "date_from": "2020-01-04 19:20:00",
-                    "date_to": "2020-01-04 19:20:00",
-                    ENTITY_TYPE: "actions",
-                    ENTITY_ID: sign_up_action.id,
-                },
-            ).json()
-            min_grouped_grevent_response = self.client.get(
-                f"/api/projects/{self.team.id}/actions/people/",
-                data={
-                    "interval": "minute",
-                    "date_from": "2020-01-04 19:20:00",
-                    "date_to": "2020-01-04 19:20:00",
-                    ENTITY_TYPE: "events",
-                    ENTITY_ID: "sign up",
-                },
-            ).json()
-
-            all_people_ids = [str(person["id"]) for person in min_grouped_action_response["results"][0]["people"]]
-            self.assertListEqual(sorted(all_people_ids), sorted([str(person4.pk), str(person5.pk)]))
-            self.assertEqual(len(all_people_ids), 2)
-            self.assertEntityResponseEqual(
-                min_grouped_action_response["results"], min_grouped_grevent_response["results"], remove=[],
-            )
-
         def test_hour_interval(self):
             sign_up_action, person = self._create_events()
 

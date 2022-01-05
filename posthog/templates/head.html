@@ -6,12 +6,15 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/apple-touch-icon.png?v=2021-04-29">
 <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32x32.png?v=2021-04-29">
 <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16x16.png?v=2021-04-29">
-<link rel="manifest" href="/static/site.webmanifest?v=2021-04-29">
+{% if not debug %}
+    <link rel="shortcut icon" href="/static/icons/favicon.ico?v=2021-04-29">
+{% else %}
+    <link rel="shortcut icon" href="/static/icons/favicon-dev.ico?v=2021-04-29">
+{% endif %}
 <link rel="mask-icon" href="/static/icons/safari-pinned-tab.svg?v=2021-04-29" color="#FF053C">
-<link rel="shortcut icon" href="/static/icons/favicon.ico?v=2021-04-29">
+<link rel="manifest" href="/static/site.webmanifest?v=2021-04-29">
 <meta name="apple-mobile-web-app-title" content="PostHog">
 <meta name="application-name" content="PostHog">
-
 
 {% if not opt_out_capture and js_posthog_api_key %}
     <script>

@@ -13,6 +13,10 @@ const errorToastSpy = jest.spyOn(utils, 'errorToast')
 const successToastSpy = jest.spyOn(utils, 'successToast')
 
 jest.mock('lib/api')
+jest.mock('lib/dayjs', () => {
+    const dayjs = jest.requireActual('lib/dayjs')
+    return { ...dayjs, now: () => dayjs.dayjs('2021-05-05T00:00:00Z') }
+})
 
 const randomBool = (): boolean => Math.random() < 0.5
 
@@ -103,18 +107,24 @@ describe('eventsTableLogic', () => {
             it('can toggle autoloading on', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.toggleAutomaticLoad(true)
-                }).toMatchValues({
-                    automaticLoadEnabled: true,
                 })
+                    .toMatchValues({
+                        automaticLoadEnabled: true,
+                    })
+                    .toDispatchActions(['fetchEvents', 'toggleAutomaticLoad'])
+                    .toNotHaveDispatchedActions(['fetchEvents'])
             })
 
             it('can toggle autoloading on and off', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.toggleAutomaticLoad(true)
                     logic.actions.toggleAutomaticLoad(false)
-                }).toMatchValues({
-                    automaticLoadEnabled: false,
                 })
+                    .toMatchValues({
+                        automaticLoadEnabled: false,
+                    })
+                    .toDispatchActions(['fetchEvents', 'toggleAutomaticLoad'])
+                    .toNotHaveDispatchedActions(['fetchEvents'])
             })
 
             it('does not call prependNewEvents when there are zero new events', async () => {
@@ -204,23 +214,6 @@ describe('eventsTableLogic', () => {
                 await expectLogic(logic, () => {
                     router.actions.push(urls.events())
                 }).toMatchValues({ sceneIsEventsPage: true })
-            })
-
-            it('can flip the sorting order', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.flipSort()
-                }).toMatchValues({
-                    orderBy: 'timestamp',
-                })
-            })
-
-            it('can flip the sorting order back', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.flipSort()
-                    logic.actions.flipSort()
-                }).toMatchValues({
-                    orderBy: '-timestamp',
-                })
             })
 
             it('fetch events success can set hasNext (which is the URL of the next page of results, that we do not use)', async () => {
@@ -395,7 +388,7 @@ describe('eventsTableLogic', () => {
 
             it('can build the export URL when there are no properties or filters', async () => {
                 await expectLogic(logic, () => {}).toMatchValues({
-                    exportUrl: `/api/projects/${MOCK_TEAM_ID}/events.csv?properties=%5B%5D&orderBy=%5B%22-timestamp%22%5D`,
+                    exportUrl: `/api/projects/${MOCK_TEAM_ID}/events.csv?properties=%5B%5D&orderBy=%5B%22-timestamp%22%5D&after=2020-05-05T00%3A00%3A00.000Z`,
                 })
             })
 
@@ -403,24 +396,9 @@ describe('eventsTableLogic', () => {
                 await expectLogic(logic, () => {
                     logic.actions.setProperties([makePropertyFilter('fixed value')])
                 }).toMatchValues({
-                    exportUrl: `/api/projects/${MOCK_TEAM_ID}/events.csv?properties=%5B%7B%22key%22%3A%22fixed%20value%22%2C%22operator%22%3Anull%2C%22type%22%3A%22t%22%2C%22value%22%3A%22v%22%7D%5D&orderBy=%5B%22-timestamp%22%5D`,
+                    exportUrl: `/api/projects/997/events.csv?properties=%5B%7B%22key%22%3A%22fixed%20value%22%2C%22operator%22%3Anull%2C%22type%22%3A%22t%22%2C%22value%22%3A%22v%22%7D%5D&orderBy=%5B%22-timestamp%22%5D&after=2020-05-05T00%3A00%3A00.000Z`,
                 })
             })
-
-            it('can build the export URL when orderby changes', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.flipSort()
-                }).toMatchValues({
-                    exportUrl: `/api/projects/${MOCK_TEAM_ID}/events.csv?properties=%5B%5D&orderBy=%5B%22timestamp%22%5D`,
-                })
-            })
-        })
-
-        it('writes autoload toggle to the URL', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.toggleAutomaticLoad(true)
-            })
-            expect(router.values.searchParams).toHaveProperty('autoload', true)
         })
 
         it('writes properties to the URL', async () => {
@@ -430,11 +408,6 @@ describe('eventsTableLogic', () => {
                 logic.actions.setProperties([propertyFilter])
             })
             expect(router.values.searchParams).toHaveProperty('properties', [propertyFilter])
-        })
-
-        it('reads autoload from the URL', async () => {
-            router.actions.push(urls.events(), { autoload: true })
-            await expectLogic(logic, () => {}).toMatchValues({ automaticLoadEnabled: true })
         })
 
         it('reads properties from the URL', async () => {
@@ -455,12 +428,6 @@ describe('eventsTableLogic', () => {
             it('triggers fetch events on set properties', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.setProperties([])
-                }).toDispatchActions(['fetchEvents'])
-            })
-
-            it('triggers fetch events on flipsort', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.flipSort()
                 }).toDispatchActions(['fetchEvents'])
             })
 

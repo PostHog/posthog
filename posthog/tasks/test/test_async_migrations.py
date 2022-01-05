@@ -6,7 +6,7 @@ from celery import states
 from celery.result import AsyncResult
 
 from posthog.async_migrations.examples.test import Migration
-from posthog.async_migrations.runner import run_async_migration_next_op
+from posthog.async_migrations.runner import run_async_migration_next_op, run_async_migration_operations
 from posthog.async_migrations.setup import get_async_migration_definition
 from posthog.async_migrations.test.util import create_async_migration
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
@@ -33,7 +33,7 @@ def inspect_mock() -> InspectorMock:
 
 # mock to make us run the migration in sync fashion
 def run_async_migration_mock(migration_name: str, _: Any) -> TaskMock:
-    run_async_migration_next_op(migration_name)
+    run_async_migration_operations(migration_name)
     return TaskMock()
 
 
@@ -48,7 +48,7 @@ class TestAsyncMigrations(BaseTest):
     @patch("posthog.tasks.async_migrations.run_async_migration.delay", side_effect=run_async_migration_mock)
     def test_check_async_migration_health_during_resumable_op(self, _: Any, __: Any) -> None:
         """
-        Mocks celery tasks and tests that `check_async_migration_health` works as expected 
+        Mocks celery tasks and tests that `check_async_migration_health` works as expected
         if we find that the process crashed before the migration completed.
         Given the op is resumable, we would expect check_async_migration_health to re-trigger the migration
         from where we left off
@@ -58,9 +58,9 @@ class TestAsyncMigrations(BaseTest):
         sm.status = MigrationStatus.Running
         sm.save()
 
-        run_async_migration_next_op("test", sm, run_all=False)
-        run_async_migration_next_op("test", sm, run_all=False)
-        run_async_migration_next_op("test", sm, run_all=False)
+        run_async_migration_next_op("test", sm)
+        run_async_migration_next_op("test", sm)
+        run_async_migration_next_op("test", sm)
 
         sm.refresh_from_db()
         self.assertTrue(get_async_migration_definition("test").operations[sm.current_operation_index].resumable)
@@ -88,7 +88,7 @@ class TestAsyncMigrations(BaseTest):
         sm.status = MigrationStatus.Running
         sm.save()
 
-        run_async_migration_next_op("test", sm, run_all=False)
+        run_async_migration_next_op("test", sm)
 
         sm.refresh_from_db()
         self.assertFalse(get_async_migration_definition("test").operations[sm.current_operation_index].resumable)

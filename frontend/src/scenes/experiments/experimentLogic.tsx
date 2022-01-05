@@ -186,7 +186,8 @@ export const experimentLogic = kea<experimentLogicType>({
                     if (error.code === 'no_data') {
                         actions.setExperimentResults({
                             funnel: [],
-                            filters: {},
+                            filters: { events: [{ id: 'random1' }, { id: 'random2' }] }, // ensures we get the funnel empty state
+                            // rather than "Add another Step" button
                             probability: 0,
                             itemID: Math.random().toString(36).substring(2, 15),
                         })

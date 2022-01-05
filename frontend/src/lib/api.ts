@@ -131,7 +131,7 @@ class ApiRequest {
     }
 }
 
-const normalise_url = (url: string): string => {
+const normalizeUrl = (url: string): string => {
     if (url.indexOf('http') !== 0) {
         if (!url.startsWith('/')) {
             url = '/' + url
@@ -140,6 +140,18 @@ const normalise_url = (url: string): string => {
         url = url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
     }
     return url
+}
+
+const PROJECT_ID_REGEX = /\/api\/projects\/(\w+)(?:$|[/?#])/
+
+const ensureProjectIdNotInvalid = (url: string): void => {
+    const projectIdMatch = PROJECT_ID_REGEX.exec(url)
+    if (projectIdMatch) {
+        const projectId = projectIdMatch[1].trim()
+        if (projectId === 'null' || projectId === 'undefined') {
+            throw { status: 0, detail: 'Cannot make request - project ID is unknown.' }
+        }
+    }
 }
 
 const api = {
@@ -263,7 +275,8 @@ const api = {
     },
 
     async get(url: string, signal?: AbortSignal): Promise<any> {
-        url = normalise_url(url)
+        url = normalizeUrl(url)
+        ensureProjectIdNotInvalid(url)
         let response
         const startTime = new Date().getTime()
         try {
@@ -281,7 +294,8 @@ const api = {
     },
 
     async update(url: string, data: any): Promise<any> {
-        url = normalise_url(url)
+        url = normalizeUrl(url)
+        ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
         const startTime = new Date().getTime()
         const response = await fetch(url, {
@@ -305,7 +319,8 @@ const api = {
     },
 
     async create(url: string, data?: any): Promise<any> {
-        url = normalise_url(url)
+        url = normalizeUrl(url)
+        ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
         const startTime = new Date().getTime()
         const response = await fetch(url, {
@@ -329,7 +344,8 @@ const api = {
     },
 
     async delete(url: string): Promise<any> {
-        url = normalise_url(url)
+        url = normalizeUrl(url)
+        ensureProjectIdNotInvalid(url)
         const startTime = new Date().getTime()
         const response = await fetch(url, {
             method: 'DELETE',

@@ -17,35 +17,21 @@
        AND person_max.is_deleted = 0 ) AS p
   INNER JOIN
     (SELECT distinct_id,
-            argMax(person_id, _timestamp) as person_id
-     FROM
-       (SELECT distinct_id,
-               person_id,
-               max(_timestamp) as _timestamp
-        FROM person_distinct_id
-        WHERE team_id = 2
-        GROUP BY person_id,
-                 distinct_id,
-                 team_id
-        HAVING max(is_deleted) = 0)
-     GROUP BY distinct_id) AS pdi ON p.id = pdi.person_id
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
+     WHERE team_id = 2
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON p.id = pdi.person_id
   WHERE team_id = 2
     AND pdi.distinct_id IN
       (SELECT distinct_id
        FROM
          (SELECT distinct_id,
-                 argMax(person_id, _timestamp) as person_id
-          FROM
-            (SELECT distinct_id,
-                    person_id,
-                    max(_timestamp) as _timestamp
-             FROM person_distinct_id
-             WHERE team_id = 2
-             GROUP BY person_id,
-                      distinct_id,
-                      team_id
-             HAVING max(is_deleted) = 0)
-          GROUP BY distinct_id)
+                 argMax(person_id, version) as person_id
+          FROM person_distinct_id2
+          WHERE team_id = 2
+          GROUP BY distinct_id
+          HAVING argMax(is_deleted, version) = 0)
        WHERE person_id IN
            (select id
             from
@@ -114,35 +100,21 @@
        AND person_max.is_deleted = 0 ) AS p
   INNER JOIN
     (SELECT distinct_id,
-            argMax(person_id, _timestamp) as person_id
-     FROM
-       (SELECT distinct_id,
-               person_id,
-               max(_timestamp) as _timestamp
-        FROM person_distinct_id
-        WHERE team_id = 2
-        GROUP BY person_id,
-                 distinct_id,
-                 team_id
-        HAVING max(is_deleted) = 0)
-     GROUP BY distinct_id) AS pdi ON p.id = pdi.person_id
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
+     WHERE team_id = 2
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON p.id = pdi.person_id
   WHERE team_id = 2
     AND pdi.distinct_id IN
       (SELECT distinct_id
        FROM
          (SELECT distinct_id,
-                 argMax(person_id, _timestamp) as person_id
-          FROM
-            (SELECT distinct_id,
-                    person_id,
-                    max(_timestamp) as _timestamp
-             FROM person_distinct_id
-             WHERE team_id = 2
-             GROUP BY person_id,
-                      distinct_id,
-                      team_id
-             HAVING max(is_deleted) = 0)
-          GROUP BY distinct_id)
+                 argMax(person_id, version) as person_id
+          FROM person_distinct_id2
+          WHERE team_id = 2
+          GROUP BY distinct_id
+          HAVING argMax(is_deleted, version) = 0)
        WHERE person_id IN
            (select id
             from
@@ -188,18 +160,11 @@
      AND start_time <= '2021-08-21 20:00:00') AS session_recordings
   JOIN
     (SELECT distinct_id,
-            argMax(person_id, _timestamp) as person_id
-     FROM
-       (SELECT distinct_id,
-               person_id,
-               max(_timestamp) as _timestamp
-        FROM person_distinct_id
-        WHERE team_id = 2
-        GROUP BY person_id,
-                 distinct_id,
-                 team_id
-        HAVING max(is_deleted) = 0)
-     GROUP BY distinct_id) as pdi ON pdi.distinct_id = session_recordings.distinct_id
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
+     WHERE team_id = 2
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) as pdi ON pdi.distinct_id = session_recordings.distinct_id
   INNER JOIN
     (SELECT id
      FROM person
@@ -261,18 +226,11 @@
      AND start_time <= '2021-01-21 20:00:00') AS session_recordings ON session_recordings.distinct_id = events.distinct_id
   JOIN
     (SELECT distinct_id,
-            argMax(person_id, _timestamp) as person_id
-     FROM
-       (SELECT distinct_id,
-               person_id,
-               max(_timestamp) as _timestamp
-        FROM person_distinct_id
-        WHERE team_id = 2
-        GROUP BY person_id,
-                 distinct_id,
-                 team_id
-        HAVING max(is_deleted) = 0)
-     GROUP BY distinct_id) as pdi ON pdi.distinct_id = session_recordings.distinct_id
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
+     WHERE team_id = 2
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) as pdi ON pdi.distinct_id = session_recordings.distinct_id
   WHERE ((notEmpty(session_recordings.window_id)
           AND events.session_id == session_recordings.session_id)
          OR (empty(session_recordings.window_id)
@@ -325,18 +283,11 @@
      AND start_time <= '2021-01-21 20:00:00') AS session_recordings ON session_recordings.distinct_id = events.distinct_id
   JOIN
     (SELECT distinct_id,
-            argMax(person_id, _timestamp) as person_id
-     FROM
-       (SELECT distinct_id,
-               person_id,
-               max(_timestamp) as _timestamp
-        FROM person_distinct_id
-        WHERE team_id = 2
-        GROUP BY person_id,
-                 distinct_id,
-                 team_id
-        HAVING max(is_deleted) = 0)
-     GROUP BY distinct_id) as pdi ON pdi.distinct_id = session_recordings.distinct_id
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
+     WHERE team_id = 2
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) as pdi ON pdi.distinct_id = session_recordings.distinct_id
   WHERE ((notEmpty(session_recordings.window_id)
           AND events.session_id == session_recordings.session_id)
          OR (empty(session_recordings.window_id)
@@ -376,18 +327,11 @@
      AND start_time <= '2021-01-21 20:00:00') AS session_recordings
   JOIN
     (SELECT distinct_id,
-            argMax(person_id, _timestamp) as person_id
-     FROM
-       (SELECT distinct_id,
-               person_id,
-               max(_timestamp) as _timestamp
-        FROM person_distinct_id
-        WHERE team_id = 2
-        GROUP BY person_id,
-                 distinct_id,
-                 team_id
-        HAVING max(is_deleted) = 0)
-     GROUP BY distinct_id) as pdi ON pdi.distinct_id = session_recordings.distinct_id
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
+     WHERE team_id = 2
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) as pdi ON pdi.distinct_id = session_recordings.distinct_id
   INNER JOIN
     (SELECT id
      FROM person
