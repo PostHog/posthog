@@ -4,6 +4,7 @@ from uuid import uuid4
 from rest_framework import status
 
 from ee.clickhouse.models.event import create_event
+from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.api.test.test_action import factory_test_action_api
 from posthog.api.test.test_action_people import action_people_test_factory
@@ -32,9 +33,21 @@ def _create_person(**kwargs):
     return Person(id=str(person.uuid))
 
 
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
+def _create_event(uuid=None, **kwargs):
+    kwargs.update({"event_uuid": uuid if uuid else uuid4()})
     create_event(**kwargs)
+
+
+def _create_session_recording_event(team_id, distinct_id, session_id, timestamp, window_id="", has_full_snapshot=True):
+    create_session_recording_event(
+        uuid=uuid4(),
+        team_id=team_id,
+        distinct_id=distinct_id,
+        timestamp=timestamp,
+        session_id=session_id,
+        window_id=window_id,
+        snapshot_data={"has_full_snapshot": has_full_snapshot,},
+    )
 
 
 class TestActionApi(ClickhouseTestMixin, factory_test_action_api(_create_event)):  # type: ignore
@@ -265,11 +278,15 @@ class TestActionPeople(
             team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-09T14:00:00Z",
         )
         _create_event(
+            uuid="693402ed-590e-4737-ba26-93ebf18121bd",
             team=self.team,
             event="$pageview",
             distinct_id="p1",
             timestamp="2020-01-09T12:00:00Z",
             properties={"$session_id": "s1", "$window_id": "w1"},
+        )
+        _create_session_recording_event(
+            self.team.pk, "u1", "s1", timestamp="2020-01-09T12:00:00Z",
         )
 
         people = self.client.get(
@@ -279,17 +296,26 @@ class TestActionPeople(
                 "date_to": "2020-01-12",
                 ENTITY_TYPE: "events",
                 ENTITY_ID: "$pageview",
-                "display": TRENDS_CUMULATIVE,  # ensure that the date range is used as is
+                "display": TRENDS_CUMULATIVE,
                 "breakdown_type": "event",
                 "breakdown_value": "",
                 "breakdown": "key",
+                "include_recordings": "true",
             },
         ).json()
         self.assertEqual(
-            people["results"][0]["people"][0]["matching_events_for_recording"],
+            people["results"][0]["people"][0]["matched_recordings"],
             [
-                {"timestamp": "2020-01-09T12:00:00Z", "session_id": "s1", "window_id": "w1",},
-                {"timestamp": "2020-01-09T14:00:00Z", "session_id": "", "window_id": "",},
+                {
+                    "session_id": "s1",
+                    "events": [
+                        {
+                            "window_id": "w1",
+                            "timestamp": "2020-01-09T12:00:00Z",
+                            "uuid": "693402ed-590e-4737-ba26-93ebf18121bd",
+                        }
+                    ],
+                },
             ],
         )
 

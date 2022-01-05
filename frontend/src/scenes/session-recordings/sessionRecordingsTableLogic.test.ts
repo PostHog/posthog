@@ -285,8 +285,8 @@ describe('sessionRecordingsTableLogic', () => {
         })
 
         it('reads sessionRecordingId from the URL on the person page', async () => {
-            router.actions.push('/person/123', { sessionRecordingId: 'recording1212' })
-            expect(router.values.searchParams).toHaveProperty('sessionRecordingId', 'recording1212')
+            router.actions.push('/person/123', {}, { sessionRecordingId: 'recording1212' })
+            expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'recording1212')
 
             await expectLogic(logic)
                 .toDispatchActions(['openSessionPlayer'])
