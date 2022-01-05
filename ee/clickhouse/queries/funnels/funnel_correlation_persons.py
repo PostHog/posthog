@@ -19,6 +19,8 @@ from posthog.models.team import Team
 
 
 class FunnelCorrelationActors(ActorBaseQuery):
+    _filter: Filter
+
     def __init__(self, filter: Filter, team: Team, base_uri: str = "/", **kwargs) -> None:
         self._base_uri = base_uri
         self._filter = filter
