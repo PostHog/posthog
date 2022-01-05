@@ -43,23 +43,33 @@ export interface FixedFilters {
 
 interface EventsTable {
     fixedFilters?: FixedFilters
-    filtersEnabled?: boolean
+    disableActions?: boolean
     pageKey: string
     hidePersonColumn?: boolean
     hideTableConfig?: boolean
     sceneUrl?: string
+    fetchMonths?: number
 }
 
 export function EventsTable({
     fixedFilters,
-    filtersEnabled = true,
     pageKey,
     hidePersonColumn,
     hideTableConfig,
     sceneUrl,
+    // Disables all interactivity and polling for filters
+    disableActions,
+    // How many months of data to fetch?
+    fetchMonths,
 }: EventsTable): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const logic = eventsTableLogic({ fixedFilters, key: pageKey, sceneUrl: sceneUrl || urls.events() })
+    const logic = eventsTableLogic({
+        fixedFilters,
+        key: pageKey,
+        sceneUrl: sceneUrl || urls.events(),
+        disableActions,
+        fetchMonths,
+    })
     const {
         properties,
         eventsFormatted,
@@ -72,6 +82,7 @@ export function EventsTable({
         exportUrl,
         highlightEvents,
         sceneIsEventsPage,
+        months,
     } = useValues(logic)
     const { tableWidth, selectedColumns } = useValues(tableConfigLogic)
     const { propertyNames } = useValues(propertyDefinitionsModel)
@@ -152,7 +163,7 @@ export function EventsTable({
                         return { props: { colSpan: 0 } }
                     }
                     const param = event.properties['$current_url'] ? '$current_url' : '$screen_name'
-                    if (filtersEnabled) {
+                    if (!disableActions) {
                         return (
                             <FilterPropertyLink
                                 className="ph-no-capture"
@@ -173,7 +184,7 @@ export function EventsTable({
                     if (!event) {
                         return { props: { colSpan: 0 } }
                     }
-                    if (filtersEnabled) {
+                    if (!disableActions) {
                         return (
                             <FilterPropertyLink
                                 property="$lib"
@@ -210,7 +221,7 @@ export function EventsTable({
                                           return { props: { colSpan: 0 } }
                                       }
                                   }
-                                  if (filtersEnabled) {
+                                  if (!disableActions) {
                                       return (
                                           <FilterPropertyLink
                                               className="ph-no-capture "
@@ -326,56 +337,56 @@ export function EventsTable({
     return (
         <div data-attr="manage-events-table">
             <div className="events" data-attr="events-table">
-                <EventPageHeader activeTab={EventsTab.Events} hideTabs={!sceneIsEventsPage} />
-                <div
-                    className="mb"
-                    style={{
-                        display: 'flex',
-                        gap: '0.75rem',
-                        flexWrap: 'wrap',
-                        justifyContent: 'space-between',
-                        alignItems: 'start',
-                    }}
-                >
-                    <div style={{ display: 'flex', gap: '0.75rem', flexDirection: 'column', flexGrow: 1 }}>
-                        <EventName
-                            value={eventFilter}
-                            onChange={(value: string) => {
-                                setEventFilter(value || '')
-                            }}
-                        />
-                        {filtersEnabled && (
+                {!disableActions && <EventPageHeader activeTab={EventsTab.Events} hideTabs={!sceneIsEventsPage} />}
+                {!disableActions && (
+                    <div
+                        className="mb"
+                        style={{
+                            display: 'flex',
+                            gap: '0.75rem',
+                            flexWrap: 'wrap',
+                            justifyContent: 'space-between',
+                            alignItems: 'start',
+                        }}
+                    >
+                        <div style={{ display: 'flex', gap: '0.75rem', flexDirection: 'column', flexGrow: 1 }}>
+                            <EventName
+                                value={eventFilter}
+                                onChange={(value: string) => {
+                                    setEventFilter(value || '')
+                                }}
+                            />
                             <PropertyFilters
                                 pageKey={pageKey}
                                 style={{ marginBottom: 0 }}
                                 eventNames={eventFilter ? [eventFilter] : []}
                             />
-                        )}
-                    </div>
+                        </div>
 
-                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.75rem' }}>
-                        <LemonSwitch
-                            id="autoload-switch"
-                            label="Automatically load new events"
-                            checked={automaticLoadEnabled}
-                            onChange={toggleAutomaticLoad}
-                        />
-                        {!hideTableConfig && (
-                            <TableConfig
-                                availableColumns={propertyNames}
-                                immutableColumns={['event', 'person']}
-                                defaultColumns={defaultColumns.map((e) => e.key || '')}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.75rem' }}>
+                            <LemonSwitch
+                                id="autoload-switch"
+                                label="Automatically load new events"
+                                checked={automaticLoadEnabled}
+                                onChange={toggleAutomaticLoad}
                             />
-                        )}
-                        {exportUrl && (
-                            <Tooltip title="Export up to 10,000 latest events." placement="left">
-                                <Button icon={<DownloadOutlined />} onClick={startDownload}>
-                                    Export events
-                                </Button>
-                            </Tooltip>
-                        )}
+                            {!hideTableConfig && (
+                                <TableConfig
+                                    availableColumns={propertyNames}
+                                    immutableColumns={['event', 'person']}
+                                    defaultColumns={defaultColumns.map((e) => e.key || '')}
+                                />
+                            )}
+                            {exportUrl && (
+                                <Tooltip title="Export up to 10,000 latest events." placement="left">
+                                    <Button icon={<DownloadOutlined />} onClick={startDownload}>
+                                        Export events
+                                    </Button>
+                                </Tooltip>
+                            )}
+                        </div>
                     </div>
-                </div>
+                )}
 
                 <LemonTable
                     dataSource={eventsFormatted}
@@ -385,7 +396,7 @@ export function EventsTable({
                     className="ph-no-capture"
                     emptyState={
                         isLoading ? undefined : filters.some((filter) => Object.keys(filter).length) || eventFilter ? (
-                            'No events matching filters!'
+                            `No events matching filters found in the last ${months} months!`
                         ) : (
                             <>
                                 This project doesn't have any events. If you haven't integrated PostHog yet,{' '}

@@ -12,6 +12,8 @@ from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
 from posthog.queries.base import TIME_IN_SECONDS
 from posthog.types import FilterType
 
+EARLIEST_TIMESTAMP = "2015-01-01"
+
 
 def parse_timestamps(filter: FilterType, team_id: int, table: str = "") -> Tuple[str, str, dict]:
     date_from = None
@@ -48,7 +50,7 @@ def format_ch_timestamp(timestamp: datetime, filter, default_hour_min: str = " 0
 
 
 def get_earliest_timestamp(team_id: int) -> datetime:
-    results = sync_execute(GET_EARLIEST_TIMESTAMP_SQL, {"team_id": team_id})
+    results = sync_execute(GET_EARLIEST_TIMESTAMP_SQL, {"team_id": team_id, "earliest_timestamp": EARLIEST_TIMESTAMP})
     if len(results) > 0:
         return results[0][0]
     else:
