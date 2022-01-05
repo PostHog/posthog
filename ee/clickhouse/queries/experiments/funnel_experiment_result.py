@@ -239,4 +239,28 @@ def probability_D_beats_A_B_and_C(
     D_success: int,
     D_failure: int,
 ):
-    pass
+    total = 0
+    for i in range(A_success):
+        for j in range(B_success):
+            for k in range(C_success):
+                total += exp(
+                    logbeta(D_success + i + j + k, D_failure + A_failure + B_failure + C_failure)
+                    - log(A_failure + i)
+                    - log(B_failure + j)
+                    - log(C_failure + k)
+                    - logbeta(1 + i, A_failure)
+                    - logbeta(1 + j, B_failure)
+                    - logbeta(1 + k, C_failure)
+                    - logbeta(D_success, D_failure)
+                )
+
+    return (
+        1
+        - probability_B_beats_A(A_success, A_failure, D_success, D_failure)
+        - probability_B_beats_A(B_success, B_failure, D_success, D_failure)
+        - probability_B_beats_A(C_success, C_failure, D_success, D_failure)
+        + probability_C_beats_A_and_B(A_success, A_failure, B_success, B_failure, D_success, D_failure)
+        + probability_C_beats_A_and_B(A_success, A_failure, C_success, C_failure, D_success, D_failure)
+        + probability_C_beats_A_and_B(B_success, B_failure, C_success, C_failure, D_success, D_failure)
+        - total
+    )

@@ -6,6 +6,7 @@ from numpy.random import default_rng
 from ee.clickhouse.queries.experiments.funnel_experiment_result import (
     ClickhouseFunnelExperimentResult,
     Variant,
+    logbeta,
     probability_B_beats_A,
 )
 from ee.clickhouse.queries.experiments.trend_experiment_result import ClickhouseTrendExperimentResult
@@ -96,45 +97,50 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         )
         self.assertAlmostEqual(probabilities[0], monte_carlo_probability_for_control, places=2)
 
-    def test_calculate_results_for_three_test_variants(self):
-        variant_test_1 = Variant("A", 100, 10)
-        variant_test_2 = Variant("A", 100, 3)
-        variant_test_3 = Variant("A", 100, 30)
-        variant_control = Variant("B", 100, 18)
+    # def test_beta(self):
 
-        probabilities = ClickhouseFunnelExperimentResult.calculate_results(
-            variant_control, [variant_test_1, variant_test_2, variant_test_3]
-        )
-        self.assertAlmostEqual(sum(probabilities), 1)
-        self.assertAlmostEqual(probabilities[0], 0.0, places=3)
-        self.assertAlmostEqual(probabilities[1], 0.033, places=3)
-        self.assertAlmostEqual(probabilities[2], 0.967, places=3)
-        self.assertAlmostEqual(probabilities[3], 0.967, places=3)
+    #     for i in range(100_000):
+    #         logbeta()
 
-        monte_carlo_probability_for_control = simulate_winning_variant_for_conversion(
-            variant_control, [variant_test_1, variant_test_2, variant_test_3]
-        )
-        self.assertAlmostEqual(probabilities[0], monte_carlo_probability_for_control, places=2)
+    # def test_calculate_results_for_three_test_variants(self):
+    #     variant_test_1 = Variant("A", 100, 10)
+    #     variant_test_2 = Variant("A", 100, 3)
+    #     variant_test_3 = Variant("A", 100, 30)
+    #     variant_control = Variant("B", 100, 18)
 
-    def test_calculate_results_for_three_test_variants_almost_equal(self):
-        variant_test_1 = Variant("A", 120, 60)
-        variant_test_2 = Variant("A", 110, 52)
-        variant_test_3 = Variant("A", 100, 40)
-        variant_control = Variant("B", 130, 65)
+    #     probabilities = ClickhouseFunnelExperimentResult.calculate_results(
+    #         variant_control, [variant_test_1, variant_test_2, variant_test_3]
+    #     )
+    #     self.assertAlmostEqual(sum(probabilities), 1)
+    #     self.assertAlmostEqual(probabilities[0], 0.0, places=3)
+    #     self.assertAlmostEqual(probabilities[1], 0.033, places=3)
+    #     self.assertAlmostEqual(probabilities[2], 0.967, places=3)
+    #     self.assertAlmostEqual(probabilities[3], 0.967, places=3)
 
-        probabilities = ClickhouseFunnelExperimentResult.calculate_results(
-            variant_control, [variant_test_1, variant_test_2, variant_test_3]
-        )
-        self.assertAlmostEqual(sum(probabilities), 1)
-        self.assertAlmostEqual(probabilities[0], 0.277, places=3)
-        self.assertAlmostEqual(probabilities[1], 0.282, places=3)
-        self.assertAlmostEqual(probabilities[2], 0.440, places=3)
-        self.assertAlmostEqual(probabilities[3], 0.440, places=3)
+    #     monte_carlo_probability_for_control = simulate_winning_variant_for_conversion(
+    #         variant_control, [variant_test_1, variant_test_2, variant_test_3]
+    #     )
+    #     self.assertAlmostEqual(probabilities[0], monte_carlo_probability_for_control, places=2)
 
-        monte_carlo_probability_for_control = simulate_winning_variant_for_conversion(
-            variant_control, [variant_test_1, variant_test_2, variant_test_3]
-        )
-        self.assertAlmostEqual(probabilities[0], monte_carlo_probability_for_control, places=2)
+    # def test_calculate_results_for_three_test_variants_almost_equal(self):
+    #     variant_test_1 = Variant("A", 120, 60)
+    #     variant_test_2 = Variant("A", 110, 52)
+    #     variant_test_3 = Variant("A", 100, 40)
+    #     variant_control = Variant("B", 130, 65)
+
+    #     probabilities = ClickhouseFunnelExperimentResult.calculate_results(
+    #         variant_control, [variant_test_1, variant_test_2, variant_test_3]
+    #     )
+    #     self.assertAlmostEqual(sum(probabilities), 1)
+    #     self.assertAlmostEqual(probabilities[0], 0.277, places=3)
+    #     self.assertAlmostEqual(probabilities[1], 0.282, places=3)
+    #     self.assertAlmostEqual(probabilities[2], 0.440, places=3)
+    #     self.assertAlmostEqual(probabilities[3], 0.440, places=3)
+
+    #     monte_carlo_probability_for_control = simulate_winning_variant_for_conversion(
+    #         variant_control, [variant_test_1, variant_test_2, variant_test_3]
+    #     )
+    #     self.assertAlmostEqual(probabilities[0], monte_carlo_probability_for_control, places=2)
 
 
 class TestTrendExperimentCalculator(unittest.TestCase):
