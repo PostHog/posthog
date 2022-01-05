@@ -53,3 +53,12 @@ def is_async_migration_complete(migration_name: str) -> bool:
         name=migration_name, status=MigrationStatus.CompletedSuccessfully
     ).first()
     return migration_instance is not None
+
+
+def is_async_migration_required(migration_name: str) -> bool:
+    from posthog.async_migrations.setup import get_async_migration_definition
+
+    try:
+        return not get_async_migration_definition(migration_name).is_required()
+    except:
+        return False
