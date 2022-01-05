@@ -79,7 +79,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         feature_flag_key = validated_data.pop("get_feature_flag_key")
 
-        is_draft = "start_date" not in validated_data
+        is_draft = "start_date" not in validated_data or validated_data["start_date"] is None
 
         properties = validated_data["filters"].get("properties", [])
 
