@@ -340,9 +340,11 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                     isNext: !!nextParams,
                 })
 
-                // uses window setTimeout because typegen had a hard time with NodeJS.Timeout
-                const timeout = window.setTimeout(actions.pollEvents, POLL_TIMEOUT)
-                actions.setPollTimeout(timeout)
+                if (!props.disableActions) {
+                    // uses window setTimeout because typegen had a hard time with NodeJS.Timeout
+                    const timeout = window.setTimeout(actions.pollEvents, POLL_TIMEOUT)
+                    actions.setPollTimeout(timeout)
+                }
             },
         ],
         pollEvents: async (_, breakpoint) => {

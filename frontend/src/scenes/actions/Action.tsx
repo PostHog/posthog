@@ -24,7 +24,12 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
 
     const { push } = useActions(router)
     const { fetchEvents } = useActions(
-        eventsTableLogic({ fixedFilters, sceneUrl: id ? urls.action(id) : urls.actions(), key: 'Action' })
+        eventsTableLogic({
+            fixedFilters,
+            sceneUrl: id ? urls.action(id) : urls.actions(),
+            key: 'Action',
+            disableActions: true,
+        })
     )
     const { action, isComplete } = useValues(actionLogic({ id, onComplete: fetchEvents }))
     const { loadAction } = useActions(actionLogic({ id, onComplete: fetchEvents }))
