@@ -30,8 +30,6 @@ def _handle_date_interval(filter: Filter) -> Filter:
         data.update({"date_to": date_from})
     elif filter.interval == "hour":
         data.update({"date_to": date_from + timedelta(hours=1)})
-    elif filter.interval == "minute":
-        data.update({"date_to": date_from + timedelta(minutes=1)})
     return filter.with_data(data)
 
 

@@ -1,8 +1,4 @@
 export const intervals = {
-    minute: {
-        label: 'Minute',
-        newDateFrom: 'dStart',
-    },
     hour: {
         label: 'Hour',
         newDateFrom: 'dStart',
