@@ -118,11 +118,11 @@ class ClickhouseFunnelExperimentResult:
         # calculation:
         # https://www.evanmiller.org/bayesian-ab-testing.html#binary_ab
 
-        test_success = prior_success + variants[1].success_count
-        test_failure = prior_failure + variants[1].failure_count
+        test_success = prior_success + test_variants[0].success_count
+        test_failure = prior_failure + test_variants[0].failure_count
 
-        control_success = prior_success + variants[0].success_count
-        control_failure = prior_failure + variants[0].failure_count
+        control_success = prior_success + control_variant.success_count
+        control_failure = prior_failure + control_variant.failure_count
 
         return probability_B_beats_A(control_success, control_failure, test_success, test_failure)
 
@@ -138,3 +138,22 @@ def probability_B_beats_A(A_success: int, A_failure: int, B_success: int, B_fail
         )
 
     return total
+
+def probability_C_beats_A_and_B(A_success: int, A_failure: int, B_success: int, B_failure: int, C_success: int, C_failure: int):
+
+    total: float = 0
+    for i in range(A_success):
+        for j in range(B_success):
+            total += exp(
+                sc.betaln(C_success + i + j, C_failure + A_failure + B_failure)
+                - log(A_failure + i)
+                - log(B_failure + j)
+                - sc.betaln(1 + i, A_failure)
+                - sc.betaln(1 + j, B_failure)
+                - sc.betaln(C_success, C_failure)
+            )
+    
+    return 1 - probability_B_beats_A(C_success, C_failure, A_success, A_failure) - probability_B_beats_A(C_success, C_failure, B_success, B_failure) + total
+
+def probability_D_beats_A_B_and_C(A_success: int, A_failure: int, B_success: int, B_failure: int, C_success: int, C_failure: int, D_success: int, D_failure: int):
+    pass
