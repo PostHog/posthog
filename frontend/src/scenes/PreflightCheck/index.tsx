@@ -1,8 +1,9 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
 import { preflightLogic } from './logic'
-import { Row, Col, Space, Card, Button } from 'antd'
-import hedgehogBlue from 'public/hedgehog-blue.png'
+import { Row, Col, Card, Button, Steps } from 'antd'
+import suprisedHog from 'public/surprised-hog.png'
+import posthogLogo from 'public/posthog-logo.png'
 import {
     CheckSquareFilled,
     CloseSquareFilled,
@@ -18,6 +19,8 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
+
+const { Step } = Steps
 
 interface PreflightItemInterface {
     name: string
@@ -150,26 +153,46 @@ export function PreflightCheck(): JSX.Element {
 
     return (
         <div style={{ minHeight: '100vh' }}>
-            <Space direction="vertical" className="space-top" style={{ width: '100%', paddingLeft: 32 }}>
-                <PageHeader title="Welcome to PostHog!" caption="Understand your users. Build a better product." />
-            </Space>
-            <Col xs={24} style={{ margin: '0 16px' }}>
-                <h2 className="subtitle text-center space-top">
-                    We're glad to have you here! Let's get you started with PostHog.
-                </h2>
-            </Col>
+            <Row
+                style={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    paddingTop: 32,
+                    paddingBottom: 32,
+                    backgroundColor: '#eeefe9',
+                }}
+            >
+                <img src={posthogLogo} style={{ width: 157, height: 30 }} />
+            </Row>
+            <Row style={{ display: 'flex', justifyContent: 'center', paddingBottom: 16 }}>
+                <PageHeader title="Lets get started..." />
+            </Row>
+            <Row style={{ display: 'flex', justifyContent: 'center' }}>
+                <div style={{ width: 960 }}>
+                    <Steps current={0}>
+                        <Step title="Preflight check" subTitle="1 min" description="Prepare your instance" />
+                        <Step
+                            title="Event capture"
+                            subTitle="15 mins"
+                            description="Set up your app to capture events"
+                        />
+                        <Step
+                            title="Setup your team"
+                            subTitle="5 mins"
+                            description="Invite your team and start discovering insights"
+                        />
+                    </Steps>
+                </div>
+            </Row>
             <Row style={{ display: 'flex', justifyContent: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'column' }}>
-                    <img src={hedgehogBlue} style={{ maxHeight: '100%', width: 320 }} />
-                    <p>Got any PostHog questions?</p>
+                    <img src={suprisedHog} style={{ maxHeight: '100%', width: 320 }} />
+                    <p>Any questions?</p>
                     <Button type="default" data-attr="support" data-source="preflight">
                         <a href="https://posthog.com/support" target="_blank" rel="noreferrer">
-                            Find support
+                            Get support
                         </a>
                     </Button>
-                    <div className="breadcrumbs space-top">
-                        <span className="selected">Preflight check</span> &gt; Event capture &gt; Team setup
-                    </div>
                 </div>
                 <div
                     style={{
@@ -183,7 +206,7 @@ export function PreflightCheck(): JSX.Element {
                     <Card style={{ width: '100%' }}>
                         <Row style={{ display: 'flex', justifyContent: 'space-between', lineHeight: '32px' }}>
                             {!preflightMode ? (
-                                <b style={{ fontSize: 16 }}>Select preflight mode</b>
+                                <b style={{ fontSize: 16 }}>Select launch mode</b>
                             ) : (
                                 <>
                                     <b style={{ fontSize: 16 }}>
@@ -192,7 +215,7 @@ export function PreflightCheck(): JSX.Element {
                                                 style={{ color: blue.primary, cursor: 'pointer' }}
                                                 onClick={() => setPreflightMode(null)}
                                             >
-                                                Select preflight mode
+                                                Select launch mode
                                             </span>{' '}
                                             &gt; {capitalizeFirstLetter(preflightMode)}
                                         </span>
@@ -210,9 +233,7 @@ export function PreflightCheck(): JSX.Element {
                             )}
                         </Row>
                         {!preflightMode && (
-                            <div>
-                                What's your plan for this installation? We'll make infrastructure checks accordingly.
-                            </div>
+                            <div>We're excited to have you here. What's your plan for this installation?</div>
                         )}
                         <div
                             className="text-center"
@@ -223,14 +244,16 @@ export function PreflightCheck(): JSX.Element {
                                     <Button
                                         type="default"
                                         data-attr="preflight-experimentation"
+                                        size="large"
                                         onClick={() => setPreflightMode('experimentation')}
                                         icon={<ApiTwoTone />}
                                     >
-                                        Just experimenting
+                                        Just playing
                                     </Button>
                                     <Button
                                         type="primary"
                                         style={{ marginLeft: 16 }}
+                                        size="large"
                                         data-attr="preflight-live"
                                         onClick={() => setPreflightMode('live')}
                                         icon={<RocketFilled />}
@@ -249,10 +272,6 @@ export function PreflightCheck(): JSX.Element {
                                     </Row>
                                 </>
                             )}
-                        </div>
-
-                        <div style={{ fontSize: 12, textAlign: 'center' }}>
-                            We will not enforce some security requirements in experimentation mode.
                         </div>
                     </Card>
                     {preflightMode && (

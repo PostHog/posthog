@@ -1,11 +1,11 @@
 import React, { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
-import { Modal, Button, Input, Skeleton } from 'antd'
+import { Modal, Button, Input, Skeleton, Select } from 'antd'
 import { FilterType, InsightType, ActorType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { isGroupType, midEllipsis, pluralize } from 'lib/utils'
+import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
 import './PersonsModal.scss'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
@@ -16,6 +16,10 @@ import api from '../../lib/api'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { GroupActorHeader } from 'scenes/persons/GroupActorHeader'
 import { IconPersonFilled } from 'lib/components/icons'
+import { InsightLabel } from 'lib/components/InsightLabel'
+import { getChartColors } from 'lib/colors'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface PersonsModalProps {
     visible: boolean
@@ -42,10 +46,18 @@ export function PersonsModal({
         isInitialLoad,
         clickhouseFeaturesEnabled,
         peopleParams,
+        actorLabel,
     } = useValues(personsModalLogic)
-    const { hidePeople, loadMorePeople, setFirstLoadedActors, setPersonsModalFilters, setSearchTerm } =
-        useActions(personsModalLogic)
+    const {
+        hidePeople,
+        loadMorePeople,
+        setFirstLoadedActors,
+        setPersonsModalFilters,
+        setSearchTerm,
+        switchToDataPoint,
+    } = useActions(personsModalLogic)
     const { preflight } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const title = useMemo(
         () =>
@@ -70,7 +82,7 @@ export function PersonsModal({
                 </>
             ) : (
                 <>
-                    <PropertyKeyInfo value={people?.label || ''} disablePopover /> on{' '}
+                    {capitalizeFirstLetter(actorLabel)} list on{' '}
                     <DateDisplay interval={filters.interval || 'day'} date={people?.day?.toString() || ''} />
                 </>
             ),
@@ -82,6 +94,10 @@ export function PersonsModal({
         clickhouseFeaturesEnabled &&
         (view === InsightType.TRENDS || view === InsightType.STICKINESS) &&
         showModalActions
+
+    const colorList = getChartColors('white', people?.crossDataset?.length)
+    const showCountedByTag = !!people?.crossDataset?.find(({ action }) => action?.math && action.math !== 'total')
+    const hasMultipleSeries = !!people?.crossDataset?.find(({ action }) => action?.order)
 
     return (
         <Modal
@@ -154,6 +170,32 @@ export function PersonsModal({
                                 }
                             />
                         )}
+                        {featureFlags[FEATURE_FLAGS.MULTI_POINT_PERSON_MODAL] &&
+                            !!people.crossDataset?.length &&
+                            people.seriesId !== undefined && (
+                                <div className="data-point-selector">
+                                    <Select value={people.seriesId} onChange={(_id) => switchToDataPoint(_id)}>
+                                        {people.crossDataset.map((dataPoint) => (
+                                            <Select.Option
+                                                value={dataPoint.id}
+                                                key={`${dataPoint.action?.id}${dataPoint.breakdown_value}`}
+                                            >
+                                                <InsightLabel
+                                                    seriesColor={colorList[dataPoint.id]}
+                                                    action={dataPoint.action}
+                                                    breakdownValue={
+                                                        dataPoint.breakdown_value === ''
+                                                            ? 'None'
+                                                            : dataPoint.breakdown_value?.toString()
+                                                    }
+                                                    showCountedByTag={showCountedByTag}
+                                                    hasMultipleSeries={hasMultipleSeries}
+                                                />
+                                            </Select.Option>
+                                        ))}
+                                    </Select>
+                                </div>
+                            )}
                         <div className="user-count-subheader">
                             <IconPersonFilled style={{ fontSize: '1.125rem', marginRight: '0.5rem' }} />
                             <span>

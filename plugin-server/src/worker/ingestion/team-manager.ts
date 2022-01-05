@@ -18,8 +18,7 @@ export class TeamManager {
     teamCache: TeamCache<Team | null>
     eventDefinitionsCache: Map<TeamId, Set<string>>
     eventPropertiesCache: LRU<string, Set<string>> // Map<JSON.stringify([TeamId, Event], Set<Property>>
-    eventLastSeenCache: Map<string, number> // key: JSON.stringify([team_id, event]); value: timestamp (in ms)
-    lastFlushAt: DateTime // time when the `eventLastSeenCache` was last flushed
+    eventLastSeenCache: LRU<string, number> // key: JSON.stringify([team_id, event]); value: parseInt(YYYYMMDD)
     propertyDefinitionsCache: Map<TeamId, Set<string>>
     instanceSiteUrl: string
     experimentalLastSeenAtEnabled: boolean
@@ -33,13 +32,16 @@ export class TeamManager {
         this.eventDefinitionsCache = new Map()
         this.eventPropertiesCache = new LRU({
             max: serverConfig.EVENT_PROPERTY_LRU_SIZE, // keep in memory the last 10k team+event combos we have seen
-            maxAge: ONE_HOUR, // and each for up to 1 hour
+            maxAge: ONE_HOUR * 24, // cache up to 24h
             updateAgeOnGet: true,
         })
-        this.eventLastSeenCache = new Map()
+        this.eventLastSeenCache = new LRU({
+            max: serverConfig.EVENT_PROPERTY_LRU_SIZE, // keep in memory the last 10k team+event combos we have seen
+            maxAge: ONE_HOUR * 24, // cache up to 24h
+            updateAgeOnGet: true,
+        })
         this.propertyDefinitionsCache = new Map()
         this.instanceSiteUrl = serverConfig.SITE_URL || 'unknown'
-        this.lastFlushAt = DateTime.now()
 
         // TODO: #7422 Remove temporary EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED
         this.experimentalLastSeenAtEnabled = serverConfig.EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED ?? false
@@ -62,47 +64,6 @@ export class TeamManager {
         } finally {
             clearTimeout(timeout)
         }
-    }
-
-    async flushLastSeenAtCache(): Promise<void> {
-        const valuesStatements = []
-        const params: (string | number)[] = []
-
-        const startTime = DateTime.now()
-        const cacheSize = this.eventLastSeenCache.size
-
-        const lastFlushedSecondsAgo = DateTime.now().diff(this.lastFlushAt).as('seconds')
-        status.info(
-            `🚽 Starting flushLastSeenAtCache. Cache size: ${cacheSize} items. Last flushed: ${lastFlushedSecondsAgo} seconds ago.`
-        )
-
-        const events = this.eventLastSeenCache
-        this.eventLastSeenCache = new Map()
-
-        for (const [key, timestamp] of events) {
-            const [teamId, eventName] = JSON.parse(key)
-            if (teamId && eventName && timestamp) {
-                valuesStatements.push(`($${params.length + 1},$${params.length + 2},$${params.length + 3})`)
-                params.push(teamId, eventName, timestamp / 1000)
-            }
-        }
-
-        this.lastFlushAt = DateTime.now()
-
-        if (params.length) {
-            await this.db.postgresQuery(
-                `UPDATE posthog_eventdefinition AS t1 SET last_seen_at = GREATEST(t1.last_seen_at, to_timestamp(t2.last_seen_at::numeric))
-                FROM (VALUES ${valuesStatements.join(',')}) AS t2(team_id, name, last_seen_at)
-                WHERE t1.name = t2.name AND t1.team_id = t2.team_id::integer`,
-                params,
-                'updateEventLastSeen'
-            )
-        }
-        const elapsedTime = DateTime.now().diff(startTime).as('milliseconds')
-        this.statsd?.set('flushLastSeenAtCache.Size', cacheSize)
-        this.statsd?.set('flushLastSeenAtCache.QuerySize', params.length)
-        this.statsd?.timing('flushLastSeenAtCache', elapsedTime)
-        status.info(`✅ 🚽 flushLastSeenAtCache finished successfully in ${elapsedTime} ms.`)
     }
 
     public async updateEventNamesAndProperties(teamId: number, event: string, properties: Properties): Promise<void> {
@@ -133,10 +94,14 @@ export class TeamManager {
     }
 
     private async syncEventDefinitions(team: Team, event: string) {
+        const cacheKey = JSON.stringify([team.id, event])
+        const cacheTime = parseInt(DateTime.now().toFormat('yyyyMMdd', { timeZone: 'UTC' }))
+
         if (!this.eventDefinitionsCache.get(team.id)?.has(event)) {
             // TODO: #7422 Temporary conditional to test experimental feature
             if (this.experimentalLastSeenAtEnabled) {
                 status.info('Inserting new event definition with last_seen_at')
+                this.eventLastSeenCache.set(cacheKey, cacheTime)
                 await this.db.postgresQuery(
                     `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, last_seen_at, created_at)` +
                         ` VALUES ($1, $2, NULL, NULL, $3, $4, NOW())` +
@@ -158,16 +123,13 @@ export class TeamManager {
         } else {
             // TODO: #7422 Temporary conditional to test experimental feature
             if (this.experimentalLastSeenAtEnabled) {
-                const eventCacheKey = JSON.stringify([team.id, event])
-                const timestamp = DateTime.now().valueOf()
-                if ((this.eventLastSeenCache.get(eventCacheKey) ?? 0) < timestamp) {
-                    this.eventLastSeenCache.set(eventCacheKey, timestamp)
-                }
-                // TODO: Allow configuring this via env vars
-                // We flush here every 2 mins (as a failsafe) because the main thread flushes every minute
-                if (this.eventLastSeenCache.size > 1000 || DateTime.now().diff(this.lastFlushAt).as('seconds') > 120) {
-                    // to not run out of memory
-                    await this.flushLastSeenAtCache()
+                if ((this.eventLastSeenCache.get(cacheKey) ?? 0) < cacheTime) {
+                    this.eventLastSeenCache.set(cacheKey, cacheTime)
+                    await this.db.postgresQuery(
+                        `UPDATE posthog_eventdefinition SET last_seen_at=$1 WHERE team_id=$2 and name=$3`,
+                        [DateTime.now(), team.id, event],
+                        'updateEventLastSeenAt'
+                    )
                 }
             }
         }

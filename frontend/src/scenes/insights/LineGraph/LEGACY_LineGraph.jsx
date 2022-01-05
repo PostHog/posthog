@@ -420,6 +420,7 @@ export function LEGACY_LineGraph({
                             pointsIntersectingLine: [{ ...point, dataset }],
                             pointsIntersectingClick: [{ ...point, dataset }],
                             clickedPointNotLine: true,
+                            referencePoint: { ...point, dataset },
                         },
                         index: point._index,
                     })

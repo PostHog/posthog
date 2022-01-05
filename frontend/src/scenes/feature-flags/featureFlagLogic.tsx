@@ -333,7 +333,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
             (s) => [s.featureFlag],
             (featureFlag): Breadcrumb[] => [
                 {
-                    name: 'Feature flags',
+                    name: 'Feature Flags',
                     path: urls.featureFlags(),
                 },
                 ...(featureFlag ? [{ name: featureFlag.key || 'Unnamed' }] : []),

@@ -152,7 +152,7 @@ export function DateFilter({
 
                     return (
                         <Select.Option key={key} value={key} label={makeLabel ? makeLabel(dateValue) : undefined}>
-                            {key} {isDateFormatted && key !== 'All time' ? `(${dateValue})` : ''}
+                            {key}
                         </Select.Option>
                     )
                 }),

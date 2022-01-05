@@ -1,9 +1,9 @@
 import React, { useState } from 'react'
 import { Modal, Button, Card, Row, Col } from 'antd'
-import { EditAppUrls } from 'lib/components/AppEditorLink/EditAppUrls'
 import { SearchOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
+import { AuthorizedUrlsTable } from 'scenes/toolbar-launch/AuthorizedUrlsTable'
 
 export function NewActionButton(): JSX.Element {
     const [visible, setVisible] = useState(false)
@@ -67,7 +67,7 @@ export function NewActionButton(): JSX.Element {
                         </Col>
                     </Row>
                 )}
-                {appUrlsVisible && <EditAppUrls allowNavigation />}
+                {appUrlsVisible && <AuthorizedUrlsTable />}
             </Modal>
         </>
     )
