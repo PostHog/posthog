@@ -14,16 +14,9 @@
 # name: ClickhouseTestTrends.test_insight_trends_aggregate.1
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT person_id AS actor_id ,
-         groupUniqArray(10)((timestamp,
-                             $session_id,
-                             $window_id)) as matching_events
+  SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
-            trim(BOTH '"'
-                 FROM JSONExtractRaw(e.properties, '$window_id')) as $window_id,
-            trim(BOTH '"'
-                 FROM JSONExtractRaw(e.properties, '$session_id')) as $session_id,
             pdi.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
@@ -89,16 +82,9 @@
 # name: ClickhouseTestTrends.test_insight_trends_basic.1
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT person_id AS actor_id ,
-         groupUniqArray(10)((timestamp,
-                             $session_id,
-                             $window_id)) as matching_events
+  SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
-            trim(BOTH '"'
-                 FROM JSONExtractRaw(e.properties, '$window_id')) as $window_id,
-            trim(BOTH '"'
-                 FROM JSONExtractRaw(e.properties, '$session_id')) as $session_id,
             pdi.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
@@ -156,16 +142,9 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.1
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT person_id AS actor_id ,
-         groupUniqArray(10)((timestamp,
-                             $session_id,
-                             $window_id)) as matching_events
+  SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
-            trim(BOTH '"'
-                 FROM JSONExtractRaw(e.properties, '$window_id')) as $window_id,
-            trim(BOTH '"'
-                 FROM JSONExtractRaw(e.properties, '$session_id')) as $session_id,
             pdi.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
@@ -235,16 +214,9 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.3
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT person_id AS actor_id ,
-         groupUniqArray(10)((timestamp,
-                             $session_id,
-                             $window_id)) as matching_events
+  SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
-            trim(BOTH '"'
-                 FROM JSONExtractRaw(e.properties, '$window_id')) as $window_id,
-            trim(BOTH '"'
-                 FROM JSONExtractRaw(e.properties, '$session_id')) as $session_id,
             pdi.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
@@ -340,17 +312,10 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.6
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT person_id AS actor_id ,
-         groupUniqArray(10)((timestamp,
-                             $session_id,
-                             $window_id)) as matching_events
+  SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
             e.properties as properties,
-            trim(BOTH '"'
-                 FROM JSONExtractRaw(e.properties, '$window_id')) as $window_id,
-            trim(BOTH '"'
-                 FROM JSONExtractRaw(e.properties, '$session_id')) as $session_id,
             pdi.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
@@ -465,17 +430,10 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.9
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT person_id AS actor_id ,
-         groupUniqArray(10)((timestamp,
-                             $session_id,
-                             $window_id)) as matching_events
+  SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
             e.properties as properties,
-            trim(BOTH '"'
-                 FROM JSONExtractRaw(e.properties, '$window_id')) as $window_id,
-            trim(BOTH '"'
-                 FROM JSONExtractRaw(e.properties, '$session_id')) as $session_id,
             pdi.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
@@ -537,17 +495,10 @@
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group.1
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ClickhouseActionsViewSet) */
-  SELECT $group_0 AS actor_id ,
-         groupUniqArray(10)((timestamp,
-                             $session_id,
-                             $window_id)) as matching_events
+  SELECT $group_0 AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
-            e.$group_0 as $group_0,
-            trim(BOTH '"'
-                 FROM JSONExtractRaw(e.properties, '$window_id')) as $window_id,
-            trim(BOTH '"'
-                 FROM JSONExtractRaw(e.properties, '$session_id')) as $session_id
+            e.$group_0 as $group_0
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
