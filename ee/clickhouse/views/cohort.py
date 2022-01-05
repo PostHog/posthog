@@ -8,6 +8,7 @@ from rest_framework.request import Request
 from sentry_sdk.api import capture_exception
 
 from ee.clickhouse.client import substitute_params, sync_execute
+from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 from ee.clickhouse.queries.paths.paths_actors import ClickhousePathsActors
 from ee.clickhouse.queries.stickiness.stickiness_actors import ClickhouseStickinessActors
@@ -50,36 +51,39 @@ def insert_cohort_people_into_pg(cohort: Cohort):
 
 def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
     insight_type = filter_data.get("insight")
+    query_builder: ActorBaseQuery
 
     if insight_type == INSIGHT_TRENDS:
         filter = Filter(data=filter_data, team=cohort.team)
         entity = get_target_entity(filter)
-        query, params = ClickhouseTrendsActors(cohort.team, entity, filter).actor_query(limit_actors=False)
+        query_builder = ClickhouseTrendsActors(cohort.team, entity, filter)
     elif insight_type == INSIGHT_STICKINESS:
         stickiness_filter = StickinessFilter(data=filter_data, team=cohort.team)
         entity = get_target_entity(stickiness_filter)
-        query, params = ClickhouseStickinessActors(cohort.team, entity, stickiness_filter).actor_query(
-            limit_actors=False
-        )
+        query_builder = ClickhouseStickinessActors(cohort.team, entity, stickiness_filter)
     elif insight_type == INSIGHT_FUNNELS:
         funnel_filter = Filter(data=filter_data, team=cohort.team)
         if funnel_filter.correlation_person_entity:
-            query, params = FunnelCorrelationActors(filter=funnel_filter, team=cohort.team).actor_query(
-                limit_actors=False
-            )
+            query_builder = FunnelCorrelationActors(filter=funnel_filter, team=cohort.team)
         else:
             funnel_actor_class = get_funnel_actor_class(funnel_filter)
-            query, params = funnel_actor_class(filter=funnel_filter, team=cohort.team).actor_query(limit_actors=False)
+            query_builder = funnel_actor_class(filter=funnel_filter, team=cohort.team)
     elif insight_type == INSIGHT_PATHS:
         path_filter = PathFilter(data=filter_data, team=cohort.team)
-        query, params = ClickhousePathsActors(path_filter, cohort.team, funnel_filter=None).actor_query(
-            limit_actors=False
-        )
+        query_builder = ClickhousePathsActors(path_filter, cohort.team, funnel_filter=None)
     else:
         if settings.DEBUG:
             raise ValueError(f"Insight type: {insight_type} not supported for cohort creation")
         else:
             capture_exception(Exception(f"Insight type: {insight_type} not supported for cohort creation"))
+
+    if query_builder.is_aggregating_by_groups:
+        if settings.DEBUG:
+            raise ValueError(f"Query type: Group based queries are not supported for cohort creation")
+        else:
+            capture_exception(Exception(f"Query type: Group based queries are not supported for cohort creation"))
+    else:
+        query, params = query_builder.actor_query(limit_actors=False)
 
     insert_actors_into_cohort_by_query(cohort, substitute_params(query, params))
 
