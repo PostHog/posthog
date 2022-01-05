@@ -111,9 +111,11 @@ export const propertyDefinitionsModel = kea<
         ],
         formatForDisplay: [
             (s) => [s.propertyDefinitions],
-            (propertyDefinitions: PropertyDefinition[]): ((propertyName: string, valueToFormat: unknown) => string) =>
-                (propertyName: string, valueToFormat: unknown) => {
-                    const match = propertyDefinitions.find((pd) => pd.name === propertyName)
+            (
+                    propertyDefinitions: PropertyDefinition[]
+                ): ((propertyName: string | undefined, valueToFormat: unknown) => string) =>
+                (propertyName: string | undefined, valueToFormat: unknown) => {
+                    const match = propertyName ? propertyDefinitions.find((pd) => pd.name === propertyName) : undefined
                     if (match?.property_type === 'DateTime' && match?.property_type_format === 'unix_timestamp') {
                         return dayjs.unix(valueToFormat as number).format('YYYY-MM-DD hh:mm:ss')
                     }

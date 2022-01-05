@@ -391,7 +391,8 @@ export function isOperatorDate(operator: string): boolean {
 export function formatPropertyLabel(
     item: Record<string, any>,
     cohorts: Record<string, any>[],
-    keyMapping: KeyMappingInterface
+    keyMapping: KeyMappingInterface,
+    valueFormatter: (value: unknown) => string = (s) => s as string
 ): string {
     const { value, key, operator, type } = item
     return type === 'cohort'
@@ -400,7 +401,7 @@ export function formatPropertyLabel(
               (isOperatorFlag(operator)
                   ? ` ${operatorMap[operator]}`
                   : ` ${(operatorMap[operator || 'exact'] || '?').split(' ')[0]} ${
-                        value && value.length === 1 && value[0] === '' ? '(empty string)' : value || ''
+                        value && value.length === 1 && value[0] === '' ? '(empty string)' : valueFormatter(value) || ''
                     } `)
 }
 

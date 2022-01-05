@@ -90,6 +90,10 @@ describe('the property definitions model', () => {
         expect(logic.values.formatForDisplay('not a known property type', '1641368752.908')).toEqual('1641368752.908')
     })
 
+    it('can format an undefined property key for display', () => {
+        expect(logic.values.formatForDisplay(undefined, '1641368752.908')).toEqual('1641368752.908')
+    })
+
     it('can format a timestamp for display', () => {
         expect(logic.values.formatForDisplay('$time', '1641368752.908')).toEqual('2022-01-05 07:45:52')
     })
