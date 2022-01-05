@@ -58,7 +58,6 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
     const valueType: Type = value === null ? 'null' : typeof value // typeof null returns 'object' ¯\_(ツ)_/¯
 
     const valueString: string = value === null ? 'null' : String(value) // typeof null returns 'object' ¯\_(ツ)_/¯
-    console.log({ value, valueType, propertyType, valueString })
 
     const handleValueChange = (newValue: any, save: boolean): void => {
         setEditing(false)
