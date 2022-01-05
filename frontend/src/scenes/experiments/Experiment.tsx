@@ -143,8 +143,8 @@ export function Experiment(): JSX.Element {
                                     <Form.Item label="Select participants" name="person-selection">
                                         <Col>
                                             <div className="text-muted">
-                                                Select the entities who will participate in this experiment.
-                                                Participants are divided into experiment groups.
+                                                Select the entities who will participate in this experiment. If no
+                                                filters are set, 100% of participants will be targeted.
                                             </div>
                                             <div style={{ flex: 3, marginRight: 5 }}>
                                                 <PropertyFilters
@@ -451,7 +451,14 @@ export function Experiment(): JSX.Element {
                             <div className="mb-05">
                                 <span>Feature flag key:</span> <b>{experimentData.feature_flag_key}</b>
                             </div>
-                            <div className="mb-05">Variants: 'control' and 'test'</div>
+                            <div className="mb-05">
+                                Variants:{' '}
+                                {experimentData.parameters.feature_flag_variants.map(
+                                    (variant: MultivariateFlagVariant, idx: number) => (
+                                        <li key={idx}>{variant.key}</li>
+                                    )
+                                )}
+                            </div>
                             <div className="mb-05">The following users will participate in the experiment</div>
                             <ul>
                                 {experimentData.filters?.properties?.length ? (
