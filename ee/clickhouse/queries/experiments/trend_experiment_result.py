@@ -3,10 +3,10 @@ from datetime import datetime
 from math import exp, log
 from typing import List, Optional, Type
 
-import scipy.special as sc
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
+from ee.clickhouse.queries.util import logbeta
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 
@@ -112,7 +112,7 @@ def probability_B_beats_A_count_data(A_count: int, A_exposure: int, B_count: int
             + A_count * log(A_exposure)
             - (i + A_count) * log(B_exposure + A_exposure)
             - log(i + A_count)
-            - sc.betaln(i + 1, A_count)
+            - logbeta(i + 1, A_count)
         )
 
     return total

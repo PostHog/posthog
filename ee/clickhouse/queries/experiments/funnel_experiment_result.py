@@ -1,12 +1,12 @@
 import dataclasses
 from datetime import datetime
-from math import exp, lgamma, log
+from math import exp, log
 from typing import List, Optional, Tuple, Type
 
-import scipy.special as sc
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.funnels import ClickhouseFunnel
+from ee.clickhouse.queries.util import logbeta
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
@@ -186,10 +186,6 @@ def calculate_probability_of_winning_for_each(variants: List[Tuple[int, int]]) -
         ]
     else:
         raise ValidationError("Can't calculate A/B test results for more than 4 variants", code="too_much_data")
-
-
-def logbeta(a, b):
-    return lgamma(a) + lgamma(b) - lgamma(a + b)
 
 
 def probability_B_beats_A(A_success: int, A_failure: int, B_success: int, B_failure: int) -> float:

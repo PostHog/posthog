@@ -1,8 +1,7 @@
 import datetime
 import json
 import re
-from dataclasses import dataclass
-from typing import Any, Dict, List, Literal, Optional, Union, cast
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from dateutil.relativedelta import relativedelta
 from django.db.models.query_utils import Q
@@ -25,11 +24,9 @@ from posthog.constants import (
     EXCLUSIONS,
     FILTER_TEST_ACCOUNTS,
     FORMULA,
-    GROUP_TYPES_LIMIT,
     INSIGHT,
     INSIGHT_TO_DISPLAY,
     INSIGHT_TRENDS,
-    INTERVAL,
     LIMIT,
     OFFSET,
     SELECTOR,
@@ -39,34 +36,12 @@ from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
 )
 from posthog.models.entity import Entity, ExclusionEntity
-from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType, IntervalType
+from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType
 from posthog.models.filters.mixins.utils import cached_property, include_dict, process_bool
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 from posthog.utils import relative_date_parse
 
 ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-\*\^0-9\+\/\(\)]+)"
-
-
-class IntervalMixin(BaseParamMixin):
-    """See https://clickhouse.tech/docs/en/sql-reference/data-types/special-data-types/interval/."""
-
-    SUPPORTED_INTERVAL_TYPES = ["minute", "hour", "day", "week", "month"]
-
-    @cached_property
-    def interval(self) -> IntervalType:
-        interval_candidate = self._data.get(INTERVAL)
-        if not interval_candidate:
-            return "day"
-        if not isinstance(interval_candidate, str):
-            raise ValueError(f"Interval must be a string!")
-        interval_candidate = interval_candidate.lower()
-        if interval_candidate not in self.SUPPORTED_INTERVAL_TYPES:
-            raise ValueError(f"Interval {interval_candidate} does not belong to SUPPORTED_INTERVAL_TYPES!")
-        return cast(IntervalType, interval_candidate)
-
-    @include_dict
-    def interval_to_dict(self):
-        return {"interval": self.interval}
 
 
 class SelectorMixin(BaseParamMixin):

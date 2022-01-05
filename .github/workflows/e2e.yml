@@ -4,6 +4,21 @@ on:
     pull_request:
     push:
         branches: [master]
+env:
+    SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
+    REDIS_URL: 'redis://localhost'
+    DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+    KAFKA_URL: 'kafka://kafka:9092'
+    DISABLE_SECURE_SSL_REDIRECT: 1
+    SECURE_COOKIES: 0
+    OPT_OUT_CAPTURE: 1
+    SELF_CAPTURE: 0
+    E2E_TESTING: 1
+    EMAIL_HOST: 'email.test.posthog.net' # used to test password resets
+    SITE_URL: 'test.posthog.net' # used to test password resets
+    NO_RESTART_LOOP: 1
+    PRIMARY_DB: clickhouse
+    CLICKHOUSE_SECURE: 0
 
 jobs:
     # Job that lists and chunks spec file names and caches node modules
@@ -49,33 +64,17 @@ jobs:
             fail-fast: false
             matrix:
                 specs: ${{ fromJson(needs.cypress_prep.outputs.specs) }}
-
-        services:
-            postgres:
-                image: postgres:12
-                env:
-                    POSTGRES_USER: postgres
-                    POSTGRES_PASSWORD: postgres
-                    POSTGRES_DB: postgres
-                ports:
-                    # Maps port 5432 on service container to the host
-                    # Needed because `postgres` host is not discoverable for some reason
-                    - 5432:5432
-                options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
-            redis:
-                image: redis
-                ports:
-                    # Maps port 6379 on service container to the host
-                    # Needed because `redis` host is not discoverable for some reason
-                    - 6379:6379
-                options: >-
-                    --health-cmd "redis-cli ping"
-                    --health-interval 10s
-                    --health-timeout 5s
-                    --health-retries 5
         steps:
             - name: Checkout
               uses: actions/checkout@v2
+
+            - name: Start stack with Docker Compose
+              run: |
+                  docker-compose -f ee/docker-compose.ch.yml down
+                  docker-compose -f ee/docker-compose.ch.yml up -d db clickhouse zookeeper kafka redis &
+
+            - name: Add kafka host to /etc/hosts for kafka connectivity
+              run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
             - name: Set up Python 3.8
               uses: actions/setup-python@v2
@@ -123,22 +122,12 @@ jobs:
                   cd plugin-server
                   yarn build
             - name: Boot PostHog
-              env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
-                  REDIS_URL: 'redis://localhost'
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  DISABLE_SECURE_SSL_REDIRECT: 1
-                  SECURE_COOKIES: 0
-                  OPT_OUT_CAPTURE: 1
-                  SELF_CAPTURE: 0
-                  E2E_TESTING: 1
-                  EMAIL_HOST: 'email.test.posthog.net' # used to test password resets
-                  SITE_URL: 'test.posthog.net' # used to test password resets
-                  NO_RESTART_LOOP: 1
               run: |
                   python manage.py collectstatic --noinput &
                   ./bin/docker-migrate &
                   wait
+                  bin/check_kafka_clickhouse_up
+                  python manage.py migrate_clickhouse
                   python manage.py setup_dev
                   mkdir -p /tmp/logs
                   ./bin/docker-worker &> /tmp/logs/worker.txt &
