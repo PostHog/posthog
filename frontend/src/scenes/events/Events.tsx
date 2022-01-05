@@ -7,8 +7,8 @@ import { urls } from 'scenes/urls'
 export const scene: SceneExport = {
     component: Events,
     logic: eventsTableLogic,
-    paramsToProps: ({ params: { fixedFilters, pageKey } }) => ({ fixedFilters, key: pageKey, sceneUrl: urls.events() }),
+    paramsToProps: ({ params: { fixedFilters } }) => ({ fixedFilters, key: 'EventsTable', sceneUrl: urls.events() }),
 }
 export function Events(): JSX.Element {
-    return <EventsTable />
+    return <EventsTable pageKey={'EventsTable'} />
 }

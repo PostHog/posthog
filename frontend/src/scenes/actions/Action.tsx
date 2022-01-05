@@ -75,7 +75,12 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
                         </>
                     ) : null}
                     {id && (
-                        <EventsTable fixedFilters={fixedFilters} filtersEnabled={false} sceneUrl={urls.action(id)} />
+                        <EventsTable
+                            fixedFilters={fixedFilters}
+                            filtersEnabled={false}
+                            sceneUrl={urls.action(id)}
+                            pageKey="Action"
+                        />
                     )}
                 </div>
             )}

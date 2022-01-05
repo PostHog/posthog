@@ -43,7 +43,7 @@ export interface FixedFilters {
 interface EventsTable {
     fixedFilters?: FixedFilters
     filtersEnabled?: boolean
-    pageKey?: string
+    pageKey: string
     hidePersonColumn?: boolean
     hideTableConfig?: boolean
     sceneUrl?: string
@@ -52,11 +52,11 @@ interface EventsTable {
 export function EventsTable({
     fixedFilters,
     filtersEnabled = true,
-    pageKey = 'EventsTable',
+    pageKey,
     hidePersonColumn,
     hideTableConfig,
     sceneUrl,
-}: EventsTable = {}): JSX.Element {
+}: EventsTable): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const logic = eventsTableLogic({ fixedFilters, key: pageKey, sceneUrl: sceneUrl || urls.events() })
     const {
