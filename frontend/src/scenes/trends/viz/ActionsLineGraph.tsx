@@ -17,7 +17,7 @@ export function ActionsLineGraph({
 }: ChartParams): JSX.Element | null {
     const { insightProps, isViewedOnDashboard, insight } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
-    const { filters, indexedResults, visibilityMap } = useValues(logic)
+    const { filters, indexedResults, visibilityMap, incompletenessOffsetFromEnd } = useValues(logic)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
 
     return indexedResults &&
@@ -34,7 +34,6 @@ export function ActionsLineGraph({
             datasets={indexedResults}
             visibilityMap={visibilityMap}
             labels={(indexedResults[0] && indexedResults[0].labels) || []}
-            isInProgress={!filters.date_to}
             insightId={insight.id}
             inSharedMode={inSharedMode}
             interval={filters.interval}
@@ -42,6 +41,8 @@ export function ActionsLineGraph({
             tooltipPreferAltTitle={filters.insight === InsightType.STICKINESS}
             tooltipAltTitle={filters.insight === InsightType.LIFECYCLE ? 'Users' : undefined}
             isCompare={!!filters.compare}
+            isInProgress={filters.insight !== InsightType.STICKINESS && incompletenessOffsetFromEnd < 0}
+            incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             onClick={
                 dashboardItemId || isMultiSeriesFormula(filters.formula) || !showPersonsModal
                     ? undefined
