@@ -7,7 +7,7 @@ import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 
 interface EntityFilterInfoProps {
     filter: EntityFilter | ActionFilter | FunnelStepRangeEntityFilter
-    allowWrap: boolean
+    allowWrap?: boolean
 }
 
 function TextWrapper(props: TextProps): JSX.Element {
