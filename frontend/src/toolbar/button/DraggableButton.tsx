@@ -75,7 +75,7 @@ export function DraggableButton(): JSX.Element {
 
             <ButtonWindow
                 name="flags"
-                label="Feature flags"
+                label="Feature Flags"
                 tagComponent={
                     countFlagsOverridden > 0 ? (
                         <span className="overridden-tag">{`${countFlagsOverridden} overridden`}</span>

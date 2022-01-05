@@ -9,8 +9,10 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
+import * as Sentry from '@sentry/browser'
 
 jest.mock('lib/api')
+jest.mock('@sentry/browser')
 
 const API_FILTERS = {
     insight: InsightType.TRENDS as InsightType,
@@ -376,12 +378,12 @@ describe('insightLogic', () => {
         })
 
         it('sets filters from the URL', async () => {
-            const url = urls.insightEdit(Insight44, { insight: InsightType.TRENDS, interval: 'minute' })
+            const url = urls.insightEdit(Insight44, { insight: InsightType.TRENDS, interval: 'hour' })
             router.actions.push(url)
             await expectLogic(logic)
                 .toDispatchActions([router.actionCreators.push(url), 'setFilters'])
                 .toMatchValues({
-                    filters: partial({ insight: InsightType.TRENDS, interval: 'minute' }),
+                    filters: partial({ insight: InsightType.TRENDS, interval: 'hour' }),
                 })
 
             // setting the same URL twice doesn't call `setFilters`
@@ -390,7 +392,7 @@ describe('insightLogic', () => {
                 .toDispatchActions([router.actionCreators.push(url)])
                 .toNotHaveDispatchedActions(['setFilters'])
                 .toMatchValues({
-                    filters: partial({ insight: InsightType.TRENDS, interval: 'minute' }),
+                    filters: partial({ insight: InsightType.TRENDS, interval: 'hour' }),
                 })
 
             // calls when the values changed
@@ -433,22 +435,22 @@ describe('insightLogic', () => {
             router.actions.push(urls.insightNew())
             await expectLogic(router).toDispatchActions(['push', 'locationChanged', 'replace', 'locationChanged'])
 
-            logic.actions.setFilters({ insight: InsightType.TRENDS, interval: 'minute' })
+            logic.actions.setFilters({ insight: InsightType.TRENDS, interval: 'hour' })
             await expectLogic()
                 .toDispatchActions(logic, [
-                    logic.actionCreators.setFilters({ insight: InsightType.TRENDS, interval: 'minute' }),
+                    logic.actionCreators.setFilters({ insight: InsightType.TRENDS, interval: 'hour' }),
                 ])
                 .toDispatchActions(router, ['replace', 'locationChanged'])
-                .toMatchValues(router, { searchParams: partial({ interval: 'minute' }) })
+                .toMatchValues(router, { searchParams: partial({ interval: 'hour' }) })
 
             // no change in filters, doesn't change the URL
-            logic.actions.setFilters({ insight: InsightType.TRENDS, interval: 'minute' })
+            logic.actions.setFilters({ insight: InsightType.TRENDS, interval: 'hour' })
             await expectLogic()
                 .toDispatchActions(logic, [
-                    logic.actionCreators.setFilters({ insight: InsightType.TRENDS, interval: 'minute' }),
+                    logic.actionCreators.setFilters({ insight: InsightType.TRENDS, interval: 'hour' }),
                 ])
                 .toNotHaveDispatchedActions(router, ['replace', 'locationChanged'])
-                .toMatchValues(router, { searchParams: partial({ interval: 'minute' }) })
+                .toMatchValues(router, { searchParams: partial({ interval: 'hour' }) })
 
             logic.actions.setFilters({ insight: InsightType.TRENDS, interval: 'month' })
             await expectLogic(router)
@@ -625,6 +627,7 @@ describe('insightLogic', () => {
         logic = insightLogic({
             dashboardItemId: Insight42,
             filters: { insight: InsightType.FUNNELS },
+            cachedResults: {},
         })
         logic.mount()
 
@@ -643,7 +646,6 @@ describe('insightLogic', () => {
         logic = insightLogic({
             dashboardItemId: Insight42,
             filters: { insight: InsightType.FUNNELS },
-            savedFilters: { insight: InsightType.FUNNELS },
             syncWithUrl: true,
         })
         logic.mount()
@@ -665,5 +667,20 @@ describe('insightLogic', () => {
             .toMatchValues({
                 location: partial({ pathname: '/insights/12/edit' }),
             })
+    })
+
+    test('will not save with empty filters', async () => {
+        logic = insightLogic({
+            dashboardItemId: Insight42,
+            filters: { insight: InsightType.FUNNELS },
+        })
+        logic.mount()
+
+        logic.actions.setInsight({ id: 42, short_id: Insight42, filters: {} }, {})
+        logic.actions.saveInsight()
+        expect(Sentry.captureException).toHaveBeenCalledWith(
+            new Error('Will not override empty filters in saveInsight.'),
+            expect.any(Object)
+        )
     })
 })

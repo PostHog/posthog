@@ -68,9 +68,6 @@ export function InsightLegend(): JSX.Element {
                                         }
                                         compareValue={filters.compare ? formatCompareLabel(item) : undefined}
                                         hideIcon
-                                        useCustomName
-                                        hideSeriesSubtitle={false}
-                                        swapTitleAndSubtitle={!!filters.breakdown || !!filters.compare}
                                     />
                                 </Col>
                             </Row>

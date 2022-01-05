@@ -12,7 +12,7 @@ from ee.clickhouse.models.cohort import format_filter_query, get_person_ids_by_c
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import create_person, create_person_distinct_id
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
@@ -488,8 +488,21 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             properties={"attr": "some_val"},
             timestamp=datetime(2020, 1, 9, 12, 0, 1),
         )
+
+        p4 = Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["4"],
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
+
+        p5 = Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["5"],
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
         return action
 
+    @snapshot_clickhouse_queries
     def test_cohortpeople_action_count(self):
 
         action = self._setup_actions_with_different_counts()
@@ -536,7 +549,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         cohort4 = Cohort.objects.create(
             team=self.team,
-            groups=[{"action_id": action.pk, "days": 3, "count": 0, "count_operator": "lte"}],
+            groups=[{"action_id": action.pk, "days": 3, "count": 0, "count_operator": "eq"}],
             name="cohort4",
         )
         with freeze_time("2020-01-10"):
@@ -545,7 +558,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         results = sync_execute(
             "SELECT person_id FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort4.pk}
         )
-        self.assertEqual(len(results), 0)
+        self.assertEqual(len(results), 2)
 
     def test_cohortpeople_deleted_person(self):
         p1 = Person.objects.create(
@@ -661,34 +674,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             sql, _ = format_filter_query(cohort)
-            self.assertEqual(
-                sqlparse.format(sql, reindent=True),
-                sqlparse.format(
-                    f"""
-                SELECT distinct_id
-                FROM
-                (SELECT distinct_id,
-                        argMax(person_id, _timestamp) as person_id
-                FROM
-                    (SELECT distinct_id,
-                            person_id,
-                            max(_timestamp) as _timestamp
-                    FROM person_distinct_id
-                    WHERE team_id = {self.team.pk}
-                    GROUP BY person_id,
-                            distinct_id,
-                            team_id
-                    HAVING max(is_deleted) = 0)
-                GROUP BY distinct_id)
-                WHERE person_id IN
-                    (SELECT person_id
-                    FROM person_static_cohort
-                    WHERE cohort_id = %(_cohort_id_0)s
-                    AND team_id = %(team_id)s)
-                """,
-                    reindent=True,
-                ),
-            )
+            self.assertQueryMatchesSnapshot(sql)
 
     def test_cohortpeople_with_valid_other_cohort_filter(self):
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},)

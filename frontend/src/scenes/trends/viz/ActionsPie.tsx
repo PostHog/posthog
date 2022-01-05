@@ -1,12 +1,11 @@
 import './ActionsPie.scss'
-
 import React, { useState, useEffect } from 'react'
 import { maybeAddCommasToInteger } from 'lib/utils'
-import { LineGraph } from '../../insights/LineGraph'
+import { LineGraph } from '../../insights/LineGraph/LineGraph'
 import { getChartColors } from 'lib/colors'
 import { useValues, useActions } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { ChartParams, TrendResultWithAggregate } from '~/types'
+import { ChartParams, GraphType, GraphDataset, ActionFilter } from '~/types'
 import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -17,15 +16,15 @@ export function ActionsPie({
     inSharedMode,
     showPersonsModal = true,
 }: ChartParams): JSX.Element | null {
-    const [data, setData] = useState<Record<string, any>[] | null>(null)
+    const [data, setData] = useState<GraphDataset[] | null>(null)
     const [total, setTotal] = useState(0)
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
     const { results } = useValues(logic)
 
     function updateData(): void {
-        const _data = [...results] as TrendResultWithAggregate[]
+        const _data = [...results]
         _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
         const days = results.length > 0 ? results[0].days : []
 
@@ -33,11 +32,12 @@ export function ActionsPie({
 
         setData([
             {
+                id: 0,
                 labels: _data.map((item) => item.label),
                 data: _data.map((item) => item.aggregated_value),
                 actions: _data.map((item) => item.action),
                 breakdownValues: _data.map((item) => item.breakdown_value),
-                persons: _data.map((item) => item.persons),
+                personsValues: _data.map((item) => item.persons),
                 days,
                 backgroundColor: colorList,
                 hoverBackgroundColor: colorList,
@@ -63,30 +63,32 @@ export function ActionsPie({
                     <LineGraph
                         data-attr="trend-pie-graph"
                         color={color}
-                        type="doughnut"
+                        type={GraphType.Pie}
                         datasets={data}
                         labels={data[0].labels}
-                        inSharedMode={inSharedMode}
-                        dashboardItemId={dashboardItemId}
+                        inSharedMode={!!inSharedMode}
+                        insightId={insight.id}
                         onClick={
                             dashboardItemId || filtersParam.formula || !showPersonsModal
-                                ? null
-                                : (point) => {
-                                      const { dataset, index } = point
-                                      const action = dataset.actions[point.index]
-                                      const label = dataset.labels[point.index]
+                                ? undefined
+                                : (payload) => {
+                                      const { points, index, seriesId } = payload
+                                      const dataset = points.referencePoint.dataset
+                                      const action = dataset.actions?.[index]
+                                      const label = dataset.labels?.[index]
                                       const date_from = filtersParam.date_from || ''
                                       const date_to = filtersParam.date_to || ''
-                                      const breakdown_value = dataset.breakdownValues[point.index]
-                                          ? dataset.breakdownValues[point.index]
+                                      const breakdown_value = dataset.breakdownValues?.[index]
+                                          ? dataset.breakdownValues[index]
                                           : null
                                       const params = {
-                                          action,
-                                          label,
+                                          action: action as ActionFilter,
+                                          label: label ?? '',
                                           date_from,
                                           date_to,
                                           filters: filtersParam,
-                                          breakdown_value,
+                                          seriesId,
+                                          breakdown_value: breakdown_value ?? '',
                                       }
                                       if (dataset.persons_urls?.[index].url) {
                                           loadPeopleFromUrl({

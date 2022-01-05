@@ -2,6 +2,10 @@
 
 .experiment-result,
 .experiment-form {
+    .person-selection {
+        padding-top: $default_spacing;
+        border-top: 1px solid $border;
+    }
     .metrics-selection {
         border-top: 1px solid $border;
         padding-top: $default_spacing;
@@ -17,18 +21,11 @@
                 color: $primary_alt;
             }
         }
-
-        &.person-selection {
-            label {
-                font-size: 16px;
-                font-weight: 600;
-            }
-        }
     }
 
     .insights-graph-container {
         margin-bottom: $default_spacing;
-        background-color: $bg_side;
+        background-color: #fff;
 
         .ant-card-head {
             border-bottom: 1px solid $border;
@@ -95,30 +92,25 @@
         min-height: 48px;
     }
 
-    .mde-selection {
-        border-top: 1px solid $border;
-        background-color: $bg_mid;
-        padding: 12px 16px;
-        margin-bottom: 1rem;
-
-        .ant-slider-handle {
-            z-index: 3;
+    .experiment-preview {
+        margin-bottom: $default_spacing;
+        border-bottom: 1px solid $border;
+        .preview-row {
+            border-bottom: 1px solid $border;
+            padding-bottom: $default_spacing;
+            margin-bottom: $default_spacing;
         }
+    }
+}
 
-        .ant-slider-track {
-            z-index: 2;
-        }
+.confirmation {
+    .draft-header {
+        margin-bottom: $default_spacing;
+        border-bottom: 1px solid $border;
+    }
 
-        .ant-slider-step {
-            background: darkgray;
-        }
-
-        .estimates {
-            .estimate {
-                font-weight: 500;
-                color: $text-muted;
-                font-size: 12px;
-            }
-        }
+    .stop-experiment {
+        background-color: $danger;
+        color: white;
     }
 }

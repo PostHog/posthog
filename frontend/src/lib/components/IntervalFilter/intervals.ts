@@ -1,8 +1,4 @@
 export const intervals = {
-    minute: {
-        label: 'Minute',
-        newDateFrom: 'dStart',
-    },
     hour: {
         label: 'Hour',
         newDateFrom: 'dStart',
@@ -20,7 +16,5 @@ export const intervals = {
         newDateFrom: '-90d',
     },
 }
-
-export const defaultInterval = intervals.day
 
 export type IntervalKeyType = keyof typeof intervals

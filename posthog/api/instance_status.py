@@ -98,9 +98,9 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                 }
             )
 
-            metrics.append(
-                {"key": "async_migrations_ok", "metric": "Async migrations up-to-date", "value": async_migrations_ok()}
-            )
+            # metrics.append(
+            #    {"key": "async_migrations_ok", "metric": "Async migrations up-to-date", "value": async_migrations_ok()}
+            # )
 
             if not is_clickhouse_enabled():
                 event_table_count = get_table_approx_count(Event._meta.db_table)

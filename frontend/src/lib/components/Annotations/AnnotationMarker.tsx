@@ -31,12 +31,12 @@ function coordinateContains(e: MouseEvent, element: DOMRect): boolean {
 }
 
 interface AnnotationMarkerProps {
-    elementId: string
+    elementId?: string
     label: string
-    annotations: AnnotationType[]
+    annotations?: AnnotationType[]
     left: number
     top: number
-    onCreate: (textInput: string, applyAll: boolean) => void
+    onCreate?: (textInput: string, applyAll: boolean) => void
     onDelete?: (annotation: AnnotationType) => void
     onClick?: () => void
     onClose?: () => void
@@ -45,17 +45,17 @@ interface AnnotationMarkerProps {
     color: string | null
     accessoryColor: string | null
     insightId?: number
-    currentDateMarker: string
+    currentDateMarker?: string | null
     dynamic?: boolean
     graphColor: string | null
-    index: number
+    index?: number
     getPopupContainer?: () => HTMLElement
 }
 
 export function AnnotationMarker({
     elementId,
     label,
-    annotations,
+    annotations = [],
     left,
     top,
     onCreate,
@@ -95,8 +95,7 @@ export function AnnotationMarker({
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
-
-    const { diffType, groupedAnnotations } = useValues(annotationsLogic({ insightId: insightId }))
+    const { diffType, groupedAnnotations } = useValues(annotationsLogic({ insightId }))
 
     function closePopup(): void {
         setFocused(false)
@@ -171,8 +170,8 @@ export function AnnotationMarker({
                                 <Button
                                     type="primary"
                                     onClick={() => {
+                                        onCreateAnnotation && onCreateAnnotation(textInput, applyAll)
                                         closePopup()
-                                        onCreateAnnotation?.(textInput, applyAll)
                                         setTextInput('')
                                     }}
                                 >
@@ -251,7 +250,7 @@ export function AnnotationMarker({
                                         <Button
                                             type="primary"
                                             onClick={() => {
-                                                onCreate(textInput, applyAll)
+                                                onCreate && onCreate(textInput, applyAll)
                                                 setTextInput('')
                                                 setTextAreaVisible(false)
                                             }}
@@ -319,7 +318,7 @@ export function AnnotationMarker({
                 onMouseOver={() => setHovered(true)}
                 onMouseLeave={() => setHovered(false)}
             >
-                {annotations ? (
+                {(annotations?.length || 0) > 0 ? (
                     <span
                         style={{
                             color: focused || hovered || elementId === currentDateMarker ? _accessoryColor : _color,

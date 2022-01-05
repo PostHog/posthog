@@ -1,60 +1,50 @@
-import { DateDisplay } from 'lib/components/DateDisplay'
-import { IconHandClick } from 'lib/components/icons'
-import React from 'react'
-import { IntervalType } from '~/types'
 import './InsightTooltip.scss'
+import React from 'react'
+import { dayjs } from 'lib/dayjs'
 
-interface BodyLine {
+interface SeriesDatum {
     id?: string | number
-    component: JSX.Element
+    component: React.ReactNode
 }
 
 interface InsightTooltipProps {
-    altTitle?: string | JSX.Element | null // Alternate string to display as title (in case date reference is not available or not desired)
-    referenceDate?: string
-    interval?: IntervalType
-    bodyLines?: BodyLine[] // bodyLines is in here for its similarity to LineChart's built-in tooltips, but children is easier to use in other React components
-    inspectPersonsLabel?: boolean
-    children?: React.ReactNode
-    preferAltTitle?: boolean // Whether `altTitle` should be prefered over the default DateDisplay to show as header of the tooltip
+    referenceDate?: string // If referenceDate is undefined, altTitle must be provided
+    altTitle?: string // Overrides showing the referenceDate as the title
+    useAltTitle?: boolean
     hideHeader?: boolean
+    hideInspectActorsSection?: boolean
+    seriesData?: SeriesDatum[]
+    children?: React.ReactNode
+}
+
+function getTitle(dayString?: string, altTitle?: string, useAltTitle?: boolean): string {
+    const day = dayjs(dayString)
+    if (dayString !== undefined && !useAltTitle && day.isValid()) {
+        return day.format('DD MMM YYYY')
+    }
+    return altTitle ?? ''
 }
 
 export function InsightTooltip({
-    altTitle,
     referenceDate,
-    interval,
-    bodyLines = [],
-    inspectPersonsLabel,
+    altTitle,
     children,
-    preferAltTitle,
-    hideHeader,
+    seriesData = [],
+    useAltTitle = false,
+    hideHeader: _hideHeader = false,
+    hideInspectActorsSection = true,
 }: InsightTooltipProps): JSX.Element {
+    const hideHeader = _hideHeader || (referenceDate === undefined && altTitle === undefined) // both referenceDate and altTitle are undefined
+    const title = hideHeader ? '' : getTitle(referenceDate, altTitle, useAltTitle)
+
     return (
-        <div className={`inner-tooltip${bodyLines.length > 1 ? ' multiple' : ''}`} style={{ maxWidth: 300 }}>
-            {!hideHeader && (
-                <header>
-                    {referenceDate && interval && !preferAltTitle ? (
-                        <DateDisplay interval={interval} date={referenceDate} />
-                    ) : (
-                        altTitle
-                    )}
-                </header>
-            )}
-            {bodyLines?.length > 0 && (
-                <ul>
-                    {bodyLines.map((line, index) => (
-                        <li key={line.id ?? index}>{line.component}</li>
-                    ))}
-                </ul>
-            )}
+        <div>
+            {!hideHeader && <div>{title}</div>}
+            {seriesData.map(({ id, component }) => (
+                <ul key={id}>{component}</ul>
+            ))}
             {children}
-            {inspectPersonsLabel && (
-                <div className="inspect-persons-label">
-                    <IconHandClick />
-                    Click on data point to view persons or groups
-                </div>
-            )}
+            {!hideInspectActorsSection && <div>Click to inspect</div>}
         </div>
     )
 }

@@ -1,5 +1,6 @@
 import Piscina from '@posthog/piscina'
 
+import { ONE_HOUR } from '../../src/config/constants'
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
 import { startPluginsServer } from '../../src/main/pluginsServer'
 import { LogLevel, PluginsServerConfig } from '../../src/types'
@@ -16,7 +17,6 @@ import { resetTestDatabase } from '../helpers/sql'
 import { delayUntilEventIngested } from '../shared/process-event'
 
 const { console: testConsole } = writeToFile
-const ONE_HOUR = 1000 * 60 * 60
 
 jest.mock('../../src/utils/status')
 jest.setTimeout(60000) // 60 sec timeout
@@ -43,7 +43,7 @@ export async function processEvent (event) {
 }
 
 export function onEvent (event, { global }) {
-    // we use this to mock setupPlugin being 
+    // we use this to mock setupPlugin being
     // run after some events were already ingested
     global.timestampBoundariesForTeam = {
         max: new Date(),

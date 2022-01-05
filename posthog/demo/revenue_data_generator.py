@@ -62,13 +62,8 @@ class RevenueDataGenerator(DataGenerator):
             dashboard=dashboard,
             name="Entered Free Trial -> Purchase (Premium)",
             filters={
+                "events": [{"id": "$pageview", "name": "Pageview", "order": 0, "type": TREND_FILTER_TYPE_ACTIONS,}],
                 "actions": [
-                    {
-                        "id": free_trial_action.id,
-                        "name": "Entered Free Trial",
-                        "order": 0,
-                        "type": TREND_FILTER_TYPE_ACTIONS,
-                    },
                     {
                         "id": purchase_action.id,
                         "name": "Purchase",

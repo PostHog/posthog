@@ -1,15 +1,15 @@
 import React, { useState, useEffect } from 'react'
-import { LineGraph } from '../../insights/LineGraph'
+import { LineGraph } from '../../insights/LineGraph/LineGraph'
 import { getChartColors } from 'lib/colors'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightEmptyState } from '../../insights/EmptyStates'
-import { FilterType, TrendResultWithAggregate } from '~/types'
+import { ActionFilter, FilterType, GraphType, InsightShortId } from '~/types'
 import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface Props {
-    dashboardItemId?: number | null
+    dashboardItemId?: InsightShortId | null
     filters: Partial<FilterType>
     color?: string
     inSharedMode?: boolean | null
@@ -19,7 +19,7 @@ interface Props {
 
 type DataSet = any
 
-export function ActionsBarValueGraph({
+export function ActionsHorizontalBar({
     dashboardItemId = null,
     filters: filtersParam,
     color = 'white',
@@ -27,13 +27,13 @@ export function ActionsBarValueGraph({
 }: Props): JSX.Element | null {
     const [data, setData] = useState<DataSet[] | null>(null)
     const [total, setTotal] = useState(0)
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
     const { results } = useValues(logic)
 
     function updateData(): void {
-        const _data = [...results] as TrendResultWithAggregate[]
+        const _data = [...results]
         _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
 
         // If there are more series than colors, we reuse colors sequentially so all series are colored
@@ -46,7 +46,7 @@ export function ActionsBarValueGraph({
                 labels: _data.map((item) => item.label),
                 data: _data.map((item) => item.aggregated_value),
                 actions: _data.map((item) => item.action),
-                persons: _data.map((item) => item.persons),
+                personsValues: _data.map((item) => item.persons),
                 days,
                 breakdownValues: _data.map((item) => item.breakdown_value),
                 backgroundColor: colorList,
@@ -69,33 +69,37 @@ export function ActionsBarValueGraph({
     return data && total > 0 ? (
         <LineGraph
             data-attr="trend-bar-value-graph"
-            type="horizontalBar"
+            type={GraphType.HorizontalBar}
             color={color}
             datasets={data}
             labels={data[0].labels}
-            dashboardItemId={dashboardItemId}
+            insightId={insight.id}
             totalValue={total}
             interval={filtersParam?.interval}
             onClick={
                 dashboardItemId || filtersParam.formula || !showPersonsModal
-                    ? null
+                    ? undefined
                     : (point) => {
-                          const { dataset, value: pointValue, index } = point
-                          const action = dataset.actions[point.index]
-                          const label = dataset.labels[point.index]
+                          const { value: pointValue, index, points, seriesId } = point
+
+                          const dataset = points.referencePoint.dataset
+
+                          const action = dataset.actions?.[point.index]
+                          const label = dataset.labels?.[point.index]
                           const date_from = filtersParam?.date_from || ''
                           const date_to = filtersParam?.date_to || ''
-                          const breakdown_value = dataset.breakdownValues[point.index]
+                          const breakdown_value = dataset.breakdownValues?.[point.index]
                               ? dataset.breakdownValues[point.index]
                               : null
                           const params = {
-                              action,
-                              label,
+                              action: action as ActionFilter,
+                              label: label ?? '',
                               date_from,
                               date_to,
                               filters: filtersParam,
-                              breakdown_value,
+                              breakdown_value: breakdown_value ?? '',
                               pointValue,
+                              seriesId,
                           }
                           if (dataset.persons_urls?.[index].url) {
                               loadPeopleFromUrl({

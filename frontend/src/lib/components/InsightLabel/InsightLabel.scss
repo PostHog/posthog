@@ -10,8 +10,14 @@ $inter_items_padding: 0.3rem;
         display: inline;
     }
 
-    .protect-width {
-        @extend .text-ellipsis;
+    .label {
+        display: flex;
+        flex-direction: row;
+        width: 100%;
+
+        &.wrap {
+            flex-wrap: wrap;
+        }
     }
 
     .value {

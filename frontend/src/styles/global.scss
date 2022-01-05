@@ -185,9 +185,21 @@ body strong {
     background: none;
 }
 
+.card-secondary {
+    font-size: 11px;
+    color: $text_muted;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
 mark {
     background-color: $mark_color !important;
     border-radius: $radius;
+}
+
+.uppercase {
+    text-transform: uppercase;
 }
 
 // Supplement text, such as email under user name
@@ -196,6 +208,10 @@ mark {
     overflow: hidden;
     color: var(--muted-alt);
     font-size: 0.8125rem;
+    &--danger {
+        color: var(--danger);
+        font-weight: 600;
+    }
 }
 
 code.code {
@@ -755,19 +771,34 @@ code.code {
 
 .main-app-content {
     min-width: 0;
-    padding: 0 2rem 2rem;
+    padding: 0 2rem 4rem;
 
     @media (min-width: $sm) and (max-width: $lg) {
         padding: 0 1rem 2rem;
     }
 
     @media (max-width: $sm) {
-        padding: 0 1rem;
+        padding: 0 1rem 1rem;
     }
 }
 
 // AntD overrrides, placed inside `body` to increase specifity (nicely avoiding the need for !important)
 body {
+    h1,
+    h2,
+    h3,
+    h4 {
+        color: var(--text-default);
+    }
+    h5 {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--muted-alt);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 0.25rem;
+        line-height: 2;
+    }
     // AntD uses its own border color for the bottom of tab lists, but we want to use `var(--border)`
     .ant-tabs-top,
     .ant-tabs-bottom {

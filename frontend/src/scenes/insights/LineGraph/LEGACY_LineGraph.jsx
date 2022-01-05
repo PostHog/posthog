@@ -8,13 +8,15 @@ import PropTypes from 'prop-types'
 import { compactNumber, lightenDarkenColor } from '~/lib/utils'
 import { getBarColorFromStatus, getChartColors, getGraphColors } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { toast } from 'react-toastify'
 import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import './LineGraph.scss'
 import { InsightLabel } from 'lib/components/InsightLabel'
-import { InsightTooltip } from '../InsightTooltip/InsightTooltip'
+import { LEGACY_InsightTooltip } from '../InsightTooltip/LEGACY_InsightTooltip'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
 //--Chart Style Options--//
 Chart.defaults.global.legend.display = false
@@ -24,7 +26,7 @@ Chart.defaults.global.elements.line.tension = 0
 
 const noop = () => {}
 
-export function LineGraph({
+export function LEGACY_LineGraph({
     datasets,
     visibilityMap = null,
     labels,
@@ -33,7 +35,7 @@ export function LineGraph({
     isInProgress = false,
     onClick,
     ['data-attr']: dataAttr,
-    dashboardItemId /* used only for annotations, not to init any other logic */,
+    insightId,
     inSharedMode,
     percentage = false,
     interval = undefined,
@@ -54,13 +56,14 @@ export function LineGraph({
     const [labelIndex, setLabelIndex] = useState(null)
     const [holdLabelIndex, setHoldLabelIndex] = useState(null)
     const [selectedDayLabel, setSelectedDayLabel] = useState(null)
-    const { createAnnotation, createAnnotationNow, updateDiffType, createGlobalAnnotation } = !inSharedMode
-        ? useActions(annotationsLogic({ pageKey: dashboardItemId || null }))
-        : { createAnnotation: noop, createAnnotationNow: noop, updateDiffType: noop, createGlobalAnnotation: noop }
+    const { createAnnotation, updateDiffType, createGlobalAnnotation } = !inSharedMode
+        ? useActions(annotationsLogic({ insightId }))
+        : { createAnnotation: noop, updateDiffType: noop, createGlobalAnnotation: noop }
 
     const { annotationsList, annotationsLoading } = !inSharedMode
-        ? useValues(annotationsLogic({ pageKey: dashboardItemId || null }))
+        ? useValues(annotationsLogic({ insightId }))
         : { annotationsList: [], annotationsLoading: false }
+    const { featureFlags } = useValues(featureFlagLogic)
     const [leftExtent, setLeftExtent] = useState(0)
     const [boundaryInterval, setBoundaryInterval] = useState(0)
     const [topExtent, setTopExtent] = useState(0)
@@ -145,7 +148,7 @@ export function LineGraph({
         const mainColor = dataset?.status ? getBarColorFromStatus(dataset.status) : colorList[index % colorList.length]
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
 
-        // `horizontalBar` colors are set in `ActionsBarValueGraph.tsx` and overriden in spread of `dataset` below
+        // `horizontalBar` colors are set in `ActionsHorizontalBar.tsx` and overriden in spread of `dataset` below
         const BACKGROUND_BASED_CHARTS = ['bar', 'doughnut']
 
         return {
@@ -276,7 +279,6 @@ export function LineGraph({
                                     : entityData.breakdown_value
                             }
                             seriesStatus={entityData.status}
-                            useCustomName
                         />
                     )
                 },
@@ -314,7 +316,7 @@ export function LineGraph({
                     const altTitle =
                         tooltipModel.title && (dataset.compare || tooltipPreferAltTitle) ? tooltipModel.title[0] : '' // When comparing we show the whole range for clarity; when on stickiness we show the relative timeframe (e.g. `5 days`)
                     const referenceDate = !dataset.compare ? dataset.days[referenceDataPoint.index] : undefined
-                    const bodyLines = tooltipModel.body
+                    const seriesData = tooltipModel.body
                         .flatMap(({ lines }) => lines)
                         .map((component, idx) => ({
                             id: idx,
@@ -323,15 +325,26 @@ export function LineGraph({
 
                     ReactDOM.render(
                         <Provider store={getContext().store}>
-                            <InsightTooltip
-                                altTitle={altTitle}
-                                referenceDate={referenceDate}
-                                interval={interval}
-                                bodyLines={bodyLines}
-                                inspectPersonsLabel={onClick && showPersonsModal}
-                                preferAltTitle={tooltipPreferAltTitle}
-                                hideHeader={type === 'horizontalBar'}
-                            />
+                            {featureFlags[FEATURE_FLAGS.NEW_INSIGHT_TOOLTIPS] ? (
+                                <InsightTooltip
+                                    referenceDate={referenceDate}
+                                    altTitle={altTitle}
+                                    seriesData={seriesData}
+                                    useAltTitle={tooltipPreferAltTitle}
+                                    hideHeader={type === 'horizontalBar'}
+                                    hideInspectActorsSection={!(onClick && showPersonsModal)}
+                                />
+                            ) : (
+                                <LEGACY_InsightTooltip
+                                    altTitle={altTitle}
+                                    referenceDate={referenceDate}
+                                    interval={interval}
+                                    bodyLines={seriesData}
+                                    inspectPersonsLabel={onClick && showPersonsModal}
+                                    preferAltTitle={tooltipPreferAltTitle}
+                                    hideHeader={type === 'horizontalBar'}
+                                />
+                            )}
                         </Provider>,
                         tooltipEl
                     )
@@ -401,22 +414,15 @@ export function LineGraph({
             onClick: (_, [point]) => {
                 if (point && onClick) {
                     const dataset = datasets[point._datasetIndex]
+                    // Makes onClick forward compatible with new LineGraph typing
                     onClick({
-                        point,
-                        dataset,
+                        points: {
+                            pointsIntersectingLine: [{ ...point, dataset }],
+                            pointsIntersectingClick: [{ ...point, dataset }],
+                            clickedPointNotLine: true,
+                            referencePoint: { ...point, dataset },
+                        },
                         index: point._index,
-                        label:
-                            typeof point._index !== 'undefined' && dataset.labels
-                                ? dataset.labels[point._index]
-                                : undefined,
-                        day:
-                            typeof point._index !== 'undefined' && dataset.days
-                                ? dataset.days[point._index]
-                                : undefined,
-                        value:
-                            typeof point._index !== 'undefined' && dataset.data
-                                ? dataset.data[point._index]
-                                : undefined,
                     })
                 }
             },
@@ -558,7 +564,7 @@ export function LineGraph({
                     leftExtent={leftExtent}
                     interval={boundaryInterval}
                     topExtent={topExtent}
-                    dashboardItemId={dashboardItemId}
+                    insightId={insightId}
                     currentDateMarker={
                         focused || annotationsFocused ? selectedDayLabel : enabled ? datasets[0].days[labelIndex] : null
                     }
@@ -566,7 +572,9 @@ export function LineGraph({
                         setFocused(false)
                         setAnnotationsFocused(true)
                     }}
-                    onClose={() => setAnnotationsFocused(false)}
+                    onClose={() => {
+                        setAnnotationsFocused(false)
+                    }}
                     graphColor={color}
                     color={colors.annotationColor}
                     accessoryColor={colors.annotationAccessoryColor}
@@ -574,7 +582,7 @@ export function LineGraph({
             )}
             {annotationsCondition && !annotationsFocused && (enabled || focused) && left >= 0 && (
                 <AnnotationMarker
-                    dashboardItemId={dashboardItemId}
+                    insightId={insightId}
                     currentDateMarker={focused ? selectedDayLabel : datasets[0].days[labelIndex]}
                     onClick={() => {
                         setFocused(true)
@@ -584,13 +592,13 @@ export function LineGraph({
                     }}
                     getPopupContainer={() => annotationsRoot?.current}
                     onCreateAnnotation={(textInput, applyAll) => {
-                        if (applyAll) {
-                            createGlobalAnnotation(textInput, datasets[0].days[holdLabelIndex], dashboardItemId)
-                        } else if (dashboardItemId) {
-                            createAnnotationNow(textInput, datasets[0].days[holdLabelIndex])
-                        } else {
-                            createAnnotation(textInput, datasets[0].days[holdLabelIndex])
-                            toast('This annotation will be saved if the graph is made into a dashboard item!')
+                        const date = datasets?.[0]?.days?.[holdLabelIndex]
+                        if (date) {
+                            if (applyAll) {
+                                createGlobalAnnotation(textInput, date, insightId)
+                            } else {
+                                createAnnotation(textInput, date)
+                            }
                         }
                     }}
                     onClose={() => setFocused(false)}
@@ -609,7 +617,7 @@ export function LineGraph({
 
 const mapRange = (value, x1, y1, x2, y2) => Math.floor(((value - x1) * (y2 - x2)) / (y1 - x1) + x2)
 
-LineGraph.propTypes = {
+LEGACY_LineGraph.propTypes = {
     datasets: PropTypes.arrayOf(PropTypes.shape({ label: PropTypes.string, count: PropTypes.number })).isRequired,
     labels: PropTypes.array.isRequired,
     options: PropTypes.object,

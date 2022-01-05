@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Union
 
 from ee.clickhouse.client import substitute_params, sync_execute
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
@@ -139,7 +139,7 @@ def _build_actor_query(
         filter=filter, team=team, filter_by_breakdown=filter_by_breakdown, selected_interval=selected_interval,
     )
 
-    actor_query = f"""
+    actor_query_template = """
         SELECT
             actor_id,
             groupArray(actor_activity.intervals_from_base) AS appearances
@@ -156,4 +156,8 @@ def _build_actor_query(
         OFFSET %(offset)s
     """
 
-    return substitute_params(actor_query, {"offset": filter.offset})
+    actor_query = substitute_params(actor_query_template, {"offset": filter.offset}).format(
+        actor_activity_query=actor_activity_query
+    )
+
+    return actor_query

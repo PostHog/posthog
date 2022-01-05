@@ -1,11 +1,12 @@
 @import '~/vars';
+
 .dated-highlight {
-    color: $text_muted;
+    color: var(--text-muted);
     margin-right: 4px;
     padding: 2px 4px;
-    border: 1px solid $border_light;
-    background-color: white;
-    border-radius: $radius;
+    border: 1px solid var(--border-light);
+    background-color: #fff;
+    border-radius: var(--radius);
     white-space: nowrap;
 }
 
@@ -15,7 +16,7 @@
 
     .secondary-date {
         margin-left: 2px;
-        color: $text_muted_alt;
+        color: var(--muted-alt);
         font-weight: normal;
     }
 }

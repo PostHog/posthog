@@ -6,7 +6,7 @@ import { router } from 'kea-router'
 import { toast } from 'react-toastify'
 import { clearDOMTextSelection, editingToast, setPageTitle, toParams } from 'lib/utils'
 import { insightsModel } from '~/models/insightsModel'
-import { ACTIONS_LINE_GRAPH_LINEAR, PATHS_VIZ } from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_LINEAR, FEATURE_FLAGS, PATHS_VIZ } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
     Breadcrumb,
@@ -25,14 +25,15 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { getInsightId } from 'scenes/insights/utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
     xs: 0,
 }
 export const BREAKPOINT_COLUMN_COUNTS: Record<DashboardLayoutSize, number> = { sm: 12, xs: 1 }
-export const MIN_ITEM_WIDTH_UNITS = 4
-export const MIN_ITEM_HEIGHT_UNITS = 6
+export const MIN_ITEM_WIDTH_UNITS = 3
+export const MIN_ITEM_HEIGHT_UNITS = 5
 
 export interface DashboardLogicProps {
     id?: number
@@ -45,7 +46,7 @@ export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
     path: (key) => ['scenes', 'dashboard', 'dashboardLogic', key],
     connect: {
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
         logic: [dashboardsModel, insightsModel, eventUsageLogic],
     },
 
@@ -76,7 +77,8 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         updateLayouts: (layouts: Layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         saveLayouts: true,
-        updateItemColor: (insightId: number, color: string) => ({ insightId, color }),
+        updateItemColor: (insightId: number, color: string | null) => ({ insightId, color }),
+        removeItem: (insightId: number) => ({ insightId }),
         setDiveDashboard: (insightId: number, dive_dashboard: number | null) => ({ insightId, dive_dashboard }),
         refreshAllDashboardItems: (items?: InsightModel[]) => ({ items }),
         refreshAllDashboardItemsManual: true,
@@ -214,6 +216,12 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         items: state?.items.map((i) => (i.id === insightId ? { ...i, color } : i)),
                     } as DashboardType
                 },
+                removeItem: (state, { insightId }) => {
+                    return {
+                        ...state,
+                        items: state?.items.filter((i) => i.id !== insightId),
+                    } as DashboardType
+                },
                 setDiveDashboard: (state, { insightId, dive_dashboard }) => {
                     return {
                         ...state,
@@ -348,10 +356,15 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             },
         ],
         layouts: [
-            () => [selectors.items],
-            (items) => {
+            (s) => [s.items, s.featureFlags],
+            (items, featureFlags) => {
+                // The dashboard redesign includes constraints on the size of dashboard items
+                const minW = featureFlags[FEATURE_FLAGS.DASHBOARD_REDESIGN] ? MIN_ITEM_WIDTH_UNITS : undefined
+                const minH = featureFlags[FEATURE_FLAGS.DASHBOARD_REDESIGN] ? MIN_ITEM_HEIGHT_UNITS : undefined
+
                 const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout[]>> = {}
-                ;(Object.keys(BREAKPOINT_COLUMN_COUNTS) as (keyof typeof BREAKPOINT_COLUMN_COUNTS)[]).forEach((col) => {
+
+                for (const col of Object.keys(BREAKPOINT_COLUMN_COUNTS) as (keyof typeof BREAKPOINT_COLUMN_COUNTS)[]) {
                     const layouts = items
                         ?.filter((i) => !i.deleted)
                         .map((item) => {
@@ -369,6 +382,8 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                                 y: Number.isInteger(y) ? y : Infinity,
                                 w: width,
                                 h: h || defaultHeight,
+                                minW,
+                                minH,
                             }
                         })
 
@@ -412,6 +427,8 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                                 y: lowestDepth + 1,
                                 w,
                                 h,
+                                minW,
+                                minH,
                             })
 
                             for (let k = lowestIndex; k <= lowestIndex + w - 1; k++) {
@@ -420,7 +437,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         })
 
                     allLayouts[col] = cleanLayouts
-                })
+                }
                 return allLayouts
             },
         ],
@@ -532,6 +549,11 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         updateItemColor: async ({ insightId, color }) => {
             return api.update(`api/projects/${values.currentTeamId}/insights/${insightId}`, { color })
         },
+        removeItem: async ({ insightId }) => {
+            return api.update(`api/projects/${values.currentTeamId}/insights/${insightId}`, {
+                dashboard: null,
+            } as Partial<InsightModel>)
+        },
         setDiveDashboard: async ({ insightId, dive_dashboard }) => {
             return api.update(`api/projects/${values.currentTeamId}/insights/${insightId}`, { dive_dashboard })
         },
@@ -604,7 +626,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         },
         updateAndRefreshDashboard: async (_, breakpoint) => {
             await breakpoint(200)
-            await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}`, {
+            await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                 filters: values.filters,
             })
             actions.refreshAllDashboardItems()

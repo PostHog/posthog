@@ -23,6 +23,10 @@
             "essential": true,
             "environment": [
                 {
+                    "name": "MULTI_TENANCY",
+                    "value": "True"
+                },
+                {
                     "name": "USING_PGBOUNCER",
                     "value": "True"
                 },
@@ -125,6 +129,10 @@
                 {
                     "name": "PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS",
                     "value": "2,2635"
+                },
+                {
+                    "name": "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
+                    "value": "1"
                 }
             ],
             "secrets": [

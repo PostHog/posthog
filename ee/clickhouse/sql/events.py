@@ -37,7 +37,7 @@ EVENTS_TABLE_MATERIALIZED_COLUMNS = """
 EVENTS_TABLE_SQL = lambda: (
     EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMM(timestamp)
-ORDER BY (team_id, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))
+ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
 {sample_by}
 {storage_policy}
 """
@@ -170,7 +170,7 @@ FROM events WHERE uuid = %(event_id)s AND team_id = %(team_id)s
 """
 
 GET_EARLIEST_TIMESTAMP_SQL = """
-SELECT timestamp from events WHERE team_id = %(team_id)s order by toDate(timestamp), timestamp limit 1
+SELECT timestamp from events WHERE team_id = %(team_id)s AND timestamp > %(earliest_timestamp)s order by toDate(timestamp), timestamp limit 1
 """
 
 NULL_SQL = """

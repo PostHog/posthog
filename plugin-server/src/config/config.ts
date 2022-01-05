@@ -15,9 +15,9 @@ export function getDefaultConfig(): PluginsServerConfig {
     return {
         CELERY_DEFAULT_QUEUE: 'celery',
         DATABASE_URL: isTestEnv
-            ? 'postgres://localhost:5432/test_posthog'
+            ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
             : isDevEnv
-            ? 'postgres://localhost:5432/posthog'
+            ? 'postgres://posthog:posthog@localhost:5432/posthog'
             : null,
         POSTHOG_DB_NAME: null,
         POSTHOG_DB_USER: 'postgres',
@@ -59,6 +59,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         REDIS_POOL_MAX_SIZE: 3,
         DISABLE_MMDB: isTestEnv,
         DISTINCT_ID_LRU_SIZE: 10000,
+        EVENT_PROPERTY_LRU_SIZE: 10000,
         INTERNAL_MMDB_SERVER_PORT: 0,
         PLUGIN_SERVER_IDLE: false,
         JOB_QUEUES: 'graphile',
@@ -78,6 +79,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SITE_URL: null,
         NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS: '',
         EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: true,
+        EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: true,
     }
 }
 
@@ -114,6 +116,7 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         REDIS_POOL_MAX_SIZE: 'maximum number of Redis connections to use per thread',
         DISABLE_MMDB: 'whether to disable fetching MaxMind database for IP location',
         DISTINCT_ID_LRU_SIZE: 'size of persons distinct ID LRU cache',
+        EVENT_PROPERTY_LRU_SIZE: "size of the event property tracker's LRU cache (keyed by [team.id, event])",
         INTERNAL_MMDB_SERVER_PORT: 'port of the internal server used for IP location (0 means random)',
         PLUGIN_SERVER_IDLE: 'whether to disengage the plugin server, e.g. for development',
         JOB_QUEUES: 'retry queue engine and fallback queues',
@@ -135,7 +138,8 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
             '(advanced) corresponds to the length of time a piscina worker should block for when looking for tasks',
         NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS:
             '(advanced) teams for which to run the new person properties update flow on',
-        EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: 'enable experimental feature to track lastSeenAt',
+        EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: '(advanced) enable experimental feature to track lastSeenAt',
+        EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: '(advanced) enable experimental feature to track event properties',
     }
 }
 

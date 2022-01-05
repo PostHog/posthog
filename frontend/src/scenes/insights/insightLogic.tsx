@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { prompt } from 'lib/logic/prompt'
-import { dateFilterToText, errorToast, getFormattedLastWeekDate, objectsEqual, toParams, uuid } from 'lib/utils'
+import { errorToast, getEventNamesForAction, objectsEqual, toParams, uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
@@ -13,6 +13,7 @@ import {
     InsightType,
     ItemMode,
     SetInsightOptions,
+    ActionType,
 } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
 import { router } from 'kea-router'
@@ -34,6 +35,8 @@ import { urls } from 'scenes/urls'
 import { generateRandomAnimal } from 'lib/utils/randomAnimal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { actionsModel } from '~/models/actionsModel'
+import * as Sentry from '@sentry/browser'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -137,6 +140,22 @@ export const insightLogic = kea<insightLogicType>({
                     if (!Object.entries(insight).length) {
                         return values.insight
                     }
+
+                    if (
+                        insight.filters &&
+                        JSON.stringify(cleanFilters(insight.filters)) === JSON.stringify(cleanFilters({}))
+                    ) {
+                        const error = new Error('Will not override empty filters in updateInsight.')
+                        Sentry.captureException(error, {
+                            extra: {
+                                filters: JSON.stringify(insight.filters),
+                                insight: JSON.stringify(insight),
+                                valuesInsight: JSON.stringify(values.insight),
+                            },
+                        })
+                        throw error
+                    }
+
                     const response = await api.update(
                         `api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}`,
                         insight
@@ -157,6 +176,17 @@ export const insightLogic = kea<insightLogicType>({
                 setInsightMetadata: async ({ metadata }, breakpoint) => {
                     if (values.insightMode === ItemMode.Edit) {
                         return { ...values.insight, ...metadata }
+                    }
+
+                    if (metadata.filters) {
+                        const error = new Error(`Will not override filters in setInsightMetadata`)
+                        Sentry.captureException(error, {
+                            extra: {
+                                filters: JSON.stringify(values.insight.filters),
+                                insight: JSON.stringify(values.insight),
+                            },
+                        })
+                        throw error
                     }
 
                     const response = await api.update(
@@ -445,18 +475,15 @@ export const insightLogic = kea<insightLogicType>({
                         ? urls.insightEdit(short_id, cleanFilters({ ...filters, insight: insightType }, filters))
                         : undefined,
         ],
-        currentFormattedDateRange: [
-            (s) => [s.insight],
-            (insight) => {
-                return dateFilterToText(
-                    insight?.result?.[0]?.filter?.date_from ?? insight?.result?.[0]?.days?.[0],
-                    insight?.last_refresh ??
-                        insight?.result?.[0]?.filter?.date_to ??
-                        insight?.result?.[0]?.days?.[insight?.result?.[0]?.days.length - 1],
-                    getFormattedLastWeekDate(),
-                    undefined,
-                    true
-                )
+        allEventNames: [
+            (s) => [s.filters, actionsModel.selectors.actions],
+            (filters, actions: ActionType[]) => {
+                const allEvents = [
+                    ...(filters.events || []).map((e) => String(e.id)),
+                    ...(filters.actions || []).flatMap((action) => getEventNamesForAction(action.id, actions)),
+                ]
+                // remove duplicates and empty events
+                return Array.from(new Set(allEvents.filter((a): a is string => !!a)))
             },
         ],
     },
@@ -594,6 +621,16 @@ export const insightLogic = kea<insightLogicType>({
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
             if (!insightId) {
                 throw new Error('Can only save saved insights whose id is known.')
+            }
+            if (
+                !values.insight.filters ||
+                JSON.stringify(cleanFilters(values.insight.filters)) === JSON.stringify(cleanFilters({}))
+            ) {
+                const error = new Error('Will not override empty filters in saveInsight.')
+                Sentry.captureException(error, {
+                    extra: { filters: JSON.stringify(values.insight.filters), insight: JSON.stringify(values.insight) },
+                })
+                throw error
             }
             const savedInsight: InsightModel = await api.update(
                 `api/projects/${teamLogic.values.currentTeamId}/insights/${insightId}`,

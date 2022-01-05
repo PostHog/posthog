@@ -19,7 +19,6 @@ from posthog.models.filters.mixins.common import (
     FilterTestAccountsMixin,
     FormulaMixin,
     InsightMixin,
-    IntervalMixin,
     LimitMixin,
     OffsetMixin,
     SelectorMixin,
@@ -40,6 +39,7 @@ from posthog.models.filters.mixins.funnel import (
     HistogramMixin,
 )
 from posthog.models.filters.mixins.groups import GroupsAggregationMixin
+from posthog.models.filters.mixins.interval import IntervalMixin
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
 

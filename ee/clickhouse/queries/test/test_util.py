@@ -26,6 +26,12 @@ def test_get_earliest_timestamp(db, team):
 
     assert get_earliest_timestamp(team.id) == datetime(2020, 1, 4, 14, 10, tzinfo=pytz.UTC)
 
+    _create_event(team=team, event="sign up", distinct_id="1", timestamp="1984-01-06T14:10:00Z")
+    _create_event(team=team, event="sign up", distinct_id="1", timestamp="2014-01-01T01:00:00Z")
+    _create_event(team=team, event="sign up", distinct_id="1", timestamp="2015-01-01T01:00:00Z")
+
+    assert get_earliest_timestamp(team.id) == datetime(2015, 1, 1, 1, tzinfo=pytz.UTC)
+
 
 @freeze_time("2021-01-21")
 def test_get_earliest_timestamp_with_no_events(db, team):
