@@ -5,11 +5,15 @@ from typing import Dict, List, Optional, Tuple, cast
 import mimesis
 from rest_framework.request import Request
 
-from ee.models.event_definition import EnterpriseEventDefinition
-from ee.models.property_definition import EnterprisePropertyDefinition
 from posthog.demo.data_generator import DataGenerator, SimPerson
 from posthog.models import Dashboard, FeatureFlag, Insight, Team, User
 from posthog.utils import render_template
+
+try:
+    from ee.models.event_definition import EnterpriseEventDefinition
+    from ee.models.property_definition import EnterprisePropertyDefinition
+except ImportError:
+    pass
 
 ORGANIZATION_NAME = "Hogflix Inc."
 TEAM_NAME = "Hogflix"

@@ -11,6 +11,11 @@ DEV_PASSWORD = "12345678"
 class Command(BaseCommand):
     help = "Set up the instance for development/review with demo data"
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--no-data", action="store_true", help="Create demo account without data",
+        )
+
     def handle(self, *args, **options):
         with transaction.atomic():
             organization, team, user = prepare_demo(
@@ -18,6 +23,7 @@ class Command(BaseCommand):
                 password=DEV_PASSWORD,
                 first_name="Jane Doe",
                 team_fields={"api_token": "e2e_token_1239",},
+                no_data=options["no_data"],
             )
             PersonalAPIKey.objects.create(user=user, label="e2e_demo_api_key key", value="e2e_demo_api_key")
         print(f"Created user {DEV_EMAIL} with password {DEV_PASSWORD}")

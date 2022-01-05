@@ -102,13 +102,14 @@ class DataGenerator(ABC):
         self.n_people = n_people
         self.seed = seed
 
-    def create_team(self, organization: Organization, user: User) -> Team:
+    def create_team(self, organization: Organization, user: User, simulate_journeys: bool = True, **kwargs) -> Team:
         team = Team.objects.create(
-            organization=organization, ingested_event=True, completed_snippet_onboarding=True, is_demo=True,
+            organization=organization, ingested_event=True, completed_snippet_onboarding=True, is_demo=True, **kwargs
         )
         self._set_project_up(team, user)
-        for i in range(self.n_people):
-            self._create_person_with_journey(team, user, i)._save()
+        if simulate_journeys:
+            for i in range(self.n_people):
+                self._create_person_with_journey(team, user, i)._save()
         team.save()
         for action in Action.objects.filter(team=team):
             action.calculate_events()
