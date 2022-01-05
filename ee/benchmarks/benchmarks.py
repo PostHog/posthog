@@ -11,7 +11,6 @@ from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseSti
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from ee.clickhouse.queries.funnels import ClickhouseFunnel
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
-from ee.clickhouse.queries.trends.person import TrendsPersonQuery
 from ee.clickhouse.queries.session_recordings.clickhouse_session_recording_list import ClickhouseSessionRecordingList
 from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.util import get_earliest_timestamp
@@ -22,7 +21,6 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.filter import Filter
 from posthog.models.property import PropertyName, TableWithProperties
 from posthog.constants import FunnelCorrelationType
-from posthog.models.entity import Entity
 
 MATERIALIZED_PROPERTIES: List[Tuple[TableWithProperties, PropertyName]] = [
     ("events", "$host"),
