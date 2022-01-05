@@ -48,7 +48,7 @@ RUN apk --update --no-cache --virtual .build-deps add \
     "postgresql-dev~=13" \
     "gfortran~=10.3" \
     "openblas-dev~=0.3" \
-    "lapack-dev~=3.10" \
+    "lapack-dev~=3.9" \
     && \
     pip install -r requirements-dev.txt --compile --no-cache-dir && \
     pip install -r requirements.txt --compile --no-cache-dir \
