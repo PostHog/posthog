@@ -270,7 +270,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
 
     events: ({ values, actions }) => ({
         beforeUnmount: () => clearTimeout(values.pollTimeout || undefined),
-        afterMount: () => actions.pollEvents(),
+        afterMount: () => actions.fetchEvents(),
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -337,6 +337,10 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                     hasNext: !!apiResponse.next,
                     isNext: !!nextParams,
                 })
+
+                // uses window setTimeout because typegen had a hard time with NodeJS.Timeout
+                const timeout = window.setTimeout(actions.pollEvents, POLL_TIMEOUT)
+                actions.setPollTimeout(timeout)
             },
         ],
         pollEvents: async (_, breakpoint) => {
