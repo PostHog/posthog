@@ -28,6 +28,10 @@ describe('DB', () => {
     const ACTION_STEP_ID = 913
     const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
 
+    test('this should fail', () => {
+        expect(true).toEqual(false)
+    })
+
     test('fetchAllActionsGroupedByTeam', async () => {
         const action = await db.fetchAllActionsGroupedByTeam()
 
