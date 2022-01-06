@@ -1388,6 +1388,7 @@ export interface ExperimentResults {
     probability: number
     filters: FilterType
     itemID: string
+    noData?: boolean
 }
 
 interface RelatedPerson {

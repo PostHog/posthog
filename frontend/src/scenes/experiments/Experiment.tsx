@@ -1,11 +1,11 @@
 import SaveOutlined from '@ant-design/icons/lib/icons/SaveOutlined'
-import { Alert, Button, Card, Col, Collapse, Form, Input, InputNumber, Row, Select, Slider, Tag, Tooltip } from 'antd'
+import { Button, Card, Col, Collapse, Form, Input, InputNumber, Row, Select, Slider, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import React from 'react'
+import React, { useState } from 'react'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -14,7 +14,6 @@ import { FunnelVizType, MultivariateFlagVariant, PropertyFilter } from '~/types'
 import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
-import { JSSnippet } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { IconJavascript, IconOpenInNew } from 'lib/components/icons'
 import { InfoCircleOutlined, CaretDownOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -54,6 +53,8 @@ export function Experiment(): JSX.Element {
 
     const [form] = Form.useForm()
 
+    const [currentVariant, setCurrentVariant] = useState('Control')
+
     const { insightProps } = useValues(
         insightLogic({
             dashboardItemId: experimentFunnelId,
@@ -67,6 +68,7 @@ export function Experiment(): JSX.Element {
     const sampleSize = recommendedSampleSize(conversionRate)
     const runningTime = expectedRunningTime(entrants, sampleSize)
     const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
+    const resultsTagColors = ['purple', 'gold', 'blue', '#35416B']
     const status = (): string => {
         if (!experimentData?.start_date) {
             return 'draft'
@@ -461,7 +463,7 @@ export function Experiment(): JSX.Element {
                         </Row>
                         {experimentData.description && <Row>Description: {experimentData.description}</Row>}
                     </Row>
-                    <Row>
+                    <Row className="mb">
                         <Col span={10} style={{ paddingRight: '1rem' }}>
                             <Col>
                                 <div className="card-secondary">Participants</div>
@@ -521,7 +523,7 @@ export function Experiment(): JSX.Element {
                             <Col>
                                 <div className="card-secondary mt">Start date</div>
                                 {experimentData.start_date ? (
-                                    <span>{experimentData.start_date}</span>
+                                    <span>{dayjs(experimentData.start_date).format('D MMM YYYY')}</span>
                                 ) : (
                                     <span className="description">Not started yet</span>
                                 )}
@@ -529,102 +531,155 @@ export function Experiment(): JSX.Element {
                             {experimentData.end_date && (
                                 <Col>
                                     <div className="card-secondary mt">Completed date</div>
+                                    <span>{dayjs(experimentData.end_date).format('D MMM YYYY')}</span>
                                 </Col>
                             )}
                         </Col>
                         <Col span={14}>
-                            <div className="text-default">
-                                <Row align="middle">
-                                    <b>How to run this experiment in your code</b>
-                                    <div className="ml-05">
-                                        <CodeLanguageSelect />
-                                    </div>
-                                </Row>
-                                <JSSnippet
-                                    variants={['control', 'test']}
-                                    flagKey={newExperimentData?.feature_flag_key || ''}
-                                />
-                                <a
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    href="https://posthog.com/docs/user-guides/feature-flags"
-                                >
-                                    <Row align="middle">
-                                        Learn more about feature flags
-                                        <IconOpenInNew className="ml-05" />
-                                    </Row>
-                                </a>
+                            <div style={{ borderBottom: '1px solid (--border)' }}>
+                                <b>Test that your code works properly for each variant</b>
                             </div>
-                            <div className="mt">
-                                Test that your code works properly for each variant:{' '}
-                                <a
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    href="https://posthog.com/docs/user-guides/feature-flags#develop-locally"
-                                >
-                                    {' '}
-                                    Follow this guide{' '}
-                                </a>
+                            <Row justify="space-between">
                                 <div>
-                                    For your Feature Flag, the override code looks like:
-                                    {['control', 'test'].map((variant) => (
-                                        <div key={variant}>
-                                            {' '}
-                                            {variant}:
-                                            <CodeSnippet language={Language.JavaScript}>
-                                                {`posthog.feature_flags.override({'${experimentData.feature_flag_key}': '${variant}'})`}
-                                            </CodeSnippet>
-                                        </div>
-                                    ))}
+                                    Feature flag override for{' '}
+                                    <Select
+                                        onChange={setCurrentVariant}
+                                        defaultValue={'Control'}
+                                        suffixIcon={<CaretDownOutlined />}
+                                    >
+                                        {experimentData.parameters.feature_flag_variants?.map(
+                                            (variant: MultivariateFlagVariant, idx: number) => (
+                                                <Select.Option key={idx} value={variant.key}>
+                                                    {variant.key}
+                                                </Select.Option>
+                                            )
+                                        )}
+                                    </Select>
                                 </div>
-                            </div>
-                            <div>Warning: Remember to not change this code until the experiment ends</div>
+                                <div>
+                                    Language <CodeLanguageSelect />
+                                </div>
+                            </Row>
+                            <CodeSnippet language={Language.JavaScript}>
+                                {`posthog.feature_flags.override({'${experimentData.feature_flag_key}': '${currentVariant}'})`}
+                            </CodeSnippet>
+                            <CodeSnippet language={Language.JavaScript} wrap>
+                                {`if (posthog.getFeatureFlag('${
+                                    experimentData.feature_flag_key ?? ''
+                                }') === '${currentVariant}') {
+    // where '${currentVariant}' is the variant, run your code here
+}`}
+                            </CodeSnippet>
+                            <a
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                href="https://posthog.com/docs/user-guides/feature-flags"
+                            >
+                                <Row align="middle">
+                                    Experiment implementation guide
+                                    <IconOpenInNew className="ml-05" />
+                                </Row>
+                            </a>
                         </Col>
                     </Row>
-                    {experimentData.start_date && (
-                        <div className="experiment-result">
-                            {experimentData.end_date && <Alert type="info" message="This experiment has ended" />}
-                            <div>Experiment start date: {dayjs(experimentData.start_date).format('D MMM YYYY')}</div>
-
-                            {experimentResults && (
-                                <BindLogic
-                                    logic={insightLogic}
-                                    props={{
-                                        dashboardItemId: experimentResults.itemID,
-                                        filters: {
-                                            ...experimentResults.filters,
-                                            insight: 'FUNNELS',
-                                            funnel_viz_type: FunnelVizType.Steps,
-                                            display: 'FunnelViz',
-                                        },
-                                        cachedResults: experimentResults.funnel,
-                                        syncWithUrl: false,
-                                        doNotLoad: true,
-                                    }}
-                                >
+                    <div className="experiment-result">
+                        {experimentResults && !experimentResults.noData ? (
+                            <Row style={{ alignItems: 'baseline' }}>
+                                {experimentData.end_date ? (
                                     <div>
-                                        <PageHeader title="Results" />
-                                        <div>
-                                            Probability that test has higher conversion than control:{' '}
-                                            <b>{(experimentResults?.probability * 100).toFixed(1)}%</b>
-                                        </div>
-                                        {experimentResults.funnel.length === 0 && (
-                                            <div className="l4">There were no events related to this experiment.</div>
-                                        )}
-
-                                        <div>
-                                            Test variant conversion rate: <b>{conversionRateForVariant('test')}</b>
-                                        </div>
-                                        <div>
-                                            Control variant conversion rate:{' '}
-                                            <b>{conversionRateForVariant('control')}</b>
-                                        </div>
-                                        <InsightContainer disableTable={true} />
+                                        Probability that test has higher conversion than control:{' '}
+                                        {experimentResults.probability}
                                     </div>
-                                </BindLogic>
-                            )}
-                        </div>
-                    )}
+                                ) : (
+                                    <span className="description">
+                                        This experiment is in progress. Partial results are available now.
+                                    </span>
+                                )}
+                                {experimentData.parameters.feature_flag_variants
+                                    ?.slice(1)
+                                    .map((variant: MultivariateFlagVariant, idx: number) => (
+                                        <Col className="ml" key={idx}>
+                                            <div className="card-secondary">{variant.key} conversion rate</div>
+                                            <div className="text-center">
+                                                {conversionRateForVariant(variant.key)}
+                                                <Tag style={{ border: 'none' }} color={resultsTagColors[idx]}>
+                                                    <b>{variant.key}</b>
+                                                </Tag>
+                                            </div>
+                                        </Col>
+                                    ))}
+                                <Col className="ml">
+                                    <div className="card-secondary">Control conversion rate</div>
+                                    <div className="text-center">
+                                        <Tag style={{ border: 'none', color: 'white' }} color={resultsTagColors[3]}>
+                                            <b>Control</b>
+                                        </Tag>
+                                    </div>
+                                </Col>
+                            </Row>
+                        ) : (
+                            <Row style={{ alignItems: 'baseline' }}>
+                                <span style={{ fontWeight: 500 }}>There are no results for this experiment yet.</span>
+                                {experimentData.parameters.feature_flag_variants
+                                    ?.slice(1)
+                                    .map((variant: MultivariateFlagVariant, idx: number) => (
+                                        <Col className="ml" key={idx}>
+                                            <div className="card-secondary">{variant.key} conversion rate</div>
+                                            <div className="text-center">
+                                                <b>--</b>{' '}
+                                                <Tag style={{ border: 'none' }} color={resultsTagColors[idx]}>
+                                                    <b>{variant.key}</b>
+                                                </Tag>
+                                            </div>
+                                        </Col>
+                                    ))}
+                                <Col className="ml">
+                                    <div className="card-secondary">Control conversion rate</div>
+                                    <div className="text-center">
+                                        <b>--</b>{' '}
+                                        <Tag style={{ border: 'none', color: 'white' }} color={resultsTagColors[3]}>
+                                            <b>Control</b>
+                                        </Tag>
+                                    </div>
+                                </Col>
+                            </Row>
+                        )}
+                        {experimentResults && !experimentResults?.noData ? (
+                            <BindLogic
+                                logic={insightLogic}
+                                props={{
+                                    dashboardItemId: experimentResults.itemID,
+                                    filters: {
+                                        ...experimentResults.filters,
+                                        insight: 'FUNNELS',
+                                        funnel_viz_type: FunnelVizType.Steps,
+                                        display: 'FunnelViz',
+                                    },
+                                    cachedResults: experimentResults.funnel,
+                                    syncWithUrl: false,
+                                    doNotLoad: true,
+                                }}
+                            >
+                                <InsightContainer disableTable={true} />
+                            </BindLogic>
+                        ) : (
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                    marginTop: 16,
+                                    background: '#FAFAF9',
+                                    border: '1px solid var(--border)',
+                                    width: '100%',
+                                    minHeight: 320,
+                                    fontSize: 24,
+                                }}
+                            >
+                                <b>There are no results for this experiment yet.</b>
+                            </div>
+                        )}
+                    </div>
                 </div>
             ) : (
                 <div>Loading Data...</div>

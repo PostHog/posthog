@@ -1,6 +1,5 @@
 @import '~/vars.scss';
 
-.experiment-result,
 .experiment-form {
     .metrics-selection {
         border-top: 1px solid $border;
@@ -158,5 +157,10 @@
         li:last-child:after {
             content: '';
         }
+    }
+
+    .experiment-result {
+        padding-top: $default_spacing;
+        border-top: 1px solid $border;
     }
 }
