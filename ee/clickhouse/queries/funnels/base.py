@@ -18,7 +18,13 @@ from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.breakdown_props import format_breakdown_cohort_join_query, get_breakdown_prop_values
 from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
-from posthog.constants import FUNNEL_WINDOW_INTERVAL, FUNNEL_WINDOW_INTERVAL_UNIT, LIMIT, TREND_FILTER_TYPE_ACTIONS
+from posthog.constants import (
+    FUNNEL_WINDOW_INTERVAL,
+    FUNNEL_WINDOW_INTERVAL_UNIT,
+    LIMIT,
+    OFFSET,
+    TREND_FILTER_TYPE_ACTIONS,
+)
 from posthog.models import Entity, Filter, Team
 from posthog.queries.funnel import Funnel
 from posthog.utils import relative_date_parse
@@ -29,7 +35,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
     _team: Team
     _include_timestamp: Optional[bool]
     _include_preceding_timestamp: Optional[bool]
-    _no_person_limit: Optional[bool]  # used when paths are querying for filter people
 
     def __init__(
         self,
@@ -37,7 +42,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
         team: Team,
         include_timestamp: Optional[bool] = None,
         include_preceding_timestamp: Optional[bool] = None,
-        no_person_limit: Optional[bool] = False,
         base_uri: str = "/",
     ) -> None:
         self._filter = filter
@@ -66,9 +70,9 @@ class ClickhouseFunnelBase(ABC, Funnel):
         else:
             self.params.update({LIMIT: self._filter.limit})
 
-        self._update_filters()
+        self.params.update({OFFSET: self._filter.offset})
 
-        self._no_person_limit = no_person_limit
+        self._update_filters()
 
     def run(self, *args, **kwargs):
         if len(self._filter.entities) == 0:
