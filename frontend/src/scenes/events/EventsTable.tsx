@@ -32,6 +32,7 @@ import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { createActionFromEvent } from './createActionFromEvent'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 
 export interface FixedFilters {
     action_id?: ActionType['id']
@@ -43,7 +44,7 @@ export interface FixedFilters {
 interface EventsTable {
     fixedFilters?: FixedFilters
     disableActions?: boolean
-    pageKey?: string
+    pageKey: string
     hidePersonColumn?: boolean
     hideTableConfig?: boolean
     sceneUrl?: string
@@ -52,7 +53,7 @@ interface EventsTable {
 
 export function EventsTable({
     fixedFilters,
-    pageKey = 'EventsTable',
+    pageKey,
     hidePersonColumn,
     hideTableConfig,
     sceneUrl,
@@ -60,7 +61,7 @@ export function EventsTable({
     disableActions,
     // How many months of data to fetch?
     fetchMonths,
-}: EventsTable = {}): JSX.Element {
+}: EventsTable): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const logic = eventsTableLogic({
         fixedFilters,
@@ -85,10 +86,13 @@ export function EventsTable({
     } = useValues(logic)
     const { tableWidth, selectedColumns } = useValues(tableConfigLogic)
     const { propertyNames } = useValues(propertyDefinitionsModel)
-    const { fetchNextEvents, prependNewEvents, setEventFilter, toggleAutomaticLoad, startDownload } = useActions(logic)
+    const { fetchNextEvents, prependNewEvents, setEventFilter, toggleAutomaticLoad, startDownload, setPollingActive } =
+        useActions(logic)
     const { filters } = useValues(propertyFilterLogic({ pageKey }))
 
     const showLinkToPerson = !fixedFilters?.person_id
+
+    usePageVisibility(setPollingActive)
 
     const newEventsRender = (
         { date_break, new_events }: EventsTableRowItem,

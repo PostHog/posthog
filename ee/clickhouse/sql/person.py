@@ -376,6 +376,6 @@ SELECT
     {id_field} AS actor_id
 FROM ({events_query})
 GROUP BY actor_id
-LIMIT %(limit)s
-OFFSET %(offset)s
+{limit}
+{offset}
 """

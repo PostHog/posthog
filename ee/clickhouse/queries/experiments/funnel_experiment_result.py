@@ -1,7 +1,7 @@
 import dataclasses
 from datetime import datetime
 from math import exp, log
-from typing import List, Optional, Tuple, Type
+from typing import Dict, List, Optional, Tuple, Type
 
 from rest_framework.exceptions import ValidationError
 
@@ -16,7 +16,7 @@ Probability = float
 
 @dataclasses.dataclass
 class Variant:
-    name: str
+    key: str
     success_count: int
     failure_count: int
 
@@ -75,7 +75,7 @@ class ClickhouseFunnelExperimentResult:
         probabilities = self.calculate_results(control_variant, test_variants)
 
         mapping = {
-            variant.name: probability for variant, probability in zip([control_variant, *test_variants], probabilities)
+            variant.key: probability for variant, probability in zip([control_variant, *test_variants], probabilities)
         }
 
         return {"insight": funnel_results, "probability": mapping, "filters": self.funnel._filter.to_dict()}
@@ -89,7 +89,7 @@ class ClickhouseFunnelExperimentResult:
             failure = total - success
             breakdown_value = result[0]["breakdown_value"][0]
             if breakdown_value == CONTROL_VARIANT_KEY:
-                control_variant = Variant(name=breakdown_value, success_count=int(success), failure_count=int(failure))
+                control_variant = Variant(key=breakdown_value, success_count=int(success), failure_count=int(failure))
             else:
                 test_variants.append(Variant(breakdown_value, int(success), int(failure)))
 

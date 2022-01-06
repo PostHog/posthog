@@ -10,7 +10,7 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.models.person import create_person_distinct_id
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
-from ee.clickhouse.queries.trends.person import TrendsPersonQuery
+from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import TRENDS_BAR_VALUE
@@ -53,7 +53,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
     maxDiff = None
 
     def _get_trend_people(self, filter, entity):
-        _, serialized_actors = TrendsPersonQuery(filter=filter, entity=entity, team=self.team).get_actors()
+        _, serialized_actors = ClickhouseTrendsActors(filter=filter, entity=entity, team=self.team).get_actors()
         return serialized_actors
 
     def _create_groups(self):

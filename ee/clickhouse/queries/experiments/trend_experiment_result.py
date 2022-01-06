@@ -17,7 +17,7 @@ CONTROL_VARIANT_KEY = "control"
 
 @dataclasses.dataclass
 class Variant:
-    name: str
+    key: str
     count: int
 
 
@@ -69,7 +69,7 @@ class ClickhouseTrendExperimentResult:
         probabilities = self.calculate_results(control_variant, test_variants)
 
         mapping = {
-            variant.name: probability for variant, probability in zip([control_variant, *test_variants], probabilities)
+            variant.key: probability for variant, probability in zip([control_variant, *test_variants], probabilities)
         }
 
         return {"insight": insight_results, "probability": mapping, "filters": self.query_filter.to_dict()}
@@ -82,7 +82,7 @@ class ClickhouseTrendExperimentResult:
             count = result["count"]
             breakdown_value = result["breakdown_value"]
             if breakdown_value == CONTROL_VARIANT_KEY:
-                control_variant = Variant(name=breakdown_value, count=int(count))
+                control_variant = Variant(key=breakdown_value, count=int(count))
             else:
                 test_variants.append(Variant(breakdown_value, int(count)))
 
