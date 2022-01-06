@@ -56,11 +56,9 @@ if is_clickhouse_enabled():
         try:
             KafkaProducer().produce(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=data)
         except Exception as e:
-            capture_exception(e, {"data": data})
             statsd.incr("capture_endpoint_log_event_error")
-
-            if settings.DEBUG:
-                print(f"Failed to produce event to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC} with error:", e)
+            print(f"Failed to produce event to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC} with error:", e)
+            raise e
 
     def log_event_to_dead_letter_queue(
         raw_payload: Dict,
@@ -239,11 +237,28 @@ def get_event(request):
             continue
 
         statsd.incr("posthog_cloud_plugin_server_ingestion")
-        capture_internal(event, distinct_id, ip, site_url, now, sent_at, team.pk, event_uuid)  # type: ignore
+        try:
+            capture_internal(event, distinct_id, ip, site_url, now, sent_at, team.pk, event_uuid)  # type: ignore
+        except Exception as e:
+            timer.stop()
+            capture_exception(e, {"data": data})
+            statsd.incr(
+                "posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture",},
+            )
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "capture",
+                    "Unable to store event. Please try again. If you are the owner of this app you can check the logs for further details.",
+                    code="server_error",
+                    type="server_error",
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                ),
+            )
 
     timer.stop()
     statsd.incr(
-        f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture",},
+        "posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture",},
     )
     return cors_response(request, JsonResponse({"status": 1}))
 
