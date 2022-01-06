@@ -97,7 +97,7 @@ export function Experiment(): JSX.Element {
                             feature_flag_key: newExperimentData?.feature_flag_key,
                             description: newExperimentData?.description,
                         }}
-                        onFinish={() => createExperiment(true, runningTime, sampleSize)}
+                        onFinish={() => createExperiment(true, runningTime, sensitivity)}
                         scrollToFirstError
                     >
                         <div>
