@@ -1,7 +1,6 @@
 from datetime import datetime
 from typing import List, Optional, Tuple
 
-from django.db.transaction import rollback
 from semantic_version.base import SimpleSpec
 
 from posthog.async_migrations.setup import (
@@ -17,9 +16,9 @@ from posthog.async_migrations.utils import (
     trigger_migration,
     update_async_migration,
 )
+from posthog.email import is_email_available
 from posthog.models.async_migration import AsyncMigration, MigrationStatus, get_all_running_async_migrations
 from posthog.models.utils import UUIDT
-from posthog.settings import ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT
 from posthog.version_requirement import ServiceVersionRequirement
 
 """
@@ -197,11 +196,12 @@ def attempt_migration_rollback(migration_instance: AsyncMigration, force: bool =
                 migration_instance=migration_instance, status=MigrationStatus.Errored, last_error=last_error,
             )
 
-        from posthog.tasks.email import send_async_migration_errored_email
+        if is_email_available():
+            from posthog.tasks.email import send_async_migration_errored_email
 
-        send_async_migration_errored_email.delay(
-            migration_key=migration_instance.name, time=datetime.now().isoformat(), error=last_error
-        )
+            send_async_migration_errored_email.delay(
+                migration_key=migration_instance.name, time=datetime.now().isoformat(), error=last_error
+            )
 
         return
 

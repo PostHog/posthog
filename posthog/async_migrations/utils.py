@@ -7,6 +7,7 @@ from posthog.async_migrations.definition import AsyncMigrationOperation
 from posthog.async_migrations.setup import DEPENDENCY_TO_ASYNC_MIGRATION
 from posthog.celery import app
 from posthog.constants import AnalyticsDBMS
+from posthog.email import is_email_available
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
 from posthog.settings import ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK
 
@@ -44,11 +45,12 @@ def process_error(migration_instance: AsyncMigration, error: Optional[str]):
         finished_at=datetime.now(),
     )
 
-    from posthog.tasks.email import send_async_migration_errored_email
+    if is_email_available():
+        from posthog.tasks.email import send_async_migration_errored_email
 
-    send_async_migration_errored_email.delay(
-        migration_key=migration_instance.name, time=datetime.now().isoformat(), error=error or ""
-    )
+        send_async_migration_errored_email.delay(
+            migration_key=migration_instance.name, time=datetime.now().isoformat(), error=error or ""
+        )
 
     if ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK:
         return
@@ -99,9 +101,10 @@ def complete_migration(migration_instance: AsyncMigration):
         progress=100,
     )
 
-    from posthog.tasks.email import send_async_migration_complete_email
+    if is_email_available():
+        from posthog.tasks.email import send_async_migration_complete_email
 
-    send_async_migration_complete_email.delay(migration_key=migration_instance.name, time=now.isoformat())
+        send_async_migration_complete_email.delay(migration_key=migration_instance.name, time=now.isoformat())
 
     next_migration = DEPENDENCY_TO_ASYNC_MIGRATION.get(migration_instance.name)
     if next_migration:
