@@ -323,21 +323,20 @@ export const experimentLogic = kea<experimentLogicType>({
                 },
             ],
         ],
-        minimumDetectableChange: [
+        minimumSampleSizePerVariant: [
             (s) => [s.newExperimentData],
             (newExperimentData): number => {
-                return newExperimentData?.parameters?.minimum_detectable_effect || 5
+                return newExperimentData?.parameters?.minimum_sample_size || 500
             },
         ],
-        recommendedSampleSize: [
-            (s) => [s.minimumDetectableChange],
-            (mde) => (conversionRate: number) => {
-                // Using the rule of thumb: 16 * sigma^2 / (mde^2)
+        minimumDetectableChange: [
+            (s) => [s.minimumSampleSizePerVariant],
+            (minimumSampleSize) => (conversionRate: number) => {
+                // Using the rule of thumb: sampleSize = 16 * sigma^2 / (mde^2)
                 // refer https://en.wikipedia.org/wiki/Sample_size_determination with default beta and alpha
                 // The results are same as: https://www.evanmiller.org/ab-testing/sample-size.html
                 // and also: https://marketing.dynamicyield.com/ab-test-duration-calculator/
-                // this is per variant, so we need to multiply by 2
-                return 2 * Math.ceil((1600 * conversionRate * (1 - conversionRate / 100)) / (mde * mde))
+                return Math.sqrt((1600 * conversionRate * (1 - conversionRate / 100)) / minimumSampleSize)
             },
         ],
         expectedRunningTime: [

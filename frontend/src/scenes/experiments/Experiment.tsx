@@ -33,7 +33,7 @@ export function Experiment(): JSX.Element {
         experimentData,
         experimentFunnelId,
         minimumDetectableChange,
-        recommendedSampleSize,
+        minimumSampleSizePerVariant,
         expectedRunningTime,
         experimentResults,
         conversionRateForVariant,
@@ -63,8 +63,8 @@ export function Experiment(): JSX.Element {
 
     const conversionRate = conversionMetrics.totalRate * 100
     const entrants = results?.[0]?.count
-    const sampleSize = recommendedSampleSize(conversionRate)
-    const runningTime = expectedRunningTime(entrants, sampleSize)
+    const sensitivity = minimumDetectableChange(conversionRate)
+    const runningTime = expectedRunningTime(entrants, minimumSampleSizePerVariant * 2) // TODO: number of variants, not 2
     const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
     const status = (): string => {
         if (!experimentData?.start_date) {
@@ -351,63 +351,59 @@ export function Experiment(): JSX.Element {
                                     </Col>
                                 </Row>
                                 <Row className="preview-row">
-                                    <Col span={12}>
-                                        <div className="card-secondary">Target Participant Count</div>
-                                        <div className="pb">
-                                            <span className="l4">~{sampleSize}</span> persons
-                                        </div>
+                                    <Col span={8}>
                                         <div className="card-secondary">Baseline Conversion Rate</div>
                                         <div className="l4">{conversionRate.toFixed(1)}%</div>
                                     </Col>
-                                    <Col span={12}>
-                                        <div className="card-secondary">Target duration</div>
+                                    <Col span={8}>
+                                        <div className="card-secondary">Sensitivity</div>
+                                        <div className="l4">{sensitivity.toFixed(1)}%</div>
+                                    </Col>
+                                    <Col span={8}>
+                                        <div className="card-secondary mb-05">Undetectable Range</div>
                                         <div>
-                                            <span className="l4">~{runningTime}</span> days
+                                            <b>
+                                                {Math.max(0, conversionRate - sensitivity).toFixed()}% -{' '}
+                                                {Math.min(100, conversionRate + sensitivity).toFixed()}%
+                                            </b>
                                         </div>
                                     </Col>
                                 </Row>
                                 <Row className="preview-row">
                                     <Col>
                                         <div className="l4">
-                                            Conversion goal threshold
-                                            <Tooltip
-                                                title={`The minimum % change in conversion rate you care about. 
-                                                This means you don't care about variants whose
-                                                conversion rate is between these two percentages.`}
-                                            >
+                                            Minimum Participant Count
+                                            <Tooltip title={`The minimum sample size per variant.`}>
                                                 <InfoCircleOutlined style={{ marginLeft: 4 }} />
                                             </Tooltip>
                                         </div>
                                         <div className="pb text-small text-muted">
-                                            Apply a threshold to broaden the acceptable range of conversion rates for
-                                            this experiment. The acceptable range will be the baseline conversion goal
-                                            +/- the goal threshold.
+                                            Choose how many participants you want to run this experiment with. More
+                                            participants increase sensitivity, which allows you to detect smaller
+                                            changes in your conversion rate.
                                         </div>
                                         <div>
-                                            <span className="l4 pr">Threshold value</span>
+                                            <span className="l4 pr">Sample size</span>
                                             <Slider
-                                                min={1}
-                                                max={20}
-                                                defaultValue={5}
-                                                tipFormatter={(value) => `${value}%`}
+                                                min={100}
+                                                max={5000}
+                                                defaultValue={500}
+                                                tipFormatter={(value) => `${value}`}
                                                 onChange={(value) =>
                                                     setNewExperimentData({
-                                                        parameters: { minimum_detectable_effect: value },
+                                                        parameters: { minimum_sample_size: value },
                                                     })
                                                 }
-                                                marks={{ 5: `5%`, 10: `10%` }}
+                                                marks={{ 500: `500`, 1000: `1000` }}
                                             />
                                         </div>
                                     </Col>
                                 </Row>
                                 <Row>
                                     <Col>
-                                        <div className="card-secondary mb-05">Conversion goal range</div>
+                                        <div className="card-secondary">Expected duration</div>
                                         <div>
-                                            <b>
-                                                {Math.max(0, conversionRate - minimumDetectableChange).toFixed()}% -{' '}
-                                                {Math.min(100, conversionRate + minimumDetectableChange).toFixed()}%
-                                            </b>
+                                            <span className="l4">~{runningTime}</span> days
                                         </div>
                                     </Col>
                                 </Row>
