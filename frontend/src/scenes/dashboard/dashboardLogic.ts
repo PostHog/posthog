@@ -3,8 +3,7 @@ import api from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { prompt } from 'lib/logic/prompt'
 import { router } from 'kea-router'
-import { toast } from 'react-toastify'
-import { clearDOMTextSelection, editingToast, setPageTitle, toParams } from 'lib/utils'
+import { clearDOMTextSelection, errorToast, setPageTitle, toParams } from 'lib/utils'
 import { insightsModel } from '~/models/insightsModel'
 import { ACTIONS_LINE_GRAPH_LINEAR, FEATURE_FLAGS, PATHS_VIZ } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -19,7 +18,6 @@ import {
     InsightType,
 } from '~/types'
 import { dashboardLogicType } from './dashboardLogicType'
-import React from 'react'
 import { Layout, Layouts } from 'react-grid-layout'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from '../teamLogic'
@@ -496,11 +494,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             }
         },
         beforeUnmount: () => {
-            if (cache.draggingToastId) {
-                toast.dismiss(cache.draggingToastId)
-                cache.draggingToastId = null
-            }
-
             if (cache.autoRefreshInterval) {
                 window.clearInterval(cache.autoRefreshInterval)
                 cache.autoRefreshInterval = null
@@ -646,16 +639,6 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             }
             if (mode === DashboardMode.Edit) {
                 clearDOMTextSelection()
-
-                if (!cache.draggingToastId) {
-                    cache.draggingToastId = editingToast('Dashboard', actions.setDashboardMode)
-                }
-            } else {
-                // Clean edit mode toast if applicable
-                if (cache.draggingToastId) {
-                    toast.dismiss(cache.draggingToastId)
-                    cache.draggingToastId = null
-                }
             }
 
             if (mode) {
@@ -669,13 +652,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         },
         saveNewTag: ({ tag }) => {
             if (values.dashboard?.tags.includes(tag)) {
-                toast.error(
-                    // TODO: move to errorToast once #3561 is merged
-                    <div>
-                        <h1>Oops! Can't add that tag</h1>
-                        <p>Your dashboard already has that tag.</p>
-                    </div>
-                )
+                errorToast("Oops! Can't add that tag", 'Your dashboard already has that tag.')
                 return
             }
             actions.triggerDashboardUpdate({ tags: [...(values.dashboard?.tags || []), tag] })
