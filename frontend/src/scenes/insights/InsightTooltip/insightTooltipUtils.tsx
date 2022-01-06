@@ -62,7 +62,7 @@ function getFormattedDate(dayInput?: string | number, interval?: IntervalType): 
     const day = dayjs(dayInput)
     // Dayjs formatted day
     if (dayInput !== undefined && day.isValid()) {
-        const formatString = `DD MMM YYYY${interval === 'hour' || interval === 'minute' ? ' HH:mm' : ''}`
+        const formatString = `DD MMM YYYY${interval === 'hour' ? ' HH:00' : ''}`
         return day.format(formatString)
     }
     return String(dayInput)
