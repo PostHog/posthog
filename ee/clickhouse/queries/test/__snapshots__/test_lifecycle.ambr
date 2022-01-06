@@ -38,12 +38,15 @@
                      pdi.person_id as person_id
               FROM events e
               INNER JOIN
-                (SELECT distinct_id,
-                        argMax(person_id, version) as person_id
-                 FROM person_distinct_id2
-                 WHERE team_id = 2
-                 GROUP BY distinct_id
-                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                (SELECT cityHash64(distinct_id) as distinct_id,
+                        person_id
+                 FROM
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0)) AS pdi ON cityHash64(e.distinct_id) = pdi.distinct_id
               INNER JOIN
                 (SELECT group_key,
                         argMax(group_properties, _timestamp) AS group_properties_0
