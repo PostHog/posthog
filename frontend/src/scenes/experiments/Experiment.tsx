@@ -20,6 +20,7 @@ import { InfoCircleOutlined, CaretDownOutlined, PlusOutlined, DeleteOutlined } f
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
+import { FunnelLayout } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -552,8 +553,9 @@ export function Experiment(): JSX.Element {
                                             insight: 'FUNNELS',
                                             funnel_viz_type: FunnelVizType.Steps,
                                             display: 'FunnelViz',
+                                            layout: FunnelLayout.vertical,
                                         },
-                                        cachedResults: experimentResults.funnel,
+                                        cachedResults: experimentResults.insight,
                                         syncWithUrl: false,
                                         doNotLoad: true,
                                     }}
@@ -562,9 +564,9 @@ export function Experiment(): JSX.Element {
                                         <PageHeader title="Results" />
                                         <div>
                                             Probability that test has higher conversion than control:{' '}
-                                            <b>{(experimentResults?.probability * 100).toFixed(1)}%</b>
+                                            <b>{(experimentResults?.probability.test * 100).toFixed(1)}%</b>
                                         </div>
-                                        {experimentResults.funnel.length === 0 && (
+                                        {experimentResults.insight?.length === 0 && (
                                             <div className="l4">There were no events related to this experiment.</div>
                                         )}
 

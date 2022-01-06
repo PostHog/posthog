@@ -233,6 +233,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 newInsight
             )
             actions.setExperimentFunnelId(createdInsight.short_id)
+            actions.setNewExperimentData({ filters: { ...newInsight.filters } })
         },
         setFilters: ({ filters }) => {
             funnelLogic.findMounted({ dashboardItemId: values.experimentFunnelId })?.actions.setFilters(filters)
@@ -240,8 +241,8 @@ export const experimentLogic = kea<experimentLogicType>({
         loadExperimentSuccess: async ({ experimentData }) => {
             if (!experimentData?.start_date) {
                 // loading a draft mode experiment
-                actions.createNewExperimentFunnel(experimentData?.filters)
                 actions.setNewExperimentData({ ...experimentData })
+                actions.createNewExperimentFunnel(experimentData?.filters)
             } else {
                 try {
                     const response = await api.get(
@@ -251,7 +252,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 } catch (error) {
                     if (error.code === 'no_data') {
                         actions.setExperimentResults({
-                            funnel: [],
+                            insight: [],
                             filters: { events: [{ id: 'random1' }, { id: 'random2' }] }, // ensures we get the funnel empty state
                             // rather than "Add another Step" button
                             probability: 0,
@@ -356,7 +357,7 @@ export const experimentLogic = kea<experimentLogicType>({
                     if (!experimentResults) {
                         return errorResult
                     }
-                    const variantResults = experimentResults.funnel.find(
+                    const variantResults = experimentResults.insight.find(
                         (variantFunnel) => variantFunnel[0].breakdown_value?.[0] === variant
                     )
                     if (!variantResults) {
