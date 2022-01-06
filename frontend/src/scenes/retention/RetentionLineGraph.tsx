@@ -25,12 +25,12 @@ export function RetentionLineGraph({
     const logic = retentionTableLogic(insightProps)
     const {
         results: _results,
-        filters,
         trendSeries,
         people: _people,
         peopleLoading,
         loadingMore,
         aggregationTargetLabel,
+        incompletenessOffsetFromEnd,
     } = useValues(logic)
     const results = _results as RetentionTablePayload[]
     const people = _people as RetentionTablePeoplePayload
@@ -50,10 +50,13 @@ export function RetentionLineGraph({
                 color={color}
                 datasets={trendSeries as GraphDataset[]}
                 labels={(trendSeries[0] && trendSeries[0].labels) || []}
-                isInProgress={!filters.date_to}
+                isInProgress={incompletenessOffsetFromEnd < 0}
                 insightId={insight.id}
                 inSharedMode={!!inSharedMode}
                 percentage={true}
+                tooltip={{
+                    rowCutoff: 11, // 11 time units is hardcoded into retention insights
+                }}
                 onClick={
                     dashboardItemId
                         ? undefined
@@ -69,6 +72,7 @@ export function RetentionLineGraph({
                               setModalVisible(true)
                           }
                 }
+                incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             />
             {results && (
                 <RetentionModal

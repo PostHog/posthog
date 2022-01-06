@@ -476,7 +476,17 @@ export function LEGACY_LineGraph({
                 ],
                 yAxes: [
                     {
-                        ticks: { fontColor: colors.axisLabel },
+                        ticks: {
+                            fontColor: colors.axisLabel,
+                            callback: function _renderYLabel(_, i) {
+                                const labelDescriptors = [
+                                    datasets?.[0]?.actions?.[i]?.custom_name ?? datasets?.[0]?.actions?.[i]?.name, // action name
+                                    datasets?.[0]?.breakdownValues?.[i], // breakdown value
+                                    datasets?.[0]?.compareLabels?.[i], // compare value
+                                ].filter((l) => !!l)
+                                return labelDescriptors.join(' - ')
+                            },
+                        },
                     },
                 ],
             }

@@ -7,6 +7,8 @@ import { InsightEmptyState } from '../../insights/EmptyStates'
 import { ActionFilter, FilterType, GraphType, InsightShortId } from '~/types'
 import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { InsightLabel } from 'lib/components/InsightLabel'
+import { SeriesLetter } from 'lib/components/SeriesGlyph'
 
 interface Props {
     dashboardItemId?: InsightShortId | null
@@ -49,6 +51,7 @@ export function ActionsHorizontalBar({
                 personsValues: _data.map((item) => item.persons),
                 days,
                 breakdownValues: _data.map((item) => item.breakdown_value),
+                compareLabels: _data.map((item) => item.compare_label),
                 backgroundColor: colorList,
                 hoverBackgroundColor: colorList,
                 hoverBorderColor: colorList,
@@ -71,7 +74,24 @@ export function ActionsHorizontalBar({
             data-attr="trend-bar-value-graph"
             type={GraphType.HorizontalBar}
             color={color}
-            tooltipAltTitle="Series"
+            tooltip={{
+                altTitle: function _renderAltTitle(tooltipData) {
+                    return (
+                        <>
+                            <SeriesLetter hasBreakdown={false} seriesIndex={tooltipData?.[0]?.action?.order ?? 0} />
+                            <InsightLabel
+                                className="series-column-header"
+                                action={tooltipData?.[0]?.action}
+                                fallbackName="Series"
+                                hideBreakdown
+                                hideCompare
+                                hideIcon
+                                allowWrap
+                            />
+                        </>
+                    )
+                },
+            }}
             datasets={data}
             labels={data[0].labels}
             insightId={insight.id}

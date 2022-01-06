@@ -5,17 +5,20 @@ import { Space, Tag, Typography } from 'antd'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
 
 export interface SeriesDatum {
-    id: number
+    id: number // determines order that series will be displayed in
     dataIndex: number
     datasetIndex: number
     breakdown_value?: string | number
     compare_label?: CompareLabelType
     action?: ActionFilter
+    label?: string
     dotted?: boolean
     color?: string
     count: number
 }
 
+// Describes the row-by-row data for insight tooltips in the situation where series
+// are itemized as columns instead of rows by default
 export interface InvertedSeriesDatum {
     id: string
     datasetIndex: number
@@ -24,7 +27,32 @@ export interface InvertedSeriesDatum {
     seriesData: SeriesDatum[]
 }
 
-export function getFormattedDate(dayInput?: string | number): string {
+export interface InsightTooltipProps {
+    date?: string
+    hideInspectActorsSection?: boolean
+    seriesData?: SeriesDatum[]
+    tooltipAltTitle?: string | ((tooltipData: SeriesDatum[]) => React.ReactNode)
+    hideColorCol?: boolean
+    forceEntitiesAsColumns?: boolean
+    rowCutoff?: number
+    colCutoff?: number
+}
+
+export const COL_CUTOFF = 4
+export const ROW_CUTOFF = 8
+
+export function getTooltipTitle({ date, seriesData = [], tooltipAltTitle }: InsightTooltipProps): React.ReactNode {
+    // Use tooltip alternate title (or generate one if it's a function). Else default to date.
+    if (tooltipAltTitle) {
+        if (typeof tooltipAltTitle === 'function') {
+            return tooltipAltTitle(seriesData)
+        }
+        return tooltipAltTitle
+    }
+    return getFormattedDate(date)
+}
+
+function getFormattedDate(dayInput?: string | number): string {
     // Number of days
     if (Number.isInteger(dayInput)) {
         return pluralize(dayInput as number, 'day')

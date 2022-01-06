@@ -39,7 +39,9 @@ export function ActionsLineGraph({
             interval={filters.interval}
             showPersonsModal={showPersonsModal}
             tooltipPreferAltTitle={filters.insight === InsightType.STICKINESS}
-            tooltipAltTitle={filters.insight === InsightType.LIFECYCLE ? 'Users' : undefined}
+            tooltip={{
+                altTitle: filters.insight === InsightType.LIFECYCLE ? 'Users' : undefined,
+            }}
             isCompare={!!filters.compare}
             isInProgress={filters.insight !== InsightType.STICKINESS && incompletenessOffsetFromEnd < 0}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}

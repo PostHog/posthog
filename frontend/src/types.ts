@@ -1544,6 +1544,8 @@ export type GraphDataset = ChartDataset<ChartType> &
         dotted?: boolean
         /** Array of breakdown values used only in ActionsHorizontalBar.tsx data */
         breakdownValues?: (string | number | undefined)[]
+        /** Array of compare labels used only in ActionsHorizontalBar.tsx data */
+        compareLabels?: (CompareLabelType | undefined)[]
         /** Array of persons ussed only in (ActionsHorizontalBar|ActionsPie).tsx */
         personsValues?: (Person | undefined)[]
         index?: number
