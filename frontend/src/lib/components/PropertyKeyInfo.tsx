@@ -1,9 +1,9 @@
-import './PropertyKeyInfo.scss'
 import React from 'react'
 import { Popover, Typography } from 'antd'
 import { KeyMapping, PropertyFilterValue } from '~/types'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { TooltipPlacement } from 'antd/lib/tooltip'
+import './PropertyKeyInfo.scss'
 
 export interface KeyMappingInterface {
     event: Record<string, KeyMapping>

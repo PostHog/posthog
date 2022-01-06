@@ -1,5 +1,28 @@
-.property-key-info-tooltip,
+@import '~/vars';
+
 /* must join .ant-popover to override default width */
+.property-key-info-tooltip,
 .ant-popover.property-key-info-tooltip {
     max-width: 300px;
+}
+
+.property-key-info {
+    display: inline-block;
+    white-space: nowrap;
+    line-height: 19px;
+    @extend .text-ellipsis;
+}
+
+.property-key-info-logo {
+    margin-right: 6px;
+    display: inline-block;
+    vertical-align: top;
+    height: 19px;
+    width: 19px;
+    background-image: url('../../../public/posthog-icon.svg');
+    background-size: cover;
+}
+
+.ant-select-selection-item .property-key-info-logo {
+    vertical-align: text-bottom;
 }

@@ -1,5 +1,26 @@
 @import '~/vars';
 
+.properties-table {
+    width: 100%;
+    table-layout: fixed;
+    overflow-x: auto;
+
+    tr {
+        border-bottom: 1px solid $border;
+        height: 46px;
+    }
+
+    td {
+        white-space: nowrap;
+        padding-left: 4px;
+        padding-right: 4px;
+    }
+
+    .property-column-key {
+        width: 30%;
+    }
+}
+
 .properties-table-key {
     display: flex;
     align-items: center;
