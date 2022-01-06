@@ -92,7 +92,7 @@ export function PersonsModal({
     const isDownloadCsvAvailable = view === InsightType.TRENDS && showModalActions
     const isSaveAsCohortAvailable =
         clickhouseFeaturesEnabled &&
-        (view === InsightType.TRENDS || view === InsightType.STICKINESS) &&
+        (view === InsightType.TRENDS || view === InsightType.STICKINESS || view === InsightType.FUNNELS) &&
         showModalActions
 
     const colorList = getChartColors('white', people?.crossDataset?.length)
