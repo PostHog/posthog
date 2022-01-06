@@ -11,10 +11,12 @@ from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 
+Probability = float
+
 
 @dataclasses.dataclass
 class Variant:
-    name: str
+    key: str
     success_count: int
     failure_count: int
 
@@ -73,7 +75,7 @@ class ClickhouseFunnelExperimentResult:
         probabilities = self.calculate_results(control_variant, test_variants)
 
         mapping = {
-            variant.name: probability for variant, probability in zip([control_variant, *test_variants], probabilities)
+            variant.key: probability for variant, probability in zip([control_variant, *test_variants], probabilities)
         }
 
         return {"insight": funnel_results, "probability": mapping, "filters": self.funnel._filter.to_dict()}
@@ -87,16 +89,16 @@ class ClickhouseFunnelExperimentResult:
             failure = total - success
             breakdown_value = result[0]["breakdown_value"][0]
             if breakdown_value == CONTROL_VARIANT_KEY:
-                control_variant = Variant(name=breakdown_value, success_count=success, failure_count=failure)
+                control_variant = Variant(key=breakdown_value, success_count=int(success), failure_count=int(failure))
             else:
-                test_variants.append(Variant(breakdown_value, success, failure))
+                test_variants.append(Variant(breakdown_value, int(success), int(failure)))
 
         return control_variant, test_variants
 
     @staticmethod
     def calculate_results(
         control_variant: Variant, test_variants: List[Variant], priors: Tuple[int, int] = (1, 1)
-    ) -> List[float]:
+    ) -> List[Probability]:
         """
         Calculates probability that A is better than B. First variant is control, rest are test variants.
         
@@ -139,7 +141,7 @@ class ClickhouseFunnelExperimentResult:
         )
 
 
-def calculate_probability_of_winning_for_each(variants: List[Tuple[int, int]]) -> List[float]:
+def calculate_probability_of_winning_for_each(variants: List[Tuple[int, int]]) -> List[Probability]:
     """
     Calculates the probability of winning for each variant.
     """
@@ -198,8 +200,8 @@ def calculate_probability_of_winning_for_each(variants: List[Tuple[int, int]]) -
         raise ValidationError("Can't calculate A/B test results for more than 4 variants", code="too_much_data")
 
 
-def probability_B_beats_A(A_success: int, A_failure: int, B_success: int, B_failure: int) -> float:
-    total: float = 0
+def probability_B_beats_A(A_success: int, A_failure: int, B_success: int, B_failure: int) -> Probability:
+    total: Probability = 0
     for i in range(B_success):
         total += exp(
             logbeta(A_success + i, A_failure + B_failure)
@@ -215,7 +217,7 @@ def probability_C_beats_A_and_B(
     A_success: int, A_failure: int, B_success: int, B_failure: int, C_success: int, C_failure: int
 ):
 
-    total: float = 0
+    total: Probability = 0
     for i in range(A_success):
         for j in range(B_success):
             total += exp(
@@ -245,7 +247,7 @@ def probability_D_beats_A_B_and_C(
     D_success: int,
     D_failure: int,
 ):
-    total: float = 0
+    total: Probability = 0
     for i in range(A_success):
         for j in range(B_success):
             for k in range(C_success):
