@@ -756,9 +756,7 @@ export interface EventDefinitionType {
     created_at: string // DateTime
 }
 
-// see https://microsoft.github.io/TypeScript-New-Handbook/chapters/types-from-extraction/#indexed-access-types
-export const known_property_type_formats = ['unix_timestamp', 'YYYY-MM-DD hh:mm:ss', 'YYYY-MM-DD'] as const
-export type PropertyTypeFormat = typeof known_property_type_formats[number] // needs to sync with front end types
+export type PropertyTypeFormat = 'unix_timestamp' | 'YYYY-MM-DD hh:mm:ss' | 'YYYY-MM-DD' // needs to sync with front end types
 export type PropertyType = 'DateTime' | 'String' | 'Numeric' | 'Boolean' // needs to sync with front end types
 
 export interface PropertyDefinitionType {
