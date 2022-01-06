@@ -13,6 +13,45 @@ import { getByAge, UUIDT } from '../../utils/utils'
 
 type TeamCache<T> = Map<TeamId, [T, number]>
 
+function detectPropertyDefinitionTypes(isNumerical: boolean, value: any, key: string) {
+    let propertyType: PropertyType | null = null
+    let propertyTypeFormat: PropertyTypeFormat | null = null
+
+    const detectUnixTimestamps = (propertyValue: string) => {
+        if (
+            (key.toLowerCase().indexOf('timestamp') > -1 || key.toLowerCase().indexOf('time') > -1) &&
+            (propertyValue.match(/^\d{10}$/) || propertyValue.match(/^\d{10}\.\d{3}$/))
+        ) {
+            propertyType = 'DateTime'
+            propertyTypeFormat = 'unix_timestamp'
+        }
+    }
+
+    if (isNumerical) {
+        propertyType = 'Numeric'
+
+        detectUnixTimestamps(value.toString())
+    }
+
+    if (typeof value === 'string') {
+        propertyType = 'String'
+
+        if (value.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            propertyType = 'DateTime'
+            propertyTypeFormat = 'YYYY-MM-DD'
+        }
+
+        if (value.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)) {
+            propertyType = 'DateTime'
+            propertyTypeFormat = 'YYYY-MM-DD hh:mm:ss'
+        }
+
+        detectUnixTimestamps(value)
+    }
+
+    return { propertyType, propertyTypeFormat }
+}
+
 export class TeamManager {
     db: DB
     teamCache: TeamCache<Team | null>
@@ -161,26 +200,7 @@ export class TeamManager {
         for (const [key, value] of Object.entries(properties)) {
             if (!this.propertyDefinitionsCache.get(team.id)?.has(key)) {
                 const isNumerical = typeof value === 'number'
-                let propertyType: PropertyType | null = null
-                let propertyTypeFormat: PropertyTypeFormat | null = null
-
-                if (isNumerical) {
-                    propertyType = 'Numeric'
-                }
-
-                if (typeof value === 'string') {
-                    propertyType = 'String'
-
-                    if (value.match(/^\d{4}-\d{2}-\d{2}$/)) {
-                        propertyType = 'DateTime'
-                        propertyTypeFormat = 'YYYY-MM-DD'
-                    }
-
-                    if (value.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)) {
-                        propertyType = 'DateTime'
-                        propertyTypeFormat = 'YYYY-MM-DD hh:mm:ss'
-                    }
-                }
+                const { propertyType, propertyTypeFormat } = detectPropertyDefinitionTypes(isNumerical, value, key)
 
                 await this.db.postgresQuery(
                     `INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6) ON CONFLICT DO NOTHING`,

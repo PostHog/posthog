@@ -323,10 +323,22 @@ describe('TeamManager()', () => {
         })
 
         describe('auto-detection of property types', () => {
+            const insertPropertyDefinitionQuery =
+                'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6) ON CONFLICT DO NOTHING'
+            const teamId = 2
+
             const randomInteger = () => Math.floor(Math.random() * 1000) + 1
             const randomString = () => [...Array(10)].map(() => (~~(Math.random() * 36)).toString(36)).join('')
-
-            const teamId = 2
+            const expectMockQueryCallToMatch = (
+                postgresQuery: jest.SpyInstance,
+                callIndex: number,
+                expected: { query: string; tag: string; params: any[] }
+            ) => {
+                const [lastQuery, lastQueryParams, lastQueryTag] = postgresQuery.mock.calls[callIndex]
+                expect(lastQueryTag).toEqual(expected.tag)
+                expect(lastQueryParams).toEqual(expected.params)
+                expect(lastQuery).toEqual(expected.query)
+            }
 
             beforeEach(() => {
                 jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2015-04-04T04:04:04.000Z').getTime())
@@ -341,11 +353,11 @@ describe('TeamManager()', () => {
 
                 expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('anObjectProperty')
 
-                expect(postgresQuery).toHaveBeenCalledWith(
-                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6) ON CONFLICT DO NOTHING',
-                    [expect.any(String), 'anObjectProperty', false, teamId, null, null],
-                    'insertPropertyDefinition'
-                )
+                expectMockQueryCallToMatch(postgresQuery, postgresQuery.mock.calls.length - 1, {
+                    tag: 'insertPropertyDefinition',
+                    query: insertPropertyDefinitionQuery,
+                    params: [expect.any(String), 'anObjectProperty', false, teamId, null, null],
+                })
             })
 
             it('identifies a numeric type', async () => {
@@ -357,13 +369,11 @@ describe('TeamManager()', () => {
 
                 expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('some_number')
 
-                const [lastQuery, lastQueryParams, lastQueryTag] =
-                    postgresQuery.mock.calls[postgresQuery.mock.calls.length - 1]
-                expect(lastQueryTag).toEqual('insertPropertyDefinition')
-                expect(lastQueryParams).toEqual([expect.any(String), 'some_number', true, teamId, 'Numeric', null])
-                expect(lastQuery).toEqual(
-                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6) ON CONFLICT DO NOTHING'
-                )
+                expectMockQueryCallToMatch(postgresQuery, postgresQuery.mock.calls.length - 1, {
+                    tag: 'insertPropertyDefinition',
+                    query: insertPropertyDefinitionQuery,
+                    params: [expect.any(String), 'some_number', true, teamId, 'Numeric', null],
+                })
             })
 
             it('identifies a string type', async () => {
@@ -375,13 +385,11 @@ describe('TeamManager()', () => {
 
                 expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('some_string')
 
-                const [lastQuery, lastQueryParams, lastQueryTag] =
-                    postgresQuery.mock.calls[postgresQuery.mock.calls.length - 1]
-                expect(lastQueryTag).toEqual('insertPropertyDefinition')
-                expect(lastQueryParams).toEqual([expect.any(String), 'some_string', false, teamId, 'String', null])
-                expect(lastQuery).toEqual(
-                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6) ON CONFLICT DO NOTHING'
-                )
+                expectMockQueryCallToMatch(postgresQuery, postgresQuery.mock.calls.length - 1, {
+                    tag: 'insertPropertyDefinition',
+                    query: insertPropertyDefinitionQuery,
+                    params: [expect.any(String), 'some_string', false, teamId, 'String', null],
+                })
             })
 
             it('identifies a date type with format YYYY-MM-DD', async () => {
@@ -393,13 +401,11 @@ describe('TeamManager()', () => {
 
                 expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('aDate')
 
-                const [lastQuery, lastQueryParams, lastQueryTag] =
-                    postgresQuery.mock.calls[postgresQuery.mock.calls.length - 1]
-                expect(lastQueryTag).toEqual('insertPropertyDefinition')
-                expect(lastQueryParams).toEqual([expect.any(String), 'aDate', false, teamId, 'DateTime', 'YYYY-MM-DD'])
-                expect(lastQuery).toEqual(
-                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6) ON CONFLICT DO NOTHING'
-                )
+                expectMockQueryCallToMatch(postgresQuery, postgresQuery.mock.calls.length - 1, {
+                    tag: 'insertPropertyDefinition',
+                    query: insertPropertyDefinitionQuery,
+                    params: [expect.any(String), 'aDate', false, teamId, 'DateTime', 'YYYY-MM-DD'],
+                })
             })
 
             it('identifies a date type with format YYYY-MM-DD hh:mm:ss', async () => {
@@ -411,20 +417,107 @@ describe('TeamManager()', () => {
 
                 expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('aDate')
 
-                const [lastQuery, lastQueryParams, lastQueryTag] =
-                    postgresQuery.mock.calls[postgresQuery.mock.calls.length - 1]
-                expect(lastQueryTag).toEqual('insertPropertyDefinition')
-                expect(lastQueryParams).toEqual([
-                    expect.any(String),
-                    'aDate',
-                    false,
-                    teamId,
-                    'DateTime',
-                    'YYYY-MM-DD hh:mm:ss',
-                ])
-                expect(lastQuery).toEqual(
-                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6) ON CONFLICT DO NOTHING'
-                )
+                expectMockQueryCallToMatch(postgresQuery, postgresQuery.mock.calls.length - 1, {
+                    tag: 'insertPropertyDefinition',
+                    query: insertPropertyDefinitionQuery,
+                    params: [expect.any(String), 'aDate', false, teamId, 'DateTime', 'YYYY-MM-DD hh:mm:ss'],
+                })
+            })
+
+            it('identifies a date type with a ten digit timestamp as a string', async () => {
+                const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
+
+                await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
+                    someTimestamp: '0123456789',
+                })
+
+                expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('someTimestamp')
+
+                expectMockQueryCallToMatch(postgresQuery, postgresQuery.mock.calls.length - 1, {
+                    tag: 'insertPropertyDefinition',
+                    query: insertPropertyDefinitionQuery,
+                    params: [expect.any(String), 'someTimestamp', false, teamId, 'DateTime', 'unix_timestamp'],
+                })
+            })
+
+            it('identifies a date type with a thirteen digit timestamp as a string', async () => {
+                const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
+
+                await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
+                    someTimestamp: '0123456789.012',
+                })
+
+                expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('someTimestamp')
+
+                expectMockQueryCallToMatch(postgresQuery, postgresQuery.mock.calls.length - 1, {
+                    tag: 'insertPropertyDefinition',
+                    query: insertPropertyDefinitionQuery,
+                    params: [expect.any(String), 'someTimestamp', false, teamId, 'DateTime', 'unix_timestamp'],
+                })
+            })
+
+            it('does not identify as a date type a thirteen digit string if the property key does not suggest it is a timestamp', async () => {
+                const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
+
+                await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
+                    aLongNumberString: '0123456789',
+                })
+
+                expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('aLongNumberString')
+
+                expectMockQueryCallToMatch(postgresQuery, postgresQuery.mock.calls.length - 1, {
+                    tag: 'insertPropertyDefinition',
+                    query: insertPropertyDefinitionQuery,
+                    params: [expect.any(String), 'aLongNumberString', false, teamId, 'String', null],
+                })
+            })
+
+            it('does identify as a unix_timestamp if the property key includes time', async () => {
+                const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
+
+                await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
+                    aProductSpecificTime: '0123456789',
+                })
+
+                expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('aProductSpecificTime')
+
+                expectMockQueryCallToMatch(postgresQuery, postgresQuery.mock.calls.length - 1, {
+                    tag: 'insertPropertyDefinition',
+                    query: insertPropertyDefinitionQuery,
+                    params: [expect.any(String), 'aProductSpecificTime', false, teamId, 'DateTime', 'unix_timestamp'],
+                })
+            })
+
+            it('does identify as a unix_timestamp if the property is a number', async () => {
+                const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
+
+                await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
+                    aProductSpecificTime: 1234567890,
+                })
+
+                expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('aProductSpecificTime')
+
+                expectMockQueryCallToMatch(postgresQuery, postgresQuery.mock.calls.length - 1, {
+                    tag: 'insertPropertyDefinition',
+                    query: insertPropertyDefinitionQuery,
+                    params: [expect.any(String), 'aProductSpecificTime', true, 2, 'DateTime', 'unix_timestamp'],
+                })
+            })
+
+            it('does identify as a thirteen digit unix_timestamp if the property is a number', async () => {
+                const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
+
+                await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
+                    aProductSpecificTime: 1234567890.123,
+                })
+
+                expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('aProductSpecificTime')
+
+                expectMockQueryCallToMatch(postgresQuery, postgresQuery.mock.calls.length - 1, {
+                    tag: 'insertPropertyDefinition',
+                    query: insertPropertyDefinitionQuery,
+                    params: [expect.any(String), 'aProductSpecificTime', true, teamId, 'DateTime', 'unix_timestamp'],
+                })
             })
         })
     })
