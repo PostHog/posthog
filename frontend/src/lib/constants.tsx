@@ -77,7 +77,6 @@ export const FEATURE_FLAGS = {
     SESSION_INSIGHT_REMOVAL: 'session-insight-removal', // owner: @paolodamico
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @paolodamico
     FUNNELS_CUE_ENABLED: 'funnels-cue-enabled', // owner: @paolodamico
-    FUNNEL_SIMPLE_MODE: 'funnel-simple-mode', // owner: @paolodamico
     EXPERIMENTATION: 'experimentation', // owner: @neilkakkar
     RETENTION_BREAKDOWN: 'retention-breakdown', // owner: @hazzadous
     STALE_EVENTS: 'stale-events', // owner: @paolodamico
