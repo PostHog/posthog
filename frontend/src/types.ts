@@ -1017,6 +1017,7 @@ export interface TrendResult {
     compare?: boolean
     persons_urls?: { url: string }[]
     persons?: Person
+    filter?: FilterType
 }
 
 interface Person {

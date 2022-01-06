@@ -43,7 +43,11 @@ export function ActionsHorizontalBar({
         const days = results.length > 0 ? results[0].days : []
         setData([
             {
-                labels: _data.map((item) => item.label),
+                labels: _data.map((item) =>
+                    item.action.custom_name
+                        ? `${item.action.custom_name}${item.breakdown_value ? ` - ${item.breakdown_value}` : ''}`
+                        : item.label
+                ),
                 data: _data.map((item) => item.aggregated_value),
                 actions: _data.map((item) => item.action),
                 personsValues: _data.map((item) => item.persons),
