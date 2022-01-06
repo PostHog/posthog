@@ -66,14 +66,14 @@ def prepare_hoglify_demo(
     email: str,
     first_name: str,
     password: Optional[str] = None,
-    organization_name: str = None,
+    organization_name: str = hoglify.ORGANIZATION_NAME,
     team_fields: Optional[Dict[str, Any]] = None,
     no_data: bool = False,
 ) -> Tuple[Organization, Team, User]:
     # If there's an email collision in signup in the demo environment, we treat it as a login
     existing_user = User.objects.filter(email=email).first()
     if existing_user is None:
-        organization = Organization.objects.create(name=organization_name or hoglify.ORGANIZATION_NAME)
+        organization = Organization.objects.create(name=organization_name)
         new_user = User.objects.create_and_join(
             organization, email, password, first_name, OrganizationMembership.Level.ADMIN
         )

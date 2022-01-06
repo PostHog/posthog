@@ -16,11 +16,10 @@ from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 
 from posthog.api.shared import UserBasicSerializer
-from posthog.demo import prepare_hoglify_demo
-from posthog.demo.hoglify import hoglify_data_generator
+from posthog.demo import create_demo_team, prepare_hoglify_demo
 from posthog.event_usage import report_user_joined_organization, report_user_signed_up
 from posthog.models import Organization, Team, User
-from posthog.models.organization import OrganizationInvite, OrganizationMembership
+from posthog.models.organization import OrganizationInvite
 from posthog.permissions import CanCreateOrg
 from posthog.tasks import user_identify
 from posthog.utils import get_can_create_org, mask_email_address
@@ -102,7 +101,7 @@ class SignupSerializer(serializers.Serializer):
 
     def create_team(self, organization: Organization, user: User) -> Team:
         if self.enable_new_onboarding(user):
-            return hoglify_data_generator.create_team(organization, user)
+            return create_demo_team(organization=organization)
         else:
             return Team.objects.create_with_data(user=user, organization=organization)
 

@@ -1,17 +1,19 @@
+import logging
 import random
 from typing import Dict
 
 from rest_framework import status
 
-from posthog.demo.app_data_generator import AppDataGenerator
-from posthog.demo.revenue_data_generator import RevenueDataGenerator
-from posthog.demo.web_data_generator import WebDataGenerator
+from posthog.demo import create_demo_team
 from posthog.models import EventProperty, Organization, PropertyDefinition, Team
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import APIBaseTest
 
 
 class TestPropertyDefinitionAPI(APIBaseTest):
+
+    demo_team: Team = None  # type: ignore
+
     EXPECTED_PROPERTY_DEFINITIONS = [
         {"name": "$browser", "query_usage_30_day": 0, "is_numerical": False},
         {"name": "$current_url", "query_usage_30_day": 0, "is_numerical": False},
@@ -23,15 +25,11 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         {"name": "first_visit", "query_usage_30_day": 0, "is_numerical": False},
     ]
 
-    demo_team: Team
-
     @classmethod
     def setUpTestData(cls):
         random.seed(900)
         super().setUpTestData()
-        cls.demo_team = WebDataGenerator(n_people=40).create_team(cls.organization, cls.user)
-        AppDataGenerator(n_people=100).run_on_team(cls.demo_team, cls.user)
-        RevenueDataGenerator(n_people=20).run_on_team(cls.demo_team, cls.user)
+        cls.demo_team = create_demo_team(cls.organization)
         calculate_event_property_usage_for_team(cls.demo_team.pk)
         cls.user.current_team = cls.demo_team
         cls.user.save()
@@ -47,6 +45,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert response.json()["property_type_format"] == "unix_timestamp"
 
     def test_list_property_definitions(self):
+
         response = self.client.get("/api/projects/@current/property_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], len(self.EXPECTED_PROPERTY_DEFINITIONS))
