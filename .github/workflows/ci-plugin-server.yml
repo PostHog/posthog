@@ -37,7 +37,7 @@ jobs:
               run: yarn lint
 
     tests-shared:
-        name: Plugin Server Tests / Postgres + Redis (1)
+        name: Plugin Server Tests / Shared
         runs-on: ubuntu-20.04
 
         services:
