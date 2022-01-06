@@ -1,6 +1,9 @@
 # name: TestClickhouseLifecycle.test_test_account_filters_with_groups
   '
-  WITH 'day' AS selected_period
+  WITH 'day' AS selected_period,
+       periods AS
+    (SELECT dateSub(DAY, number, dateTrunc(selected_period, toDateTime('2020-01-19 23:59:59'))) AS start_of_period
+     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-12 00:00:00')), dateTrunc('day', toDateTime('2020-01-19 23:59:59') + INTERVAL 1 DAY))))
   SELECT groupArray(start_of_period) as date,
          groupArray(counts) as data,
          status
@@ -9,13 +12,10 @@
             start_of_period,
             status
      FROM
-       (SELECT ticks.start_of_period as start_of_period,
+       (SELECT periods.start_of_period as start_of_period,
                toUInt16(0) AS counts,
                status
-        FROM
-          (SELECT dateTrunc(selected_period, toDateTime('2020-01-19 23:59:59') - number * 86400) as start_of_period
-           FROM numbers(8)
-           UNION ALL SELECT dateTrunc(selected_period, toDateTime('2020-01-12 00:00:00')) as start_of_period) as ticks
+        FROM periods
         CROSS JOIN
           (SELECT status
            FROM
@@ -24,66 +24,57 @@
         ORDER BY status,
                  start_of_period
         UNION ALL SELECT start_of_period,
-                         count(DISTINCT group_id) counts,
+                         count(DISTINCT person_id) counts,
                          status
         FROM
-          (WITH 444 AS current_team,
-                'day' AS selected_period, INTERVAL 1 DAY AS interval_type,
+          (WITH 'day' AS selected_period, INTERVAL 1 DAY AS interval_type,
                                                             toDateTime('2020-01-12 00:00:00') AS selected_date_from,
                                                             toDateTime('2020-01-19 23:59:59') AS selected_date_to,
-                                                            dateTrunc(selected_period, selected_date_from) AS selected_interval_from,
-                                                            dateTrunc(selected_period, selected_date_to) AS selected_interval_to,
-                                                            selected_interval_from - INTERVAL 1 DAY AS previous_date_from,
-                                                                                                       dateDiff(selected_period, previous_date_from, selected_interval_to) AS number_of_intervals,
-                                                                                                       filtered_events AS
-             (SELECT timestamp,
-                     person_id AS group_id,
-                     event
-              FROM events
-              JOIN
+                                                            toDateTime(dateTrunc(selected_period, selected_date_from)) AS selected_interval_from,
+                                                            toDateTime(dateTrunc(selected_period, selected_date_to)) AS selected_interval_to,
+                                                            selected_interval_from - INTERVAL 1 DAY AS previous_interval_from,
+                                                                                                       unbounded_filtered_events AS
+             (SELECT e.timestamp as timestamp,
+                     pdi.person_id as person_id
+              FROM events e
+              INNER JOIN
                 (SELECT distinct_id,
-                        person_id
-                 FROM
-                   (SELECT distinct_id,
-                           person_id,
-                           is_deleted
-                    FROM person_distinct_id2
-                    WHERE team_id = current_team
-                    ORDER BY distinct_id,
-                             version DESC
-                    LIMIT 1 BY distinct_id)
-                 WHERE is_deleted = 0 ) person ON person.distinct_id = events.distinct_id
-              WHERE team_id = current_team
+                        argMax(person_id, version) as person_id
+                 FROM person_distinct_id2
+                 WHERE team_id = 2
+                 GROUP BY distinct_id
+                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+              INNER JOIN
+                (SELECT group_key,
+                        argMax(group_properties, _timestamp) AS group_properties_0
+                 FROM groups
+                 WHERE team_id = 2
+                   AND group_type_index = 0
+                 GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+              WHERE team_id = 2
                 AND event = '$pageview'
-                AND $group_0 IN
-                  (SELECT DISTINCT group_key
-                   FROM groups
-                   WHERE team_id = 2
-                     AND group_type_index = 0
-                     AND has(['value'], trim(BOTH '"'
-                                             FROM JSONExtractRaw(group_properties, 'key'))) ) ),
-                                                                                                       bounded_person_activity AS
-             (SELECT group_id,
-                     dateTrunc(selected_period, events.timestamp) start_of_period
-              FROM filtered_events events
-              WHERE events.timestamp <= selected_date_to + interval_type
-                AND events.timestamp >= previous_date_from
-              LIMIT 1 BY group_id,
-                         start_of_period) SELECT *
+                AND has(['value'], trim(BOTH '"'
+                                        FROM JSONExtractRaw(group_properties_0, 'key'))) ),
+                                                                                                       bounded_person_activity_by_period AS
+             (SELECT DISTINCT person_id,
+                              dateTrunc(selected_period, events.timestamp) start_of_period
+              FROM unbounded_filtered_events events
+              WHERE events.timestamp <= selected_interval_to + interval_type
+                AND events.timestamp >= previous_interval_from ) SELECT *
            FROM
-             (SELECT group_id,
+             (SELECT person_id,
                      target.start_of_period as start_of_period,
-                     if(previous_activity.group_id = '00000000-0000-0000-0000-000000000000', 'new', if(dateDiff(selected_period, previous_activity.timestamp, target.start_of_period) > 1, 'resurrecting', 'returning')) as status
-              FROM bounded_person_activity target ASOF
-              LEFT JOIN filtered_events previous_activity ON previous_activity.group_id = target.group_id
+                     if(previous_activity.person_id = '00000000-0000-0000-0000-000000000000', 'new', if(dateDiff(selected_period, previous_activity.timestamp, target.start_of_period) > 1, 'resurrecting', 'returning')) as status
+              FROM bounded_person_activity_by_period target ASOF
+              LEFT JOIN unbounded_filtered_events previous_activity ON previous_activity.person_id = target.person_id
               AND target.start_of_period > previous_activity.timestamp
-              UNION ALL SELECT group_id,
+              UNION ALL SELECT person_id,
                                activity_before_target.start_of_period + interval_type AS start_of_period,
                                'dormant' AS status
-              FROM bounded_person_activity activity_before_target ASOF
-              LEFT JOIN filtered_events next_activity ON activity_before_target.group_id = next_activity.group_id
+              FROM bounded_person_activity_by_period activity_before_target ASOF
+              LEFT JOIN unbounded_filtered_events next_activity ON activity_before_target.person_id = next_activity.person_id
               AND next_activity.timestamp > activity_before_target.start_of_period + interval_type
-              WHERE next_activity.group_id = '00000000-0000-0000-0000-000000000000'
+              WHERE next_activity.person_id = '00000000-0000-0000-0000-000000000000'
                 OR dateDiff(selected_period, activity_before_target.start_of_period, next_activity.timestamp) > 1 ) activity_pairs)
         WHERE start_of_period <= toDateTime('2020-01-19 23:59:59')
           AND start_of_period >= toDateTime('2020-01-12 00:00:00')

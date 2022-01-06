@@ -1,52 +1,33 @@
 _LIFECYCLE_EVENTS_QUERY = """
     WITH 
-        %(team_id)s AS current_team,
         %(interval)s AS selected_period,
         INTERVAL {interval} AS interval_type,
         toDateTime(%(date_from)s) AS selected_date_from,
         toDateTime(%(date_to)s) AS selected_date_to,
-        dateTrunc(selected_period, selected_date_from) AS selected_interval_from,
-        dateTrunc(selected_period, selected_date_to) AS selected_interval_to,
-        selected_interval_from - INTERVAL {interval} AS previous_date_from,
-        dateDiff(
-           selected_period, 
-            -- Include the period before the first in the activity consideration
-            previous_date_from, 
-            selected_interval_to
-        ) AS number_of_intervals,
 
-        filtered_events AS (
-            SELECT timestamp,
-                person_id AS group_id,
-                event
+        -- NOTE: we need to cast to `DateTime` otherwise for some intervals
+        -- we end up with `Date`, which when compared against `e.timestamp`, which
+        -- is a `DateTime`, we get incorrect comparison results due to an issue 
+        -- with tables indexed by `DateTime`.
+        -- See https://github.com/ClickHouse/ClickHouse/issues/5131 for details
+        toDateTime(dateTrunc(selected_period, selected_date_from)) AS selected_interval_from,
+        toDateTime(dateTrunc(selected_period, selected_date_to)) AS selected_interval_to,
 
-            FROM events
-                JOIN (
-                    SELECT distinct_id, person_id 
-                    FROM (
-                        SELECT distinct_id, person_id, is_deleted
-                        FROM person_distinct_id2
-                        WHERE team_id = current_team
-                        ORDER BY distinct_id, version DESC
-                        LIMIT 1 BY distinct_id
-                    ) WHERE is_deleted = 0
-                ) person 
-                    ON person.distinct_id = events.distinct_id
+        -- To ensure that we get the right status for the first period in the date range
+        -- we need to include the period prior to check if there was activity within it.
+        selected_interval_from - INTERVAL {interval} AS previous_interval_from,
 
-            WHERE team_id = current_team AND {event_query} {filters}
-        ),
+        unbounded_filtered_events AS ({event_query}),
 
-        bounded_person_activity AS (
-            SELECT
-                group_id,
+        bounded_person_activity_by_period AS (
+            SELECT DISTINCT
+                person_id,
                 dateTrunc(selected_period, events.timestamp) start_of_period
 
-            FROM filtered_events events
+            FROM unbounded_filtered_events events
 
-            WHERE events.timestamp <= selected_date_to + interval_type
-                AND events.timestamp >= previous_date_from
-                
-            LIMIT 1 BY group_id, start_of_period
+            WHERE events.timestamp <= selected_interval_to + interval_type
+                AND events.timestamp >= previous_interval_from
         )
 
     SELECT *
@@ -56,10 +37,10 @@ _LIFECYCLE_EVENTS_QUERY = """
             Get periods of person activity, and classify them as 'new', 'returning' or 'resurrecting'
         */
         SELECT 
-            group_id,
+            person_id,
             target.start_of_period as start_of_period,
             if(
-                previous_activity.group_id = '00000000-0000-0000-0000-000000000000',
+                previous_activity.person_id = '00000000-0000-0000-0000-000000000000',
                 'new',
                 if(
                     dateDiff(
@@ -72,9 +53,9 @@ _LIFECYCLE_EVENTS_QUERY = """
                 )
             ) as status
 
-        FROM bounded_person_activity target
-            ASOF LEFT JOIN filtered_events previous_activity
-                ON previous_activity.group_id = target.group_id 
+        FROM bounded_person_activity_by_period target
+            ASOF LEFT JOIN unbounded_filtered_events previous_activity
+                ON previous_activity.person_id = target.person_id 
                     AND target.start_of_period > previous_activity.timestamp
 
         UNION ALL
@@ -83,16 +64,16 @@ _LIFECYCLE_EVENTS_QUERY = """
             Get periods just after activity, and classify them as 'dormant'
         */
         SELECT 
-            group_id,
+            person_id,
             activity_before_target.start_of_period + interval_type AS start_of_period,
             'dormant' AS status
 
-        FROM bounded_person_activity activity_before_target
-            ASOF LEFT JOIN filtered_events next_activity
-                ON activity_before_target.group_id = next_activity.group_id 
+        FROM bounded_person_activity_by_period activity_before_target
+            ASOF LEFT JOIN unbounded_filtered_events next_activity
+                ON activity_before_target.person_id = next_activity.person_id 
                     AND next_activity.timestamp > activity_before_target.start_of_period + interval_type
 
-            WHERE next_activity.group_id = '00000000-0000-0000-0000-000000000000'
+            WHERE next_activity.person_id = '00000000-0000-0000-0000-000000000000'
                 OR dateDiff(
                     selected_period, 
                     activity_before_target.start_of_period, 
@@ -102,28 +83,47 @@ _LIFECYCLE_EVENTS_QUERY = """
 """
 
 LIFECYCLE_SQL = f"""
-WITH %(interval)s AS selected_period
+WITH 
+    %(interval)s AS selected_period,
 
-SELECT groupArray(start_of_period) as date, groupArray(counts) as data, status FROM (
-    SELECT if(status = 'dormant', toInt64(SUM(counts)) * toInt16(-1), toInt64(SUM(counts))) as counts, start_of_period, status
+    -- enumerate all requested periods, so we can zero fill as needed.
+    -- NOTE: we use dateSub interval rather than seconds, which means we can handle,
+    -- for instance, month intervals which do not have a fixed number of seconds.
+    periods AS (
+        SELECT dateSub(
+            {{interval_keyword}}, 
+            number, 
+            dateTrunc(selected_period, toDateTime(%(date_to)s))
+        ) AS start_of_period
+        FROM numbers(
+            dateDiff(
+                %(interval)s, 
+                dateTrunc(%(interval)s, toDateTime(%(date_from)s)),
+                dateTrunc(%(interval)s, toDateTime(%(date_to)s) + INTERVAL {{interval}})
+            )
+        )
+    )
+
+SELECT 
+    groupArray(start_of_period) as date, 
+    groupArray(counts) as data, 
+    status 
+    
+FROM (
+    SELECT if(
+            status = 'dormant', 
+            toInt64(SUM(counts)) * toInt16(-1), 
+            toInt64(SUM(counts))
+        ) as counts, 
+        start_of_period, 
+        status
+
     FROM (
-        SELECT ticks.start_of_period as start_of_period, toUInt16(0) AS counts, status
+        SELECT periods.start_of_period as start_of_period, toUInt16(0) AS counts, status
 
-        FROM (
-            -- Generates all the intervals/ticks in the date range
-            -- NOTE: we build this range by including successive intervals back from the
-            --       upper bound, then including the lower bound in the query also.
+        FROM periods
 
-            SELECT
-                dateTrunc(
-                    selected_period,
-                    toDateTime(%(date_to)s) - number * %(seconds_in_interval)s
-                ) as start_of_period
-            FROM numbers(%(num_intervals)s)
-            UNION ALL
-            SELECT dateTrunc(selected_period, toDateTime(%(date_from)s)) as start_of_period
-        ) as ticks
-
+        -- Zero fill for each status
         CROSS JOIN (
             SELECT status
             FROM (
@@ -134,7 +134,7 @@ SELECT groupArray(start_of_period) as date, groupArray(counts) as data, status F
 
         UNION ALL
 
-        SELECT start_of_period, count(DISTINCT group_id) counts, status
+        SELECT start_of_period, count(DISTINCT person_id) counts, status
         FROM ({_LIFECYCLE_EVENTS_QUERY})
         WHERE start_of_period <= toDateTime(%(date_to)s) AND start_of_period >= toDateTime(%(date_from)s)
         GROUP BY start_of_period, status
@@ -146,9 +146,9 @@ GROUP BY status
 """
 
 LIFECYCLE_PEOPLE_SQL = f"""
-SELECT group_id
+SELECT person_id
 FROM ({_LIFECYCLE_EVENTS_QUERY}) e
 WHERE status = %(status)s
-AND {{trunc_func}}(toDateTime(%(target_date)s)) = start_of_period
+AND dateTrunc(%(interval)s, toDateTime(%(target_date)s)) = start_of_period
 LIMIT %(limit)s OFFSET %(offset)s
 """
