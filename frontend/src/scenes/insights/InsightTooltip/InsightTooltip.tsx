@@ -12,16 +12,20 @@ import {
 } from './insightTooltipUtils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { IconHandClick } from 'lib/components/icons'
 
 function ClickToInspectActors({ isTruncated }: { isTruncated: boolean }): JSX.Element {
     return (
         <div className="table-subtext">
             {isTruncated && (
-                <>
+                <div className="table-subtext-truncated">
                     For readability, <b>not all series are displayed</b>.<br />
-                </>
+                </div>
             )}
-            <div className="table-subtext-click-to-inspect">Click to view users</div>
+            <div className="table-subtext-click-to-inspect">
+                <IconHandClick style={{ marginRight: 4, marginBottom: 2 }} />
+                Click to view users
+            </div>
         </div>
     )
 }
@@ -29,7 +33,13 @@ function ClickToInspectActors({ isTruncated }: { isTruncated: boolean }): JSX.El
 export function InsightTooltip({
     date,
     seriesData = [],
-    tooltipAltTitle,
+    altTitle,
+    renderSeries = (value: React.ReactNode, _: SeriesDatum, idx: number) => (
+        <>
+            <SeriesLetter className="mr-025" hasBreakdown={false} seriesIndex={idx} />
+            {value}
+        </>
+    ),
     hideColorCol = false,
     forceEntitiesAsColumns = false,
     rowCutoff = ROW_CUTOFF,
@@ -41,7 +51,7 @@ export function InsightTooltip({
     const itemizeEntitiesAsColumns =
         forceEntitiesAsColumns ||
         (seriesData?.length > 1 && (seriesData?.[0]?.breakdown_value || seriesData?.[0]?.compare_label))
-    const title = getTooltipTitle({ date, seriesData, tooltipAltTitle })
+    const title = getTooltipTitle({ date, seriesData, altTitle: altTitle })
 
     const renderTable = (): JSX.Element => {
         if (itemizeEntitiesAsColumns) {
@@ -69,9 +79,9 @@ export function InsightTooltip({
                     columns.push({
                         key: `series-column-data-${colIdx}`,
                         align: 'right',
-                        title: !tooltipAltTitle && (
-                            <>
-                                <SeriesLetter hasBreakdown={false} seriesIndex={colIdx} />
+                        title:
+                            !altTitle &&
+                            renderSeries(
                                 <InsightLabel
                                     className="series-column-header"
                                     action={seriesColumn.action}
@@ -80,9 +90,10 @@ export function InsightTooltip({
                                     hideCompare
                                     hideIcon
                                     allowWrap
-                                />
-                            </>
-                        ),
+                                />,
+                                seriesColumn,
+                                colIdx
+                            ),
                         render: function renderSeriesColumnData(_, datum) {
                             return <div className="series-data-cell">{datum.seriesData?.[colIdx]?.count ?? 0}</div>
                         },
@@ -97,6 +108,7 @@ export function InsightTooltip({
                         columns={columns}
                         rowKey="id"
                         size="small"
+                        uppercaseHeader={false}
                     />
                     <ClickToInspectActors isTruncated={isTruncated} />
                 </>
@@ -126,8 +138,8 @@ export function InsightTooltip({
             width: 120,
             title,
             sticky: true,
-            render: function renderDatum(_, datum) {
-                return (
+            render: function renderDatum(_, datum, rowIdx) {
+                return renderSeries(
                     <InsightLabel
                         action={datum.action}
                         fallbackName={datum.label}
@@ -135,7 +147,9 @@ export function InsightTooltip({
                         hideCompare
                         hideIcon
                         allowWrap
-                    />
+                    />,
+                    datum,
+                    rowIdx
                 )
             },
         })
@@ -152,7 +166,13 @@ export function InsightTooltip({
 
         return (
             <>
-                <LemonTable dataSource={dataSource.slice(0, rowCutoff)} columns={columns} rowKey="id" size="small" />
+                <LemonTable
+                    dataSource={dataSource.slice(0, rowCutoff)}
+                    columns={columns}
+                    rowKey="id"
+                    size="small"
+                    uppercaseHeader={false}
+                />
                 <ClickToInspectActors isTruncated={isTruncated} />
             </>
         )

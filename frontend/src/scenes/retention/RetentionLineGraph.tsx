@@ -56,6 +56,14 @@ export function RetentionLineGraph({
                 percentage={true}
                 tooltip={{
                     rowCutoff: 11, // 11 time units is hardcoded into retention insights
+                    renderSeries: function _renderCohortPrefix(value) {
+                        return (
+                            <>
+                                {value}
+                                <span className="ml-025">Cohort</span>
+                            </>
+                        )
+                    },
                 }}
                 onClick={
                     dashboardItemId

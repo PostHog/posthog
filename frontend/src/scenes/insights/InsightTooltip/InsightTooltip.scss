@@ -1,15 +1,13 @@
-@import '~/vars';
-
 .ph-graph-tooltip {
     padding: 0 !important;
     overflow: hidden;
-    border: 1px solid $border;
+    border: 1px solid var(--border);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     font-size: 14px;
-    z-index: $z_graph_tooltip;
+    z-index: var(--z-graph-tooltip);
     transition: all 0.4s;
     max-width: 480px;
-    border-radius: $radius;
+    border-radius: var(--radius);
     background: #fafafa;
 
     .LemonTable {
@@ -17,7 +15,7 @@
         border: none;
         border-bottom-left-radius: 0;
         border-bottom-right-radius: 0;
-        border-bottom: 1px solid $border;
+        border-bottom: 1px solid var(--border);
 
         .color-column {
             padding: 0;
@@ -33,15 +31,10 @@
             overflow: hidden;
         }
         .LemonTable__content > table > thead {
-            text-transform: none;
-
             .datum-column {
                 .LemonTable__header-content {
                     white-space: nowrap;
                 }
-            }
-            .series-column-header {
-                margin-left: $default_spacing / 4;
             }
         }
 
@@ -58,6 +51,8 @@
             }
             .datum-label-column {
                 font-weight: 600;
+                display: flex;
+                align-items: center;
             }
             .series-data-cell {
                 font-weight: 600;
@@ -66,7 +61,7 @@
                 background-color: rgba(0, 0, 0, 0.08);
                 margin-right: 0;
                 border: 0;
-                color: $bg_navy;
+                color: var(--bg-navy);
                 overflow: hidden;
                 vertical-align: middle;
             }
@@ -76,13 +71,19 @@
     .table-subtext {
         font-size: 0.75rem;
         text-align: center;
-        padding: $default_spacing / 2 $default_spacing;
-        color: $text_muted;
-        background-color: $bg_light;
+        padding: 8px 16px;
+        color: var(--text-muted);
+        background-color: var(--bg-light);
+
+        .table-subtext-truncated {
+            margin-bottom: 4px;
+        }
 
         .table-subtext-click-to-inspect {
-            margin-top: $default_spacing / 4;
-            color: $primary;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-default);
             font-weight: 600;
         }
     }

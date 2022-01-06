@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 import React from 'react'
-import { ActionFilter, CompareLabelType } from '~/types'
+import { ActionFilter, CompareLabelType, FilterType, IntervalType } from '~/types'
 import { Space, Tag, Typography } from 'antd'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
 
@@ -15,6 +15,7 @@ export interface SeriesDatum {
     dotted?: boolean
     color?: string
     count: number
+    filter: FilterType
 }
 
 // Describes the row-by-row data for insight tooltips in the situation where series
@@ -31,7 +32,8 @@ export interface InsightTooltipProps {
     date?: string
     hideInspectActorsSection?: boolean
     seriesData?: SeriesDatum[]
-    tooltipAltTitle?: string | ((tooltipData: SeriesDatum[]) => React.ReactNode)
+    renderSeries?: (value: React.ReactNode, seriesDatum: SeriesDatum, idx: number) => React.ReactNode
+    altTitle?: string | ((tooltipData: SeriesDatum[]) => React.ReactNode)
     hideColorCol?: boolean
     forceEntitiesAsColumns?: boolean
     rowCutoff?: number
@@ -41,18 +43,18 @@ export interface InsightTooltipProps {
 export const COL_CUTOFF = 4
 export const ROW_CUTOFF = 8
 
-export function getTooltipTitle({ date, seriesData = [], tooltipAltTitle }: InsightTooltipProps): React.ReactNode {
+export function getTooltipTitle({ date, seriesData = [], altTitle }: InsightTooltipProps): React.ReactNode {
     // Use tooltip alternate title (or generate one if it's a function). Else default to date.
-    if (tooltipAltTitle) {
-        if (typeof tooltipAltTitle === 'function') {
-            return tooltipAltTitle(seriesData)
+    if (altTitle) {
+        if (typeof altTitle === 'function') {
+            return altTitle(seriesData)
         }
-        return tooltipAltTitle
+        return altTitle
     }
-    return getFormattedDate(date)
+    return getFormattedDate(date, seriesData?.[0]?.filter?.interval)
 }
 
-function getFormattedDate(dayInput?: string | number): string {
+function getFormattedDate(dayInput?: string | number, interval?: IntervalType): string {
     // Number of days
     if (Number.isInteger(dayInput)) {
         return pluralize(dayInput as number, 'day')
@@ -60,7 +62,8 @@ function getFormattedDate(dayInput?: string | number): string {
     const day = dayjs(dayInput)
     // Dayjs formatted day
     if (dayInput !== undefined && day.isValid()) {
-        return day.format('DD MMM YYYY')
+        const formatString = `DD MMM YYYY${interval === 'hour' || interval === 'minute' ? ' HH:mm' : ''}`
+        return day.format(formatString)
     }
     return String(dayInput)
 }

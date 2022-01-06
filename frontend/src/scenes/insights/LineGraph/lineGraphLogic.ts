@@ -4,6 +4,7 @@ import { GraphDataset } from '~/types'
 import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { lineGraphLogicType } from './lineGraphLogicType'
 
+// TODO: Eventually we should move all state from LineGraph into this logic
 export const lineGraphLogic = kea<lineGraphLogicType>({
     path: ['scenes', 'insights', 'LineGraph', 'lineGraphLogic'],
     selectors: {
@@ -11,11 +12,9 @@ export const lineGraphLogic = kea<lineGraphLogicType>({
             () => [],
             () =>
                 (tooltipDataPoints: TooltipItem<any>[], filterFn: (s: SeriesDatum) => boolean): SeriesDatum[] => {
-                    console.log('DATAPOINTS,', tooltipDataPoints)
                     return tooltipDataPoints
                         ?.map((dp, idx) => {
                             const pointDataset = (dp?.dataset ?? {}) as GraphDataset
-                            console.log('POINT DATASET', pointDataset)
                             return {
                                 id: idx,
                                 dataIndex: dp.dataIndex,
@@ -35,6 +34,7 @@ export const lineGraphLogic = kea<lineGraphLogicType>({
                                     ? pointDataset.backgroundColor?.[dp.dataIndex]
                                     : pointDataset.backgroundColor,
                                 count: pointDataset?.data?.[dp.dataIndex] || 0,
+                                filter: pointDataset?.filter ?? {},
                             }
                         })
                         ?.sort((a, b) => {

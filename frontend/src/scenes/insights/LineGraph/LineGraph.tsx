@@ -44,6 +44,7 @@ interface TooltipConfig {
     altTitle?: string | ((tooltipData: SeriesDatum[]) => React.ReactNode)
     rowCutoff?: number
     colCutoff?: number
+    renderSeries?: (value: React.ReactNode, seriesDatum: SeriesDatum, idx: number) => React.ReactNode
 }
 
 interface LineGraphProps {
@@ -167,6 +168,14 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
             calculateBoundaries()
         }
     }, [myLineChart.current, size, type, annotationsCondition])
+
+    // Remove tooltip element on unmount
+    useEffect(() => {
+        return () => {
+            const tooltipEl = document.getElementById('ph-graph-tooltip')
+            tooltipEl?.remove()
+        }
+    }, [])
 
     function calculateBoundaries(): void {
         if (myLineChart.current) {
@@ -331,9 +340,10 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                                         hideColorCol={isHorizontal}
                                         forceEntitiesAsColumns={isHorizontal}
                                         hideInspectActorsSection={!(onClick && showPersonsModal)}
-                                        tooltipAltTitle={tooltipConfig?.altTitle}
+                                        altTitle={tooltipConfig?.altTitle}
                                         rowCutoff={tooltipConfig?.rowCutoff}
                                         colCutoff={tooltipConfig?.colCutoff}
+                                        renderSeries={tooltipConfig?.renderSeries}
                                     />
                                 </Provider>,
                                 tooltipEl
@@ -434,8 +444,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
 
                 const clickedPointNotLine = pointsIntersectingClick.length !== 0
 
-                // For now, take first point when clicking a specific point.
-                // TODO: Implement case when if the entire line was clicked, show people for that entire day across actions.
+                // Take first point when clicking a specific point.
                 const referencePoint: GraphPoint = clickedPointNotLine
                     ? { ...pointsIntersectingClick[0], dataset: datasets[pointsIntersectingClick[0].datasetIndex] }
                     : { ...pointsIntersectingLine[0], dataset: datasets[pointsIntersectingLine[0].datasetIndex] }

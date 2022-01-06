@@ -542,13 +542,13 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             with freeze_time("2020-01-04T13:00:01Z"):
                 response = trends().run(Filter(data={"compare": "true", "events": [{"id": "sign up"}]}), self.team)
 
-            self.assertEqual(response[0]["label"], "sign up - current")
+            self.assertEqual(response[0]["label"], "sign up")
             self.assertEqual(response[0]["labels"][4], "day 4")
             self.assertEqual(response[0]["data"][4], 3.0)
             self.assertEqual(response[0]["labels"][5], "day 5")
             self.assertEqual(response[0]["data"][5], 1.0)
 
-            self.assertEqual(response[1]["label"], "sign up - previous")
+            self.assertEqual(response[1]["label"], "sign up")
             self.assertEqual(response[1]["labels"][4], "day 4")
             self.assertEqual(response[1]["data"][4], 1.0)
             self.assertEqual(response[1]["labels"][5], "day 5")

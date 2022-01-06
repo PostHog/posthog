@@ -1536,6 +1536,7 @@ export type GraphDataset = ChartDataset<ChartType> &
             | 'breakdown_value'
             | 'persons_urls'
             | 'persons'
+            | 'filter'
         >
     > & {
         /** Used in filtering out visibility of datasets. Set internally by chart.js */
