@@ -582,8 +582,7 @@ export function Experiment(): JSX.Element {
                                         other variants:{' '}
                                         <b>
                                             {(
-                                                highestProbabilityVariant &&
-                                                experimentResults.probability[highestProbabilityVariant] * 100
+                                                experimentResults?.probability[highestProbabilityVariant || ''] * 100
                                             ).toFixed(1)}
                                             %
                                         </b>
