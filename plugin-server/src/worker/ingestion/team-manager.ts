@@ -165,6 +165,11 @@ export class TeamManager {
                 if (isNumerical) {
                     propertyType = 'Numeric'
                 }
+
+                if (typeof value === 'string') {
+                    propertyType = 'String'
+                }
+
                 const params = [new UUIDT().toString(), key, isNumerical, team.id, propertyType, null]
                 await this.db.postgresQuery(
                     `INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6) ON CONFLICT DO NOTHING`,

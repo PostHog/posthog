@@ -324,6 +324,7 @@ describe('TeamManager()', () => {
 
         describe('auto-detection of property types', () => {
             const randomInteger = () => Math.floor(Math.random() * 1000) + 1
+            const randomString = () => [...Array(10)].map(() => (~~(Math.random() * 36)).toString(36)).join('')
 
             const teamId = 2
 
@@ -360,6 +361,24 @@ describe('TeamManager()', () => {
                     postgresQuery.mock.calls[postgresQuery.mock.calls.length - 1]
                 expect(lastQueryTag).toEqual('insertPropertyDefinition')
                 expect(lastQueryParams).toEqual([expect.any(String), 'some_number', true, teamId, 'Numeric', null])
+                expect(lastQuery).toEqual(
+                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6) ON CONFLICT DO NOTHING'
+                )
+            })
+
+            it('identifies a string type', async () => {
+                const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
+
+                await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
+                    some_string: randomString(),
+                })
+
+                expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('some_string')
+
+                const [lastQuery, lastQueryParams, lastQueryTag] =
+                    postgresQuery.mock.calls[postgresQuery.mock.calls.length - 1]
+                expect(lastQueryTag).toEqual('insertPropertyDefinition')
+                expect(lastQueryParams).toEqual([expect.any(String), 'some_string', false, teamId, 'String', null])
                 expect(lastQuery).toEqual(
                     'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6) ON CONFLICT DO NOTHING'
                 )
