@@ -76,18 +76,11 @@
                     FROM events e
                     INNER JOIN
                       (SELECT distinct_id,
-                              argMax(person_id, _timestamp) as person_id
-                       FROM
-                         (SELECT distinct_id,
-                                 person_id,
-                                 max(_timestamp) as _timestamp
-                          FROM person_distinct_id
-                          WHERE team_id = 2
-                          GROUP BY person_id,
-                                   distinct_id,
-                                   team_id
-                          HAVING max(is_deleted) = 0)
-                       GROUP BY distinct_id) AS pdi ON e.distinct_id = pdi.distinct_id
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 2
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['$pageleave', '$pageview']
                       AND timestamp >= '2020-01-01 00:00:00'
@@ -102,5 +95,75 @@
               prop
      HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
   GROUP BY prop SETTINGS allow_experimental_window_functions = 1
+  '
+---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results
+  '
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_experiments_(?P<pk>[^_.]+)_results_?$ (ClickhouseExperimentsViewSet) */
+  SELECT groupArray(value)
+  FROM
+    (SELECT trim(BOTH '"'
+                 FROM JSONExtractRaw(properties, '$feature/a-b-test')) AS value,
+            count(*) as count
+     FROM events e
+     WHERE team_id = 2
+       AND event = '$pageview'
+       AND timestamp >= '2020-01-01 00:00:00'
+       AND timestamp <= '2020-01-06 23:59:59'
+       AND has(['control', 'test'], trim(BOTH '"'
+                                         FROM JSONExtractRaw(e.properties, '$feature/a-b-test')))
+     GROUP BY value
+     ORDER BY count DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.1
+  '
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_experiments_(?P<pk>[^_.]+)_results_?$ (ClickhouseExperimentsViewSet) */
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-06 23:59:59') - number * 86400) as day_start
+              FROM numbers(6)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['control', 'test'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(*) as total,
+                            toDateTime(toStartOfDay(timestamp), 'UTC') as day_start,
+                            trim(BOTH '"'
+                                 FROM JSONExtractRaw(properties, '$feature/a-b-test')) as breakdown_value
+           FROM events e
+           WHERE e.team_id = 2
+             AND event = '$pageview'
+             AND has(['control', 'test'], trim(BOTH '"'
+                                               FROM JSONExtractRaw(e.properties, '$feature/a-b-test')))
+             AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
+             AND timestamp <= '2020-01-06 23:59:59'
+             AND trim(BOTH '"'
+                      FROM JSONExtractRaw(properties, '$feature/a-b-test')) in (['control', 'test'])
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
   '
 ---

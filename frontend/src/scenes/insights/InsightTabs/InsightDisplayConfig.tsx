@@ -14,7 +14,8 @@ import { FunnelBinsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBi
 import { PathStepPicker } from './PathTab/PathStepPicker'
 import { ReferencePicker as RetentionReferencePicker } from './RetentionTab/ReferencePicker'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { Tooltip } from 'antd'
+import { InfoCircleOutlined } from '@ant-design/icons'
 
 interface InsightDisplayConfigProps {
     filters: FilterType
@@ -85,7 +86,6 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
     const showPathOptions = activeView === InsightType.PATHS
     const dateFilterDisabled = showFunnelBarOptions && isFunnelEmpty(filters)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { currentFormattedDateRange } = useValues(insightLogic)
 
     return (
         <div className="display-config-inner">
@@ -94,15 +94,19 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                     <span className="filter">
                         <span className="head-title-item">Date range</span>
                         <InsightDateFilter
-                            defaultValue={currentFormattedDateRange}
+                            defaultValue="Last 7 days"
                             disabled={dateFilterDisabled}
                             bordered
                             makeLabel={(key) => (
                                 <>
                                     <CalendarOutlined /> {key}
+                                    {key == 'All time' && (
+                                        <Tooltip title={`Only events dated after 2015 will be shown`}>
+                                            <InfoCircleOutlined className="info-indicator" />
+                                        </Tooltip>
+                                    )}
                                 </>
                             )}
-                            isDateFormatted
                         />
                     </span>
                 )}

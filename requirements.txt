@@ -139,8 +139,6 @@ mimesis==5.2.1
     # via -r requirements.in
 monotonic==1.5
     # via posthoganalytics
-numpy==1.21.4
-    # via -r requirements.in
 oauthlib==3.1.0
     # via
     #   requests-oauthlib

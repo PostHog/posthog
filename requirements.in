@@ -53,5 +53,4 @@ social-auth-core==4.1.0
 statshog==1.0.6
 toronado==0.1.0
 whitenoise==5.2.0
-numpy==1.21.4
 mimesis==5.2.1

@@ -24,16 +24,18 @@ export function JSSnippet({ flagKey, variants }: { flagKey: string; variants?: s
 }`}
                 </CodeSnippet>
             )}
-            <div className="mt">
-                Need more information?{' '}
-                <a
-                    target="_blank"
-                    rel="noopener"
-                    href={`https://posthog.com/docs/integrations/js-integration${UTM_TAGS}#feature-flags`}
-                >
-                    Check the docs <IconOpenInNew />
-                </a>
-            </div>
+            {!variants && (
+                <div className="mt">
+                    Need more information?{' '}
+                    <a
+                        target="_blank"
+                        rel="noopener"
+                        href={`https://posthog.com/docs/integrations/js-integration${UTM_TAGS}#feature-flags`}
+                    >
+                        Check the docs <IconOpenInNew />
+                    </a>
+                </div>
+            )}
         </>
     )
 }

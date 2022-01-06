@@ -1,11 +1,12 @@
 import dataclasses
 from datetime import datetime
+from math import exp, log
 from typing import List, Optional, Tuple, Type
 
-from numpy.random import default_rng
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.funnels import ClickhouseFunnel
+from ee.clickhouse.queries.util import logbeta
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 
@@ -83,15 +84,14 @@ class ClickhouseFunnelExperimentResult:
             variants.append(Variant(breakdown_value, success, failure))
 
         # Default variant names: control and test
-        return sorted(variants, key=lambda variant: variant.name, reverse=True)
+        return sorted(variants, key=lambda variant: variant.name)
 
     @staticmethod
-    def calculate_results(
-        variants: List[Variant], priors: Tuple[int, int] = (1, 1), simulations_count: int = SIMULATION_COUNT
-    ):
+    def calculate_results(variants: List[Variant], priors: Tuple[int, int] = (1, 1)) -> float:
         """
-        # Calculates probability that A is better than B
-        # Only supports 2 variants today
+        Calculates probability that A is better than B. First variant is control, rest are test variants.
+        
+        Only supports 2 variants today
 
         For each variant, we create a Beta distribution of conversion rates, 
         where alpha (successes) = success count of variant + prior success
@@ -111,16 +111,26 @@ class ClickhouseFunnelExperimentResult:
 
         prior_success, prior_failure = priors
 
-        random_sampler = default_rng()
-        variant_samples = []
-        for variant in variants:
-            # Get `N=simulations` samples from a Beta distribution with alpha = prior_success + variant_sucess,
-            # and beta = prior_failure + variant_failure
-            samples = random_sampler.beta(
-                variant.success_count + prior_success, variant.failure_count + prior_failure, simulations_count
-            )
-            variant_samples.append(samples)
+        # calculation:
+        # https://www.evanmiller.org/bayesian-ab-testing.html#binary_ab
 
-        probability = sum(sample_a > sample_b for (sample_a, sample_b) in zip(*variant_samples)) / simulations_count
+        test_success = prior_success + variants[1].success_count
+        test_failure = prior_failure + variants[1].failure_count
 
-        return probability
+        control_success = prior_success + variants[0].success_count
+        control_failure = prior_failure + variants[0].failure_count
+
+        return probability_B_beats_A(control_success, control_failure, test_success, test_failure)
+
+
+def probability_B_beats_A(A_success: int, A_failure: int, B_success: int, B_failure: int) -> float:
+    total: float = 0
+    for i in range(B_success):
+        total += exp(
+            logbeta(A_success + i, A_failure + B_failure)
+            - log(B_failure + i)
+            - logbeta(1 + i, B_failure)
+            - logbeta(A_success, A_failure)
+        )
+
+    return total

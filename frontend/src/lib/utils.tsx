@@ -630,7 +630,7 @@ export function eventToDescription(
     shortForm: boolean = false
 ): string {
     if (['$pageview', '$pageleave'].includes(event.event)) {
-        return event.properties.$pathname
+        return event.properties.$pathname ?? event.properties.$current_url ?? '<unknown URL>'
     }
     if (event.event === '$autocapture') {
         return autoCaptureEventToDescription(event, shortForm)
@@ -993,20 +993,6 @@ export function midEllipsis(input: string, maxLength: number): string {
     return `${input.substring(0, middle - excess)}...${input.substring(middle + excess)}`
 }
 
-export const disableMinuteFor: Record<string, boolean> = {
-    dStart: false,
-    '-1d': false,
-    '-7d': true,
-    '-14d': true,
-    '-30d': true,
-    '-90d': true,
-    mStart: true,
-    '-1mStart': true,
-    yStart: true,
-    all: true,
-    other: false,
-}
-
 export const disableHourFor: Record<string, boolean> = {
     dStart: false,
     '-1d': false,
@@ -1026,7 +1012,8 @@ export function autocorrectInterval(filters: Partial<FilterType>): IntervalType 
         return 'day'
     } // undefined/uninitialized
 
-    const minute_disabled = disableMinuteFor[filters.date_from || 'other'] && filters.interval === 'minute'
+    // @ts-expect-error - Old legacy interval support
+    const minute_disabled = filters.interval === 'minute'
     const hour_disabled = disableHourFor[filters.date_from || 'other'] && filters.interval === 'hour'
 
     if (minute_disabled) {

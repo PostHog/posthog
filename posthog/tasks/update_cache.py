@@ -79,6 +79,7 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Di
     team_id = int(payload["team_id"])
     filter = get_filter(data=filter_dict, team=Team(pk=team_id))
 
+    # Doing the filtering like this means we'll update _all_ Insights with the same filters hash
     dashboard_items = Insight.objects.filter(team_id=team_id, filters_hash=key)
     dashboard_items.update(refreshing=True)
 
@@ -136,13 +137,13 @@ def update_cached_items() -> None:
         .exclude(refreshing=True)
         .exclude(deleted=True)
         .exclude(refresh_attempt__gt=2)
-        .distinct("filters_hash")
+        .order_by(F("last_refresh").asc(nulls_first=True))
     )
 
-    for item in Insight.objects.filter(
-        pk__in=Subquery(items.filter(filters__isnull=False).exclude(filters={}).distinct("filters").values("pk"))
-    ).order_by(F("last_refresh").asc(nulls_first=True))[0:PARALLEL_INSIGHT_CACHE]:
+    for item in items[0:PARALLEL_INSIGHT_CACHE]:
         cache_key, cache_type, payload = dashboard_item_update_task_params(item)
+        if item.filters_hash != cache_key:
+            item.save()  # force update if the saved key is different from the cache key
         tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
 
     logger.info("Found {} items to refresh".format(len(tasks)))
