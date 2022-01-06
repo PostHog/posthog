@@ -3,12 +3,7 @@ from typing import List
 
 from numpy.random import default_rng
 
-from ee.clickhouse.queries.experiments.funnel_experiment_result import (
-    ClickhouseFunnelExperimentResult,
-    Variant,
-    logbeta,
-    probability_D_beats_A_B_and_C,
-)
+from ee.clickhouse.queries.experiments.funnel_experiment_result import ClickhouseFunnelExperimentResult, Variant
 from ee.clickhouse.queries.experiments.trend_experiment_result import ClickhouseTrendExperimentResult
 from ee.clickhouse.queries.experiments.trend_experiment_result import Variant as CountVariant
 from ee.clickhouse.queries.experiments.trend_experiment_result import probability_B_beats_A_count_data
