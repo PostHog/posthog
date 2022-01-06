@@ -238,7 +238,7 @@
         cursor: ns-resize;
     }
 }
-.react-grid-layout.layout.dashboard-edit-mode.wobbly .react-grid-item {
+.react-grid-layout.dashboard-edit-mode.wobbly .react-grid-item {
     & > .react-resizable-handle {
         width: 40px;
         height: 40px;
@@ -254,12 +254,12 @@
         width: auto;
     }
 }
-.react-grid-layout.layout.dashboard-edit-mode .dashboard-item {
+.react-grid-layout.dashboard-edit-mode .dashboard-item {
     table {
         cursor: auto;
     }
 }
-.react-grid-layout.layout.dashboard-edit-mode.wobbly {
+.react-grid-layout.dashboard-edit-mode.wobbly {
     margin-bottom: 200px;
     will-change: transform;
 
