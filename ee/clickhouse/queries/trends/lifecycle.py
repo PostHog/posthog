@@ -49,12 +49,7 @@ class ClickhouseLifecycle(LifecycleTrend):
                 event_query=event_query,
                 GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
             ),
-            {
-                "team_id": team_id,
-                "interval": filter.interval,
-                **event_params,
-                **date_params,
-            },
+            {"team_id": team_id, "interval": filter.interval, **event_params, **date_params,},
             self._parse_result(filter, entity),
         )
 
