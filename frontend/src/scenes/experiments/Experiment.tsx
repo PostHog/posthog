@@ -20,6 +20,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
 import PropertyFilterButton from 'lib/components/PropertyFilters/components/PropertyFilterButton'
+import { FunnelLayout } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -554,8 +555,9 @@ export function Experiment(): JSX.Element {
                                 {`posthog.feature_flags.override({'${experimentData.feature_flag_key}': '${currentVariant}'})`}
                             </CodeSnippet>
                             <CodeSnippet language={Language.JavaScript} wrap>
-                                {`if (posthog.getFeatureFlag('${experimentData.feature_flag_key ?? ''
-                                    }') === '${currentVariant}') {
+                                {`if (posthog.getFeatureFlag('${
+                                    experimentData.feature_flag_key ?? ''
+                                }') === '${currentVariant}') {
     // where '${currentVariant}' is the variant, run your code here
 }`}
                             </CodeSnippet>
@@ -654,6 +656,7 @@ export function Experiment(): JSX.Element {
                                         insight: 'FUNNELS',
                                         funnel_viz_type: FunnelVizType.Steps,
                                         display: 'FunnelViz',
+                                        layout: FunnelLayout.vertical,
                                     },
                                     cachedResults: experimentResults.insight,
                                     syncWithUrl: false,
