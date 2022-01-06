@@ -334,11 +334,11 @@ describe('TeamManager()', () => {
                 postgresQuery: jest.SpyInstance,
                 callIndex?: number | undefined
             ) => {
-                const [lastQuery, lastQueryParams, lastQueryTag] =
+                const [query, queryParams, queryTag] =
                     postgresQuery.mock.calls[callIndex || postgresQuery.mock.calls.length - 1]
-                expect(lastQueryTag).toEqual(expected.tag)
-                expect(lastQueryParams).toEqual(expected.params)
-                expect(lastQuery).toEqual(expected.query)
+                expect(queryTag).toEqual(expected.tag)
+                expect(queryParams).toEqual(expected.params)
+                expect(query).toEqual(expected.query)
             }
 
             it('adds no type for objects', async () => {
