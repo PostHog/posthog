@@ -581,9 +581,10 @@ export function Experiment(): JSX.Element {
                                         Probability that <b>{highestProbabilityVariant}</b> has higher conversion than
                                         other variants:{' '}
                                         <b>
-                                            {(experimentResults.probability[highestProbabilityVariant] * 100).toFixed(
-                                                1
-                                            )}
+                                            {(
+                                                highestProbabilityVariant &&
+                                                experimentResults.probability[highestProbabilityVariant] * 100
+                                            ).toFixed(1)}
                                             %
                                         </b>
                                     </div>
