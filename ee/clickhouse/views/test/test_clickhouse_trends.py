@@ -301,15 +301,19 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
             )
             data_response = get_trends_time_series_ok(self.client, request, self.team)
 
-        assert data_response["$pageview"]["2012-01-13"].value == 0
-        assert data_response["$pageview"]["2012-01-14"].value == 2
+        assert data_response["$pageview - current"]["2012-01-13"].value == 0
+        assert data_response["$pageview - current"]["2012-01-14"].value == 2
 
-        assert data_response["$pageview"]["2012-01-04"].value == 0
-        assert data_response["$pageview"]["2012-01-05"].value == 2
+        assert data_response["$pageview - previous"]["2012-01-04"].value == 0
+        assert data_response["$pageview - previous"]["2012-01-05"].value == 2
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-            curr_people = get_people_from_url_ok(self.client, data_response["$pageview"]["2012-01-14"].person_url)
-            prev_people = get_people_from_url_ok(self.client, data_response["$pageview"]["2012-01-05"].person_url)
+            curr_people = get_people_from_url_ok(
+                self.client, data_response["$pageview - current"]["2012-01-14"].person_url
+            )
+            prev_people = get_people_from_url_ok(
+                self.client, data_response["$pageview - previous"]["2012-01-05"].person_url
+            )
 
         assert sorted([p["id"] for p in curr_people]) == sorted(
             [str(created_people["p1"].uuid), str(created_people["p2"].uuid)]
