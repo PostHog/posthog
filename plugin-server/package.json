@@ -6,7 +6,7 @@
     "main": "dist/index.js",
     "scripts": {
         "test": "jest --runInBand --forceExit tests/**/*.test.ts",
-        "test:postgres:1": "jest --runInBand --forceExit tests/ --testPathIgnorePatterns tests/clickhouse/ --testPathIgnorePatterns tests/postgres/ --testPathIgnorePatterns tests/jobs.test.ts",
+        "test:postgres:1": "jest --runInBand --forceExit tests/ --testPathIgnorePatterns tests/clickhouse/ --testPathIgnorePatterns tests/postgres/",
         "test:postgres:2": "jest --runInBand --forceExit tests/postgres/",
         "test:clickhouse:1": "jest --runInBand --forceExit tests/clickhouse/ --testPathIgnorePatterns tests/clickhouse/process-event.test.ts",
         "test:clickhouse:2": "jest --runInBand --forceExit tests/clickhouse/process-event.test.ts",
