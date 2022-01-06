@@ -4,6 +4,7 @@
     width: 100%;
     table-layout: fixed;
     overflow-x: auto;
+    display: block;
 
     tr {
         border-bottom: 1px solid $border;
@@ -17,7 +18,7 @@
     }
 
     .property-column-key {
-        width: 30%;
+        max-width: 8rem;
     }
 }
 

@@ -12,10 +12,18 @@
         height: 2rem;
         text-align: center;
     }
+
     .event-row-is-exception {
         background-color: lighten($danger, 40%);
     }
+
     td {
         max-width: 20rem;
+    }
+
+    .properties-table {
+        td {
+            max-width: unset;
+        }
     }
 }
