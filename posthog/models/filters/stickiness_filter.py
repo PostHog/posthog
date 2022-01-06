@@ -8,6 +8,9 @@ from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.mixins.common import (
     CompareMixin,
     EntitiesMixin,
+    EntityIdMixin,
+    EntityMathMixin,
+    EntityTypeMixin,
     FilterTestAccountsMixin,
     InsightMixin,
     LimitMixin,
@@ -23,6 +26,9 @@ from posthog.models.team import Team
 class StickinessFilter(
     TotalIntervalsDerivedMixin,
     EntitiesMixin,
+    EntityIdMixin,
+    EntityTypeMixin,
+    EntityMathMixin,
     SelectedIntervalMixin,
     PropertyMixin,
     FilterTestAccountsMixin,
@@ -45,10 +51,8 @@ class StickinessFilter(
         self.team = team
         self.get_earliest_timestamp = kwargs.get("get_earliest_timestamp", None)
 
-    def trunc_func(self, field_name: str) -> Union[TruncMinute, TruncHour, TruncDay, TruncWeek, TruncMonth]:
-        if self.interval == "minute":
-            return TruncMinute(field_name)
-        elif self.interval == "hour":
+    def trunc_func(self, field_name: str) -> Union[TruncHour, TruncDay, TruncWeek, TruncMonth]:
+        if self.interval == "hour":
             return TruncHour(field_name)
         elif self.interval == "day":
             return TruncDay(field_name)

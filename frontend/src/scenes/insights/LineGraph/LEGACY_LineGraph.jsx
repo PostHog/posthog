@@ -201,9 +201,12 @@ export function LEGACY_LineGraph({
 
                     // Nullify dates that don't have dotted line
                     const sliceFrom = incompletenessOffsetFromEnd - 1 || (datasetCopy.data?.length ?? 0)
-                    datasetCopy.data = (datasetCopy.data?.slice(0, sliceFrom).map(() => null) ?? []).concat(
-                        datasetCopy.data?.slice(sliceFrom) ?? []
-                    )
+                    datasetCopy.data =
+                        datasetCopy.data?.length === 1 && !isInProgress
+                            ? []
+                            : (datasetCopy.data?.slice(0, sliceFrom).map(() => null) ?? []).concat(
+                                  datasetCopy.data?.slice(sliceFrom) ?? []
+                              )
 
                     return processDataset(datasetCopy, index)
                 }),

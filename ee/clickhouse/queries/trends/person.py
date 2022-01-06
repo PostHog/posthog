@@ -30,29 +30,27 @@ def _handle_date_interval(filter: Filter) -> Filter:
         data.update({"date_to": date_from})
     elif filter.interval == "hour":
         data.update({"date_to": date_from + timedelta(hours=1)})
-    elif filter.interval == "minute":
-        data.update({"date_to": date_from + timedelta(minutes=1)})
     return filter.with_data(data)
 
 
-class TrendsPersonQuery(ActorBaseQuery):
+class ClickhouseTrendsActors(ActorBaseQuery):
     entity: Entity
     _filter: Filter
 
-    def __init__(self, team: Team, entity: Optional[Entity], filter: Filter):
+    def __init__(self, team: Team, entity: Optional[Entity], filter: Filter, **kwargs):
         if not entity:
             raise ValueError("Entity is required")
 
         if filter.display != TRENDS_CUMULATIVE and not filter.display in TRENDS_DISPLAY_BY_VALUE:
             filter = _handle_date_interval(filter)
 
-        super().__init__(team, filter, entity)
+        super().__init__(team, filter, entity, **kwargs)
 
     @cached_property
     def is_aggregating_by_groups(self) -> bool:
         return self.entity.math == "unique_group"
 
-    def actor_query(self) -> Tuple[str, Dict]:
+    def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
         if self._filter.breakdown_type == "cohort" and self._filter.breakdown_value != "all":
             cohort = Cohort.objects.get(pk=self._filter.breakdown_value, team_id=self._team.pk)
             self._filter = self._filter.with_data(
@@ -87,7 +85,12 @@ class TrendsPersonQuery(ActorBaseQuery):
         ).get_query()
 
         return (
-            GET_ACTORS_FROM_EVENT_QUERY.format(id_field=self._aggregation_actor_field, events_query=events_query),
+            GET_ACTORS_FROM_EVENT_QUERY.format(
+                id_field=self._aggregation_actor_field,
+                events_query=events_query,
+                limit="LIMIT %(limit)s" if limit_actors else "",
+                offset="OFFSET %(offset)s" if limit_actors else "",
+            ),
             {**params, "offset": self._filter.offset, "limit": 200},
         )
 

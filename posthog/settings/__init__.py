@@ -107,9 +107,6 @@ AUTO_LOGIN = get_from_env("AUTO_LOGIN", False, type_cast=str_to_bool)
 # Keep in sync with plugin-server
 EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC = "events_added_to_dead_letter_queue"
 
-# Teams with access to an experimental query optimization. Only ready to be used on cloud.
-PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS = get_list(os.getenv("PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS", ""))
-
 
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:

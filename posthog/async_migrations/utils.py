@@ -78,10 +78,10 @@ def force_stop_migration(migration_instance: AsyncMigration, error: str = "Force
     process_error(migration_instance, error)
 
 
-def force_rollback_migration(migration_instance: AsyncMigration):
+def rollback_migration(migration_instance: AsyncMigration, force: bool = False):
     from posthog.async_migrations.runner import attempt_migration_rollback
 
-    attempt_migration_rollback(migration_instance, force=True)
+    attempt_migration_rollback(migration_instance, force=force)
 
 
 def complete_migration(migration_instance: AsyncMigration):

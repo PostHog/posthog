@@ -195,7 +195,6 @@ export interface TeamType extends TeamBasicType {
     app_urls: string[]
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
-    session_recording_retention_period_days: number | null
     test_account_filters: AnyPropertyFilter[]
     path_cleaning_filters: Record<string, any>[]
     data_attributes: string[]
@@ -812,7 +811,7 @@ export enum ChartDisplayType {
 
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
 export type BreakdownType = 'cohort' | 'person' | 'event' | 'group'
-export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
+export type IntervalType = 'hour' | 'day' | 'week' | 'month'
 
 export enum InsightType {
     TRENDS = 'TRENDS',
@@ -1178,7 +1177,7 @@ export interface FeatureFlagGroupType {
 
 export interface MultivariateFlagVariant {
     key: string
-    name: string | null
+    name?: string | null
     rollout_percentage: number
 }
 
@@ -1382,8 +1381,8 @@ export interface Experiment {
     created_by: UserBasicType | null
 }
 export interface ExperimentResults {
-    funnel: FunnelStep[][]
-    probability: number
+    insight: FunnelStep[][]
+    probability: Record<string, number>
     filters: FilterType
     itemID: string
 }
