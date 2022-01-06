@@ -239,7 +239,8 @@ export function cleanFilters(
         }
 
         return cleanSearchParams
-    } else if ((filters.insight as string) === 'HISTORY') {
+    } else if ((filters.insight as string) === 'SESSIONS') {
+        // DEPRECATED: Used to show deprecation warning for dashboard items
         return cleanFilters({ insight: InsightType.TRENDS })
     }
 
