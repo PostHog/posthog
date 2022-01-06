@@ -1384,8 +1384,8 @@ export interface Experiment {
     created_by: UserBasicType | null
 }
 export interface ExperimentResults {
-    funnel: FunnelStep[][]
-    probability: number
+    insight: FunnelStep[][]
+    probability: Record<string, number>
     filters: FilterType
     itemID: string
 }
