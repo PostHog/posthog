@@ -321,5 +321,49 @@ describe('TeamManager()', () => {
                 })
             })
         })
+
+        describe('auto-detection of property types', () => {
+            const randomInteger = () => Math.floor(Math.random() * 1000) + 1
+
+            const teamId = 2
+
+            beforeEach(() => {
+                jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2015-04-04T04:04:04.000Z').getTime())
+            })
+
+            it('adds no type for objects', async () => {
+                const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
+
+                await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
+                    anObjectProperty: { anything: randomInteger() },
+                })
+
+                expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('anObjectProperty')
+
+                expect(postgresQuery).toHaveBeenCalledWith(
+                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6) ON CONFLICT DO NOTHING',
+                    [expect.any(String), 'anObjectProperty', false, teamId, null, null],
+                    'insertPropertyDefinition'
+                )
+            })
+
+            it('identifies a numeric type', async () => {
+                const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
+
+                await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
+                    some_number: randomInteger(),
+                })
+
+                expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('some_number')
+
+                const [lastQuery, lastQueryParams, lastQueryTag] =
+                    postgresQuery.mock.calls[postgresQuery.mock.calls.length - 1]
+                expect(lastQueryTag).toEqual('insertPropertyDefinition')
+                expect(lastQueryParams).toEqual([expect.any(String), 'some_number', true, teamId, 'Numeric', null])
+                expect(lastQuery).toEqual(
+                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6) ON CONFLICT DO NOTHING'
+                )
+            })
+        })
     })
 })
