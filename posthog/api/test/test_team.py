@@ -1,6 +1,6 @@
 from rest_framework import status
 
-from posthog.demo import prepare_demo
+from posthog.demo import create_demo_team
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.test.base import APIBaseTest
@@ -122,7 +122,7 @@ class TestTeamAPI(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        team = prepare_demo(email=self.user.email, first_name=self.user.first_name, legacy_generators=True)[1]
+        team = create_demo_team(organization=self.organization)
 
         self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
 

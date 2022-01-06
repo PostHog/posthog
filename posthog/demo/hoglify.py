@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Tuple
 import mimesis
 import mimesis.random
 
-from posthog.demo.data_generator import DataGenerator, SimPerson
+from posthog.demo.data_generator_v2 import DataGenerator, SimPerson
 from posthog.models import Dashboard, FeatureFlag, Insight, Team, User
 
 try:
@@ -75,6 +75,7 @@ class HoglifyDataGenerator(DataGenerator):
     person_provider: mimesis.Person
     numeric_provider: mimesis.Numeric
     address_provider: mimesis.Address
+    internet_provider: mimesis.Internet
     datetime_provider: mimesis.Datetime
 
     def __init__(self, *, n_people: int = 1000, n_days: int = 90, seed: Optional[int] = None):
@@ -83,6 +84,7 @@ class HoglifyDataGenerator(DataGenerator):
         self.person_provider = mimesis.Person(seed=seed)
         self.numeric_provider = mimesis.Numeric(seed=seed)
         self.address_provider = mimesis.Address(seed=seed)
+        self.internet_provider = mimesis.Internet(seed=seed)
         self.datetime_provider = mimesis.Datetime(seed=seed)
 
     def _set_project_up(self, team: Team, user: User):
@@ -160,6 +162,7 @@ class HoglifyDataGenerator(DataGenerator):
         )
         # Device metadata
         device_type, os, browser = self.properties_provider.device_type_os_browser()
+        ip = self.internet_provider.ip_v4()
 
         ### VARIABLES ###
         product_satisfaction = self.properties_provider.random.betavariate(2, 4)
@@ -168,23 +171,14 @@ class HoglifyDataGenerator(DataGenerator):
             "$device_type": device_type,
             "$os": os,
             "$browser": browser,
-            "$initial_os": os,
-            "$geoip_latitude": self.address_provider.latitude(),
-            "$geoip_city_name": self.address_provider.city(),
-            "$geoip_longitude": self.address_provider.longitude(),
-            "$geoip_time_zone": self.datetime_provider.timezone(),
-            "$geoip_postal_code": self.address_provider.zip_code(),
-            "$geoip_country_code": self.address_provider.country_code(),
-            "$geoip_country_name": self.address_provider.country(),
-            "$geoip_continent_code": self.address_provider.continent(code=True),
-            "$geoip_continent_name": self.address_provider.continent(),
+            "$ip": ip,
             "$current_url": "https://posthog.com/",
             "$referrer": "https://www.google.com/",
             "$referring_domain": "www.google.com",
         }
 
         first_ever_session_date = now.date() - dt.timedelta(first_ever_session_days_ago)
-        for days_ago in range(first_sim_session_days_ago, 0, -1):
+        for days_ago in range(first_sim_session_days_ago, -1, -1):
             day_now = now - dt.timedelta(days_ago)
             sim_person.add_event("$pageview", day_now, base_properties)
 

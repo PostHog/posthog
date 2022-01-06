@@ -16,7 +16,7 @@ from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 
 from posthog.api.shared import UserBasicSerializer
-from posthog.demo import prepare_demo
+from posthog.demo import prepare_hoglify_demo
 from posthog.demo.hoglify import hoglify_data_generator
 from posthog.event_usage import report_user_joined_organization, report_user_signed_up
 from posthog.models import Organization, Team, User
@@ -53,8 +53,7 @@ class SignupSerializer(serializers.Serializer):
 
     def create(self, validated_data, **kwargs):
         if settings.DEMO:
-            with transaction.atomic():
-                return self.enter_demo(validated_data)
+            return self.enter_demo(validated_data)
 
         is_instance_first_user: bool = not User.objects.exists()
 
@@ -91,7 +90,7 @@ class SignupSerializer(serializers.Serializer):
 
     def enter_demo(self, validated_data) -> User:
         """Demo signup/login flow."""
-        self._organization, self._team, self._user = prepare_demo(
+        self._organization, self._team, self._user = prepare_hoglify_demo(
             email=validated_data["email"],
             first_name=validated_data["first_name"],
             organization_name=validated_data["organization_name"],
