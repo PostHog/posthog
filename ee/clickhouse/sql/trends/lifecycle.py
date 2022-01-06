@@ -69,15 +69,15 @@ _LIFECYCLE_EVENTS_QUERY = """
             'dormant' AS status
 
         FROM bounded_person_activity_by_period activity_before_target
-            ASOF LEFT JOIN unbounded_filtered_events next_activity
+            ASOF LEFT JOIN bounded_person_activity_by_period next_activity
                 ON activity_before_target.person_id = next_activity.person_id 
-                    AND next_activity.timestamp > activity_before_target.start_of_period + interval_type
+                    AND next_activity.start_of_period >= activity_before_target.start_of_period + interval_type
 
             WHERE next_activity.person_id = '00000000-0000-0000-0000-000000000000'
                 OR dateDiff(
                     selected_period, 
                     activity_before_target.start_of_period, 
-                    next_activity.timestamp
+                    next_activity.start_of_period
                 ) > 1
     ) activity_pairs
 """
