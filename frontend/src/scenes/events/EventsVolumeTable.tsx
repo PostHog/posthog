@@ -21,7 +21,7 @@ export function EventsVolumeTable(): JSX.Element | null {
 
     return (
         <div data-attr="manage-events-table">
-            <EventPageHeader activeTab={EventsTab.EventStats} />
+            <EventPageHeader activeTab={EventsTab.EventsStats} />
             {loaded ? (
                 <>
                     {preflight && !preflight?.is_event_property_usage_enabled ? (
