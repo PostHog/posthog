@@ -25,7 +25,8 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
     const { setChartFilter } = useActions(chartFilterLogic)
     const { preflight } = useValues(preflightLogic)
 
-    const linearDisabled = !!filters.session && filters.session === 'dist'
+    const linearDisabled =
+        (filters.date_from === filters.date_to || filters.date_from === 'dStart') && filters.interval !== 'hour'
     const cumulativeDisabled =
         !!filters.session || filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
     const tableDisabled = false

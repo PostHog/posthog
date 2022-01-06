@@ -245,6 +245,14 @@ export function cleanFilters(
             cleanSearchParams.actions = []
         }
 
+        if (
+            (cleanSearchParams.date_from === cleanSearchParams.date_to || cleanSearchParams.date_from === 'dStart') &&
+            cleanSearchParams.interval !== 'hour'
+        ) {
+            // If viewing a single data point (yesterday or today), change to bar chart as the line chart will look empty
+            cleanSearchParams.display = ChartDisplayType.ActionsBarChart
+        }
+
         return cleanSearchParams
     }
 
