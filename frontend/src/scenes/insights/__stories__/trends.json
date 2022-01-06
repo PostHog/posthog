@@ -773,8 +773,7 @@
                 "is_demo": true,
                 "timezone": "UTC",
                 "data_attributes": ["data-attr"],
-                "session_recording_opt_in": false,
-                "session_recording_retention_period_days": null
+                "session_recording_opt_in": false
             },
             "currentTeamLoading": false,
             "teamBeingDeleted": null

@@ -230,10 +230,13 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
 
                     // Nullify dates that don't have dotted line
                     const sliceFrom = incompletenessOffsetFromEnd - 1 || (datasetCopy.data?.length ?? 0)
-                    datasetCopy.data = [
-                        ...(datasetCopy.data?.slice(0, sliceFrom).map(() => null) ?? []),
-                        ...(datasetCopy.data?.slice(sliceFrom) ?? []),
-                    ] as number[]
+                    datasetCopy.data =
+                        datasetCopy.data?.length === 1 && !isInProgress
+                            ? []
+                            : ([
+                                  ...(datasetCopy.data?.slice(0, sliceFrom).map(() => null) ?? []),
+                                  ...(datasetCopy.data?.slice(sliceFrom) ?? []),
+                              ] as number[])
 
                     return processDataset(datasetCopy, index)
                 }),
