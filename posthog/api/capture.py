@@ -240,6 +240,7 @@ def get_event(request):
         try:
             capture_internal(event, distinct_id, ip, site_url, now, sent_at, team.pk, event_uuid)  # type: ignore
         except Exception as e:
+            timer.stop()
             capture_exception(e, {"data": data})
             statsd.incr(
                 "posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture",},
