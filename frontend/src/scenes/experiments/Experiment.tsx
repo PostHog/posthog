@@ -391,7 +391,9 @@ export function Experiment(): JSX.Element {
                                                 tipFormatter={(value) => `${value}`}
                                                 onChange={(value) =>
                                                     setNewExperimentData({
-                                                        parameters: { minimum_sample_size: value },
+                                                        parameters: {
+                                                            minimum_sample_size: value,
+                                                        },
                                                     })
                                                 }
                                                 marks={{ 500: `500`, 1000: `1000` }}

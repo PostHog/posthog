@@ -43,17 +43,17 @@ describe('experimentLogic', () => {
 
     describe('selector values', () => {
         it('given an mde, calculates correct sample size', async () => {
-            logic.actions.setNewExperimentData({ parameters: { minimum_detectable_effect: 10 } })
+            logic.actions.setNewExperimentData({ parameters: { minimum_sample_size: 1000 } })
 
             await expectLogic(logic).toMatchValues({
-                minimumDetectableChange: 10,
+                minimumSampleSizePerVariant: 1000,
             })
 
-            expect(logic.values.recommendedSampleSize(20)).toEqual(512)
+            expect(logic.values.minimumDetectableChange(20)).toBeCloseTo(5.059)
 
-            expect(logic.values.recommendedSampleSize(40)).toEqual(768)
+            expect(logic.values.minimumDetectableChange(50)).toBeCloseTo(6.324)
 
-            expect(logic.values.recommendedSampleSize(0)).toEqual(0)
+            expect(logic.values.minimumDetectableChange(0)).toBeCloseTo(0)
         })
 
         it('given sample size and entrants, calculates correct running time', async () => {
