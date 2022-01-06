@@ -255,7 +255,10 @@ export const experimentLogic = kea<experimentLogicType>({
                             insight: [],
                             filters: { events: [{ id: 'random1' }, { id: 'random2' }] }, // ensures we get the funnel empty state
                             // rather than "Add another Step" button
-                            probability: 0,
+                            probability: {
+                                control: 0,
+                                test: 0,
+                            },
                             itemID: Math.random().toString(36).substring(2, 15),
                         })
                         return
