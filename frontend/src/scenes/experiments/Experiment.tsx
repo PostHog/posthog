@@ -476,12 +476,11 @@ export function Experiment(): JSX.Element {
                             <Row>
                                 <ul>
                                     <li>
-                                        Recommended running time: ~{experimentData.parameters?.recommended_running_time}{' '}
-                                        days
+                                        Expected running time: ~{experimentData.parameters?.expected_running_time} days
                                     </li>
                                     <li>
-                                        Recommended sample size: ~{experimentData.parameters?.recommended_sample_size}{' '}
-                                        people
+                                        Minimum sample size per variant: ~
+                                        {experimentData.parameters?.minimum_sample_size} people
                                     </li>
                                 </ul>
                             </Row>

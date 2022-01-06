@@ -33,10 +33,10 @@ export const experimentLogic = kea<experimentLogicType>({
     actions: {
         setExperimentResults: (experimentResults: ExperimentResults | null) => ({ experimentResults }),
         setExperiment: (experiment: Experiment) => ({ experiment }),
-        createExperiment: (draft?: boolean, runningTime?: number, sampleSize?: number) => ({
+        createExperiment: (draft?: boolean, runningTime?: number, sensitivity?: number) => ({
             draft,
             runningTime,
-            sampleSize,
+            sensitivity,
         }),
         setExperimentFunnelId: (shortId: InsightShortId) => ({ shortId }),
         createNewExperimentFunnel: (filters?: Partial<FilterType>) => ({ filters }),
@@ -154,7 +154,7 @@ export const experimentLogic = kea<experimentLogicType>({
         ],
     },
     listeners: ({ values, actions }) => ({
-        createExperiment: async ({ draft, runningTime, sampleSize }) => {
+        createExperiment: async ({ draft, runningTime, sensitivity }) => {
             let response: Experiment | null = null
             const isUpdate = !!values.newExperimentData?.id
             try {
@@ -165,8 +165,8 @@ export const experimentLogic = kea<experimentLogicType>({
                             ...values.newExperimentData,
                             parameters: {
                                 ...values.newExperimentData.parameters,
-                                recommended_running_time: runningTime,
-                                recommended_sample_size: sampleSize,
+                                expected_running_time: runningTime,
+                                sensitivity,
                             },
                             ...(!draft && { start_date: dayjs() }),
                         }
@@ -176,8 +176,8 @@ export const experimentLogic = kea<experimentLogicType>({
                         ...values.newExperimentData,
                         parameters: {
                             ...values.newExperimentData?.parameters,
-                            recommended_running_time: runningTime,
-                            recommended_sample_size: sampleSize,
+                            expected_running_time: runningTime,
+                            sensitivity,
                         },
                         ...(!draft && { start_date: dayjs() }),
                     })
