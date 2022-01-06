@@ -16,7 +16,7 @@ export interface TrendActors {
     count: number
     day: string | number
     label: string
-    action: ActionFilter | 'session'
+    action?: ActionFilter
     breakdown_value?: string | number
     next?: string
     loadingMore?: boolean

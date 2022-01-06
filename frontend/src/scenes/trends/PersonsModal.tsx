@@ -89,7 +89,7 @@ export function PersonsModal({
         [filters, people, isInitialLoad]
     )
 
-    const isDownloadCsvAvailable = view === InsightType.TRENDS && showModalActions
+    const isDownloadCsvAvailable: boolean = view === InsightType.TRENDS && showModalActions && !!people?.action
     const isSaveAsCohortAvailable =
         clickhouseFeaturesEnabled &&
         (view === InsightType.TRENDS || view === InsightType.STICKINESS) &&
@@ -204,8 +204,7 @@ export function PersonsModal({
                                     {people.count} unique {aggregationTargetLabel.plural}
                                 </b>
                                 {peopleParams?.pointValue !== undefined &&
-                                    peopleParams.action !== 'session' &&
-                                    (!peopleParams.action.math || peopleParams.action.math === 'total') && (
+                                    (!peopleParams.action?.math || peopleParams.action?.math === 'total') && (
                                         <>
                                             {' '}
                                             who performed the event{' '}
