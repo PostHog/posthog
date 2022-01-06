@@ -383,6 +383,49 @@ describe('TeamManager()', () => {
                     'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6) ON CONFLICT DO NOTHING'
                 )
             })
+
+            it('identifies a date type with format YYYY-MM-DD', async () => {
+                const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
+
+                await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
+                    aDate: '2021-12-31',
+                })
+
+                expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('aDate')
+
+                const [lastQuery, lastQueryParams, lastQueryTag] =
+                    postgresQuery.mock.calls[postgresQuery.mock.calls.length - 1]
+                expect(lastQueryTag).toEqual('insertPropertyDefinition')
+                expect(lastQueryParams).toEqual([expect.any(String), 'aDate', false, teamId, 'DateTime', 'YYYY-MM-DD'])
+                expect(lastQuery).toEqual(
+                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6) ON CONFLICT DO NOTHING'
+                )
+            })
+
+            it('identifies a date type with format YYYY-MM-DD hh:mm:ss', async () => {
+                const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
+
+                await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
+                    aDate: '2021-12-31 23:59:59',
+                })
+
+                expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('aDate')
+
+                const [lastQuery, lastQueryParams, lastQueryTag] =
+                    postgresQuery.mock.calls[postgresQuery.mock.calls.length - 1]
+                expect(lastQueryTag).toEqual('insertPropertyDefinition')
+                expect(lastQueryParams).toEqual([
+                    expect.any(String),
+                    'aDate',
+                    false,
+                    teamId,
+                    'DateTime',
+                    'YYYY-MM-DD hh:mm:ss',
+                ])
+                expect(lastQuery).toEqual(
+                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6) ON CONFLICT DO NOTHING'
+                )
+            })
         })
     })
 })

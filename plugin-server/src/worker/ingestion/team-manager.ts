@@ -4,7 +4,7 @@ import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 
 import { ONE_HOUR } from '../../config/constants'
-import { PluginsServerConfig, PropertyType, Team, TeamId } from '../../types'
+import { PluginsServerConfig, PropertyType, PropertyTypeFormat, Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
 import { posthog } from '../../utils/posthog'
@@ -162,18 +162,29 @@ export class TeamManager {
             if (!this.propertyDefinitionsCache.get(team.id)?.has(key)) {
                 const isNumerical = typeof value === 'number'
                 let propertyType: PropertyType | null = null
+                let propertyTypeFormat: PropertyTypeFormat | null = null
+
                 if (isNumerical) {
                     propertyType = 'Numeric'
                 }
 
                 if (typeof value === 'string') {
                     propertyType = 'String'
+
+                    if (value.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                        propertyType = 'DateTime'
+                        propertyTypeFormat = 'YYYY-MM-DD'
+                    }
+
+                    if (value.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)) {
+                        propertyType = 'DateTime'
+                        propertyTypeFormat = 'YYYY-MM-DD hh:mm:ss'
+                    }
                 }
 
-                const params = [new UUIDT().toString(), key, isNumerical, team.id, propertyType, null]
                 await this.db.postgresQuery(
                     `INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6) ON CONFLICT DO NOTHING`,
-                    params,
+                    [new UUIDT().toString(), key, isNumerical, team.id, propertyType, propertyTypeFormat],
                     'insertPropertyDefinition'
                 )
                 this.propertyDefinitionsCache.get(team.id)?.add(key)
