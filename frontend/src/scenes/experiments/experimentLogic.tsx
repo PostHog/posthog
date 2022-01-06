@@ -38,13 +38,14 @@ export const experimentLogic = kea<experimentLogicType>({
             runningTime,
             sampleSize,
         }),
-        setExperimentFunnelId: (shortId: InsightShortId) => ({ shortId }),
-        createNewExperimentFunnel: (filters?: Partial<FilterType>) => ({ filters }),
+        setExperimentInsightId: (shortId: InsightShortId) => ({ shortId }),
+        createNewExperimentInsight: (filters?: Partial<FilterType>) => ({ filters }),
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
         setExperimentId: (experimentId: number | 'new') => ({ experimentId }),
         setNewExperimentData: (experimentData: Partial<Experiment>) => ({ experimentData }),
         updateExperimentGroup: (variant: MultivariateFlagVariant, idx: number) => ({ variant, idx }),
         removeExperimentGroup: (idx: number) => ({ idx }),
+        setExperimentInsightType: (insightType: InsightType) => ({ insightType }),
         resetNewExperiment: true,
         launchExperiment: true,
         endExperiment: true,
@@ -139,10 +140,16 @@ export const experimentLogic = kea<experimentLogicType>({
                 setExperimentResults: (_, { experimentResults }) => experimentResults,
             },
         ],
-        experimentFunnelId: [
+        experimentInsightType: [
+            InsightType.FUNNELS,
+            {
+                setExperimentInsightType: (_, { insightType }) => insightType,
+            },
+        ],
+        experimentInsightId: [
             null as InsightShortId | null,
             {
-                setExperimentFunnelId: (_, { shortId }) => shortId,
+                setExperimentInsightId: (_, { shortId }) => shortId,
             },
         ],
         editingExistingExperiment: [
@@ -213,36 +220,49 @@ export const experimentLogic = kea<experimentLogicType>({
                 )
             }
         },
-        createNewExperimentFunnel: async ({ filters }) => {
-            const newInsight = {
-                name: generateRandomAnimal(),
-                description: '',
-                tags: [],
-                filters: cleanFilters({
+        createNewExperimentInsight: async ({ filters }) => {
+            let newInsightFilters
+            if (values.experimentInsightType === InsightType.FUNNELS) {
+                newInsightFilters = cleanFilters({
                     insight: InsightType.FUNNELS,
                     funnel_viz_type: FunnelVizType.Steps,
                     date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
                     layout: FunnelLayout.horizontal,
                     ...filters,
-                }),
+                })
+            } else {
+                newInsightFilters = cleanFilters({
+                    insight: InsightType.TRENDS,
+                    date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                    date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                    ...filters,
+                })
+            }
+
+            const newInsight = {
+                name: generateRandomAnimal(),
+                description: '',
+                tags: [],
+                filters: newInsightFilters,
                 result: null,
             }
+
             const createdInsight: InsightModel = await api.create(
                 `api/projects/${teamLogic.values.currentTeamId}/insights`,
                 newInsight
             )
-            actions.setExperimentFunnelId(createdInsight.short_id)
+            actions.setExperimentInsightId(createdInsight.short_id)
             actions.setNewExperimentData({ filters: { ...newInsight.filters } })
         },
         setFilters: ({ filters }) => {
-            funnelLogic.findMounted({ dashboardItemId: values.experimentFunnelId })?.actions.setFilters(filters)
+            funnelLogic.findMounted({ dashboardItemId: values.experimentInsightId })?.actions.setFilters(filters)
         },
         loadExperimentSuccess: async ({ experimentData }) => {
             if (!experimentData?.start_date) {
                 // loading a draft mode experiment
                 actions.setNewExperimentData({ ...experimentData })
-                actions.createNewExperimentFunnel(experimentData?.filters)
+                actions.createNewExperimentInsight(experimentData?.filters)
             } else {
                 try {
                     const response = await api.get(
@@ -287,6 +307,7 @@ export const experimentLogic = kea<experimentLogicType>({
             actions.setExperimentId(response.id || 'new')
             actions.loadExperiment()
         },
+        setExperimentInsightType: () => actions.createNewExperimentInsight(values.experimentData?.filters),
     }),
     loaders: ({ values }) => ({
         experimentData: [
@@ -382,7 +403,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 // TODO: optimise loading if already loaded Experiment
                 // like in featureFlagLogic.tsx
                 if (parsedId === 'new') {
-                    actions.createNewExperimentFunnel()
+                    actions.createNewExperimentInsight()
                     actions.resetNewExperiment()
                 }
                 if (parsedId !== values.experimentId) {
