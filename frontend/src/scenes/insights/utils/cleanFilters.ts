@@ -246,8 +246,6 @@ export function cleanFilters(
         }
 
         return cleanSearchParams
-    } else if ((filters.insight as string) === 'HISTORY') {
-        return cleanFilters({ insight: InsightType.TRENDS })
     }
 
     throw new Error(`Unknown insight type "${filters.insight}" given to cleanFilters`)

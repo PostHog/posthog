@@ -3,7 +3,6 @@ import { router } from 'kea-router'
 import { Dayjs } from 'dayjs'
 import { objectsEqual } from 'lib/utils'
 import { insightDateFilterLogicType } from './insightDateFilterLogicType'
-import { ChartDisplayType } from '~/types'
 
 interface UrlParams {
     date_from?: string
@@ -52,11 +51,6 @@ export const insightDateFilterLogic = kea<insightDateFilterLogicType>({
 
             searchParams.date_from = values.dates.dateFrom
             searchParams.date_to = values.dates.dateTo
-
-            if (values.dates.dateFrom === values.dates.dateTo || values.dates.dateFrom === 'dStart') {
-                // If viewing a single data point (yesterday or today), change to bar chart as the line chart will look empty
-                searchParams.display = ChartDisplayType.ActionsBarChart
-            }
 
             if (
                 (pathname.startsWith('/insights/') && !objectsEqual(date_from, values.dates.dateFrom)) ||
