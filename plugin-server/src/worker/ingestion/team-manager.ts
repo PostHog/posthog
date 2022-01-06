@@ -22,11 +22,12 @@ function detectPropertyDefinitionTypes(isNumerical: boolean, value: any, key: st
      *
      * This tries to detect the most likely cases.
      *
-     * Numbers or Numeric Strings
-     * That are either ten digits (seconds since unix epoch), or 13 digits (milliseconds since unix epoch),
-     * or ten digits with numbers after the decimal place (whole seconds since unix epoch and fractions of a second)
+     * * Numbers or Numeric Strings
+     * * That are either ten digits (seconds since unix epoch), or 13 digits (milliseconds since unix epoch),
+     * * or ten digits with numbers after the decimal place (whole seconds since unix epoch and fractions of a second)
+     * * where the property key includes either time or timestamp
      *
-     * seconds since epoch don't go over ten digits until Nov 20th 2286
+     * ten digits of seconds since epoch runs between Sep 09 2001 and Nov 20th 2286
      *
      * These are some representations from a variety of programming languages
      *
