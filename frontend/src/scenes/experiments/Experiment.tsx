@@ -1,5 +1,5 @@
 import SaveOutlined from '@ant-design/icons/lib/icons/SaveOutlined'
-import { Button, Card, Col, Collapse, Form, Input, InputNumber, Row, Select, Slider, Tag, Tooltip } from 'antd'
+import { Button, Card, Col, Form, Input, InputNumber, Row, Select, Slider, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -38,6 +38,7 @@ export function Experiment(): JSX.Element {
         experimentResults,
         conversionRateForVariant,
         editingExistingExperiment,
+        highestProbabilityVariant,
     } = useValues(experimentLogic)
     const {
         setNewExperimentData,
@@ -469,28 +470,17 @@ export function Experiment(): JSX.Element {
                                 <div className="card-secondary">Participants</div>
                                 <div>
                                     {experimentData.filters.properties ? (
-                                        <Collapse
-                                            expandIconPosition="right"
-                                            expandIcon={({ isActive }) => (
-                                                <span className="primary" style={{ fontSize: 13 }}>
-                                                    {isActive ? 'Hide' : 'View'} filters
-                                                </span>
-                                            )}
-                                        >
-                                            <Collapse.Panel className="participants" header="of users" key="1">
-                                                <div>
-                                                    {experimentData.filters.properties.map((item) => {
-                                                        return (
-                                                            <PropertyFilterButton
-                                                                key={item.key}
-                                                                item={item}
-                                                                greyBadges={true}
-                                                            />
-                                                        )
-                                                    })}
-                                                </div>
-                                            </Collapse.Panel>
-                                        </Collapse>
+                                        <div>
+                                            {experimentData.filters.properties.map((item) => {
+                                                return (
+                                                    <PropertyFilterButton
+                                                        key={item.key}
+                                                        item={item}
+                                                        greyBadges={true}
+                                                    />
+                                                )
+                                            })}
+                                        </div>
                                     ) : (
                                         '100% of users'
                                     )}
@@ -586,8 +576,14 @@ export function Experiment(): JSX.Element {
                             <Row style={{ alignItems: 'baseline' }}>
                                 {experimentData.end_date ? (
                                     <div>
-                                        Probability that test has higher conversion than control:{' '}
-                                        {experimentResults.probability.test}
+                                        Probability that <b>{highestProbabilityVariant}</b> has higher conversion than
+                                        other variants:{' '}
+                                        <b>
+                                            {(experimentResults.probability[highestProbabilityVariant] * 100).toFixed(
+                                                1
+                                            )}
+                                            %
+                                        </b>
                                     </div>
                                 ) : (
                                     <span className="description">
@@ -599,21 +595,26 @@ export function Experiment(): JSX.Element {
                                     .map((variant: MultivariateFlagVariant, idx: number) => (
                                         <Col className="ml" key={idx}>
                                             <div className="card-secondary">{variant.key} conversion rate</div>
-                                            <div className="text-center">
-                                                {conversionRateForVariant(variant.key)}
+                                            <Row justify="center" align="middle">
+                                                <span className="mr-05" style={{ fontWeight: 700, fontSize: 20 }}>
+                                                    {conversionRateForVariant(variant.key)}
+                                                </span>
                                                 <Tag style={{ border: 'none' }} color={resultsTagColors[idx]}>
                                                     <b>{variant.key}</b>
                                                 </Tag>
-                                            </div>
+                                            </Row>
                                         </Col>
                                     ))}
                                 <Col className="ml">
                                     <div className="card-secondary">Control conversion rate</div>
-                                    <div className="text-center">
+                                    <Row justify="center" align="middle">
+                                        <span className="mr-05" style={{ fontWeight: 700, fontSize: 20 }}>
+                                            {conversionRateForVariant('control')}
+                                        </span>
                                         <Tag style={{ border: 'none', color: 'white' }} color={resultsTagColors[3]}>
                                             <b>Control</b>
                                         </Tag>
-                                    </div>
+                                    </Row>
                                 </Col>
                             </Row>
                         ) : (
@@ -659,7 +660,9 @@ export function Experiment(): JSX.Element {
                                     doNotLoad: true,
                                 }}
                             >
-                                <InsightContainer disableTable={true} />
+                                <div className="mt">
+                                    <InsightContainer disableTable={true} />
+                                </div>
                             </BindLogic>
                         ) : (
                             <div

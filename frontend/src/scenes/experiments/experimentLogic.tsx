@@ -251,16 +251,7 @@ export const experimentLogic = kea<experimentLogicType>({
                     actions.setExperimentResults({ ...response, itemID: Math.random().toString(36).substring(2, 15) })
                 } catch (error) {
                     if (error.code === 'no_data') {
-                        actions.setExperimentResults({
-                            insight: [],
-                            filters: { events: [{ id: 'random1' }, { id: 'random2' }] }, // ensures we get the funnel empty state
-                            // rather than "Add another Step" button
-                            probability: {
-                                control: 0,
-                                test: 0,
-                            },
-                            itemID: Math.random().toString(36).substring(2, 15),
-                        })
+                        actions.setExperimentResults(null)
                         return
                     }
 
@@ -371,6 +362,17 @@ export const experimentLogic = kea<experimentLogicType>({
                         100
                     ).toFixed(1)}%`
                 },
+        ],
+        highestProbabilityVariant: [
+            (s) => [s.experimentResults],
+            (experimentResults) => {
+                if (experimentResults) {
+                    const maxValue = Math.max(...Object.values(experimentResults.probability))
+                    return Object.keys(experimentResults.probability).find(
+                        (key) => experimentResults.probability[key] === maxValue
+                    )
+                }
+            },
         ],
     },
     urlToAction: ({ actions, values }) => ({
