@@ -44,6 +44,12 @@ def process_error(migration_instance: AsyncMigration, error: Optional[str]):
         finished_at=datetime.now(),
     )
 
+    from posthog.tasks.email import send_async_migration_errored_email
+
+    send_async_migration_errored_email.delay(
+        migration_key=migration_instance.name, time=datetime.now().isoformat(), error=error or ""
+    )
+
     if ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK:
         return
 
@@ -85,18 +91,22 @@ def force_rollback_migration(migration_instance: AsyncMigration):
 
 
 def complete_migration(migration_instance: AsyncMigration):
+    now = datetime.now()
     update_async_migration(
         migration_instance=migration_instance,
         status=MigrationStatus.CompletedSuccessfully,
-        finished_at=datetime.now(),
+        finished_at=now,
         progress=100,
     )
 
-    from posthog.async_migrations.runner import run_next_migration
+    from posthog.tasks.email import send_async_migration_complete_email
+
+    send_async_migration_complete_email.delay(migration_key=migration_instance.name, time=now.isoformat())
 
     next_migration = DEPENDENCY_TO_ASYNC_MIGRATION.get(migration_instance.name)
-
     if next_migration:
+        from posthog.async_migrations.runner import run_next_migration
+
         run_next_migration(next_migration)
 
 

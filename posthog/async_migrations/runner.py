@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List, Optional, Tuple
 
 from django.db.transaction import rollback
@@ -191,11 +192,16 @@ def attempt_migration_rollback(migration_instance: AsyncMigration, force: bool =
         # while rolling back. under normal circumstances, the error is reserved to
         # things that happened during the migration itself
         if force:
+            last_error = f"Force rollback failed with error: {error}"
             update_async_migration(
-                migration_instance=migration_instance,
-                status=MigrationStatus.Errored,
-                last_error=f"Force rollback failed with error: {error}",
+                migration_instance=migration_instance, status=MigrationStatus.Errored, last_error=last_error,
             )
+
+        from posthog.tasks.email import send_async_migration_errored_email
+
+        send_async_migration_errored_email.delay(
+            migration_key=migration_instance.name, time=datetime.now().isoformat(), error=last_error
+        )
 
         return
 
