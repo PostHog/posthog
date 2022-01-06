@@ -436,7 +436,7 @@ describe('TeamManager()', () => {
                 )
             })
 
-            it('identifies a date type with a ten digit timestamp as a string', async () => {
+            it('identifies as a date type a string of a ten digit timestamp', async () => {
                 const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
 
                 await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
@@ -455,7 +455,7 @@ describe('TeamManager()', () => {
                 )
             })
 
-            it('identifies a date type with a thirteen digit timestamp as a string', async () => {
+            it('identifies as a date type a string with a ten digit timestamp and 3 decimal places', async () => {
                 const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
 
                 await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
@@ -474,7 +474,26 @@ describe('TeamManager()', () => {
                 )
             })
 
-            it('does not identify as a date type a thirteen digit string if the property key does not suggest it is a timestamp', async () => {
+            it('identifies as a date type a string of a thirteen digit timestamp', async () => {
+                const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
+
+                await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
+                    someTimestamp: '0123456789012',
+                })
+
+                expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('someTimestamp')
+
+                expectMockQueryCallToMatch(
+                    {
+                        tag: 'insertPropertyDefinition',
+                        query: insertPropertyDefinitionQuery,
+                        params: [expect.any(String), 'someTimestamp', false, teamId, 'DateTime', 'unix_timestamp'],
+                    },
+                    postgresQuery
+                )
+            })
+
+            it('does not identify as a timestamp date type a if the property key does not suggest it is a timestamp', async () => {
                 const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
 
                 await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
@@ -538,7 +557,7 @@ describe('TeamManager()', () => {
                 )
             })
 
-            it('does identify as a thirteen digit unix_timestamp if the property is a number', async () => {
+            it('does identify as a unix_timestamp with fractional seconds if the property is a number', async () => {
                 const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
 
                 await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {

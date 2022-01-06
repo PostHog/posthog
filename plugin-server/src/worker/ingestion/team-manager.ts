@@ -17,10 +17,45 @@ function detectPropertyDefinitionTypes(isNumerical: boolean, value: any, key: st
     let propertyType: PropertyType | null = null
     let propertyTypeFormat: PropertyTypeFormat | null = null
 
+    /**
+     * Auto detecting unix timestamps is tricky. It's hard to know what is a big number or ID and what is a timestamp
+     *
+     * This tries to detect the most likely cases.
+     *
+     * Numbers or Numeric Strings
+     * That are either ten digits (seconds since unix epoch), or 13 digits (milliseconds since unix epoch),
+     * or ten digits with numbers after the decimal place (whole seconds since unix epoch and fractions of a second)
+     *
+     * seconds since epoch don't go over ten digits until Nov 20th 2286
+     *
+     * These are some representations from a variety of programming languages
+     *
+     * Python
+     * >>> datetime.now().timestamp()
+     * 1641477529.234715
+     *
+     * Ruby
+     * puts Time.now.to_i
+     * 1641477692
+     *
+     * Node JS
+     * console.log(Date.now())
+     * 1641477753371
+     *
+     * Java
+     * System.out.println(LocalDateTime.now().toEpochSecond(ZoneOffset.UTC));
+     * 1641478115
+     *
+     * SQL Lite
+     * select strftime('%s', 'now')
+     * 1641478347
+     *
+     * @param propertyValue
+     */
     const detectUnixTimestamps = (propertyValue: string) => {
         if (
             (key.toLowerCase().indexOf('timestamp') > -1 || key.toLowerCase().indexOf('time') > -1) &&
-            (propertyValue.match(/^\d{10}$/) || propertyValue.match(/^\d{10}\.\d{3}$/))
+            propertyValue.match(/^(\d{10}|\d{13})(\.\d*)?$/)
         ) {
             propertyType = 'DateTime'
             propertyTypeFormat = 'unix_timestamp'
