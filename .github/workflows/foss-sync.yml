@@ -1,10 +1,10 @@
 name: Sync PostHog FOSS
 
-on:
-    push:
-        branches:
-            - master
-            - main
+# on:
+#     push:
+#         branches:
+#             - master
+#             - main
 
 jobs:
     repo-sync:

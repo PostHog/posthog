@@ -212,12 +212,6 @@ jobs:
               if: ${{ !matrix.foss }}
               run: bin/check_kafka_clickhouse_up
 
-            - name: Run FOSS tests
-              if: ${{ matrix.foss }}
-              run: |
-                  rm -rf ee/
-                  pytest -m "not ee" posthog/ --cov  --cov-report=xml:coverage-postgres.xml
-
             - name: Run SAML tests
               if: ${{ matrix.saml }}
               run: |

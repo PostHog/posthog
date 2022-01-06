@@ -3,10 +3,10 @@
 
 name: Docker FOSS release image
 
-on:
-    push:
-        tags:
-            - '*.**'
+# on:
+#     push:
+#         tags:
+#             - '*.**'
 
 jobs:
     build-push:
