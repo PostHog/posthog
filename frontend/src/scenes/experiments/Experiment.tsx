@@ -564,9 +564,8 @@ export function Experiment(): JSX.Element {
                                 {`posthog.feature_flags.override({'${experimentData.feature_flag_key}': '${currentVariant}'})`}
                             </CodeSnippet>
                             <CodeSnippet language={Language.JavaScript} wrap>
-                                {`if (posthog.getFeatureFlag('${
-                                    experimentData.feature_flag_key ?? ''
-                                }') === '${currentVariant}') {
+                                {`if (posthog.getFeatureFlag('${experimentData.feature_flag_key ?? ''
+                                    }') === '${currentVariant}') {
     // where '${currentVariant}' is the variant, run your code here
 }`}
                             </CodeSnippet>
@@ -588,7 +587,7 @@ export function Experiment(): JSX.Element {
                                 {experimentData.end_date ? (
                                     <div>
                                         Probability that test has higher conversion than control:{' '}
-                                        {experimentResults.probability}
+                                        {experimentResults.probability.test}
                                     </div>
                                 ) : (
                                     <span className="description">
@@ -655,7 +654,7 @@ export function Experiment(): JSX.Element {
                                         funnel_viz_type: FunnelVizType.Steps,
                                         display: 'FunnelViz',
                                     },
-                                    cachedResults: experimentResults.funnel,
+                                    cachedResults: experimentResults.insight,
                                     syncWithUrl: false,
                                     doNotLoad: true,
                                 }}

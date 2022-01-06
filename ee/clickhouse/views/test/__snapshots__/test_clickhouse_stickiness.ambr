@@ -28,7 +28,7 @@
 # name: TestClickhouseStickiness.test_aggregate_by_groups.1
   '
   /* request:api_person_stickiness_?$ (LegacyClickhousePersonViewSet) */
-  SELECT DISTINCT aggregation_target
+  SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT e.$group_0 AS aggregation_target,
             countDistinct(toStartOfWeek(toDateTime(timestamp))) as num_intervals
@@ -44,6 +44,7 @@
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-02-15 23:59:59'
        AND event = 'watched movie'
+       AND NOT has([''], $group_0)
        AND NOT has([''], $group_0)
      GROUP BY aggregation_target)
   WHERE num_intervals = 1
@@ -54,7 +55,7 @@
 # name: TestClickhouseStickiness.test_aggregate_by_groups.2
   '
   /* request:api_person_stickiness_?$ (LegacyClickhousePersonViewSet) */
-  SELECT DISTINCT aggregation_target
+  SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT e.$group_0 AS aggregation_target,
             countDistinct(toStartOfWeek(toDateTime(timestamp))) as num_intervals
@@ -71,6 +72,7 @@
        AND timestamp <= '2020-02-15 23:59:59'
        AND event = 'watched movie'
        AND NOT has([''], $group_0)
+       AND NOT has([''], $group_0)
      GROUP BY aggregation_target)
   WHERE num_intervals = 2
   LIMIT 100
@@ -80,7 +82,7 @@
 # name: TestClickhouseStickiness.test_aggregate_by_groups.3
   '
   /* request:api_person_stickiness_?$ (LegacyClickhousePersonViewSet) */
-  SELECT DISTINCT aggregation_target
+  SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT e.$group_0 AS aggregation_target,
             countDistinct(toStartOfWeek(toDateTime(timestamp))) as num_intervals
@@ -96,6 +98,7 @@
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-02-15 23:59:59'
        AND event = 'watched movie'
+       AND NOT has([''], $group_0)
        AND NOT has([''], $group_0)
      GROUP BY aggregation_target)
   WHERE num_intervals = 3
@@ -141,7 +144,7 @@
 # name: TestClickhouseStickiness.test_filter_by_group_properties.1
   '
   /* request:api_person_stickiness_?$ (LegacyClickhousePersonViewSet) */
-  SELECT DISTINCT aggregation_target
+  SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT pdi.person_id AS aggregation_target,
             countDistinct(toStartOfWeek(toDateTime(timestamp))) as num_intervals
@@ -175,7 +178,7 @@
 # name: TestClickhouseStickiness.test_filter_by_group_properties.2
   '
   /* request:api_person_stickiness_?$ (LegacyClickhousePersonViewSet) */
-  SELECT DISTINCT aggregation_target
+  SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT pdi.person_id AS aggregation_target,
             countDistinct(toStartOfWeek(toDateTime(timestamp))) as num_intervals
@@ -209,7 +212,7 @@
 # name: TestClickhouseStickiness.test_filter_by_group_properties.3
   '
   /* request:api_person_stickiness_?$ (LegacyClickhousePersonViewSet) */
-  SELECT DISTINCT aggregation_target
+  SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT pdi.person_id AS aggregation_target,
             countDistinct(toStartOfWeek(toDateTime(timestamp))) as num_intervals

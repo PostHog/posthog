@@ -7,6 +7,7 @@ from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.util import logbeta
+from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 
@@ -35,13 +36,14 @@ class ClickhouseTrendExperimentResult:
         self,
         filter: Filter,
         team: Team,
-        feature_flag: str,
+        feature_flag: FeatureFlag,
         experiment_start_date: datetime,
         experiment_end_date: Optional[datetime] = None,
         trend_class: Type[ClickhouseTrends] = ClickhouseTrends,
     ):
 
-        breakdown_key = f"$feature/{feature_flag}"
+        breakdown_key = f"$feature/{feature_flag.key}"
+        variants = [variant["key"] for variant in feature_flag.variants]
 
         query_filter = filter.with_data(
             {
@@ -49,9 +51,7 @@ class ClickhouseTrendExperimentResult:
                 "date_to": experiment_end_date,
                 "breakdown": breakdown_key,
                 "breakdown_type": "event",
-                "properties": [
-                    {"key": breakdown_key, "value": ["control", "test"], "operator": "exact", "type": "event"}
-                ],
+                "properties": [{"key": breakdown_key, "value": variants, "operator": "exact", "type": "event"}],
                 # :TRICKY: We don't use properties set on filters, instead using experiment variant options
             }
         )
