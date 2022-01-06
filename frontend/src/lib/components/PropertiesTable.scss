@@ -1,10 +1,12 @@
 @import '~/vars';
 
 .properties-table {
-    width: 100%;
-    table-layout: fixed;
+    //table-layout: fixed;
     overflow-x: auto;
-    display: block;
+
+    table {
+        width: 100%;
+    }
 
     tr {
         border-bottom: 1px solid $border;

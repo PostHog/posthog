@@ -169,38 +169,40 @@ export function PropertiesTable({
 
     if (properties instanceof Object) {
         return (
-            <table className={clsx('properties-table', className)}>
-                {objectProperties.map(([key, value]) => (
-                    <tr key={key}>
-                        <td className="property-column-key">
-                            <div className="properties-table-key">
-                                {onDelete && nestingLevel <= 1 && !keyMappingKeys.includes(key) && (
-                                    <Popconfirm
-                                        onConfirm={() => onDelete(key)}
-                                        title={
-                                            <>
-                                                Are you sure you want to delete this property?{' '}
-                                                <b>This cannot be undone.</b>
-                                            </>
-                                        }
-                                    >
-                                        <DeleteOutlined className="cursor-pointer" />
-                                    </Popconfirm>
-                                )}
-                                <PropertyKeyInfo value={key} />
-                            </div>
-                        </td>
-                        <td className="property-column-value">
-                            <PropertiesTable
-                                properties={value}
-                                rootKey={key}
-                                onEdit={onEdit}
-                                nestingLevel={nestingLevel + 1}
-                            />
-                        </td>
-                    </tr>
-                ))}
-            </table>
+            <div className={clsx('properties-table', className)}>
+                <table>
+                    {objectProperties.map(([key, value]) => (
+                        <tr key={key}>
+                            <td className="property-column-key">
+                                <div className="properties-table-key">
+                                    {onDelete && nestingLevel <= 1 && !keyMappingKeys.includes(key) && (
+                                        <Popconfirm
+                                            onConfirm={() => onDelete(key)}
+                                            title={
+                                                <>
+                                                    Are you sure you want to delete this property?{' '}
+                                                    <b>This cannot be undone.</b>
+                                                </>
+                                            }
+                                        >
+                                            <DeleteOutlined className="cursor-pointer" />
+                                        </Popconfirm>
+                                    )}
+                                    <PropertyKeyInfo value={key} />
+                                </div>
+                            </td>
+                            <td className="property-column-value">
+                                <PropertiesTable
+                                    properties={value}
+                                    rootKey={key}
+                                    onEdit={onEdit}
+                                    nestingLevel={nestingLevel + 1}
+                                />
+                            </td>
+                        </tr>
+                    ))}
+                </table>
+            </div>
         )
     }
     // if none of above, it's a value
