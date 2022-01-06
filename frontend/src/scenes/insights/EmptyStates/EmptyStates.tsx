@@ -13,6 +13,7 @@ import clsx from 'clsx'
 import { LemonButton } from 'lib/components/LemonButton'
 import { deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
+import './EmptyStates.scss'
 
 export const UNNAMED_INSIGHT_NAME = 'Unnamed insight'
 
@@ -46,7 +47,7 @@ export function InsightDeprecatedState({
         <div className={clsx('insight-empty-state', color)}>
             <div className="empty-state-inner">
                 <div className="illustration-main">
-                    <IllustrationDanger />
+                    <WarningOutlined />
                 </div>
                 <h2>This insight no longer exists.</h2>
                 <p className="text-center">This type of insight no longer exists in PostHog.</p>
