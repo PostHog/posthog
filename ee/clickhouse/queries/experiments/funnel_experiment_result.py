@@ -1,7 +1,7 @@
 import dataclasses
 from datetime import datetime
 from math import exp, log
-from typing import List, Optional, Tuple, Type
+from typing import Dict, List, Optional, Tuple, Type
 
 from rest_framework.exceptions import ValidationError
 
@@ -68,11 +68,15 @@ class ClickhouseFunnelExperimentResult:
 
     def get_results(self):
         funnel_results = self.funnel.run()
-        variants = self.get_variants(funnel_results)
+        control_variant, test_variants = self.get_variants(funnel_results)
 
-        probability = self.calculate_results(variants)
+        probabilities = self.calculate_results(control_variant, test_variants)
 
-        return {"funnel": funnel_results, "probability": probability, "filters": self.funnel._filter.to_dict()}
+        mapping = {
+            variant.name: probability for variant, probability in zip([control_variant, *test_variants], probabilities)
+        }
+
+        return {"insight": funnel_results, "probability": mapping, "filters": self.funnel._filter.to_dict()}
 
     def get_variants(self, funnel_results):
         control_variant = None
@@ -121,12 +125,14 @@ class ClickhouseFunnelExperimentResult:
         control_success = prior_success + control_variant.success_count
         control_failure = prior_failure + control_variant.failure_count
 
-        success_and_failures = [
+        test_success_and_failures = [
             (prior_success + test_variant.success_count, prior_failure + test_variant.failure_count)
             for test_variant in test_variants
         ]
 
-        return calculate_probability_of_winning_for_each([(control_success, control_failure), *success_and_failures])
+        return calculate_probability_of_winning_for_each(
+            [(control_success, control_failure), *test_success_and_failures]
+        )
 
 
 def calculate_probability_of_winning_for_each(variants: List[Tuple[int, int]]) -> List[float]:
@@ -235,7 +241,7 @@ def probability_D_beats_A_B_and_C(
     D_success: int,
     D_failure: int,
 ):
-    total = 0
+    total: float = 0
     for i in range(A_success):
         for j in range(B_success):
             for k in range(C_success):
