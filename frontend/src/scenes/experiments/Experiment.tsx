@@ -10,7 +10,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { FunnelVizType, MultivariateFlagVariant, PropertyFilter } from '~/types'
+import { FilterType, FunnelVizType, InsightType, MultivariateFlagVariant, PropertyFilter } from '~/types'
 import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
@@ -32,7 +32,7 @@ export function Experiment(): JSX.Element {
         newExperimentData,
         experimentId,
         experimentData,
-        experimentFunnelId,
+        experimentInsightId,
         minimumDetectableChange,
         recommendedSampleSize,
         expectedRunningTime,
@@ -40,6 +40,7 @@ export function Experiment(): JSX.Element {
         conversionRateForVariant,
         editingExistingExperiment,
         highestProbabilityVariant,
+        experimentInsightType,
     } = useValues(experimentLogic)
     const {
         setNewExperimentData,
@@ -51,6 +52,7 @@ export function Experiment(): JSX.Element {
         addExperimentGroup,
         updateExperimentGroup,
         removeExperimentGroup,
+        setExperimentInsightType,
     } = useActions(experimentLogic)
 
     const [form] = Form.useForm()
@@ -59,7 +61,7 @@ export function Experiment(): JSX.Element {
 
     const { insightProps } = useValues(
         insightLogic({
-            dashboardItemId: experimentFunnelId,
+            dashboardItemId: experimentInsightId,
             syncWithUrl: false,
         })
     )
@@ -295,34 +297,79 @@ export function Experiment(): JSX.Element {
                                                     important part of your experiment.
                                                 </Row>
                                                 <Row>
+                                                    Type:{' '}
+                                                    <Select
+                                                        defaultValue={InsightType.FUNNELS}
+                                                        onChange={setExperimentInsightType}
+                                                    >
+                                                        <Select.Option value={InsightType.FUNNELS}>
+                                                            Conversion
+                                                        </Select.Option>
+                                                        <Select.Option value={InsightType.TRENDS}>
+                                                            Aggregate
+                                                        </Select.Option>
+                                                    </Select>
+                                                </Row>
+                                                <Row>
                                                     <Card
                                                         className="action-filters-bordered"
                                                         style={{ width: '100%', marginRight: 8 }}
                                                         bodyStyle={{ padding: 0 }}
                                                     >
-                                                        <ActionFilter
-                                                            filters={filters}
-                                                            setFilters={(actionFilters) => {
-                                                                setNewExperimentData({ filters: actionFilters })
-                                                                setFilters(actionFilters)
-                                                            }}
-                                                            typeKey={`EditFunnel-action`}
-                                                            hideMathSelector={true}
-                                                            hideDeleteBtn={filterSteps.length === 1}
-                                                            buttonCopy="Add funnel step"
-                                                            showSeriesIndicator={!isStepsEmpty}
-                                                            seriesIndicatorType="numeric"
-                                                            fullWidth
-                                                            sortable
-                                                            showNestedArrow={true}
-                                                            propertiesTaxonomicGroupTypes={[
-                                                                TaxonomicFilterGroupType.EventProperties,
-                                                                TaxonomicFilterGroupType.PersonProperties,
-                                                                TaxonomicFilterGroupType.Cohorts,
-                                                                TaxonomicFilterGroupType.Elements,
-                                                            ]}
-                                                            rowClassName="action-filters-bordered"
-                                                        />
+                                                        {experimentInsightType === InsightType.FUNNELS && (
+                                                            <ActionFilter
+                                                                filters={filters}
+                                                                setFilters={(actionFilters) => {
+                                                                    setNewExperimentData({ filters: actionFilters })
+                                                                    setFilters(actionFilters)
+                                                                }}
+                                                                typeKey={`EditFunnel-action`}
+                                                                hideMathSelector={true}
+                                                                hideDeleteBtn={filterSteps.length === 1}
+                                                                buttonCopy="Add funnel step"
+                                                                showSeriesIndicator={!isStepsEmpty}
+                                                                seriesIndicatorType="numeric"
+                                                                fullWidth
+                                                                sortable
+                                                                showNestedArrow={true}
+                                                                propertiesTaxonomicGroupTypes={[
+                                                                    TaxonomicFilterGroupType.EventProperties,
+                                                                    TaxonomicFilterGroupType.PersonProperties,
+                                                                    TaxonomicFilterGroupType.Cohorts,
+                                                                    TaxonomicFilterGroupType.Elements,
+                                                                ]}
+                                                                rowClassName="action-filters-bordered"
+                                                            />
+                                                        )}
+                                                        {experimentInsightType === InsightType.TRENDS && (
+                                                            <ActionFilter
+                                                                horizontalUI
+                                                                filters={filters}
+                                                                setFilters={(payload: Partial<FilterType>): void =>
+                                                                    setFilters(payload)
+                                                                }
+                                                                typeKey={`experiment-trends`}
+                                                                buttonCopy="Add graph series"
+                                                                showSeriesIndicator
+                                                                singleFilter={filters.insight === InsightType.LIFECYCLE}
+                                                                hideMathSelector={
+                                                                    filters.insight === InsightType.LIFECYCLE
+                                                                }
+                                                                propertiesTaxonomicGroupTypes={[
+                                                                    TaxonomicFilterGroupType.EventProperties,
+                                                                    TaxonomicFilterGroupType.PersonProperties,
+                                                                    TaxonomicFilterGroupType.Cohorts,
+                                                                    TaxonomicFilterGroupType.Elements,
+                                                                ]}
+                                                                customRowPrefix={
+                                                                    filters.insight === InsightType.LIFECYCLE ? (
+                                                                        <>
+                                                                            Showing <b>Unique users</b> who did
+                                                                        </>
+                                                                    ) : undefined
+                                                                }
+                                                            />
+                                                        )}
                                                     </Card>
                                                 </Row>
                                             </Col>
