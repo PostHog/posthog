@@ -716,7 +716,7 @@ export const dateMapping: Record<string, dateMappingOption> = {
         getFormattedDate: (date: dayjs.Dayjs, format: string): string => date.startOf('d').format(format),
     },
     Yesterday: {
-        values: ['-1d', 'dStart'],
+        values: ['-1d', '-1d'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string => date.subtract(1, 'd').format(format),
     },
     'Last 24 hours': {
@@ -993,20 +993,6 @@ export function midEllipsis(input: string, maxLength: number): string {
     return `${input.substring(0, middle - excess)}...${input.substring(middle + excess)}`
 }
 
-export const disableMinuteFor: Record<string, boolean> = {
-    dStart: false,
-    '-1d': false,
-    '-7d': true,
-    '-14d': true,
-    '-30d': true,
-    '-90d': true,
-    mStart: true,
-    '-1mStart': true,
-    yStart: true,
-    all: true,
-    other: false,
-}
-
 export const disableHourFor: Record<string, boolean> = {
     dStart: false,
     '-1d': false,
@@ -1026,7 +1012,8 @@ export function autocorrectInterval(filters: Partial<FilterType>): IntervalType 
         return 'day'
     } // undefined/uninitialized
 
-    const minute_disabled = disableMinuteFor[filters.date_from || 'other'] && filters.interval === 'minute'
+    // @ts-expect-error - Old legacy interval support
+    const minute_disabled = filters.interval === 'minute'
     const hour_disabled = disableHourFor[filters.date_from || 'other'] && filters.interval === 'hour'
 
     if (minute_disabled) {

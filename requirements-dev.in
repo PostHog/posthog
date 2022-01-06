@@ -39,3 +39,4 @@ pytest-mock
 pytest-cov
 pytest-split
 syrupy
+numpy

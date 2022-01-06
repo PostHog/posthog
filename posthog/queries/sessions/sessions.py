@@ -120,12 +120,7 @@ class Sessions(BaseQuery):
 
     def _session_avg(self, base_query: Query, params: QueryParams, filter: Filter) -> List[Dict[str, Any]]:
         def _determineInterval(interval):
-            if interval == "minute":
-                return (
-                    "minute",
-                    "min",
-                )
-            elif interval == "hour":
+            if interval == "hour":
                 return "hour", "H"
             elif interval == "week":
                 return "week", "W"

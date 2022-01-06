@@ -10,12 +10,12 @@ from posthog.models.filters.mixins.common import (
     EntitiesMixin,
     FilterTestAccountsMixin,
     InsightMixin,
-    IntervalMixin,
     LimitMixin,
     OffsetMixin,
 )
 from posthog.models.filters.mixins.funnel import FunnelCorrelationMixin, FunnelPersonsStepMixin, FunnelWindowMixin
 from posthog.models.filters.mixins.groups import GroupsAggregationMixin
+from posthog.models.filters.mixins.interval import IntervalMixin
 from posthog.models.filters.mixins.paths import (
     ComparatorDerivedMixin,
     EndPointMixin,

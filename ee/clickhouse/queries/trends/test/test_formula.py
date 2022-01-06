@@ -83,11 +83,6 @@ class TestFormula(AbstractIntervalTest, APIBaseTest):
             )
         return action_response
 
-    def test_minute_interval(self):
-        data = self._run({"date_from": "-1h", "interval": "minute"}, run_at="2020-01-03T13:05:01Z")[0]["data"]
-        self.assertEqual(data[-2], 1000.0)
-        self.assertEqual(data[-5], 800.0)
-
     def test_hour_interval(self):
         data = self._run({"date_from": "-1d", "interval": "hour"}, run_at="2020-01-03T13:05:01Z")[0]["data"]
         self.assertEqual(

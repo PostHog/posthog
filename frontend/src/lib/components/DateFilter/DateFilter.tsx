@@ -130,6 +130,7 @@ export function DateFilter({
                             onClickOutside={onClickOutside}
                             rangeDateFrom={rangeDateFrom}
                             rangeDateTo={rangeDateTo}
+                            disableBeforeYear={2015}
                         />
                     )
                 } else {
