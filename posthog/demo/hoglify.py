@@ -14,46 +14,33 @@ try:
 except ImportError:
     pass
 
-ORGANIZATION_NAME = "Hogflix Inc."
-TEAM_NAME = "Hogflix"
+ORGANIZATION_NAME = "Hoglify Inc."
+TEAM_NAME = "Hoglify"
 
 SIGNUP_PAGE_FLAG_KEY = "signup-page-4.0"
 SIGNUP_PAGE_FLAG_ROLLOUT = 0.5
 
-# Rate determining how many out of all simulated users should be considered existing prior to the beginning of the sim
+# Rate roughly determining how many out of all simulated users
+# should be considered existing prior to the beginning of the sim
 EXISTING_USERS_RATE = 0.7
-# How many users are unemployed - meaning they have time to watch during the day
-UNEMPLOYMENT_RATE = 0.05
 
 EVENT_SIGNUP_ENTERED = "signup_entered"
 EVENT_SIGNUP_COMPLETED = "signup_completed"
 EVENT_SUBSCRIPTION_PAID = "subscription_paid"
 EVENT_SUBSCRIPTION_CANCELED = "subscription_canceled"
-EVENT_WATCHING_STARTED = "watching_started"
-EVENT_WATCHING_COMPLETED = "watching_completed"
-EVENT_WATCHING_STOPPED = "watching_stopped"
 EVENT_NPS_SURVEY = "nps_survey"
 
 PROPERTY_PLAN = "plan"
 PROPERTY_AMOUNT_USD = "amount_usd"
-PROPERTY_COLLECTION_TYPE = "collection_type"
-PROPERTY_COLLECTION_GENRE = "collection_genre"
-PROPERTY_COLLECTION_TITLE = "collection_title"
-PROPERTY_COLLECTION_ID = "collection_id"
-PROPERTY_ENTRY_TYPE = "entry_type"
-PROPERTY_ENTRY_TITLE = "entry_title"
-PROPERTY_ENTRY_ID = "entry_id"
-PROPERTY_SEASON = "season"
-PROPERTY_EPISODE = "episode"
 PROPERTY_NPS_RATING = "nps_rating"
 
 WeightedPool = Tuple[List[str], List[int]]
 
 
 class PropertiesProvider(mimesis.BaseProvider):
-    DEVICE_TYPE_WEIGHTED_POOL: WeightedPool = (["Desktop", "Mobile", "Tablet"], [5, 3, 1])
+    DEVICE_TYPE_WEIGHTED_POOL: WeightedPool = (["Desktop", "Mobile", "Tablet"], [8, 1, 1])
     OS_WEIGHTED_POOLS: Dict[str, WeightedPool] = {
-        "Desktop": (["Windows", "Mac OS X", "Linux", "Chrome OS"], [6, 3, 1, 1]),
+        "Desktop": (["Windows", "Mac OS X", "Linux", "Chrome OS"], [18, 16, 7, 1]),
         "Mobile": (["iOS", "Android"], [1, 1]),
         "Tablet": (["iOS", "Android"], [1, 1]),
     }
@@ -70,15 +57,20 @@ class PropertiesProvider(mimesis.BaseProvider):
 
     def device_type_os_browser(self) -> Tuple[str, str, str]:
         device_type_pool, device_type_weights = self.DEVICE_TYPE_WEIGHTED_POOL
-        device_type = self.random.choices(device_type_pool, weights=device_type_weights)[0]
+        device_type = self.random.choices(device_type_pool, device_type_weights)[0]
         os_pool, os_weights = self.OS_WEIGHTED_POOLS[device_type]
         os = self.random.choices(os_pool, os_weights)[0]
         browser_pool, browser_weights = self.BROWSER_WEIGHTED_POOLS[os]
-        browser = self.random.choices(browser_pool, weights=browser_weights)[0]
+        browser = self.random.choices(browser_pool, browser_weights)[0]
         return device_type, os, browser
 
 
-class HogflixDataGenerator(DataGenerator):
+class HoglifyDataGenerator(DataGenerator):
+    """
+        Hoglify is one of the leading providers of static hosting/serverless services.
+        It caters to individual developers and teams of all sizes, but most of its revenue comes from large orgs.
+    """
+
     properties_provider: PropertiesProvider
     person_provider: mimesis.Person
     numeric_provider: mimesis.Numeric
@@ -116,41 +108,6 @@ class HogflixDataGenerator(DataGenerator):
         EnterpriseEventDefinition.objects.create(
             team=team, name=EVENT_SUBSCRIPTION_CANCELED, description="Subscription canceled"
         )
-        ## Watching
-        EnterpriseEventDefinition.objects.create(
-            team=team, name=EVENT_WATCHING_STARTED, description="Viewer started watching media"
-        )
-        EnterpriseEventDefinition.objects.create(
-            team=team, name=EVENT_WATCHING_COMPLETED, description="Viewer reached credits"
-        )
-        EnterpriseEventDefinition.objects.create(
-            team=team, name=EVENT_WATCHING_STOPPED, description="Viewed stopped watching"
-        )
-        EnterprisePropertyDefinition.objects.create(
-            team=team, name=PROPERTY_COLLECTION_TYPE, description="Collection type: movie or show"
-        )
-        EnterprisePropertyDefinition.objects.create(
-            team=team, name=PROPERTY_COLLECTION_GENRE, description="Collection genre"
-        )
-        EnterprisePropertyDefinition.objects.create(
-            team=team, name=PROPERTY_COLLECTION_TITLE, description="Collection title"
-        )
-        EnterprisePropertyDefinition.objects.create(
-            team=team, name=PROPERTY_COLLECTION_ID, description="Collection ID", is_numerical=True
-        )
-        EnterprisePropertyDefinition.objects.create(
-            team=team, name=PROPERTY_ENTRY_TYPE, description="Entry type: movie or episode or trailer"
-        )
-        EnterprisePropertyDefinition.objects.create(team=team, name=PROPERTY_ENTRY_TITLE, description="Entry title")
-        EnterprisePropertyDefinition.objects.create(
-            team=team, name=PROPERTY_ENTRY_ID, description="Entry ID", is_numerical=True
-        )
-        EnterprisePropertyDefinition.objects.create(
-            team=team, name=PROPERTY_SEASON, description="Only for shows", is_numerical=True
-        )
-        EnterprisePropertyDefinition.objects.create(
-            team=team, name=PROPERTY_EPISODE, description="Only for shows", is_numerical=True
-        )
         ## NPS
         EnterpriseEventDefinition.objects.create(team=team, name=EVENT_NPS_SURVEY, description="An NPS survey answer")
         EnterprisePropertyDefinition.objects.create(
@@ -168,27 +125,15 @@ class HogflixDataGenerator(DataGenerator):
             dashboard=key_metrics_dashboard,
             order=0,
             saved=True,
-            name="Daily views",
+            name="Weekly signups",
             filters={
-                "events": [{"id": "watching_completed", "name": "watching_completed", "type": "events", "order": 0}],
+                "events": [{"id": EVENT_SIGNUP_COMPLETED, "type": "events", "order": 0}],
                 "actions": [],
                 "display": "ActionsLineGraph",
                 "insight": "TRENDS",
-                "interval": "day",
+                "interval": "week",
             },
         )
-
-        # TODO:
-        # Popularity by genre
-        # Revenue
-        # New subscribers per day
-        # Lifecycle
-        # Monthly stickiness
-        # Paths
-        # Time from signup to first movie
-        # Rate of trial to paid conversions per month
-        # Paid user funnel
-        # Rate of subscriptions started vs canceled
 
         # Feature flags
         FeatureFlag.objects.create(
@@ -204,44 +149,20 @@ class HogflixDataGenerator(DataGenerator):
 
         sim_person = SimPerson(team)
 
-        # Constants
-        # How eager is this user to watch flix in general
-        eagerness = self.properties_provider.random.random()
+        ### CONSTANTS ###
         # How many days ago was this user first seen - this can be before the simulation period
         first_ever_session_days_ago = math.floor(
             self.properties_provider.random.betavariate(0.3, 1) * self.n_days / EXISTING_USERS_RATE
         )
         # How many days ago should the first simulated session be - this has to be withing the simulation period
         first_sim_session_days_ago = math.floor(
-            min(self.n_days, first_ever_session_days_ago)
-            * self.properties_provider.random.betavariate(1.2, 1 - eagerness / 2)
-        )
-        # Whether the user already is registered
-        was_registered_before_sim = first_ever_session_days_ago > self.n_days
-        # Unemployed users have more time for watching
-        is_unemployed = self.properties_provider.random.random() < UNEMPLOYMENT_RATE
-        # Whether the signup page 4.0 flag is enabled
-        is_on_signup_page_flag = self.properties_provider.random.random() < SIGNUP_PAGE_FLAG_ROLLOUT
-        # When does this user watch most commonly
-        if is_unemployed:
-            primary_time_of_day = self.properties_provider.random.choices(
-                ["morning", "afternoon", "evening", "night"], weights=[2, 2, 3, 2]
-            )[0]
-        else:
-            primary_time_of_day = self.properties_provider.random.choices(
-                ["afternoon", "evening", "night"], weights=[2, 3, 1]
-            )[0]
-        # Favorite genres
-        favorite_genres = self.properties_provider.random.choices(
-            ["nature", "action", "romance", "comedy", "thriller", "drama", "fantasy", "musical", "animated"],
-            weights=[10, 6, 4, 5, 4, 5, 4, 2, 2],
-            k=3,
+            min(self.n_days, first_ever_session_days_ago) * self.properties_provider.random.betavariate(1.2, 0.8)
         )
         # Device metadata
         device_type, os, browser = self.properties_provider.device_type_os_browser()
 
-        # Variables
-        churn_risk = self.properties_provider.random.betavariate(2, 4)
+        ### VARIABLES ###
+        product_satisfaction = self.properties_provider.random.betavariate(2, 4)
 
         base_properties = {
             "$device_type": device_type,
@@ -263,35 +184,11 @@ class HogflixDataGenerator(DataGenerator):
         }
 
         first_ever_session_date = now.date() - dt.timedelta(first_ever_session_days_ago)
-        print(
-            "xxxx",
-            eagerness,
-            first_ever_session_days_ago,
-            first_sim_session_days_ago,
-            was_registered_before_sim,
-            is_unemployed,
-            is_on_signup_page_flag,
-            primary_time_of_day,
-            favorite_genres,
-            device_type,
-            os,
-            browser,
-            churn_risk,
-            first_ever_session_date,
-        )
         for days_ago in range(first_sim_session_days_ago, 0, -1):
             day_now = now - dt.timedelta(days_ago)
-            if self.properties_provider.random.random() < eagerness:
-                sim_person.add_event("$pageview", day_now, base_properties)
-
-        # Ideas:
-        # - Recent show "Cash Theft" was a big hit with a record number of views and an increase in subscribers
-        # - Users who started on macOS convert better
-        # - Conversion is higher for users who wen through the new signup page
-        # - The rate of growth is increasing
-        # - "Nature" is the most popular genre
+            sim_person.add_event("$pageview", day_now, base_properties)
 
         return sim_person
 
 
-hogflix_data_generator = HogflixDataGenerator(n_people=1)
+hoglify_data_generator = HoglifyDataGenerator()

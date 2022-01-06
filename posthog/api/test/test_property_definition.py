@@ -3,9 +3,7 @@ from typing import Dict
 
 from rest_framework import status
 
-from posthog.demo import prepare_demo
 from posthog.demo.app_data_generator import AppDataGenerator
-from posthog.demo.hogflix import hogflix_data_generator
 from posthog.demo.revenue_data_generator import RevenueDataGenerator
 from posthog.demo.web_data_generator import WebDataGenerator
 from posthog.models import EventProperty, Organization, PropertyDefinition, Team

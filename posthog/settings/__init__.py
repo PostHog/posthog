@@ -42,7 +42,8 @@ CALCULATE_X_COHORTS_PARALLEL = get_from_env("CALCULATE_X_COHORTS_PARALLEL", 2, t
 
 # Instance configuration preferences
 # https://posthog.com/docs/self-host/configure/environment-variables
-SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
+DEMO = get_from_env("DEMO", False, type_cast=str_to_bool)  # Whether this is a managed demo environment
+SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG and not DEMO, type_cast=str_to_bool)
 debug_queries = get_from_env("DEBUG_QUERIES", False, type_cast=str_to_bool)
 disable_paid_fs = get_from_env("DISABLE_PAID_FEATURE_SHOWCASING", False, type_cast=str_to_bool)
 INSTANCE_PREFERENCES = {
@@ -96,9 +97,6 @@ MULTI_ORG_ENABLED = get_from_env("MULTI_ORG_ENABLED", False, type_cast=str_to_bo
 
 # Overriden by posthog-cloud
 MULTI_TENANCY = False
-
-# Whether this is a managed demo environment
-DEMO = get_from_env("DEMO", False, type_cast=str_to_bool)
 
 CACHED_RESULTS_TTL = 7 * 24 * 60 * 60  # how long to keep cached results for
 TEMP_CACHE_RESULTS_TTL = 24 * 60 * 60  # how long to keep non dashboard cached results for

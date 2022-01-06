@@ -5,7 +5,7 @@ from rest_framework.request import Request
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.utils import render_template
 
-from . import hogflix
+from . import hoglify
 from .app_data_generator import AppDataGenerator
 from .revenue_data_generator import RevenueDataGenerator
 from .web_data_generator import WebDataGenerator
@@ -16,7 +16,7 @@ def prepare_demo(
     email: str,
     first_name: str,
     password: Optional[str] = None,
-    organization_name: str = hogflix.ORGANIZATION_NAME,
+    organization_name: str = None,
     team_fields: Optional[Dict[str, Any]] = None,
     no_data: bool = False,
     legacy_generators: bool = False
@@ -24,12 +24,14 @@ def prepare_demo(
     # If there's an email collision in signup in the demo environment, we treat it as a login
     existing_user = User.objects.filter(email=email).first()
     if existing_user is None:
-        organization = Organization.objects.create(name=organization_name)
+        organization = Organization.objects.create(
+            name=organization_name or (hoglify.ORGANIZATION_NAME if not legacy_generators else "Hogflix")
+        )
         new_user = User.objects.create_and_join(
             organization, email, password, first_name, OrganizationMembership.Level.ADMIN
         )
         if not legacy_generators:
-            team = hogflix.hogflix_data_generator.create_team(
+            team = hoglify.hoglify_data_generator.create_team(
                 organization, new_user, simulate_journeys=not no_data, **(team_fields or {})
             )
         else:

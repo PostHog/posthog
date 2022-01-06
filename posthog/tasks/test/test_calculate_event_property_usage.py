@@ -5,7 +5,7 @@ from freezegun import freeze_time
 
 from posthog.demo import prepare_demo
 from posthog.demo.app_data_generator import AppDataGenerator
-from posthog.demo.hogflix import hogflix_data_generator
+from posthog.demo.hoglify import hoglify_data_generator
 from posthog.demo.revenue_data_generator import RevenueDataGenerator
 from posthog.demo.web_data_generator import WebDataGenerator
 from posthog.models import Event, Insight, Organization, Team
@@ -20,7 +20,7 @@ def calculate_event_property_usage_test_factory(create_event: Callable) -> Calla
         def test_updating_team_events_or_related_updates_event_definitions(self) -> None:
             random.seed(900)  # ensure random data is consistent
             org = Organization.objects.create(name="Demo Org")
-            team = hogflix_data_generator.create_team(org, self.user)
+            team = hoglify_data_generator.create_team(org, self.user)
 
             expected_events = [
                 "watched_movie",

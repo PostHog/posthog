@@ -17,7 +17,7 @@ from social_django.strategy import DjangoStrategy
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.demo import prepare_demo
-from posthog.demo.hogflix import hogflix_data_generator
+from posthog.demo.hoglify import hoglify_data_generator
 from posthog.event_usage import report_user_joined_organization, report_user_signed_up
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationInvite, OrganizationMembership
@@ -103,7 +103,7 @@ class SignupSerializer(serializers.Serializer):
 
     def create_team(self, organization: Organization, user: User) -> Team:
         if self.enable_new_onboarding(user):
-            return hogflix_data_generator.create_team(organization, user)
+            return hoglify_data_generator.create_team(organization, user)
         else:
             return Team.objects.create_with_data(user=user, organization=organization)
 
