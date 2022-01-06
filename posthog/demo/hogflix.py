@@ -1,13 +1,12 @@
 import datetime as dt
-import random
-from typing import Dict, List, Optional, Tuple, cast
+import math
+from typing import Dict, List, Optional, Tuple
 
 import mimesis
-from rest_framework.request import Request
+import mimesis.random
 
 from posthog.demo.data_generator import DataGenerator, SimPerson
 from posthog.models import Dashboard, FeatureFlag, Insight, Team, User
-from posthog.utils import render_template
 
 try:
     from ee.models.event_definition import EnterpriseEventDefinition
@@ -18,7 +17,13 @@ except ImportError:
 ORGANIZATION_NAME = "Hogflix Inc."
 TEAM_NAME = "Hogflix"
 
-FEATURE_FLAG_KEY = "signup-page-4.0"
+SIGNUP_PAGE_FLAG_KEY = "signup-page-4.0"
+SIGNUP_PAGE_FLAG_ROLLOUT = 0.5
+
+# Rate determining how many out of all simulated users should be considered existing prior to the beginning of the sim
+EXISTING_USERS_RATE = 0.7
+# How many users are unemployed - meaning they have time to watch during the day
+UNEMPLOYMENT_RATE = 0.05
 
 EVENT_SIGNUP_ENTERED = "signup_entered"
 EVENT_SIGNUP_COMPLETED = "signup_completed"
@@ -61,7 +66,7 @@ class PropertiesProvider(mimesis.BaseProvider):
         "Android": (["Chrome", "Android Mobile", "Samsung Internet", "Firefox"], [5, 3, 3, 1]),
     }
 
-    random: random.Random
+    random: mimesis.random.Random
 
     def device_type_os_browser(self) -> Tuple[str, str, str]:
         device_type_pool, device_type_weights = self.DEVICE_TYPE_WEIGHTED_POOL
@@ -80,8 +85,8 @@ class HogflixDataGenerator(DataGenerator):
     address_provider: mimesis.Address
     datetime_provider: mimesis.Datetime
 
-    def __init__(self, *, n_people: int = 1000, seed: Optional[int] = None):
-        super().__init__(n_people=n_people, seed=seed)
+    def __init__(self, *, n_people: int = 1000, n_days: int = 90, seed: Optional[int] = None):
+        super().__init__(n_people=n_people, n_days=n_days, seed=seed)
         self.properties_provider = PropertiesProvider(seed=seed)
         self.person_provider = mimesis.Person(seed=seed)
         self.numeric_provider = mimesis.Numeric(seed=seed)
@@ -185,22 +190,58 @@ class HogflixDataGenerator(DataGenerator):
         # Paid user funnel
         # Rate of subscriptions started vs canceled
 
-        # Ideas:
-        # - Recent show "Cash Theft" was a big hit with a record number of views and an increase in subscribers
-        # - Users who started on macOS convert better
-        # - Conversion is higher for users who wen through the new signup page
-        # - The rate of growth is increasing
-        # - "Nature" is the most popular genre
-
         # Feature flags
         FeatureFlag.objects.create(
-            team=team, key=FEATURE_FLAG_KEY, name="Signup page redesign", rollout_percentage=50, created_by=user
+            team=team,
+            key=SIGNUP_PAGE_FLAG_KEY,
+            name="Signup page redesign",
+            rollout_percentage=SIGNUP_PAGE_FLAG_ROLLOUT * 100,
+            created_by=user,
         )
 
     def _create_person_with_journey(self, team: Team, user: User, index: int) -> SimPerson:
         now = dt.datetime.now()
-        journey_start = now - dt.timedelta(self.person_provider.random.randint(0, 90))
+
+        sim_person = SimPerson(team)
+
+        # Constants
+        # How eager is this user to watch flix in general
+        eagerness = self.properties_provider.random.random()
+        # How many days ago was this user first seen - this can be before the simulation period
+        first_ever_session_days_ago = math.floor(
+            self.properties_provider.random.betavariate(0.3, 1) * self.n_days / EXISTING_USERS_RATE
+        )
+        # How many days ago should the first simulated session be - this has to be withing the simulation period
+        first_sim_session_days_ago = math.floor(
+            min(self.n_days, first_ever_session_days_ago)
+            * self.properties_provider.random.betavariate(1.2, 1 - eagerness / 2)
+        )
+        # Whether the user already is registered
+        was_registered_before_sim = first_ever_session_days_ago > self.n_days
+        # Unemployed users have more time for watching
+        is_unemployed = self.properties_provider.random.random() < UNEMPLOYMENT_RATE
+        # Whether the signup page 4.0 flag is enabled
+        is_on_signup_page_flag = self.properties_provider.random.random() < SIGNUP_PAGE_FLAG_ROLLOUT
+        # When does this user watch most commonly
+        if is_unemployed:
+            primary_time_of_day = self.properties_provider.random.choices(
+                ["morning", "afternoon", "evening", "night"], weights=[2, 2, 3, 2]
+            )[0]
+        else:
+            primary_time_of_day = self.properties_provider.random.choices(
+                ["afternoon", "evening", "night"], weights=[2, 3, 1]
+            )[0]
+        # Favorite genres
+        favorite_genres = self.properties_provider.random.choices(
+            ["nature", "action", "romance", "comedy", "thriller", "drama", "fantasy", "musical", "animated"],
+            weights=[10, 6, 4, 5, 4, 5, 4, 2, 2],
+            k=3,
+        )
+        # Device metadata
         device_type, os, browser = self.properties_provider.device_type_os_browser()
+
+        # Variables
+        churn_risk = self.properties_provider.random.betavariate(2, 4)
 
         base_properties = {
             "$device_type": device_type,
@@ -221,32 +262,36 @@ class HogflixDataGenerator(DataGenerator):
             "$referring_domain": "www.google.com",
         }
 
-        sim_person = SimPerson(team)
+        first_ever_session_date = now.date() - dt.timedelta(first_ever_session_days_ago)
+        print(
+            "xxxx",
+            eagerness,
+            first_ever_session_days_ago,
+            first_sim_session_days_ago,
+            was_registered_before_sim,
+            is_unemployed,
+            is_on_signup_page_flag,
+            primary_time_of_day,
+            favorite_genres,
+            device_type,
+            os,
+            browser,
+            churn_risk,
+            first_ever_session_date,
+        )
+        for days_ago in range(first_sim_session_days_ago, 0, -1):
+            day_now = now - dt.timedelta(days_ago)
+            if self.properties_provider.random.random() < eagerness:
+                sim_person.add_event("$pageview", day_now, base_properties)
 
-        # TODO: Build out simulation
-        if self.person_provider.random.random() < 0.5:
-            sim_person.add_event("$pageview", base_properties, journey_start)
-
-        # TODO: Use session recording
+        # Ideas:
+        # - Recent show "Cash Theft" was a big hit with a record number of views and an increase in subscribers
+        # - Users who started on macOS convert better
+        # - Conversion is higher for users who wen through the new signup page
+        # - The rate of growth is increasing
+        # - "Nature" is the most popular genre
 
         return sim_person
 
 
 hogflix_data_generator = HogflixDataGenerator(n_people=1)
-
-
-def demo_route(request: Request):
-    user = cast(User, request.user)
-    organization = user.organization
-
-    if not organization:
-        raise AttributeError("This user has no organization.")
-
-    try:
-        team = organization.teams.get(is_demo=True)
-    except Team.DoesNotExist:
-        team = hogflix_data_generator.create_team(organization, user)
-
-    user.current_team = team
-    user.save()
-    return render_template("demo.html", request=request, context={"api_token": team.api_token})

@@ -24,6 +24,7 @@ class Command(BaseCommand):
                 first_name="Jane Doe",
                 team_fields={"api_token": "e2e_token_1239",},
                 no_data=options["no_data"],
+                legacy_generators=True,
             )
             PersonalAPIKey.objects.create(user=user, label="e2e_demo_api_key key", value="e2e_demo_api_key")
         print(f"Created user {DEV_EMAIL} with password {DEV_PASSWORD}")

@@ -20,7 +20,7 @@ from posthog.api import (
     signup,
     user,
 )
-from posthog.demo.hogflix import demo_route
+from posthog.demo import demo_route
 
 from .utils import render_template
 from .views import health, login_required, preflight_check, robots_txt, stats
