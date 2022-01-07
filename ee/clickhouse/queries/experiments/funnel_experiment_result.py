@@ -1,12 +1,11 @@
 import dataclasses
 from datetime import datetime
-from math import exp, log
-from typing import Dict, List, Optional, Tuple, Type
+from typing import List, Optional, Tuple, Type
 
+from numpy.random import default_rng
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.funnels import ClickhouseFunnel
-from ee.clickhouse.queries.util import logbeta
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
@@ -124,71 +123,60 @@ class ClickhouseFunnelExperimentResult:
         if len(test_variants) < 1:
             raise ValidationError("Can't calculate A/B test results for less than 2 variants", code="no_data")
 
-        prior_success, prior_failure = priors
+        return calculate_probability_of_winning_for_each([control_variant, *test_variants])
 
-        # calculation:
-        # https://www.evanmiller.org/bayesian-ab-testing.html#binary_ab
-        control_success = prior_success + control_variant.success_count
-        control_failure = prior_failure + control_variant.failure_count
 
-        test_success_and_failures = [
-            (prior_success + test_variant.success_count, prior_failure + test_variant.failure_count)
-            for test_variant in test_variants
-        ]
+def simulate_winning_variant_for_conversion(target_variant: Variant, variants: List[Variant]) -> float:
+    random_sampler = default_rng()
+    prior_success = 1
+    prior_failure = 1
+    simulations_count = 1_000_000
 
-        return calculate_probability_of_winning_for_each(
-            [(control_success, control_failure), *test_success_and_failures]
+    variant_samples = []
+    for variant in variants:
+        # Get `N=simulations` samples from a Beta distribution with alpha = prior_success + variant_sucess,
+        # and beta = prior_failure + variant_failure
+        samples = random_sampler.beta(
+            variant.success_count + prior_success, variant.failure_count + prior_failure, simulations_count
         )
+        variant_samples.append(samples)
+
+    target_variant_samples = random_sampler.beta(
+        target_variant.success_count + prior_success, target_variant.failure_count + prior_failure, simulations_count
+    )
+
+    winnings = 0
+    variant_conversions = list(zip(*variant_samples))
+    for i in range(simulations_count):
+        if target_variant_samples[i] > max(variant_conversions[i]):
+            winnings += 1
+
+    return winnings / simulations_count
 
 
-def calculate_probability_of_winning_for_each(variants: List[Tuple[int, int]]) -> List[Probability]:
+def calculate_probability_of_winning_for_each(variants: List[Variant]) -> List[Probability]:
     """
     Calculates the probability of winning for each variant.
     """
     if len(variants) == 2:
         # simple case
-        probability = probability_B_beats_A(variants[0][0], variants[0][1], variants[1][0], variants[1][1])
+        probability = simulate_winning_variant_for_conversion(variants[1], [variants[0]])
         return [1 - probability, probability]
 
     elif len(variants) == 3:
-        probability_third_wins = probability_C_beats_A_and_B(
-            variants[0][0], variants[0][1], variants[1][0], variants[1][1], variants[2][0], variants[2][1]
-        )
-        probability_second_wins = probability_C_beats_A_and_B(
-            variants[0][0], variants[0][1], variants[2][0], variants[2][1], variants[1][0], variants[1][1]
-        )
+        probability_third_wins = simulate_winning_variant_for_conversion(variants[2], [variants[0], variants[1]])
+        probability_second_wins = simulate_winning_variant_for_conversion(variants[1], [variants[0], variants[2]])
         return [1 - probability_third_wins - probability_second_wins, probability_second_wins, probability_third_wins]
 
     elif len(variants) == 4:
-        probability_second_wins = probability_D_beats_A_B_and_C(
-            variants[0][0],
-            variants[0][1],
-            variants[2][0],
-            variants[2][1],
-            variants[3][0],
-            variants[3][1],
-            variants[1][0],
-            variants[1][1],
+        probability_second_wins = simulate_winning_variant_for_conversion(
+            variants[1], [variants[0], variants[2], variants[3]]
         )
-        probability_third_wins = probability_D_beats_A_B_and_C(
-            variants[0][0],
-            variants[0][1],
-            variants[3][0],
-            variants[3][1],
-            variants[1][0],
-            variants[1][1],
-            variants[2][0],
-            variants[2][1],
+        probability_third_wins = simulate_winning_variant_for_conversion(
+            variants[2], [variants[0], variants[1], variants[3]]
         )
-        probability_fourth_wins = probability_D_beats_A_B_and_C(
-            variants[0][0],
-            variants[0][1],
-            variants[1][0],
-            variants[1][1],
-            variants[2][0],
-            variants[2][1],
-            variants[3][0],
-            variants[3][1],
+        probability_fourth_wins = simulate_winning_variant_for_conversion(
+            variants[3], [variants[0], variants[1], variants[2]]
         )
         return [
             1 - probability_second_wins - probability_third_wins - probability_fourth_wins,
@@ -198,77 +186,3 @@ def calculate_probability_of_winning_for_each(variants: List[Tuple[int, int]]) -
         ]
     else:
         raise ValidationError("Can't calculate A/B test results for more than 4 variants", code="too_much_data")
-
-
-def probability_B_beats_A(A_success: int, A_failure: int, B_success: int, B_failure: int) -> Probability:
-    total: Probability = 0
-    for i in range(B_success):
-        total += exp(
-            logbeta(A_success + i, A_failure + B_failure)
-            - log(B_failure + i)
-            - logbeta(1 + i, B_failure)
-            - logbeta(A_success, A_failure)
-        )
-
-    return total
-
-
-def probability_C_beats_A_and_B(
-    A_success: int, A_failure: int, B_success: int, B_failure: int, C_success: int, C_failure: int
-):
-
-    total: Probability = 0
-    for i in range(A_success):
-        for j in range(B_success):
-            total += exp(
-                logbeta(C_success + i + j, C_failure + A_failure + B_failure)
-                - log(A_failure + i)
-                - log(B_failure + j)
-                - logbeta(1 + i, A_failure)
-                - logbeta(1 + j, B_failure)
-                - logbeta(C_success, C_failure)
-            )
-
-    return (
-        1
-        - probability_B_beats_A(C_success, C_failure, A_success, A_failure)
-        - probability_B_beats_A(C_success, C_failure, B_success, B_failure)
-        + total
-    )
-
-
-def probability_D_beats_A_B_and_C(
-    A_success: int,
-    A_failure: int,
-    B_success: int,
-    B_failure: int,
-    C_success: int,
-    C_failure: int,
-    D_success: int,
-    D_failure: int,
-):
-    total: Probability = 0
-    for i in range(A_success):
-        for j in range(B_success):
-            for k in range(C_success):
-                total += exp(
-                    logbeta(D_success + i + j + k, D_failure + A_failure + B_failure + C_failure)
-                    - log(A_failure + i)
-                    - log(B_failure + j)
-                    - log(C_failure + k)
-                    - logbeta(1 + i, A_failure)
-                    - logbeta(1 + j, B_failure)
-                    - logbeta(1 + k, C_failure)
-                    - logbeta(D_success, D_failure)
-                )
-
-    return (
-        1
-        - probability_B_beats_A(A_success, A_failure, D_success, D_failure)
-        - probability_B_beats_A(B_success, B_failure, D_success, D_failure)
-        - probability_B_beats_A(C_success, C_failure, D_success, D_failure)
-        + probability_C_beats_A_and_B(A_success, A_failure, B_success, B_failure, D_success, D_failure)
-        + probability_C_beats_A_and_B(A_success, A_failure, C_success, C_failure, D_success, D_failure)
-        + probability_C_beats_A_and_B(B_success, B_failure, C_success, C_failure, D_success, D_failure)
-        - total
-    )
