@@ -72,6 +72,7 @@ class ActorBaseQuery:
         self._team = team
         self.entity = entity
         self._filter = filter
+        self.include_recordings = kwargs.get("include_recordings", False)
 
     def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
         """ Implemented by subclasses. Must provide query and params. The query must return list of uuids. Can be group uuids (group_key) or person uuids """
@@ -84,7 +85,11 @@ class ActorBaseQuery:
 
     @cached_property
     def should_include_recordings(self) -> bool:
-        """Override in child class with insight specific logic to determine when to include recordings"""
+        # Note: include_recordings is not guaranteed to exist because this classes initialization
+        # is not guaranteed run due to some of our classes not being setup for multiple-inheritance
+        # but being used in multi-inheritance situations. Fixing this is a bit of a refactor.
+        if hasattr(self, "include_recordings"):
+            return self.include_recordings
         return False
 
     def get_actors(

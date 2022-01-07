@@ -37,25 +37,18 @@ class ClickhouseTrendsActors(ActorBaseQuery):
     entity: Entity
     _filter: Filter
 
-    def __init__(
-        self, team: Team, entity: Optional[Entity], filter: Filter, include_recordings: bool = False, **kwargs
-    ):
+    def __init__(self, team: Team, entity: Optional[Entity], filter: Filter, **kwargs):
         if not entity:
             raise ValueError("Entity is required")
 
         if filter.display != TRENDS_CUMULATIVE and not filter.display in TRENDS_DISPLAY_BY_VALUE:
             filter = _handle_date_interval(filter)
 
-        self._include_recordings = include_recordings
         super().__init__(team, filter, entity, **kwargs)
 
     @cached_property
     def is_aggregating_by_groups(self) -> bool:
         return self.entity.math == "unique_group"
-
-    @cached_property
-    def should_include_recordings(self) -> bool:
-        return self._include_recordings
 
     def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
         if self._filter.breakdown_type == "cohort" and self._filter.breakdown_value != "all":

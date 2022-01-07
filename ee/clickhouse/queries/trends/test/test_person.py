@@ -124,7 +124,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         entity = Entity(event)
         _, serialized_actors = ClickhouseTrendsActors(self.team, entity, filter).get_actors()
 
-        self.assertEqual(serialized_actors[0].get("matching_events_for_recording"), None)
+        self.assertEqual(serialized_actors[0].get("matched_recordings"), None)
 
     @snapshot_clickhouse_queries
     @test_with_materialized_columns(event_properties=["$session_id", "$window_id"])
