@@ -30,56 +30,72 @@ _LIFECYCLE_EVENTS_QUERY = """
                 AND events.timestamp >= previous_interval_from
         )
 
-    SELECT *
+    -- Pull out the values from the `period_status_pairs` ready for aggregation. We 
+    -- don't need to do this, we could update the aggregation query, but it does 
+    -- improve the clarity of what the results structure is
+    SELECT 
+        person_id, 
+        period_status_pairs.1 AS start_of_period,
+        period_status_pairs.2 AS status
 
     FROM (
-        /*
-            Get periods of person activity, and classify them as 'new', 'returning' or 'resurrecting'
-        */
         SELECT 
-            person_id,
-            target.start_of_period as start_of_period,
-            if(
-                previous_activity.person_id = '00000000-0000-0000-0000-000000000000',
-                'new',
-                if(
-                    dateDiff(
-                        selected_period, 
-                        previous_activity.timestamp, 
-                        target.start_of_period
-                    ) > 1,
-                    'resurrecting',
-                    'returning'
+            person_id, 
+
+            -- We want to put the status of each period onto it's own line, so we 
+            -- can easily aggregate over them
+            arrayJoin(
+                arrayZip(
+                    [start_of_period, start_of_period + interval_type],
+                    [activity_status, if(next_is_active, '', 'dormant')]
                 )
-            ) as status
+            ) AS period_status_pairs
 
-        FROM bounded_person_activity_by_period target
-            ASOF LEFT JOIN unbounded_filtered_events previous_activity
-                ON previous_activity.person_id = target.person_id 
-                    AND target.start_of_period > previous_activity.timestamp
+        FROM (
+            /*
+                Get periods of person activity, and classify them as 'new', 'returning' or 'resurrecting', 
+                plus we get the period just after the `activity` period and check to see if it should be 
+                classified as 'dormant'
 
-        UNION ALL
+                NOTE: we could handle 'new', 'returning' or 'resurrecting', and 'dormant' as separate 
+                    queries, which might be more sensible, but means we will need to perform one more
+                    JOIN on the person_distinct_id table on the right, which means loading into RAM,
+                    which means it will considerable increase query time.
+            */
+            SELECT 
+                activity.person_id as person_id,
+                activity.start_of_period as start_of_period,
+                if(
+                    previous_activity.person_id = '00000000-0000-0000-0000-000000000000',
+                    'new',
+                    if(
+                        dateDiff(
+                            selected_period, 
+                            previous_activity.timestamp, 
+                            activity.start_of_period
+                        ) > 1,
+                        'resurrecting',
+                        'returning'
+                    )
+                ) as activity_status,
 
-        /*
-            Get periods just after activity, and classify them as 'dormant'
-        */
-        SELECT 
-            person_id,
-            activity_before_target.start_of_period + interval_type AS start_of_period,
-            'dormant' AS status
+                -- If next_period.person_id isn't null value, then it next_period must be active
+                next_period.person_id != '00000000-0000-0000-0000-000000000000' AS next_is_active
 
-        FROM bounded_person_activity_by_period activity_before_target
-            ASOF LEFT JOIN bounded_person_activity_by_period next_activity
-                ON activity_before_target.person_id = next_activity.person_id 
-                    AND next_activity.start_of_period >= activity_before_target.start_of_period + interval_type
+            FROM bounded_person_activity_by_period activity
 
-            WHERE next_activity.person_id = '00000000-0000-0000-0000-000000000000'
-                OR dateDiff(
-                    selected_period, 
-                    activity_before_target.start_of_period, 
-                    next_activity.start_of_period
-                ) > 1
-    ) activity_pairs
+                ASOF LEFT JOIN unbounded_filtered_events previous_activity
+                    ON previous_activity.person_id = activity.person_id 
+                        AND activity.start_of_period > previous_activity.timestamp
+
+                LEFT JOIN bounded_person_activity_by_period next_period
+                ON activity.person_id = next_period.person_id 
+                    AND next_period.start_of_period = activity.start_of_period + interval_type
+
+        )
+
+        WHERE period_status_pairs.2 != ''
+    )
 """
 
 LIFECYCLE_SQL = f"""
