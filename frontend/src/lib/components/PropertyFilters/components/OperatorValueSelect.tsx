@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { PropertyFilterValue, PropertyOperator } from '~/types'
 import { Col, Select, SelectProps } from 'antd'
-import { isMobile, isOperatorFlag, isOperatorMulti, operatorMap } from 'lib/utils'
+import { dateTimeOperatorMap, isMobile, isOperatorFlag, isOperatorMulti, operatorMap } from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
 import { ColProps } from 'antd/lib/col'
 import { useValues } from 'kea'
@@ -45,10 +45,8 @@ export function OperatorValueSelect({
 
     const operators =
         allowQueryingEventsByDateTime && propertyDefinition?.property_type == 'DateTime'
-            ? (Object.keys(operatorMap).filter((o) => o !== 'gt' && o !== 'lt') as Array<PropertyOperator>)
-            : (Object.keys(operatorMap).filter(
-                  (o) => o !== 'is_date_before' && o !== 'is_date_after'
-              ) as Array<PropertyOperator>)
+            ? (Object.keys(dateTimeOperatorMap) as Array<PropertyOperator>)
+            : (Object.keys(operatorMap) as Array<PropertyOperator>)
 
     return (
         <>

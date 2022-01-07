@@ -371,6 +371,17 @@ export const operatorMap: Record<string, string> = {
     is_date_after: '> after',
 }
 
+export const dateTimeOperatorMap: Record<string, string> = {
+    exact: '= equals',
+    is_not: "≠ doesn't equal",
+    regex: '∼ matches regex',
+    not_regex: "≁ doesn't match regex",
+    is_date_before: '< before',
+    is_date_after: '> after',
+    is_set: '✓ is set',
+    is_not_set: '✕ is not set',
+}
+
 export function isOperatorMulti(operator: string): boolean {
     return ['exact', 'is_not'].includes(operator)
 }
