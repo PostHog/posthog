@@ -27,13 +27,13 @@ const normaliseToArray = (
     }
 }
 
-type FormatForDisplayFunctionType = (
+type FormatForDisplayFunction = (
     propertyName: string | undefined,
     valueToFormat: PropertyFilterValue | undefined
 ) => string | string[] | null
 
 export const propertyDefinitionsModel = kea<
-    propertyDefinitionsModelType<FormatForDisplayFunctionType, PropertyDefinitionStorage, PropertySelectOption>
+    propertyDefinitionsModelType<FormatForDisplayFunction, PropertyDefinitionStorage, PropertySelectOption>
 >({
     path: ['models', 'propertyDefinitionsModel'],
     actions: () => ({
@@ -129,7 +129,7 @@ export const propertyDefinitionsModel = kea<
         ],
         formatForDisplay: [
             (s) => [s.propertyDefinitions],
-            (propertyDefinitions: PropertyDefinition[]): FormatForDisplayFunctionType => {
+            (propertyDefinitions: PropertyDefinition[]): FormatForDisplayFunction => {
                 return (propertyName: string | undefined, valueToFormat: PropertyFilterValue | undefined) => {
                     if (valueToFormat === null || valueToFormat === undefined) {
                         return null
