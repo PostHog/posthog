@@ -15,7 +15,10 @@ import { Owner } from './Owner'
 import { VolumeTableRecordDescription } from './definitions/VolumeTableRecordDescription'
 import { Tooltip } from 'lib/components/Tooltip'
 
-type EventTableType = 'event' | 'property'
+export enum EventTableType {
+    Event = 'event',
+    Property = 'property',
+}
 
 interface VolumeTableRecord {
     eventOrProp: EventOrPropType
@@ -49,123 +52,122 @@ export function VolumeTable({
 
     const hasTaxonomyFeatures = user?.organization?.available_features?.includes(AvailableFeature.INGESTION_TAXONOMY)
 
-    const columns: ColumnsType<VolumeTableRecord> = [
-        {
-            title: `${capitalizeFirstLetter(type)} name`,
-            render: function Render(_, record): JSX.Element {
-                return (
-                    <span>
-                        <div style={{ display: 'flex', alignItems: 'baseline', paddingBottom: 4 }}>
-                            <span className="ph-no-capture" style={{ paddingRight: 8 }}>
-                                <PropertyKeyInfo
-                                    style={hasTaxonomyFeatures ? { fontWeight: 'bold' } : {}}
-                                    value={record.eventOrProp.name}
-                                />
-                            </span>
-                            {hasTaxonomyFeatures ? (
-                                <ObjectTags tags={record.eventOrProp.tags || []} staticOnly />
-                            ) : null}
-                        </div>
-                        {hasTaxonomyFeatures &&
-                            (isPosthogEvent(record.eventOrProp.name) ? null : (
-                                <VolumeTableRecordDescription
-                                    id={record.eventOrProp.id}
-                                    description={record.eventOrProp.description}
-                                    type={type}
-                                />
-                            ))}
-                        {record.warnings?.map((warning) => (
-                            <Tooltip
-                                key={warning}
-                                color="orange"
-                                title={
-                                    <>
-                                        <b>Warning!</b> {warning}
-                                    </>
-                                }
-                            >
-                                <WarningOutlined style={{ color: 'var(--warning)', marginLeft: 6 }} />
-                            </Tooltip>
+    const columns: ColumnsType<VolumeTableRecord> = []
+    columns.push({
+        title: `${capitalizeFirstLetter(type)} name`,
+        render: function Render(_, record): JSX.Element {
+            return (
+                <span>
+                    <div style={{ display: 'flex', alignItems: 'baseline', paddingBottom: 4 }}>
+                        <span className="ph-no-capture" style={{ paddingRight: 8 }}>
+                            <PropertyKeyInfo
+                                style={hasTaxonomyFeatures ? { fontWeight: 'bold' } : {}}
+                                value={record.eventOrProp.name}
+                            />
+                        </span>
+                        {hasTaxonomyFeatures ? <ObjectTags tags={record.eventOrProp.tags || []} staticOnly /> : null}
+                    </div>
+                    {hasTaxonomyFeatures &&
+                        (isPosthogEvent(record.eventOrProp.name) ? null : (
+                            <VolumeTableRecordDescription
+                                id={record.eventOrProp.id}
+                                description={record.eventOrProp.description}
+                                type={type}
+                            />
                         ))}
-                    </span>
-                )
-            },
-            sorter: (a, b) => ('' + a.eventOrProp.name).localeCompare(b.eventOrProp.name || ''),
-            filters: [
-                { text: 'Has warnings', value: 'warnings' },
-                { text: 'No warnings', value: 'noWarnings' },
-            ],
-            onFilter: (value, record) => (value === 'warnings' ? !!record.warnings.length : !record.warnings.length),
+                    {record.warnings?.map((warning) => (
+                        <Tooltip
+                            key={warning}
+                            color="orange"
+                            title={
+                                <>
+                                    <b>Warning!</b> {warning}
+                                </>
+                            }
+                        >
+                            <WarningOutlined style={{ color: 'var(--warning)', marginLeft: 6 }} />
+                        </Tooltip>
+                    ))}
+                </span>
+            )
         },
-        type === 'event' && hasTaxonomyFeatures
-            ? {
-                  title: 'Owner',
-                  render: function Render(_, record): JSX.Element {
-                      const owner = record.eventOrProp?.owner
-                      return isPosthogEvent(record.eventOrProp.name) ? <>-</> : <Owner user={owner} />
-                  },
-              }
-            : {},
-        type === 'event'
-            ? {
-                  title: function VolumeTitle() {
-                      return (
-                          <Tooltip
-                              placement="right"
-                              title="Total number of events over the last 30 days. Can be delayed by up to an hour."
-                          >
-                              30 day volume (delayed by up to an hour)
-                              <InfoCircleOutlined className="info-indicator" />
-                          </Tooltip>
-                      )
-                  },
-                  render: function RenderVolume(_, record) {
-                      return <span className="ph-no-capture">{compactNumber(record.eventOrProp.volume_30_day)}</span>
-                  },
-                  sorter: (a, b) =>
-                      a.eventOrProp.volume_30_day == b.eventOrProp.volume_30_day
-                          ? (a.eventOrProp.volume_30_day || -1) - (b.eventOrProp.volume_30_day || -1)
-                          : (a.eventOrProp.volume_30_day || -1) - (b.eventOrProp.volume_30_day || -1),
-              }
-            : {},
-        {
-            title: function QueriesTitle() {
+        sorter: (a, b) => ('' + a.eventOrProp.name).localeCompare(b.eventOrProp.name || ''),
+        filters: [
+            { text: 'Has warnings', value: 'warnings' },
+            { text: 'No warnings', value: 'noWarnings' },
+        ],
+        onFilter: (value, record) => (value === 'warnings' ? !!record.warnings.length : !record.warnings.length),
+    })
+
+    if (type === 'event' && hasTaxonomyFeatures) {
+        columns.push({
+            title: 'Owner',
+            render: function Render(_, record): JSX.Element {
+                const owner = record.eventOrProp?.owner
+                return isPosthogEvent(record.eventOrProp.name) ? <>-</> : <Owner user={owner} />
+            },
+        })
+    }
+
+    if (type === 'event') {
+        columns.push({
+            title: function VolumeTitle() {
                 return (
                     <Tooltip
                         placement="right"
-                        title={`Number of queries in PostHog that included a filter on this ${type}`}
+                        title="Total number of events over the last 30 days. Can be delayed by up to an hour."
                     >
-                        30 day queries (delayed by up to an hour)
+                        30 day volume (delayed by up to an hour)
                         <InfoCircleOutlined className="info-indicator" />
                     </Tooltip>
                 )
             },
-            render: function Render(_, item) {
-                return <span className="ph-no-capture">{compactNumber(item.eventOrProp.query_usage_30_day)}</span>
+            render: function RenderVolume(_, record) {
+                return <span className="ph-no-capture">{compactNumber(record.eventOrProp.volume_30_day)}</span>
             },
             sorter: (a, b) =>
-                a.eventOrProp.query_usage_30_day == b.eventOrProp.query_usage_30_day
-                    ? (a.eventOrProp.query_usage_30_day || -1) - (b.eventOrProp.query_usage_30_day || -1)
-                    : (a.eventOrProp.query_usage_30_day || -1) - (b.eventOrProp.query_usage_30_day || -1),
+                a.eventOrProp.volume_30_day == b.eventOrProp.volume_30_day
+                    ? (a.eventOrProp.volume_30_day || -1) - (b.eventOrProp.volume_30_day || -1)
+                    : (a.eventOrProp.volume_30_day || -1) - (b.eventOrProp.volume_30_day || -1),
+        })
+    }
+
+    columns.push({
+        title: function QueriesTitle() {
+            return (
+                <Tooltip
+                    placement="right"
+                    title={`Number of queries in PostHog that included a filter on this ${type}`}
+                >
+                    30 day queries (delayed by up to an hour)
+                    <InfoCircleOutlined className="info-indicator" />
+                </Tooltip>
+            )
         },
-        hasTaxonomyFeatures
-            ? {
-                  render: function Render(_, item) {
-                      return (
-                          <>
-                              {isPosthogEvent(item.eventOrProp.name) ? null : (
-                                  <Button
-                                      type="link"
-                                      icon={<ArrowRightOutlined style={{ color: '#5375FF' }} />}
-                                      onClick={() => openDrawer(type, item.eventOrProp.id)}
-                                  />
-                              )}
-                          </>
-                      )
-                  },
-              }
-            : {},
-    ]
+        render: function Render(_, item) {
+            return <span className="ph-no-capture">{compactNumber(item.eventOrProp.query_usage_30_day)}</span>
+        },
+        sorter: (a, b) =>
+            a.eventOrProp.query_usage_30_day == b.eventOrProp.query_usage_30_day
+                ? (a.eventOrProp.query_usage_30_day || -1) - (b.eventOrProp.query_usage_30_day || -1)
+                : (a.eventOrProp.query_usage_30_day || -1) - (b.eventOrProp.query_usage_30_day || -1),
+    })
+
+    columns.push({
+        render: function Render(_, item) {
+            return (
+                <>
+                    {isPosthogEvent(item.eventOrProp.name) ? null : (
+                        <Button
+                            type="link"
+                            icon={<ArrowRightOutlined style={{ color: '#5375FF' }} />}
+                            onClick={() => openDrawer(type, item.eventOrProp.id)}
+                        />
+                    )}
+                </>
+            )
+        },
+    })
 
     useEffect(() => {
         setDataWithWarnings(

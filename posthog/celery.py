@@ -126,7 +126,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     sender.add_periodic_task(120, calculate_cohort.s(), name="recalculate cohorts")
 
+    print("HELLLLO")
     if settings.ASYNC_EVENT_PROPERTY_USAGE:
+        print("YEST")
         sender.add_periodic_task(
             EVENT_PROPERTY_USAGE_INTERVAL_SECONDS,
             calculate_event_property_usage.s(),

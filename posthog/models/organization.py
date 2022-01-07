@@ -134,6 +134,13 @@ class Organization(UUIDModel):
             self.available_features = License.PLANS.get(plan, [])
         else:
             self.available_features = self.billing.available_features  # type: ignore
+        self.available_features = [
+            "zapier",
+            "organizations_projects",
+            "google_login",
+            "dashboard_collaboration",
+            "ingestion_taxonomy",
+        ]
         return self.available_features
 
     def is_feature_available(self, feature: Union[AvailableFeature, str]) -> bool:

@@ -5,7 +5,9 @@ from posthog.settings.utils import get_from_env, str_to_bool
 
 AUTO_START_ASYNC_MIGRATIONS = get_from_env("AUTO_START_ASYNC_MIGRATIONS", False, type_cast=str_to_bool)
 
-_default_skip_async_migrations_setup = TEST or E2E_TESTING or SKIP_SERVICE_VERSION_REQUIREMENTS or cmd != "runserver"
+_default_skip_async_migrations_setup = (
+    False  # TEST or E2E_TESTING or SKIP_SERVICE_VERSION_REQUIREMENTS or cmd != "runserver"
+)
 SKIP_ASYNC_MIGRATIONS_SETUP = get_from_env(
     "SKIP_ASYNC_MIGRATIONS_SETUP", _default_skip_async_migrations_setup, type_cast=str_to_bool
 )
