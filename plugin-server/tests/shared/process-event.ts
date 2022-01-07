@@ -604,7 +604,7 @@ export const createProcessEventTests = (
                 id: expect.any(String),
                 is_numerical: false,
                 name: '$browser_version',
-                property_type: 'Numeric',
+                property_type: null,
                 property_type_format: null,
                 query_usage_30_day: null,
                 team_id: 2,
