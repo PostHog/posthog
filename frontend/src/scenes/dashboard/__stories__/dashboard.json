@@ -114,7 +114,6 @@
                 "data_attributes": ["data-attr"],
                 "correlation_config": {},
                 "session_recording_opt_in": false,
-                "session_recording_retention_period_days": null,
                 "effective_membership_level": 15,
                 "access_control": false
             },

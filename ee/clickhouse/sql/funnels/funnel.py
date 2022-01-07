@@ -6,7 +6,7 @@ FROM (
 WHERE {persons_steps}
 ORDER BY aggregation_target
 {limit}
-OFFSET {offset}
+{offset}
 SETTINGS allow_experimental_window_functions = 1
 """
 

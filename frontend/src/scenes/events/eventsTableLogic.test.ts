@@ -13,6 +13,7 @@ const errorToastSpy = jest.spyOn(utils, 'errorToast')
 const successToastSpy = jest.spyOn(utils, 'successToast')
 
 jest.mock('lib/api')
+import api from 'lib/api'
 jest.mock('lib/dayjs', () => {
     const dayjs = jest.requireActual('lib/dayjs')
     return { ...dayjs, now: () => dayjs.dayjs('2021-05-05T00:00:00Z') }
@@ -47,6 +48,32 @@ describe('eventsTableLogic', () => {
         // delay the API response so the default value test can complete before it
         await new Promise((resolve) => setTimeout(resolve, 0))
         return { results: [], count: 0 }
+    })
+
+    describe('when polling is disabled', () => {
+        initKeaTestLogic({
+            logic: eventsTableLogic,
+            props: {
+                key: 'test-key',
+                sceneUrl: urls.person('1'),
+                disableActions: true,
+            },
+            onLogic: (l) => (logic = l),
+            beforeLogic: () => {
+                router.actions.push(urls.person('1'))
+            },
+        })
+
+        it('can disable polling for events', async () => {
+            ;(api.get as jest.Mock).mockClear() // because it will have been called on mount
+
+            await expectLogic(logic, () => {
+                logic.actions.setPollingActive(true) // even with polling active
+                logic.actions.pollEvents()
+            })
+
+            expect(api.get).not.toHaveBeenCalled()
+        })
     })
 
     describe('when loaded on a different page', () => {
@@ -422,6 +449,39 @@ describe('eventsTableLogic', () => {
                 logic.actions.setEventFilter(eventFilter)
             })
             expect(router.values.searchParams).toHaveProperty('eventFilter', eventFilter)
+        })
+
+        describe('polling for events', () => {
+            it('starts active', async () => {
+                await expectLogic(logic).toMatchValues({ pollingIsActive: true })
+            })
+
+            it('can pause polling for events', async () => {
+                ;(api.get as jest.Mock).mockClear() // because it will have been called on mount
+
+                await expectLogic(logic, () => {
+                    logic.actions.setPollingActive(false)
+                    logic.actions.pollEvents()
+                }).toMatchValues({
+                    pollingIsActive: false,
+                })
+
+                expect(api.get).not.toHaveBeenCalled()
+            })
+
+            it('can restart polling for events', async () => {
+                ;(api.get as jest.Mock).mockClear() // because it will have been called on mount
+
+                await expectLogic(logic, () => {
+                    logic.actions.setPollingActive(false)
+                    logic.actions.setPollingActive(true)
+                    logic.actions.pollEvents()
+                }).toMatchValues({
+                    pollingIsActive: true,
+                })
+
+                expect(api.get).toHaveBeenCalled()
+            })
         })
 
         describe('the listeners', () => {

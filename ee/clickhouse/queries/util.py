@@ -1,5 +1,6 @@
 import json
 from datetime import datetime
+from functools import lru_cache
 from math import lgamma
 from typing import Any, Dict, Optional, Tuple
 
@@ -133,5 +134,6 @@ def deep_dump_object(params: Dict[str, Any]) -> Dict[str, Any]:
     return params
 
 
+@lru_cache(maxsize=100000)
 def logbeta(x: int, y: int) -> float:
     return lgamma(x) + lgamma(y) - lgamma(x + y)

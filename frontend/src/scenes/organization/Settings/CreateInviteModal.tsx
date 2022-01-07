@@ -33,7 +33,7 @@ export function CreateInviteModalWithButton(buttonProps: ButtonProps): JSX.Eleme
         setErrorMessage(null)
         const potentialEmail = emailRef.current?.state.value
         if (!potentialEmail?.length) {
-            setErrorMessage('You must specify the email address for which this invite is intended.')
+            setErrorMessage('Please enter an email address.')
         } else if (!isEmail(potentialEmail)) {
             setErrorMessage('Please enter a valid email address.')
         } else {

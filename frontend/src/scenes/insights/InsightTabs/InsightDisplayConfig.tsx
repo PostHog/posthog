@@ -1,19 +1,16 @@
 import React from 'react'
-import { useValues } from 'kea'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
-import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE, FEATURE_FLAGS } from 'lib/constants'
+import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE } from 'lib/constants'
 import { FilterType, FunnelVizType, ItemMode, InsightType } from '~/types'
 import { CalendarOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from '../InsightDateFilter'
 import { RetentionDatePicker } from '../RetentionDatePicker'
-import { FunnelStepReferencePicker } from './FunnelTab/FunnelStepReferencePicker'
 import { FunnelDisplayLayoutPicker } from './FunnelTab/FunnelDisplayLayoutPicker'
 import { FunnelBinsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBinsPicker'
 import { PathStepPicker } from './PathTab/PathStepPicker'
 import { ReferencePicker as RetentionReferencePicker } from './RetentionTab/ReferencePicker'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Tooltip } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 
@@ -81,7 +78,6 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
     const showFunnelBarOptions = activeView === InsightType.FUNNELS
     const showPathOptions = activeView === InsightType.PATHS
     const dateFilterDisabled = showFunnelBarOptions && isFunnelEmpty(filters)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div className="display-config-inner">
@@ -147,11 +143,6 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                         <span className="filter">
                             <FunnelDisplayLayoutPicker />
                         </span>
-                        {!featureFlags[FEATURE_FLAGS.FUNNEL_SIMPLE_MODE] && (
-                            <span className="filter">
-                                <FunnelStepReferencePicker bordered />
-                            </span>
-                        )}
                     </>
                 )}
                 {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.TimeToConvert && (

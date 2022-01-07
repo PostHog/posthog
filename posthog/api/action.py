@@ -283,7 +283,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def get_people(self, request: request.Request) -> Union[Dict[str, Any], List]:
         team = self.team
         filter = Filter(request=request, team=self.team)
-        entity = get_target_entity(request)
+        entity = get_target_entity(filter)
 
         events = filter_by_type(entity=entity, team=team, filter=filter)
         people = calculate_people(team=team, events=events, filter=filter, request=request)
