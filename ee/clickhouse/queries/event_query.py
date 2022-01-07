@@ -78,8 +78,13 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
     def _get_distinct_id_query(self) -> str:
         if self._should_join_distinct_ids:
             return f"""
-            INNER JOIN ({get_team_distinct_ids_query(self._team_id)}) AS {self.DISTINCT_ID_TABLE_ALIAS}
-            ON {self.EVENT_TABLE_ALIAS}.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id
+            INNER JOIN (
+                SELECT 
+                    cityHash64(distinct_id) as distinct_id,
+                    person_id
+                FROM ({get_team_distinct_ids_query(self._team_id)})
+            ) AS {self.DISTINCT_ID_TABLE_ALIAS}
+            ON cityHash64({self.EVENT_TABLE_ALIAS}.distinct_id) = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id
             """
         else:
             return ""
