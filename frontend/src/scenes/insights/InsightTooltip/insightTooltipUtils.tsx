@@ -38,6 +38,7 @@ export interface InsightTooltipProps {
     forceEntitiesAsColumns?: boolean
     rowCutoff?: number
     colCutoff?: number
+    showHeader?: boolean
 }
 
 export const COL_CUTOFF = 4

@@ -11,9 +11,9 @@ interface SeriesGlyphProps {
 
 export function SeriesGlyph({ className, style, children, variant }: SeriesGlyphProps): JSX.Element {
     return (
-        <span className={`graph-series-glyph ${variant || ''} ${className}`} style={style}>
+        <div className={`graph-series-glyph ${variant || ''} ${className}`} style={style}>
             {children}
-        </span>
+        </div>
     )
 }
 
