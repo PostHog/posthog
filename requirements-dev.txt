@@ -16,7 +16,7 @@ attrs==19.3.0
     #   flake8-bugbear
     #   pytest
     #   syrupy
-black==20.8b0
+black==19.10b0
     # via -r requirements-dev.in
 certifi==2019.11.28
     # via
