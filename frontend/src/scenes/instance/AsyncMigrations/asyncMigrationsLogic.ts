@@ -92,7 +92,9 @@ export const asyncMigrationsLogic = kea<
                     )
                     const settings: AsyncMigrationsSetting[] = []
                     for (const [key, config] of Object.entries(settingsResult)) {
-                        settings.push({ key, ...config })
+                        if (key.includes('ASYNC_MIGRATIONS')) {
+                            settings.push({ key, ...config })
+                        }
                     }
 
                     return settings
