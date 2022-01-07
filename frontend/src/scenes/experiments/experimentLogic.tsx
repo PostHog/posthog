@@ -369,7 +369,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 if (experimentResults) {
                     const maxValue = Math.max(...Object.values(experimentResults.probability))
                     return Object.keys(experimentResults.probability).find(
-                        (key) => experimentResults.probability[key] === maxValue
+                        (key) => Math.abs(experimentResults.probability[key] - maxValue) < Number.EPSILON
                     )
                 }
             },
