@@ -35,7 +35,7 @@ import {
     TeamType,
     TrendResult,
 } from '~/types'
-import { BinCountAuto, FunnelLayout } from 'lib/constants'
+import { BinCountAuto, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import {
     aggregateBreakdownResult,
@@ -63,6 +63,7 @@ import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilit
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { groupsModel } from '~/models/groupsModel'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 // Chosen via heuristics by eyeballing some values
@@ -1182,6 +1183,13 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             if (values.correlationAnalysisAvailable && insight.filters?.funnel_viz_type === FunnelVizType.Steps) {
                 actions.loadCorrelations()
                 actions.setPropertyNames(values.allProperties) // select all properties by default
+            }
+        },
+        loadCorrelationsSuccess: async (_, breakpoint) => {
+            breakpoint(2000)
+            if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.EXPERIMENT_CORRELATION_DISCOVERY] == 'test') {
+                // TODO: maybe make this less frequent when successive changes are made?
+                successToast('Correlations loaded', 'Scroll down to see property and event correlations')
             }
         },
         toggleVisibilityByBreakdown: ({ breakdownValue }) => {

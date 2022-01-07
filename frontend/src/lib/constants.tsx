@@ -85,6 +85,7 @@ export const FEATURE_FLAGS = {
     UNSEEN_EVENT_PROPERTIES: 'unseen-event-properties', // owner: @mariusandra
     QUERY_EVENTS_BY_DATETIME: '6619-query-events-by-date', // owner @pauldambra
     MULTI_POINT_PERSON_MODAL: '7590-multi-point-person-modal', // owner: @paolodamico
+    EXPERIMENT_CORRELATION_DISCOVERY: 'experiment-correlation-discovery', // owner: @neilkakkar
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
