@@ -30,7 +30,7 @@ export function InsightLegendButton(): JSX.Element | null {
     return (
         <Button className="insight-legend-button" onClick={toggleInsightLegend}>
             <IconLegend />
-            <span className="insight-legend-button-title">{filters.legend_hidden ? 'Show' : 'Hide'} legend</span>
+            <span className="insight-legend-button-title">{filters.show_legend ? 'Hide' : 'Show'} legend</span>
         </Button>
     )
 }
