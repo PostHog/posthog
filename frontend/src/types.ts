@@ -817,7 +817,6 @@ export enum InsightType {
     TRENDS = 'TRENDS',
     STICKINESS = 'STICKINESS',
     LIFECYCLE = 'LIFECYCLE',
-    SESSIONS = 'SESSIONS',
     FUNNELS = 'FUNNELS',
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
@@ -865,7 +864,6 @@ export interface FilterType {
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     shown_as?: ShownAsType
-    session?: string
     period?: string
 
     retention_type?: RetentionType
