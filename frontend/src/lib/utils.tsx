@@ -13,6 +13,7 @@ import {
     GroupActorType,
     ActorType,
     ActionType,
+    PropertyFilterValue,
 } from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
@@ -403,7 +404,7 @@ export function formatPropertyLabel(
     item: Record<string, any>,
     cohorts: Record<string, any>[],
     keyMapping: KeyMappingInterface,
-    valueFormatter: (value: unknown) => string = (s) => s as string
+    valueFormatter: (value: PropertyFilterValue | undefined) => string[] | null = (s) => [String(s)]
 ): string {
     const { value, key, operator, type } = item
     return type === 'cohort'

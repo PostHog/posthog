@@ -196,6 +196,7 @@ export function PropertyValue({
         <>
             {isMultiSelect ? (
                 <SelectGradientOverflow
+                    propertyKey={propertyKey}
                     {...commonInputProps}
                     autoFocus={autoFocus}
                     value={value === null ? [] : value}
@@ -213,7 +214,7 @@ export function PropertyValue({
                 >
                     {input && !displayOptions.some(({ name }) => input === toString(name)) && (
                         <Select.Option key="specify-value" value={input} className="ph-no-capture">
-                            Specify: {input}
+                            Specify: {formatForDisplay(propertyKey, input)}
                         </Select.Option>
                     )}
                     {displayOptions.map(({ name: _name }, index) => {
@@ -226,7 +227,7 @@ export function PropertyValue({
                                 className="ph-no-capture"
                                 title={name}
                             >
-                                {formatForDisplay(propertyKey, name === '' ? <i>(empty string)</i> : name)}
+                                {name === '' ? <i>(empty string)</i> : formatForDisplay(propertyKey, name)}
                             </Select.Option>
                         )
                     })}
