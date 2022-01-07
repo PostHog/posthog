@@ -196,7 +196,7 @@ describe('TeamManager()', () => {
                     id: expect.any(String),
                     is_numerical: true,
                     name: 'number',
-                    property_type: null,
+                    property_type: 'Numeric',
                     property_type_format: null,
                     query_usage_30_day: null,
                     team_id: 2,
