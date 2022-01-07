@@ -3,12 +3,7 @@ from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 
 from posthog.permissions import StaffUser
-
-SETTINGS_ALLOWING_API_OVERRIDE = (
-    "AUTO_START_ASYNC_MIGRATIONS",
-    "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",
-    "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
-)
+from posthog.settings import SETTINGS_ALLOWING_API_OVERRIDE
 
 
 class InstanceSettingsViewset(viewsets.ViewSet):
