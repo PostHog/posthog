@@ -45,6 +45,7 @@ interface TooltipConfig {
     rowCutoff?: number
     colCutoff?: number
     renderSeries?: (value: React.ReactNode, seriesDatum: SeriesDatum, idx: number) => React.ReactNode
+    showHeader?: boolean
 }
 
 interface LineGraphProps {
@@ -340,10 +341,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                                         hideColorCol={isHorizontal}
                                         forceEntitiesAsColumns={isHorizontal}
                                         hideInspectActorsSection={!(onClick && showPersonsModal)}
-                                        altTitle={tooltipConfig?.altTitle}
-                                        rowCutoff={tooltipConfig?.rowCutoff}
-                                        colCutoff={tooltipConfig?.colCutoff}
-                                        renderSeries={tooltipConfig?.renderSeries}
+                                        {...tooltipConfig}
                                     />
                                 </Provider>,
                                 tooltipEl

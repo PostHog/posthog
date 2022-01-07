@@ -64,6 +64,7 @@ export function RetentionLineGraph({
                             </>
                         )
                     },
+                    showHeader: false,
                 }}
                 onClick={
                     dashboardItemId
