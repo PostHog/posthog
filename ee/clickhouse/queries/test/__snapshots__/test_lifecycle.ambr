@@ -38,12 +38,15 @@
                      pdi.person_id as person_id
               FROM events e
               INNER JOIN
-                (SELECT distinct_id,
-                        argMax(person_id, version) as person_id
-                 FROM person_distinct_id2
-                 WHERE team_id = 2
-                 GROUP BY distinct_id
-                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                (SELECT cityHash64(distinct_id) as distinct_id,
+                        person_id
+                 FROM
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0)) AS pdi ON cityHash64(e.distinct_id) = pdi.distinct_id
               INNER JOIN
                 (SELECT group_key,
                         argMax(group_properties, _timestamp) AS group_properties_0
@@ -60,22 +63,23 @@
                               dateTrunc(selected_period, events.timestamp) start_of_period
               FROM unbounded_filtered_events events
               WHERE events.timestamp <= selected_interval_to + interval_type
-                AND events.timestamp >= previous_interval_from ) SELECT *
+                AND events.timestamp >= previous_interval_from ) SELECT person_id,
+                                                                        period_status_pairs.1 AS start_of_period,
+                                                                        period_status_pairs.2 AS status
            FROM
              (SELECT person_id,
-                     target.start_of_period as start_of_period,
-                     if(previous_activity.person_id = '00000000-0000-0000-0000-000000000000', 'new', if(dateDiff(selected_period, previous_activity.timestamp, target.start_of_period) > 1, 'resurrecting', 'returning')) as status
-              FROM bounded_person_activity_by_period target ASOF
-              LEFT JOIN unbounded_filtered_events previous_activity ON previous_activity.person_id = target.person_id
-              AND target.start_of_period > previous_activity.timestamp
-              UNION ALL SELECT person_id,
-                               activity_before_target.start_of_period + interval_type AS start_of_period,
-                               'dormant' AS status
-              FROM bounded_person_activity_by_period activity_before_target ASOF
-              LEFT JOIN bounded_person_activity_by_period next_activity ON activity_before_target.person_id = next_activity.person_id
-              AND next_activity.start_of_period >= activity_before_target.start_of_period + interval_type
-              WHERE next_activity.person_id = '00000000-0000-0000-0000-000000000000'
-                OR dateDiff(selected_period, activity_before_target.start_of_period, next_activity.start_of_period) > 1 ) activity_pairs)
+                     arrayJoin(arrayZip([start_of_period, start_of_period + interval_type], [activity_status, if(next_is_active, '', 'dormant')])) AS period_status_pairs
+              FROM
+                (SELECT activity.person_id as person_id,
+                        activity.start_of_period as start_of_period,
+                        if(previous_activity.person_id = '00000000-0000-0000-0000-000000000000', 'new', if(dateDiff(selected_period, previous_activity.timestamp, activity.start_of_period) > 1, 'resurrecting', 'returning')) as activity_status,
+                        next_period.person_id != '00000000-0000-0000-0000-000000000000' AS next_is_active
+                 FROM bounded_person_activity_by_period activity ASOF
+                 LEFT JOIN unbounded_filtered_events previous_activity ON previous_activity.person_id = activity.person_id
+                 AND activity.start_of_period > previous_activity.timestamp
+                 LEFT JOIN bounded_person_activity_by_period next_period ON activity.person_id = next_period.person_id
+                 AND next_period.start_of_period = activity.start_of_period + interval_type)
+              WHERE period_status_pairs.2 != '' ))
         WHERE start_of_period <= toDateTime('2020-01-19 23:59:59')
           AND start_of_period >= toDateTime('2020-01-12 00:00:00')
         GROUP BY start_of_period,
