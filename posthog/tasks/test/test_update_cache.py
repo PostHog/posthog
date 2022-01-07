@@ -407,7 +407,7 @@ class TestUpdateCache(APIBaseTest):
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     @patch("posthog.tasks.update_cache.dashboard_item_update_task_params")
-    def test_broken_insights(self, dashboard_item_update_task_params) -> None:
+    def test_broken_insights(self, dashboard_item_update_task_params: MagicMock) -> None:
         # sometimes we have broken insights, add a test to catch
         dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
         item = Insight.objects.create(dashboard=dashboard, filters={}, team=self.team)
@@ -417,7 +417,7 @@ class TestUpdateCache(APIBaseTest):
         self.assertEqual(dashboard_item_update_task_params.call_count, 0)
 
     @patch("posthog.tasks.update_cache.dashboard_item_update_task_params")
-    def test_broken_exception_insights(self, dashboard_item_update_task_params) -> None:
+    def test_broken_exception_insights(self, dashboard_item_update_task_params: MagicMock) -> None:
         dashboard_item_update_task_params.side_effect = Exception()
         dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
         filter = {"events": [{"id": "$pageview"}]}
