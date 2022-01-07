@@ -404,7 +404,7 @@ export function formatPropertyLabel(
     item: Record<string, any>,
     cohorts: Record<string, any>[],
     keyMapping: KeyMappingInterface,
-    valueFormatter: (value: PropertyFilterValue | undefined) => string[] | null = (s) => [String(s)]
+    valueFormatter: (value: PropertyFilterValue | undefined) => string | string[] | null = (s) => [String(s)]
 ): string {
     const { value, key, operator, type } = item
     return type === 'cohort'
