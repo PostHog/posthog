@@ -39,7 +39,9 @@ def _create_session_recording_event(team_id, distinct_id, session_id, timestamp,
 
 
 class TestPerson(ClickhouseTestMixin, APIBaseTest):
-    @snapshot_clickhouse_queries
+
+    # Note: not using `@snapshot_clickhouse_queries` here because the ordering of the session_ids in the recording
+    # query is not guaranteed, so adding it would lead to a flaky test.
     @test_with_materialized_columns(event_properties=["$session_id", "$window_id"])
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_person_query_includes_recording_events(self):
