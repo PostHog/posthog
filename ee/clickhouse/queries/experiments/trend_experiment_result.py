@@ -95,8 +95,12 @@ class ClickhouseTrendExperimentResult:
     def calculate_results(control_variant: Variant, test_variants: List[Variant]) -> List[Probability]:
         """
         Calculates probability that A is better than B. First variant is control, rest are test variants.
+        
+        Supports maximum 4 variants today
 
-        Only supports 2 variants today
+        For each variant, we create a Gamma distribution of arrival rates, 
+        where alpha (shape parameter) = count of variant + 1
+        beta (exposure parameter) = 1
         """
         if not control_variant:
             raise ValidationError("No control variant data found", code="no_data")
@@ -116,8 +120,8 @@ def simulate_winning_variant_for_arrival_rates(target_variant: Variant, variants
 
     variant_samples = []
     for variant in variants:
-        # Get `N=simulations` samples from a Beta distribution with alpha = prior_success + variant_sucess,
-        # and beta = prior_failure + variant_failure
+        # Get `N=simulations` samples from a Gamma distribution with alpha = variant_sucess + 1,
+        # and exposure = 1
         samples = random_sampler.gamma(variant.count + 1, variant.exposure, simulations_count)
         variant_samples.append(samples)
 

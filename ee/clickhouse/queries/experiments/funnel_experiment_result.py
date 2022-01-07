@@ -101,7 +101,7 @@ class ClickhouseFunnelExperimentResult:
         """
         Calculates probability that A is better than B. First variant is control, rest are test variants.
         
-        Only supports 2 variants today
+        Supports maximum 4 variants today
 
         For each variant, we create a Beta distribution of conversion rates, 
         where alpha (successes) = success count of variant + prior success
@@ -111,7 +111,6 @@ class ClickhouseFunnelExperimentResult:
         you'd need extra evidence of successes to confirm that the variant is indeed better.
 
         By default, we choose a non-informative prior. That is, both success & failure are equally likely.
-        
         """
 
         if not control_variant:
