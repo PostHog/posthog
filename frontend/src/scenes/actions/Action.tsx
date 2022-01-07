@@ -11,6 +11,7 @@ import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 import { actionLogic, ActionLogicProps } from 'scenes/actions/actionLogic'
+import { PageHeader } from 'lib/components/PageHeader'
 
 export const scene: SceneExport = {
     logic: actionLogic,
@@ -23,7 +24,12 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
 
     const { push } = useActions(router)
     const { fetchEvents } = useActions(
-        eventsTableLogic({ fixedFilters, sceneUrl: id ? urls.action(id) : urls.actions() })
+        eventsTableLogic({
+            fixedFilters,
+            sceneUrl: id ? urls.action(id) : urls.actions(),
+            key: 'Action',
+            disableActions: true,
+        })
     )
     const { action, isComplete } = useValues(actionLogic({ id, onComplete: fetchEvents }))
     const { loadAction } = useActions(actionLogic({ id, onComplete: fetchEvents }))
@@ -75,7 +81,23 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
                         </>
                     ) : null}
                     {id && (
-                        <EventsTable fixedFilters={fixedFilters} filtersEnabled={false} sceneUrl={urls.action(id)} />
+                        <>
+                            <PageHeader
+                                title="Matching events"
+                                caption={
+                                    <>
+                                        This is the list of <strong>recent</strong> events that match this action.
+                                    </>
+                                }
+                            />
+                            <EventsTable
+                                fixedFilters={fixedFilters}
+                                disableActions
+                                sceneUrl={urls.action(id)}
+                                fetchMonths={3}
+                                pageKey="Action"
+                            />
+                        </>
                     )}
                 </div>
             )}

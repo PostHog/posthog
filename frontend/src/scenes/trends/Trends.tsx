@@ -9,7 +9,7 @@ import {
     ACTIONS_BAR_CHART,
     ACTIONS_BAR_CHART_VALUE,
 } from 'lib/constants'
-import { ActionsPie, ActionsLineGraph, ActionsHorizontalBar, ActionsTable } from './viz'
+import { ActionsPie, ActionsLineGraph, ActionsHorizontalBar } from './viz'
 import { SaveCohortModal } from './SaveCohortModal'
 import { trendsLogic } from './trendsLogic'
 import { InsightType } from '~/types'
@@ -49,16 +49,13 @@ export function TrendInsight({ view }: Props): JSX.Element {
             return <ActionsLineGraph filters={_filters} />
         }
         if (_filters.display === ACTIONS_TABLE) {
-            if (view === InsightType.SESSIONS && _filters.session === 'dist') {
-                return <ActionsTable filters={_filters} />
-            }
             return (
                 <BindLogic logic={trendsLogic} props={{ dashboardItemId: null, view, filters: null }}>
                     <InsightsTable
                         isLegend={false}
-                        showTotalCount={view !== InsightType.SESSIONS}
+                        showTotalCount
                         filterKey={`trends_${view}`}
-                        canEditSeriesNameInline={_filters.session !== 'avg'}
+                        canEditSeriesNameInline
                     />
                 </BindLogic>
             )
@@ -73,9 +70,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
 
     return (
         <>
-            {(_filters.actions || _filters.events || _filters.session) && (
-                <div className="trends-insights-container">{renderViz()}</div>
-            )}
+            {(_filters.actions || _filters.events) && <div className="trends-insights-container">{renderViz()}</div>}
             {_filters.breakdown && (
                 <div className="mt text-center">
                     {loadMoreBreakdownUrl ? (

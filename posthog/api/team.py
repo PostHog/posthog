@@ -67,7 +67,6 @@ class TeamSerializer(serializers.ModelSerializer):
             "data_attributes",
             "correlation_config",
             "session_recording_opt_in",
-            "session_recording_retention_period_days",
             "effective_membership_level",
             "access_control",
             "has_group_types",

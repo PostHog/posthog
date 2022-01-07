@@ -1,19 +1,18 @@
 import React from 'react'
-import { useValues } from 'kea'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
-import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE, FEATURE_FLAGS } from 'lib/constants'
+import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE } from 'lib/constants'
 import { FilterType, FunnelVizType, ItemMode, InsightType } from '~/types'
 import { CalendarOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from '../InsightDateFilter'
 import { RetentionDatePicker } from '../RetentionDatePicker'
-import { FunnelStepReferencePicker } from './FunnelTab/FunnelStepReferencePicker'
 import { FunnelDisplayLayoutPicker } from './FunnelTab/FunnelDisplayLayoutPicker'
 import { FunnelBinsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBinsPicker'
 import { PathStepPicker } from './PathTab/PathStepPicker'
 import { ReferencePicker as RetentionReferencePicker } from './RetentionTab/ReferencePicker'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Tooltip } from 'antd'
+import { InfoCircleOutlined } from '@ant-design/icons'
 
 interface InsightDisplayConfigProps {
     filters: FilterType
@@ -32,7 +31,6 @@ const showIntervalFilter = function (activeView: InsightType, filter: FilterType
         case InsightType.TRENDS:
         case InsightType.STICKINESS:
         case InsightType.LIFECYCLE:
-        case InsightType.SESSIONS:
         default:
             return ![ACTIONS_PIE_CHART, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE].includes(filter.display || '') // sometimes insights aren't set for trends
     }
@@ -42,7 +40,6 @@ const showChartFilter = function (activeView: InsightType): boolean {
     switch (activeView) {
         case InsightType.TRENDS:
         case InsightType.STICKINESS:
-        case InsightType.SESSIONS:
             return true
         case InsightType.RETENTION:
         case InsightType.FUNNELS:
@@ -59,7 +56,6 @@ const showDateFilter = {
     [`${InsightType.TRENDS}`]: true,
     [`${InsightType.STICKINESS}`]: true,
     [`${InsightType.LIFECYCLE}`]: true,
-    [`${InsightType.SESSIONS}`]: true,
     [`${InsightType.FUNNELS}`]: true,
     [`${InsightType.RETENTION}`]: false,
     [`${InsightType.PATHS}`]: true,
@@ -69,7 +65,6 @@ const showComparePrevious = {
     [`${InsightType.TRENDS}`]: true,
     [`${InsightType.STICKINESS}`]: true,
     [`${InsightType.LIFECYCLE}`]: false,
-    [`${InsightType.SESSIONS}`]: true,
     [`${InsightType.FUNNELS}`]: false,
     [`${InsightType.RETENTION}`]: false,
     [`${InsightType.PATHS}`]: false,
@@ -83,7 +78,6 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
     const showFunnelBarOptions = activeView === InsightType.FUNNELS
     const showPathOptions = activeView === InsightType.PATHS
     const dateFilterDisabled = showFunnelBarOptions && isFunnelEmpty(filters)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div className="display-config-inner">
@@ -98,6 +92,11 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                             makeLabel={(key) => (
                                 <>
                                     <CalendarOutlined /> {key}
+                                    {key == 'All time' && (
+                                        <Tooltip title={`Only events dated after 2015 will be shown`}>
+                                            <InfoCircleOutlined className="info-indicator" />
+                                        </Tooltip>
+                                    )}
                                 </>
                             )}
                         />
@@ -144,11 +143,6 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                         <span className="filter">
                             <FunnelDisplayLayoutPicker />
                         </span>
-                        {!featureFlags[FEATURE_FLAGS.FUNNEL_SIMPLE_MODE] && (
-                            <span className="filter">
-                                <FunnelStepReferencePicker bordered />
-                            </span>
-                        )}
                     </>
                 )}
                 {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.TimeToConvert && (

@@ -12,7 +12,7 @@ interface InvertalFilterProps {
     disabled?: boolean
 }
 
-export function IntervalFilter({ view, disabled }: InvertalFilterProps): JSX.Element {
+export function IntervalFilter({ disabled }: InvertalFilterProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { interval } = useValues(intervalFilterLogic(insightProps))
     const { setInterval } = useActions(intervalFilterLogic(insightProps))
@@ -27,7 +27,6 @@ export function IntervalFilter({ view, disabled }: InvertalFilterProps): JSX.Ele
             ) : (
                 label
             ),
-        disabled: (key === 'minute' || key === 'hour') && view === InsightType.SESSIONS,
     }))
     return (
         <Select

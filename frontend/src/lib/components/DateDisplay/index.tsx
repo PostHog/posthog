@@ -11,7 +11,6 @@ interface DateDisplayProps {
 }
 
 const DISPLAY_DATE_FORMAT: Record<IntervalType, string> = {
-    minute: 'HH:mm',
     hour: 'HH:00',
     day: 'MMM D',
     week: 'MMM D',
@@ -20,8 +19,6 @@ const DISPLAY_DATE_FORMAT: Record<IntervalType, string> = {
 
 const dateHighlight = (parsedDate: dayjs.Dayjs, interval: IntervalType): string => {
     switch (interval) {
-        case 'minute':
-            return parsedDate.format('DD')
         case 'hour':
             return parsedDate.format('MMM D')
         case 'day':
