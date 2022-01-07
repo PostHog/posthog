@@ -1,12 +1,12 @@
 import React from 'react'
 import { Dropdown, Menu } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { getChartColors } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
-import { BreakdownKeyType, CohortType, IntervalType, TrendResult } from '~/types'
+import { BreakdownKeyType, CohortType, FilterType, InsightShortId, IntervalType, TrendResult } from '~/types'
 import { average, median, maybeAddCommasToInteger, capitalizeFirstLetter } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -35,6 +35,28 @@ const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
     total: 'Total Sum',
     average: 'Average',
     median: 'Median',
+}
+
+/**
+ * InsightsTable for use in a dashboard.
+ */
+export function DashboardInsightsTable({
+    filters,
+    dashboardItemId,
+}: {
+    filters: FilterType
+    dashboardItemId: InsightShortId
+}): JSX.Element {
+    return (
+        <BindLogic logic={trendsLogic} props={{ dashboardItemId, filters }}>
+            <InsightsTable
+                isLegend={false}
+                showTotalCount
+                filterKey={`dashboard_${dashboardItemId}`}
+                canEditSeriesNameInline
+            />
+        </BindLogic>
+    )
 }
 
 export function InsightsTable({
