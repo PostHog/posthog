@@ -117,6 +117,8 @@ export const insightLogic = kea<insightLogicType>({
         setInsightMetadata: (metadata: Partial<InsightModel>) => ({ metadata }),
         createAndRedirectToNewInsight: (filters?: Partial<FilterType>) => ({ filters }),
         toggleInsightLegend: true,
+        toggleVisibility: (index: number) => ({ index }),
+        setVisibilityById: (entry: Record<number, boolean>) => ({ entry }),
     }),
     loaders: ({ actions, cache, values, props }) => ({
         insight: [

@@ -42,6 +42,8 @@ export function InsightLegend(): JSX.Element {
     const { toggleVisibility } = useActions(logic)
     const colorList = getChartColors('white', indexedResults.length, !!filters.compare)
 
+    console.log('VISIBILLITY', visibilityMap)
+
     return (
         <div className="insight-legend-menu">
             <div className="insight-legend-menu-scroll">
