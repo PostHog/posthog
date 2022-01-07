@@ -37,7 +37,7 @@ if [[ -n $DYNO_RAM ]]; then
   export WORKER_CONCURRENCY=$(( ($DYNO_RAM - 1) / 512 + 1 ))
 fi
 
-python manage.py migrate --check
+python3 manage.py migrate --check
 
 cd plugin-server
 
