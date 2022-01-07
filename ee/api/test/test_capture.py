@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from django.http.request import HttpRequest
 from django.test.client import Client
+from kafka.errors import NoBrokersAvailable
 from rest_framework import status
 
 from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
@@ -155,3 +156,27 @@ class TestCaptureAPI(APIBaseTest):
 
         self.assertEqual(event_data["event"], "event1")
         self.assertEqual(kafka_produce_call["data"]["uuid"], "017d37c1-f285-0000-0e8b-e02d131925dc")
+
+    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    def test_kafka_connection_error(self, kafka_produce):
+        kafka_produce.side_effect = NoBrokersAvailable()
+        response = self.client.post(
+            "/capture/",
+            {
+                "data": json.dumps(
+                    [{"event": "event1", "properties": {"distinct_id": "id1", "token": self.team.api_token,},},]
+                ),
+                "api_key": self.team.api_token,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "server_error",
+                "code": "server_error",
+                "detail": "Unable to store event. Please try again. If you are the owner of this app you can check the logs for further details.",
+                "attr": None,
+            },
+        )

@@ -377,6 +377,6 @@ SELECT
     {matching_events_select_statement}
 FROM ({events_query})
 GROUP BY actor_id
-LIMIT %(limit)s
-OFFSET %(offset)s
+{limit}
+{offset}
 """

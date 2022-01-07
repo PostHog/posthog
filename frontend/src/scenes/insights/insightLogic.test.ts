@@ -92,7 +92,6 @@ describe('insightLogic', () => {
         } else if (
             [
                 `api/projects/${MOCK_TEAM_ID}/insights`,
-                `api/projects/${MOCK_TEAM_ID}/insights/session/`,
                 `api/projects/${MOCK_TEAM_ID}/insights/trend/`,
                 `api/projects/${MOCK_TEAM_ID}/insights/path/`,
                 `api/projects/${MOCK_TEAM_ID}/insights/path`,

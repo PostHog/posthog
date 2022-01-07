@@ -63,13 +63,17 @@ class ActorBaseQuery:
     entity: Optional[Entity] = None
 
     def __init__(
-        self, team: Team, filter: Union[Filter, StickinessFilter, RetentionFilter], entity: Optional[Entity] = None,
+        self,
+        team: Team,
+        filter: Union[Filter, StickinessFilter, RetentionFilter],
+        entity: Optional[Entity] = None,
+        **kwargs
     ):
         self._team = team
         self.entity = entity
         self._filter = filter
 
-    def actor_query(self) -> Tuple[str, Dict]:
+    def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
         """ Implemented by subclasses. Must provide query and params. The query must return list of uuids. Can be group uuids (group_key) or person uuids """
         raise NotImplementedError()
 

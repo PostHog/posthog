@@ -12,7 +12,7 @@ from rest_framework_csv import renderers as csvrenderers
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.queries.trends.person import TrendsPersonQuery
+from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
 from ee.clickhouse.sql.person import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.api.action import ActionSerializer, ActionViewSet
 from posthog.api.person import get_person_name
@@ -43,12 +43,12 @@ class ClickhouseActionsViewSet(ActionViewSet):
     def people(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # type: ignore
         team = self.team
         filter = Filter(request=request, team=self.team)
-        entity = get_target_entity(request)
+        entity = get_target_entity(filter)
 
         # Used to keep feature behind feature flag. Can be removed once that's removed.
         include_recordings = request.GET.get("include_recordings") == "true"
 
-        actors, serialized_actors = TrendsPersonQuery(
+        actors, serialized_actors = ClickhouseTrendsActors(
             team, entity, filter, include_recordings=include_recordings
         ).get_actors()
 
@@ -111,7 +111,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
 
 
 def insert_entity_people_into_cohort(cohort: Cohort, entity: Entity, filter: Filter):
-    query, params = TrendsPersonQuery(cohort.team, entity, filter).actor_query()
+    query, params = ClickhouseTrendsActors(cohort.team, entity, filter).actor_query()
     sync_execute(
         INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
         {"cohort_id": cohort.pk, "_timestamp": datetime.now(), **params},

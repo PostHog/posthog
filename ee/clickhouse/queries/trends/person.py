@@ -33,11 +33,13 @@ def _handle_date_interval(filter: Filter) -> Filter:
     return filter.with_data(data)
 
 
-class TrendsPersonQuery(ActorBaseQuery):
+class ClickhouseTrendsActors(ActorBaseQuery):
     entity: Entity
     _filter: Filter
 
-    def __init__(self, team: Team, entity: Optional[Entity], filter: Filter, include_recordings: bool = False):
+    def __init__(
+        self, team: Team, entity: Optional[Entity], filter: Filter, include_recordings: bool = False, **kwargs
+    ):
         if not entity:
             raise ValueError("Entity is required")
 
@@ -45,7 +47,7 @@ class TrendsPersonQuery(ActorBaseQuery):
             filter = _handle_date_interval(filter)
 
         self._include_recordings = include_recordings
-        super().__init__(team, filter, entity)
+        super().__init__(team, filter, entity, **kwargs)
 
     @cached_property
     def is_aggregating_by_groups(self) -> bool:
@@ -55,7 +57,7 @@ class TrendsPersonQuery(ActorBaseQuery):
     def should_include_recordings(self) -> bool:
         return self._include_recordings
 
-    def actor_query(self) -> Tuple[str, Dict]:
+    def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
         if self._filter.breakdown_type == "cohort" and self._filter.breakdown_value != "all":
             cohort = Cohort.objects.get(pk=self._filter.breakdown_value, team_id=self._team.pk)
             self._filter = self._filter.with_data(
@@ -105,6 +107,8 @@ class TrendsPersonQuery(ActorBaseQuery):
                 id_field=self._aggregation_actor_field,
                 matching_events_select_statement=matching_events_select_statement,
                 events_query=events_query,
+                limit="LIMIT %(limit)s" if limit_actors else "",
+                offset="OFFSET %(offset)s" if limit_actors else "",
             ),
             {**params, "offset": self._filter.offset, "limit": 200},
         )

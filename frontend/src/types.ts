@@ -195,7 +195,6 @@ export interface TeamType extends TeamBasicType {
     app_urls: string[]
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
-    session_recording_retention_period_days: number | null
     test_account_filters: AnyPropertyFilter[]
     path_cleaning_filters: Record<string, any>[]
     data_attributes: string[]
@@ -828,7 +827,6 @@ export enum InsightType {
     TRENDS = 'TRENDS',
     STICKINESS = 'STICKINESS',
     LIFECYCLE = 'LIFECYCLE',
-    SESSIONS = 'SESSIONS',
     FUNNELS = 'FUNNELS',
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
@@ -876,7 +874,6 @@ export interface FilterType {
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     shown_as?: ShownAsType
-    session?: string
     period?: string
 
     retention_type?: RetentionType
@@ -1023,10 +1020,11 @@ export interface TrendResult {
     breakdown_value?: string | number
     aggregated_value: number
     status?: string
-    compare_label?: string
+    compare_label?: CompareLabelType
     compare?: boolean
     persons_urls?: { url: string }[]
     persons?: Person
+    filter?: FilterType
 }
 
 interface Person {
@@ -1394,10 +1392,11 @@ export interface Experiment {
     created_by: UserBasicType | null
 }
 export interface ExperimentResults {
-    funnel: FunnelStep[][]
-    probability: number
+    insight: FunnelStep[][]
+    probability: Record<string, number>
     filters: FilterType
     itemID: string
+    noData?: boolean
 }
 
 interface RelatedPerson {
@@ -1538,12 +1537,14 @@ export type GraphDataset = ChartDataset<ChartType> &
             | 'labels'
             | 'data'
             | 'compare'
+            | 'compare_label'
             | 'status'
             | 'action'
             | 'actions'
             | 'breakdown_value'
             | 'persons_urls'
             | 'persons'
+            | 'filter'
         >
     > & {
         /** Used in filtering out visibility of datasets. Set internally by chart.js */
@@ -1552,6 +1553,8 @@ export type GraphDataset = ChartDataset<ChartType> &
         dotted?: boolean
         /** Array of breakdown values used only in ActionsHorizontalBar.tsx data */
         breakdownValues?: (string | number | undefined)[]
+        /** Array of compare labels used only in ActionsHorizontalBar.tsx data */
+        compareLabels?: (CompareLabelType | undefined)[]
         /** Array of persons ussed only in (ActionsHorizontalBar|ActionsPie).tsx */
         personsValues?: (Person | undefined)[]
         index?: number
@@ -1581,4 +1584,9 @@ export interface GraphPointPayload {
     crossDataset?: GraphDataset[]
     /** ID for the currently selected series */
     seriesId?: number
+}
+
+export enum CompareLabelType {
+    Current = 'current',
+    Previous = 'previous',
 }

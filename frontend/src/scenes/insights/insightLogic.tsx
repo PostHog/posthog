@@ -243,13 +243,6 @@ export const insightLogic = kea<insightLogicType>({
                                 )}`,
                                 cache.abortController.signal
                             )
-                        } else if (insight === InsightType.SESSIONS || filters?.session) {
-                            response = await api.get(
-                                `api/projects/${currentTeamId}/insights/session/?${toParams(
-                                    filterTrendsClientSideParams(params)
-                                )}`,
-                                cache.abortController.signal
-                            )
                         } else if (insight === InsightType.RETENTION) {
                             response = await api.get(
                                 `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}`,
