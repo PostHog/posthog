@@ -21,14 +21,15 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { TrendActors } from 'scenes/trends/types'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
-import { ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_CUMULATIVE, FEATURE_FLAGS } from 'lib/constants'
 import { toast } from 'react-toastify'
 import { cohortsModel } from '~/models/cohortsModel'
 import { dayjs } from 'lib/dayjs'
 import { groupsModel } from '~/models/groupsModel'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export interface PersonsModalParams {
-    action: ActionFilter | 'session' // TODO: refactor this session string param out
+    action?: ActionFilter
     label: string // Contains the step name
     date_from: string | number
     date_to: string | number
@@ -44,7 +45,7 @@ export interface PersonsModalParams {
 }
 
 export interface PeopleParamType {
-    action: ActionFilter | 'session'
+    action?: ActionFilter
     label: string
     date_to?: string | number
     date_from?: string | number
@@ -57,9 +58,9 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
     const { action, date_from, date_to, breakdown_value, ...restParams } = peopleParams
     const params = filterTrendsClientSideParams({
         ...filters,
-        entity_id: (action !== 'session' && action.id) || filters?.events?.[0]?.id || filters?.actions?.[0]?.id,
-        entity_type: (action !== 'session' && action.type) || filters?.events?.[0]?.type || filters?.actions?.[0]?.type,
-        entity_math: (action !== 'session' && action.math) || undefined,
+        entity_id: action?.id || filters?.events?.[0]?.id || filters?.actions?.[0]?.id,
+        entity_type: action?.type || filters?.events?.[0]?.type || filters?.actions?.[0]?.type,
+        entity_math: action?.math || undefined,
         breakdown_value,
     })
 
@@ -84,7 +85,7 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
             { key: params.breakdown, value: breakdown_value, type: 'event' } as PropertyFilter,
         ]
     }
-    if (action !== 'session' && action.properties) {
+    if (action?.properties) {
         params.properties = [...(params.properties || []), ...action.properties]
     }
 
@@ -95,7 +96,7 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
 // NOTE: this interface isn't particularly clean. Separation of concerns of load
 // and displaying of people and the display of the modal would be helpful to
 // keep this interfaces smaller.
-interface LoadPeopleFromUrlProps {
+export interface LoadPeopleFromUrlProps {
     // The url from which we can load urls
     url: string
     // The funnel step the dialog should display as the complete/dropped step.
@@ -111,7 +112,7 @@ interface LoadPeopleFromUrlProps {
     // Needed for display
     date_from?: string | number
     // Copied from `PersonsModalParams`, likely needed for display logic
-    action: ActionFilter | 'session'
+    action?: ActionFilter
     // Copied from `PersonsModalParams`, likely needed for diplay logic
     pathsDropoff?: boolean
     // The y-axis value of the data point (i.e. count, unique persons, ...)
@@ -140,11 +141,20 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         }),
         saveFirstLoadedActors: (people: TrendActors) => ({ people }),
         setFirstLoadedActors: (firstLoadedPeople: TrendActors | null) => ({ firstLoadedPeople }),
+        openRecordingModal: (sessionRecordingId: string) => ({ sessionRecordingId }),
+        closeRecordingModal: () => true,
     }),
     connect: {
-        values: [groupsModel, ['groupTypes']],
+        values: [groupsModel, ['groupTypes'], featureFlagLogic, ['featureFlags']],
     },
     reducers: () => ({
+        sessionRecordingId: [
+            null as null | string,
+            {
+                openRecordingModal: (_, { sessionRecordingId }) => sessionRecordingId,
+                closeRecordingModal: () => null,
+            },
+        ],
         searchTerm: [
             '',
             {
@@ -237,8 +247,8 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         actorLabel: [
             (s) => [s.people, s.isGroupType, s.groupTypes],
             (result, _isGroupType, groupTypes) => {
-                if (_isGroupType && result?.action !== 'session') {
-                    return result?.action.math_group_type_index != undefined &&
+                if (_isGroupType) {
+                    return result?.action?.math_group_type_index != undefined &&
                         groupTypes.length > result?.action.math_group_type_index
                         ? `${groupTypes[result?.action.math_group_type_index].group_type}(s)`
                         : ''
@@ -357,6 +367,11 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                 crossDataset,
                 seriesId,
             }) => {
+                if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_TRENDS_PERSON_MODAL]) {
+                    // A bit hacky (doesn't account for hash params),
+                    // but it works and only needed while we have this feature flag
+                    url += '&include_recordings=true'
+                }
                 const people = await api.get(url)
 
                 return {
@@ -496,6 +511,17 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { personModal: _discard, ...otherHashParams } = router.values.hashParams
             return [router.values.location.pathname, router.values.searchParams, otherHashParams]
+        },
+        openRecordingModal: ({ sessionRecordingId }) => {
+            return [
+                router.values.location.pathname,
+                { ...router.values.searchParams },
+                { ...router.values.hashParams, sessionRecordingId },
+            ]
+        },
+        closeRecordingModal: () => {
+            delete router.values.hashParams.sessionRecordingId
+            return [router.values.location.pathname, { ...router.values.searchParams }, { ...router.values.hashParams }]
         },
     }),
     urlToAction: ({ actions, values }) => ({

@@ -30,7 +30,7 @@ export function InsightLegendButton(): JSX.Element | null {
     return (
         <Button className="insight-legend-button" onClick={toggleInsightLegend}>
             <IconLegend />
-            <span className="insight-legend-button-title">{filters.legend_hidden ? 'Show' : 'Hide'} legend</span>
+            <span className="insight-legend-button-title">{filters.show_legend ? 'Hide' : 'Show'} legend</span>
         </Button>
     )
 }
@@ -67,6 +67,7 @@ export function InsightLegend(): JSX.Element {
                                             item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()
                                         }
                                         compareValue={filters.compare ? formatCompareLabel(item) : undefined}
+                                        pillMidEllipsis={item?.filter?.breakdown === '$current_url'} // TODO: define set of breakdown values that would benefit from mid ellipsis truncation
                                         hideIcon
                                     />
                                 </Col>

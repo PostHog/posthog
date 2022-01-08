@@ -185,7 +185,8 @@ def get_time_series_ok(data):
                 person_url=item["persons_urls"][idx]["url"],
                 breakdown_value=item.get("breakdown_value", None),
             )
-        res[item["label"]] = collect_dates
+        key = item["label"] + (f' - {item["compare_label"]}' if "compare_label" in item else "")
+        res[key] = collect_dates
     return res
 
 

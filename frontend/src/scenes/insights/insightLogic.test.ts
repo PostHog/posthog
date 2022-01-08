@@ -92,7 +92,6 @@ describe('insightLogic', () => {
         } else if (
             [
                 `api/projects/${MOCK_TEAM_ID}/insights`,
-                `api/projects/${MOCK_TEAM_ID}/insights/session/`,
                 `api/projects/${MOCK_TEAM_ID}/insights/trend/`,
                 `api/projects/${MOCK_TEAM_ID}/insights/path/`,
                 `api/projects/${MOCK_TEAM_ID}/insights/path`,
@@ -127,14 +126,14 @@ describe('insightLogic', () => {
         it('toggles insight legend', () => {
             logic = insightLogic({
                 dashboardItemId: undefined,
-                filters: { legend_hidden: false },
+                filters: { show_legend: false },
             })
             expectLogic(logic, () => {
                 logic.actions.toggleInsightLegend()
             })
                 .toDispatchActions(['toggleInsightLegend', 'setFilter'])
                 .toMatchValues({
-                    filters: partial({ legend_hidden: true }),
+                    filters: partial({ show_legend: true }),
                 })
         })
     })

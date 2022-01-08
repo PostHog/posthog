@@ -5,6 +5,7 @@ import * as contrib from '@posthog/plugin-contrib'
 import * as scaffold from '@posthog/plugin-scaffold'
 import * as AWS from 'aws-sdk'
 import crypto from 'crypto'
+import * as ethers from 'ethers'
 import * as faker from 'faker'
 import * as genericPool from 'generic-pool'
 import * as jsonwebtoken from 'jsonwebtoken'
@@ -29,6 +30,7 @@ export const imports = {
     '@posthog/plugin-contrib': contrib,
     '@posthog/plugin-scaffold': scaffold,
     'aws-sdk': AWS,
+    ethers: ethers,
     'generic-pool': genericPool,
     'node-fetch': fetch,
     'snowflake-sdk': snowflake,

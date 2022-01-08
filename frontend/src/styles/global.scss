@@ -28,6 +28,7 @@ NOTE: $medium is a SCSS var; not a keyword
     --bg-charcoal: #{$bg_charcoal};
     --bg-bridge: #{$bg_bridge};
     --bg-shaded: #{$bg_shaded};
+    --bg-light: #{$bg_light};
     --text-default: #{$text_default};
     --text-muted: #{$text_muted};
     --text-light: #{$text_light};
@@ -67,6 +68,8 @@ NOTE: $medium is a SCSS var; not a keyword
     --lifecycle-returning-hover: #{darken($lifecycle_returning, 20%)};
     --lifecycle-resurrecting-hover: #{darken($lifecycle_resurrecting, 20%)};
     --lifecycle-dormant-hover: #{darken($lifecycle_dormant, 20%)};
+    // Insights
+    --z-graph-tooltip: #{$z_graph_tooltip};
 }
 
 // Text styles
@@ -570,6 +573,7 @@ code.code {
     align-items: center;
     justify-content: center;
     pointer-events: none;
+    flex-shrink: 0;
 
     // variants
     &.funnel-step-glyph {
