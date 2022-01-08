@@ -175,7 +175,6 @@ export function LEGACY_LineGraph({
         }
 
         // Hide intentionally hidden keys
-        // Hide intentionally hidden keys
         if (!areObjectValuesEmpty(hiddenLegendKeys)) {
             if (type === 'horizontalBar') {
                 // If series are nested (for ActionsHorizontalBar only), filter out the series by index

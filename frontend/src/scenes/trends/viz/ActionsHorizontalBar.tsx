@@ -42,7 +42,6 @@ export function ActionsHorizontalBar({
         const rawColorList = getChartColors(color, results.length)
         const colorList = results.map((_, idx) => rawColorList[idx % rawColorList.length])
 
-        // const days = results.length > 0 ? results[0].days : []
         setData([
             {
                 labels: _data.map((item) => item.label),
