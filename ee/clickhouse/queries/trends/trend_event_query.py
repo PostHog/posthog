@@ -1,6 +1,7 @@
-from typing import Any, Dict, Optional, Set, Tuple
+from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.entity import get_entity_filtering_params
+from ee.clickhouse.models.property import get_property_string_expr
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.trends.util import get_active_user_params
@@ -33,6 +34,14 @@ class TrendsEventQuery(ClickhouseEventQuery):
                     f", {self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}"
                     for column_name in self._column_optimizer.event_columns_to_query
                 )
+            )
+            + " ".join(
+                [
+                    ", "
+                    + get_property_string_expr("events", property, f"'{property}'", "properties", table_alias="e")[0]
+                    + f" as {property}"
+                    for property in self._extra_event_properties
+                ]
             )
             + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
             + (
