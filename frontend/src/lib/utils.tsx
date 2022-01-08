@@ -73,7 +73,7 @@ export function uuid(): string {
     )
 }
 
-export function areObjectValuesEmpty(obj: Record<string, any>): boolean {
+export function areObjectValuesEmpty(obj?: Record<string, any>): boolean {
     return (
         !!obj && typeof obj === 'object' && !Object.values(obj).some((x) => x !== null && x !== '' && x !== undefined)
     )

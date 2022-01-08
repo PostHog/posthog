@@ -29,6 +29,7 @@ interface InsightsTableProps {
     showTotalCount?: boolean
     filterKey: string // key for the entityFilterLogic
     canEditSeriesNameInline?: boolean
+    className?: string
 }
 
 const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
@@ -42,9 +43,10 @@ export function InsightsTable({
     showTotalCount = false,
     filterKey,
     canEditSeriesNameInline,
+    className,
 }: InsightsTableProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { indexedResults, visibilityMap, filters, resultsLoading } = useValues(trendsLogic(insightProps))
+    const { indexedResults, hiddenLegendKeys, filters, resultsLoading } = useValues(trendsLogic(insightProps))
     const { toggleVisibility, setFilters } = useActions(trendsLogic(insightProps))
     const { cohorts } = useValues(cohortsModel)
     const { reportInsightsTableCalcToggled } = useActions(eventUsageLogic)
@@ -99,7 +101,7 @@ export function InsightsTable({
                 return (
                     <PHCheckbox
                         color={colorList[item.id]}
-                        checked={visibilityMap[item.id]}
+                        checked={!hiddenLegendKeys[item.id]}
                         onChange={() => toggleVisibility(item.id)}
                     />
                 )
@@ -239,13 +241,14 @@ export function InsightsTable({
 
     return (
         <LemonTable
-            dataSource={indexedResults}
+            dataSource={isLegend ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])}
             columns={columns}
             rowKey="id"
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
             loading={resultsLoading}
             emptyState="No insight results yet…"
             data-attr="insights-table-graph"
+            className={className}
         />
     )
 }

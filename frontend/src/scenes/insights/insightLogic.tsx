@@ -118,7 +118,7 @@ export const insightLogic = kea<insightLogicType>({
         createAndRedirectToNewInsight: (filters?: Partial<FilterType>) => ({ filters }),
         toggleInsightLegend: true,
         toggleVisibility: (index: number) => ({ index }),
-        setVisibilityById: (entry: Record<number, boolean>) => ({ entry }),
+        setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
     }),
     loaders: ({ actions, cache, values, props }) => ({
         insight: [
@@ -481,6 +481,12 @@ export const insightLogic = kea<insightLogicType>({
                 return Array.from(new Set(allEvents.filter((a): a is string => !!a)))
             },
         ],
+        hiddenLegendKeys: [
+            (s) => [s.filters],
+            (filters) => {
+                return filters.hiddenLegendKeys ?? {}
+            },
+        ],
     },
     listeners: ({ actions, selectors, values, props }) => ({
         setFilters: async ({ filters }, _, __, previousState) => {
@@ -719,6 +725,30 @@ export const insightLogic = kea<insightLogicType>({
         },
         toggleInsightLegend: () => {
             actions.setFilters({ ...values.filters, show_legend: !values.filters.show_legend })
+        },
+        toggleVisibility: ({ index }) => {
+            const currentIsHidden = !!values.hiddenLegendKeys?.[index]
+
+            actions.setFilters({
+                ...values.filters,
+                hidden_legend_keys: {
+                    ...values.hiddenLegendKeys,
+                    [`${index}`]: currentIsHidden ? undefined : true,
+                },
+            })
+        },
+        setHiddenById: ({ entry }) => {
+            const nextEntries = Object.fromEntries(
+                Object.entries(entry).map(([index, hiddenState]) => [index, hiddenState ? true : undefined])
+            )
+
+            actions.setFilters({
+                ...values.filters,
+                hidden_legend_keys: {
+                    ...values.hiddenLegendKeys,
+                    ...nextEntries,
+                },
+            })
         },
     }),
     actionToUrl: ({ values }) => {

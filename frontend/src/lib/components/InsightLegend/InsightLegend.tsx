@@ -38,11 +38,9 @@ export function InsightLegendButton(): JSX.Element | null {
 export function InsightLegend(): JSX.Element {
     const { insightProps, filters } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
-    const { indexedResults, visibilityMap } = useValues(logic)
+    const { indexedResults, hiddenLegendKeys } = useValues(logic)
     const { toggleVisibility } = useActions(logic)
     const colorList = getChartColors('white', indexedResults.length, !!filters.compare)
-
-    console.log('VISIBILLITY', visibilityMap)
 
     return (
         <div className="insight-legend-menu">
@@ -54,7 +52,7 @@ export function InsightLegend(): JSX.Element {
                                 <Col>
                                     <PHCheckbox
                                         color={colorList[item.id]}
-                                        checked={visibilityMap[item.id]}
+                                        checked={!hiddenLegendKeys[item.id]}
                                         onChange={() => toggleVisibility(item.id)}
                                     />
                                 </Col>
