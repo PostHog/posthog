@@ -21,7 +21,7 @@ from posthog.models.team import Team
 def create_event(
     event_uuid: uuid.UUID,
     event: str,
-    team: Team,
+    team: Union[Team, int],
     distinct_id: str,
     timestamp: Optional[Union[timezone.datetime, str]] = None,
     properties: Optional[Dict] = {},
@@ -47,7 +47,7 @@ def create_event(
     pb_event.event = event
     pb_event.properties = json.dumps(properties)
     pb_event.timestamp = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
-    pb_event.team_id = team.pk
+    pb_event.team_id = team if isinstance(team, int) else team.id
     pb_event.distinct_id = str(distinct_id)
     pb_event.elements_chain = elements_chain
     pb_event.created_at = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")

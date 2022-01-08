@@ -1,3 +1,5 @@
+import datetime as dt
+import time
 from typing import Any, Dict, Optional, Union, cast
 
 import posthoganalytics
@@ -16,10 +18,10 @@ from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 
 from posthog.api.shared import UserBasicSerializer
-from posthog.demo import create_demo_team, prepare_hoglify_demo
+from posthog.demo import create_demo_team
+from posthog.demo.matrix import HoglifyMatrix, MatrixManager
 from posthog.event_usage import report_user_joined_organization, report_user_signed_up
-from posthog.models import Organization, Team, User
-from posthog.models.organization import OrganizationInvite
+from posthog.models import Organization, OrganizationInvite, OrganizationMembership, Team, User
 from posthog.permissions import CanCreateOrg
 from posthog.tasks import user_identify
 from posthog.utils import get_can_create_org, mask_email_address
@@ -89,11 +91,26 @@ class SignupSerializer(serializers.Serializer):
 
     def enter_demo(self, validated_data) -> User:
         """Demo signup/login flow."""
-        self._organization, self._team, self._user = prepare_hoglify_demo(
-            email=validated_data["email"],
-            first_name=validated_data["first_name"],
-            organization_name=validated_data["organization_name"],
-        )
+        email = validated_data["email"]
+        first_name = validated_data["first_name"]
+        organization_name = validated_data["organization_name"]
+        # If there's an email collision in signup in the demo environment, we treat it as a login
+        existing_user = User.objects.filter(email=email).first()
+        if existing_user is None:
+            organization = Organization.objects.create(name=organization_name)
+            new_user = User.objects.create_and_join(
+                organization, email, None, first_name, OrganizationMembership.Level.ADMIN
+            )
+            demo_time = time.time()
+            matrix = HoglifyMatrix(
+                start=dt.datetime.now() - dt.timedelta(days=30), end=dt.datetime.now(), n_clusters=1,
+            )
+            team = MatrixManager.create_team(matrix, organization, new_user)
+            print(f"[DEMO] Prepared in {time.time() - demo_time}!")
+            self._organization, self._team, self._user = organization, team, new_user
+        else:
+            self._organization, self._team, self._user = existing_user.organization, existing_user.team, existing_user
+
         login(
             self.context["request"], self._user, backend="django.contrib.auth.backends.ModelBackend",
         )
