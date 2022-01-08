@@ -484,7 +484,7 @@ export const insightLogic = kea<insightLogicType>({
         hiddenLegendKeys: [
             (s) => [s.filters],
             (filters) => {
-                return filters.hiddenLegendKeys ?? {}
+                return filters.hidden_legend_keys ?? {}
             },
         ],
     },
