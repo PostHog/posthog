@@ -21,6 +21,7 @@ import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
 import PropertyFilterButton from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { FunnelLayout } from 'lib/constants'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -65,7 +66,14 @@ export function Experiment(): JSX.Element {
             syncWithUrl: false,
         })
     )
-    const { isStepsEmpty, filterSteps, filters, results, conversionMetrics } = useValues(funnelLogic(insightProps))
+    const {
+        isStepsEmpty,
+        filterSteps,
+        filters: funnelsFilters,
+        results,
+        conversionMetrics,
+    } = useValues(funnelLogic(insightProps))
+    const { filters: trendsFilters } = useValues(trendsLogic(insightProps))
 
     const conversionRate = conversionMetrics.totalRate * 100
     const entrants = results?.[0]?.count
@@ -157,7 +165,11 @@ export function Experiment(): JSX.Element {
                                                 <PropertyFilters
                                                     endpoint="person"
                                                     pageKey={'EditFunnel-property'}
-                                                    propertyFilters={filters.properties || []}
+                                                    propertyFilters={
+                                                        (experimentInsightType === InsightType.FUNNELS
+                                                            ? funnelsFilters.properties
+                                                            : trendsFilters.properties) || []
+                                                    }
                                                     onChange={(anyProperties) => {
                                                         setNewExperimentData({
                                                             filters: {
@@ -291,26 +303,32 @@ export function Experiment(): JSX.Element {
                                     <BindLogic logic={insightLogic} props={insightProps}>
                                         <Row style={{ width: '100%' }}>
                                             <Col span={8} style={{ paddingRight: 8 }}>
-                                                <div className="l3 mb">Goal metric</div>
-                                                <Row className="text-muted" style={{ marginBottom: '1rem' }}>
-                                                    Define the metric which you are trying to optimize. This is the most
-                                                    important part of your experiment.
-                                                </Row>
-                                                <Row>
-                                                    Type:{' '}
-                                                    <Select
-                                                        defaultValue={InsightType.FUNNELS}
-                                                        onChange={setExperimentInsightType}
-                                                    >
-                                                        <Select.Option value={InsightType.FUNNELS}>
-                                                            Conversion
-                                                        </Select.Option>
-                                                        <Select.Option value={InsightType.TRENDS}>
-                                                            Aggregate
-                                                        </Select.Option>
-                                                    </Select>
-                                                </Row>
-                                                <Row>
+                                                <div className="l3 mb">Goal type</div>
+                                                <Select
+                                                    size="large"
+                                                    style={{ display: 'flex' }}
+                                                    defaultValue={InsightType.TRENDS}
+                                                    onChange={setExperimentInsightType}
+                                                    suffixIcon={<CaretDownOutlined />}
+                                                    dropdownMatchSelectWidth={false}
+                                                >
+                                                    <Select.Option value={InsightType.TRENDS}>
+                                                        <Col>
+                                                            <b>Trend</b>
+                                                            <div style={{ fontSize: 14 }}>
+                                                                Track how many participants complete a specific event or
+                                                                action
+                                                            </div>
+                                                        </Col>
+                                                    </Select.Option>
+                                                    <Select.Option value={InsightType.FUNNELS}>
+                                                        <Col>
+                                                            <b>Funnel</b>
+                                                            <div>Track conversion rates between events and actions</div>
+                                                        </Col>
+                                                    </Select.Option>
+                                                </Select>
+                                                <Row className="mt">
                                                     <Card
                                                         className="action-filters-bordered"
                                                         style={{ width: '100%', marginRight: 8 }}
@@ -318,10 +336,10 @@ export function Experiment(): JSX.Element {
                                                     >
                                                         {experimentInsightType === InsightType.FUNNELS && (
                                                             <ActionFilter
-                                                                filters={filters}
-                                                                setFilters={(actionFilters) => {
-                                                                    setNewExperimentData({ filters: actionFilters })
-                                                                    setFilters(actionFilters)
+                                                                filters={funnelsFilters}
+                                                                setFilters={(payload) => {
+                                                                    setNewExperimentData({ filters: payload })
+                                                                    setFilters(payload)
                                                                 }}
                                                                 typeKey={`EditFunnel-action`}
                                                                 hideMathSelector={true}
@@ -344,16 +362,19 @@ export function Experiment(): JSX.Element {
                                                         {experimentInsightType === InsightType.TRENDS && (
                                                             <ActionFilter
                                                                 horizontalUI
-                                                                filters={filters}
-                                                                setFilters={(payload: Partial<FilterType>): void =>
+                                                                filters={trendsFilters}
+                                                                setFilters={(payload: Partial<FilterType>) => {
+                                                                    setNewExperimentData({ filters: payload })
                                                                     setFilters(payload)
-                                                                }
+                                                                }}
                                                                 typeKey={`experiment-trends`}
                                                                 buttonCopy="Add graph series"
                                                                 showSeriesIndicator
-                                                                singleFilter={filters.insight === InsightType.LIFECYCLE}
+                                                                singleFilter={
+                                                                    trendsFilters.insight === InsightType.LIFECYCLE
+                                                                }
                                                                 hideMathSelector={
-                                                                    filters.insight === InsightType.LIFECYCLE
+                                                                    trendsFilters.insight === InsightType.LIFECYCLE
                                                                 }
                                                                 propertiesTaxonomicGroupTypes={[
                                                                     TaxonomicFilterGroupType.EventProperties,
@@ -362,7 +383,7 @@ export function Experiment(): JSX.Element {
                                                                     TaxonomicFilterGroupType.Elements,
                                                                 ]}
                                                                 customRowPrefix={
-                                                                    filters.insight === InsightType.LIFECYCLE ? (
+                                                                    trendsFilters.insight === InsightType.LIFECYCLE ? (
                                                                         <>
                                                                             Showing <b>Unique users</b> who did
                                                                         </>
@@ -517,7 +538,7 @@ export function Experiment(): JSX.Element {
                             <Col>
                                 <div className="card-secondary">Participants</div>
                                 <div>
-                                    {experimentData.filters.properties ? (
+                                    {!!experimentData.filters.properties?.length ? (
                                         <div>
                                             {experimentData.filters.properties.map((item) => {
                                                 return (
@@ -621,7 +642,7 @@ export function Experiment(): JSX.Element {
                         </Col>
                     </Row>
                     <div className="experiment-result">
-                        {experimentResults && !experimentResults.noData ? (
+                        {experimentResults ? (
                             <Row style={{ alignItems: 'baseline' }}>
                                 {experimentData.end_date ? (
                                     <div>
@@ -693,7 +714,7 @@ export function Experiment(): JSX.Element {
                                 </Col>
                             </Row>
                         )}
-                        {experimentResults && !experimentResults?.noData ? (
+                        {experimentResults ? (
                             <BindLogic
                                 logic={insightLogic}
                                 props={{

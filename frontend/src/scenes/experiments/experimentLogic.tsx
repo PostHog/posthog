@@ -24,6 +24,7 @@ import { experimentLogicType } from './experimentLogicType'
 import { router } from 'kea-router'
 import { experimentsLogic } from './experimentsLogic'
 import { FunnelLayout } from 'lib/constants'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 const DEFAULT_DURATION = 14 // days
 
@@ -141,7 +142,7 @@ export const experimentLogic = kea<experimentLogicType>({
             },
         ],
         experimentInsightType: [
-            InsightType.FUNNELS,
+            InsightType.TRENDS as InsightType,
             {
                 setExperimentInsightType: (_, { insightType }) => insightType,
             },
@@ -256,7 +257,11 @@ export const experimentLogic = kea<experimentLogicType>({
             actions.setNewExperimentData({ filters: { ...newInsight.filters } })
         },
         setFilters: ({ filters }) => {
-            funnelLogic.findMounted({ dashboardItemId: values.experimentInsightId })?.actions.setFilters(filters)
+            if (values.experimentInsightType === InsightType.FUNNELS) {
+                funnelLogic.findMounted({ dashboardItemId: values.experimentInsightId })?.actions.setFilters(filters)
+            } else {
+                trendsLogic.findMounted({ dashboardItemId: values.experimentInsightId })?.actions.setFilters(filters)
+            }
         },
         loadExperimentSuccess: async ({ experimentData }) => {
             if (!experimentData?.start_date) {

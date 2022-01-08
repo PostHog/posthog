@@ -146,12 +146,14 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
             <Card
                 title={
-                    <InsightDisplayConfig
-                        activeView={activeView as InsightType}
-                        insightMode={insightMode}
-                        filters={filters}
-                        disableTable={!!disableTable}
-                    />
+                    activeView === InsightType.TRENDS && disableTable ? null : (
+                        <InsightDisplayConfig
+                            activeView={activeView as InsightType}
+                            insightMode={insightMode}
+                            filters={filters}
+                            disableTable={!!disableTable}
+                        />
+                    )
                 }
                 data-attr="insights-graph"
                 className="insights-graph-container"
