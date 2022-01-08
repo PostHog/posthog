@@ -500,13 +500,13 @@ export const insightLogic = kea<insightLogicType>({
             const backendFilterChanged = !objectsEqual(
                 Object.assign({}, values.filters, {
                     layout: undefined,
-                    hiddenLegendKeys: undefined,
+                    hidden_legend_keys: undefined,
                     funnel_advanced: undefined,
                     show_legend: undefined,
                 }),
                 Object.assign({}, values.loadedFilters, {
                     layout: undefined,
-                    hiddenLegendKeys: undefined,
+                    hidden_legend_keys: undefined,
                     funnel_advanced: undefined,
                     show_legend: undefined,
                 })

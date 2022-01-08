@@ -49,28 +49,33 @@ export function InsightLegend(): JSX.Element {
                     indexedResults.map((item) => {
                         return (
                             <Row key={item.id} className="insight-legend-menu-item" wrap={false}>
-                                <Col>
-                                    <PHCheckbox
-                                        color={colorList[item.id]}
-                                        checked={!hiddenLegendKeys[item.id]}
-                                        onChange={() => toggleVisibility(item.id)}
-                                    />
-                                </Col>
-                                <Col>
-                                    <InsightLabel
-                                        key={item.id}
-                                        seriesColor={colorList[item.id]}
-                                        action={item.action}
-                                        fallbackName={item.breakdown_value === '' ? 'None' : item.label}
-                                        hasMultipleSeries={indexedResults.length > 1}
-                                        breakdownValue={
-                                            item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()
-                                        }
-                                        compareValue={filters.compare ? formatCompareLabel(item) : undefined}
-                                        pillMidEllipsis={item?.filter?.breakdown === '$current_url'} // TODO: define set of breakdown values that would benefit from mid ellipsis truncation
-                                        hideIcon
-                                    />
-                                </Col>
+                                <div
+                                    className="insight-legend-menu-item-inner"
+                                    onClick={() => toggleVisibility(item.id)}
+                                >
+                                    <Col>
+                                        <PHCheckbox
+                                            color={colorList[item.id]}
+                                            checked={!hiddenLegendKeys[item.id]}
+                                            onChange={() => {}}
+                                        />
+                                    </Col>
+                                    <Col>
+                                        <InsightLabel
+                                            key={item.id}
+                                            seriesColor={colorList[item.id]}
+                                            action={item.action}
+                                            fallbackName={item.breakdown_value === '' ? 'None' : item.label}
+                                            hasMultipleSeries={indexedResults.length > 1}
+                                            breakdownValue={
+                                                item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()
+                                            }
+                                            compareValue={filters.compare ? formatCompareLabel(item) : undefined}
+                                            pillMidEllipsis={item?.filter?.breakdown === '$current_url'} // TODO: define set of breakdown values that would benefit from mid ellipsis truncation
+                                            hideIcon
+                                        />
+                                    </Col>
+                                </div>
                             </Row>
                         )
                     })}
