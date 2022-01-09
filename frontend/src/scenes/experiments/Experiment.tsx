@@ -303,9 +303,10 @@ export function Experiment(): JSX.Element {
                                     <BindLogic logic={insightLogic} props={insightProps}>
                                         <Row style={{ width: '100%' }}>
                                             <Col span={8} style={{ paddingRight: 8 }}>
-                                                <div className="l3 mb">Goal type</div>
+                                                <div className="mb">
+                                                    <b>Goal type</b>
+                                                </div>
                                                 <Select
-                                                    size="large"
                                                     style={{ display: 'flex' }}
                                                     defaultValue={InsightType.TRENDS}
                                                     onChange={setExperimentInsightType}
@@ -314,8 +315,10 @@ export function Experiment(): JSX.Element {
                                                 >
                                                     <Select.Option value={InsightType.TRENDS}>
                                                         <Col>
-                                                            <b>Trend</b>
-                                                            <div style={{ fontSize: 14 }}>
+                                                            <span>
+                                                                <b>Trend</b>
+                                                            </span>
+                                                            <div>
                                                                 Track how many participants complete a specific event or
                                                                 action
                                                             </div>
@@ -323,12 +326,17 @@ export function Experiment(): JSX.Element {
                                                     </Select.Option>
                                                     <Select.Option value={InsightType.FUNNELS}>
                                                         <Col>
-                                                            <b>Funnel</b>
+                                                            <span>
+                                                                <b>Funnel</b>
+                                                            </span>
                                                             <div>Track conversion rates between events and actions</div>
                                                         </Col>
                                                     </Select.Option>
                                                 </Select>
-                                                <Row className="mt">
+                                                <div className="mb mt">
+                                                    <b>Experiment goal</b>
+                                                </div>
+                                                <Row>
                                                     <Card
                                                         className="action-filters-bordered"
                                                         style={{ width: '100%', marginRight: 8 }}

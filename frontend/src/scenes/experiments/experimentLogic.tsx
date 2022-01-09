@@ -129,7 +129,7 @@ export const experimentLogic = kea<experimentLogicType>({
                     parameters: {
                         feature_flag_variants: [
                             { key: 'control', rollout_percentage: 50 },
-                            { key: 'test_group', rollout_percentage: 50 },
+                            { key: 'test', rollout_percentage: 50 },
                         ],
                     },
                 }),
