@@ -1,6 +1,6 @@
 import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTests } from '~/test/init'
 import { personsLogic } from './personsLogic'
 import { router } from 'kea-router'
 import { PropertyOperator } from '~/types'
@@ -20,13 +20,13 @@ describe('personsLogic', () => {
         return defaultAPIMocks(url)
     })
 
-    describe('syncs with insightLogic', () => {
-        initKeaTestLogic({
-            logic: personsLogic,
-            props: { syncWithUrl: true },
-            onLogic: (l) => (logic = l),
-        })
+    beforeEach(() => {
+        initKeaTests()
+        logic = personsLogic({ syncWithUrl: true })
+        logic.mount()
+    })
 
+    describe('syncs with insightLogic', () => {
         it('setAllFilters properties works', async () => {
             router.actions.push('/persons')
             await expectLogic(logic, () => {
@@ -60,12 +60,6 @@ describe('personsLogic', () => {
     })
 
     describe('loads a person', () => {
-        initKeaTestLogic({
-            logic: personsLogic,
-            props: { syncWithUrl: true },
-            onLogic: (l) => (logic = l),
-        })
-
         it('starts with a null person', async () => {
             await expectLogic(logic).toMatchValues({
                 person: null,
