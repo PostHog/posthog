@@ -14,6 +14,8 @@ describe('personsLogic', () => {
         const { pathname, searchParams } = url
         if (`api/person/` === pathname && searchParams == { properties: [{ key: 'email', operator: 'is_set' }] }) {
             return { result: ['result from api'] }
+        } else if (`api/person/` === pathname && ['abc', 'xyz'].includes(searchParams['distinct_id'])) {
+            return { results: ['person from api'] }
         }
         return defaultAPIMocks(url)
     })
@@ -54,6 +56,51 @@ describe('personsLogic', () => {
             })
                 .toDispatchActions(router, ['replace', 'locationChanged'])
                 .toMatchValues(router, { searchParams: {} })
+        })
+    })
+
+    describe('loads a person', () => {
+        initKeaTestLogic({
+            logic: personsLogic,
+            props: { syncWithUrl: true },
+            onLogic: (l) => (logic = l),
+        })
+
+        it('starts with a null person', async () => {
+            await expectLogic(logic).toMatchValues({
+                person: null,
+            })
+        })
+
+        it('loads a person', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadPerson('abc')
+            })
+                .toDispatchActions(['loadPerson', 'loadPersonSuccess'])
+                .toMatchValues({
+                    person: 'person from api',
+                })
+        })
+
+        it('clears the person when switching between people', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadPerson('abc')
+            })
+                .toDispatchActions(['loadPersonSuccess'])
+                .toMatchValues({
+                    person: 'person from api',
+                })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadPerson('xyz')
+            })
+                .toMatchValues({
+                    person: null,
+                })
+                .toDispatchActions(['loadPersonSuccess'])
+                .toMatchValues({
+                    person: 'person from api',
+                })
         })
     })
 })
