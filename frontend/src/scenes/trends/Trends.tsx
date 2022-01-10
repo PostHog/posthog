@@ -12,7 +12,7 @@ import {
 import { ActionsPie, ActionsLineGraph, ActionsHorizontalBar } from './viz'
 import { SaveCohortModal } from './SaveCohortModal'
 import { trendsLogic } from './trendsLogic'
-import { InsightType } from '~/types'
+import { InsightType, ItemMode } from '~/types'
 import { InsightsTable } from 'scenes/insights/InsightsTable'
 import { Button } from 'antd'
 import { personsModalLogic } from './personsModalLogic'
@@ -24,7 +24,7 @@ interface Props {
 }
 
 export function TrendInsight({ view }: Props): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, insightMode } = useValues(insightLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
     const {
@@ -52,11 +52,10 @@ export function TrendInsight({ view }: Props): JSX.Element {
             return (
                 <BindLogic logic={trendsLogic} props={{ dashboardItemId: null, view, filters: null }}>
                     <InsightsTable
-                        className="insight-table-type-trend"
-                        isLegend={false}
+                        embedded
                         showTotalCount
                         filterKey={`trends_${view}`}
-                        canEditSeriesNameInline
+                        canEditSeriesNameInline={insightMode === ItemMode.Edit}
                     />
                 </BindLogic>
             )
@@ -71,7 +70,17 @@ export function TrendInsight({ view }: Props): JSX.Element {
 
     return (
         <>
-            {(_filters.actions || _filters.events) && <div className="trends-insights-container">{renderViz()}</div>}
+            {(_filters.actions || _filters.events) && (
+                <div
+                    className={
+                        _filters.display !== ACTIONS_TABLE
+                            ? 'trends-insights-container'
+                            : undefined /* Tables don't need this padding, but graphs do for sizing */
+                    }
+                >
+                    {renderViz()}
+                </div>
+            )}
             {_filters.breakdown && (
                 <div className="mt text-center">
                     {loadMoreBreakdownUrl ? (
