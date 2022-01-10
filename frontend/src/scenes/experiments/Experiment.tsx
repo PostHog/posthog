@@ -1,5 +1,5 @@
 import SaveOutlined from '@ant-design/icons/lib/icons/SaveOutlined'
-import { Button, Card, Col, Form, Input, InputNumber, Row, Select, Slider, Tag, Tooltip } from 'antd'
+import { Button, Card, Col, Form, Input, InputNumber, Progress, Row, Select, Slider, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -10,7 +10,14 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { ChartDisplayType, FilterType, FunnelVizType, InsightType, MultivariateFlagVariant, PropertyFilter } from '~/types'
+import {
+    ChartDisplayType,
+    FilterType,
+    FunnelVizType,
+    InsightType,
+    MultivariateFlagVariant,
+    PropertyFilter,
+} from '~/types'
 import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
@@ -23,6 +30,8 @@ import PropertyFilterButton from 'lib/components/PropertyFilters/components/Prop
 import { FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { getSeriesColor } from 'scenes/funnels/funnelUtils'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -42,7 +51,6 @@ export function Experiment(): JSX.Element {
         conversionRateForVariant,
         countDataForVariant,
         editingExistingExperiment,
-        highestProbabilityVariant,
         experimentInsightType,
         experimentResultsLoading,
     } = useValues(experimentLogic)
@@ -83,7 +91,6 @@ export function Experiment(): JSX.Element {
     const sampleSize = recommendedSampleSize(conversionRate)
     const runningTime = expectedRunningTime(entrants, sampleSize)
     const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
-    const resultsTagColors = ['purple', 'gold', 'blue', '#35416B']
     const status = (): string => {
         if (!experimentData?.start_date) {
             return 'draft'
@@ -590,20 +597,22 @@ export function Experiment(): JSX.Element {
                                     )}
                                 </ul>
                             </Col>
-                            <Col>
-                                <div className="card-secondary mt">Start date</div>
-                                {experimentData.start_date ? (
-                                    <span>{dayjs(experimentData.start_date).format('D MMM YYYY')}</span>
-                                ) : (
-                                    <span className="description">Not started yet</span>
-                                )}
-                            </Col>
-                            {experimentData.end_date && (
-                                <Col>
-                                    <div className="card-secondary mt">Completed date</div>
-                                    <span>{dayjs(experimentData.end_date).format('D MMM YYYY')}</span>
+                            <Row>
+                                <Col className="mr">
+                                    <div className="card-secondary mt">Start date</div>
+                                    {experimentData.start_date ? (
+                                        <span>{dayjs(experimentData.start_date).format('D MMM YYYY')}</span>
+                                    ) : (
+                                        <span className="description">Not started yet</span>
+                                    )}
                                 </Col>
-                            )}
+                                {experimentData.end_date && (
+                                    <Col className="ml">
+                                        <div className="card-secondary mt">Completed date</div>
+                                        <span>{dayjs(experimentData.end_date).format('D MMM YYYY')}</span>
+                                    </Col>
+                                )}
+                            </Row>
                         </Col>
                         <Col span={14}>
                             <div style={{ borderBottom: '1px solid (--border)' }}>
@@ -634,8 +643,9 @@ export function Experiment(): JSX.Element {
                                 {`posthog.feature_flags.override({'${experimentData.feature_flag_key}': '${currentVariant}'})`}
                             </CodeSnippet>
                             <CodeSnippet language={Language.JavaScript} wrap>
-                                {`if (posthog.getFeatureFlag('${experimentData.feature_flag_key ?? ''
-                                    }') === '${currentVariant}') {
+                                {`if (posthog.getFeatureFlag('${
+                                    experimentData.feature_flag_key ?? ''
+                                }') === '${currentVariant}') {
     // where '${currentVariant}' is the variant, run your code here
 }`}
                             </CodeSnippet>
@@ -651,39 +661,44 @@ export function Experiment(): JSX.Element {
                             </a>
                         </Col>
                     </Row>
-                    <div className="experiment-result text-center">
+                    <div className="experiment-result">
                         {experimentResults ? (
-                            <Row style={{ alignItems: 'baseline' }}>
-                                {experimentData.parameters.feature_flag_variants
-                                    ?.slice(1)
-                                    .map((variant: MultivariateFlagVariant, idx: number) => (
-                                        <Col className="ml" key={idx}>
-                                            <div className="card-secondary">{variant.key} {experimentInsightType === InsightType.FUNNELS ? 'conversion rate' : 'count'}</div>
-                                            <Row justify="center" align="middle">
-                                                <span className="mr-05" style={{ fontWeight: 700, fontSize: 20 }}>
-                                                    {/* TODO: Alternate based on trend or funnel */}
-                                                    {experimentInsightType === InsightType.FUNNELS ? conversionRateForVariant(variant.key) : countDataForVariant(variant.key)}
-                                                </span>
-                                                <Tag style={{ border: 'none' }} color={resultsTagColors[idx]}>
-                                                    <b>{variant.key}</b>
-                                                </Tag>
-                                            </Row>
+                            <Row justify="space-around">
+                                {experimentData.parameters.feature_flag_variants.map(
+                                    (variant: MultivariateFlagVariant, idx: number) => (
+                                        <Col key={idx}>
+                                            <div style={{ fontSize: 16 }}>
+                                                <b>{capitalizeFirstLetter(variant.key)}</b>
+                                            </div>
+                                            {experimentInsightType === InsightType.FUNNELS
+                                                ? 'Conversion rate: '
+                                                : 'Count: '}
+                                            <b>
+                                                {experimentInsightType === InsightType.FUNNELS
+                                                    ? `${conversionRateForVariant(variant.key)}%`
+                                                    : countDataForVariant(variant.key)}
+                                            </b>
+                                            {experimentInsightType === InsightType.FUNNELS && (
+                                                <Progress
+                                                    percent={Number(conversionRateForVariant(variant.key))}
+                                                    size="small"
+                                                    showInfo={false}
+                                                    strokeColor={getSeriesColor(idx + 1)}
+                                                />
+                                            )}
                                         </Col>
-                                    ))}
-                                <Col className="ml">
-                                    <div className="card-secondary">Control {experimentInsightType === InsightType.FUNNELS ? 'conversion rate' : 'count'}</div>
-                                    <Row justify="center" align="middle">
-                                        <span className="mr-05" style={{ fontWeight: 700, fontSize: 20 }}>
-                                            {experimentInsightType === InsightType.FUNNELS ? conversionRateForVariant('control') : countDataForVariant('control')}
-                                        </span>
-                                        <Tag style={{ border: 'none', color: 'white' }} color={resultsTagColors[3]}>
-                                            <b>control</b>
-                                        </Tag>
-                                    </Row>
-                                </Col>
+                                    )
+                                )}
                             </Row>
-                        ) : experimentResultsLoading ? <Spinner /> : (
-                            <span style={{ fontWeight: 500 }}>There are no results for this experiment yet. {!experimentData.start_date && 'Launch this experiment to start it!'}</span>
+                        ) : experimentResultsLoading ? (
+                            <div className="text-center">
+                                <Spinner />
+                            </div>
+                        ) : (
+                            <span style={{ fontWeight: 500 }}>
+                                There are no results for this experiment yet.{' '}
+                                {!experimentData.start_date && 'Launch this experiment to start it!'}
+                            </span>
                         )}
                         {experimentResults ? (
                             <BindLogic
@@ -700,7 +715,7 @@ export function Experiment(): JSX.Element {
                                         }),
                                         ...(experimentInsightType === InsightType.TRENDS && {
                                             display: ChartDisplayType.ActionsLineGraphCumulative,
-                                        })
+                                        }),
                                     },
                                     cachedResults: experimentResults.insight,
                                     syncWithUrl: false,
@@ -725,7 +740,11 @@ export function Experiment(): JSX.Element {
                                     fontSize: 24,
                                 }}
                             >
-                                {experimentResultsLoading ? <Spinner /> : <b>There are no results for this experiment yet.</b>}
+                                {experimentResultsLoading ? (
+                                    <Spinner />
+                                ) : (
+                                    <b>There are no results for this experiment yet.</b>
+                                )}
                             </div>
                         )}
                     </div>

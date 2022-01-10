@@ -264,9 +264,6 @@ export const experimentLogic = kea<experimentLogicType>({
                 // loading a draft mode experiment
                 actions.setNewExperimentData({ ...experimentData })
                 actions.createNewExperimentInsight(experimentData?.filters)
-                actions.emptyExperimentResults()
-            } else {
-                actions.loadExperimentResults()
             }
         },
         launchExperiment: async () => {
@@ -382,16 +379,15 @@ export const experimentLogic = kea<experimentLogicType>({
                     if (!experimentResults) {
                         return errorResult
                     }
-                    const variantResults = experimentResults.insight.find(
+                    const variantResults = experimentResults?.insight.find(
                         (variantFunnel) => variantFunnel[0]?.breakdown_value?.[0] === variant
                     )
                     if (!variantResults) {
                         return errorResult
                     }
-                    return `${(
-                        (variantResults[variantResults.length - 1].count / variantResults[0].count) *
-                        100
-                    ).toFixed(1)}%`
+                    return ((variantResults[variantResults.length - 1].count / variantResults[0].count) * 100).toFixed(
+                        1
+                    )
                 },
         ],
         countDataForVariant: [
@@ -425,6 +421,7 @@ export const experimentLogic = kea<experimentLogicType>({
     },
     urlToAction: ({ actions, values }) => ({
         '/experiments/:id': ({ id }) => {
+            actions.emptyExperimentResults()
             if (id) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 // TODO: optimise loading if already loaded Experiment
@@ -438,6 +435,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 }
                 if (parsedId !== 'new') {
                     actions.loadExperiment()
+                    actions.loadExperimentResults()
                 }
             }
         },
