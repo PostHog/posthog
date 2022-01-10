@@ -413,7 +413,10 @@ export function Experiment(): JSX.Element {
                                                 </Row>
                                             </Col>
                                             <Col span={16}>
-                                                <InsightContainer disableTable={true} />
+                                                <InsightContainer
+                                                    disableHeader={experimentInsightType === InsightType.TRENDS}
+                                                    disableTable={true}
+                                                />
                                             </Col>
                                         </Row>
                                     </BindLogic>
@@ -723,7 +726,10 @@ export function Experiment(): JSX.Element {
                                 }}
                             >
                                 <div className="mt">
-                                    <InsightContainer disableTable={true} />
+                                    <InsightContainer
+                                        disableHeader={experimentInsightType === InsightType.TRENDS}
+                                        disableTable={experimentInsightType === InsightType.FUNNELS}
+                                    />
                                 </div>
                             </BindLogic>
                         ) : (

@@ -40,7 +40,12 @@ const VIEW_MAP = {
     [`${InsightType.PATHS}`]: <Paths />,
 }
 
-export function InsightContainer({ disableTable }: { disableTable?: boolean } = { disableTable: false }): JSX.Element {
+export function InsightContainer(
+    { disableHeader, disableTable }: { disableHeader?: boolean; disableTable?: boolean } = {
+        disableHeader: false,
+        disableTable: false,
+    }
+): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const {
@@ -146,7 +151,7 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
             <Card
                 title={
-                    activeView === InsightType.TRENDS && disableTable ? null : (
+                    disableHeader ? null : (
                         <InsightDisplayConfig
                             activeView={activeView as InsightType}
                             insightMode={insightMode}
