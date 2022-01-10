@@ -45,8 +45,18 @@ _LIFECYCLE_EVENTS_QUERY = """
         SELECT 
             person_id, 
 
-            -- We want to put the status of each period onto it's own line, so we 
-            -- can easily aggregate over them
+            /* 
+               We want to put the status of each period onto it's own line, so we 
+               can easily aggregate over them. With the inner query we end up with a structure like:
+               
+                person_id  |  period_of_activity  | status_of_activity |  period_after_activity  | dormant_status_of_period_after_activity
+                
+               However, we want to have something of the format:
+
+                person_id  | period  |  status_of_period
+
+               such that we can simply aggregate over person_id, period.
+            */
             arrayJoin(
                 arrayZip(
                     [start_of_period, start_of_period + interval_type],
