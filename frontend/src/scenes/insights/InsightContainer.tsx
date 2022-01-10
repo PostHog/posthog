@@ -134,6 +134,7 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
             return (
                 <BindLogic logic={trendsLogic} props={insightProps}>
                     <InsightsTable
+                        isLegend
                         showTotalCount
                         filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
                         canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}

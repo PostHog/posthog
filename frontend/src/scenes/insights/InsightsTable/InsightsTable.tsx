@@ -25,9 +25,13 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/
 import stringWithWBR from 'lib/utils/stringWithWBR'
 
 interface InsightsTableProps {
-    isLegend?: boolean // `true` -> Used as a supporting legend at the bottom of another graph; `false` -> used as it's own display
+    /** Whether this is just a legend instead of standalone insight viz. Default: false. */
+    isLegend?: boolean
+    /** Whether this is table is embedded in another card or whether it should be a card of its own. Default: false. */
+    embedded?: boolean
     showTotalCount?: boolean
-    filterKey: string // key for the entityFilterLogic
+    /** Key for the entityFilterLogic */
+    filterKey: string
     canEditSeriesNameInline?: boolean
 }
 
@@ -49,13 +53,14 @@ export function DashboardInsightsTable({
 }): JSX.Element {
     return (
         <BindLogic logic={trendsLogic} props={{ dashboardItemId, filters }}>
-            <InsightsTable isLegend={false} showTotalCount filterKey={`dashboard_${dashboardItemId}`} />
+            <InsightsTable showTotalCount filterKey={`dashboard_${dashboardItemId}`} />
         </BindLogic>
     )
 }
 
 export function InsightsTable({
-    isLegend = true,
+    isLegend = false,
+    embedded = false,
     showTotalCount = false,
     filterKey,
     canEditSeriesNameInline,
@@ -257,8 +262,8 @@ export function InsightsTable({
     return (
         <LemonTable
             dataSource={indexedResults}
-            embedded={!isLegend}
-            style={!isLegend ? { borderTop: '1px solid var(--border)' } : undefined}
+            embedded={embedded}
+            style={embedded ? { borderTop: '1px solid var(--border)' } : undefined}
             columns={columns}
             rowKey="id"
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
