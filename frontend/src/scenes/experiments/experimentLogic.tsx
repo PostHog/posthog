@@ -339,6 +339,19 @@ export const experimentLogic = kea<experimentLogicType>({
                 return Math.sqrt((1600 * conversionRate * (1 - conversionRate / 100)) / minimumSampleSize)
             },
         ],
+        recommendedExposureForCountData: [
+            (s) => [s.minimumDetectableChange],
+            (mde) => (baseCountData: number) => {
+                // assume a 5% mde, target count data is 5% of base count data
+                // http://www.columbia.edu/~cjd11/charles_dimaggio/DIRE/styled-4/code-12/
+                const minCountData = baseCountData * (mde / 100)
+                const lambda1 = baseCountData
+                const lambda2 = minCountData + baseCountData
+
+                return 4 / Math.pow(Math.sqrt(lambda1 / 14) - Math.sqrt(lambda2 / 14), 2) // weeks to days
+                // This is exposure in units of days
+            },
+        ],
         expectedRunningTime: [
             () => [],
             () =>

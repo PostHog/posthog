@@ -37,6 +37,7 @@ export function Experiment(): JSX.Element {
         expectedRunningTime,
         experimentResults,
         conversionRateForVariant,
+        recommendedExposureForCountData,
         editingExistingExperiment,
     } = useValues(experimentLogic)
     const {
@@ -74,6 +75,8 @@ export function Experiment(): JSX.Element {
         }
         return 'complete'
     }
+
+    console.log(recommendedExposureForCountData(10000))
 
     return (
         <>
