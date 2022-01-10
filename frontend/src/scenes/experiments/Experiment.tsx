@@ -1,5 +1,5 @@
 import SaveOutlined from '@ant-design/icons/lib/icons/SaveOutlined'
-import { Button, Card, Col, Form, Input, InputNumber, Row, Select, Slider, Tag, Tooltip } from 'antd'
+import { Button, Card, Col, Form, Input, InputNumber, Row, Select, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -22,7 +22,7 @@ import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { IconJavascript, IconOpenInNew } from 'lib/components/icons'
-import { InfoCircleOutlined, CaretDownOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons'
+import { CaretDownOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
@@ -41,7 +41,6 @@ export function Experiment(): JSX.Element {
         experimentId,
         experimentData,
         experimentInsightId,
-        minimumDetectableChange,
         minimumSampleSizePerVariant,
         expectedRunningTime,
         experimentResults,
@@ -51,6 +50,7 @@ export function Experiment(): JSX.Element {
         editingExistingExperiment,
         highestProbabilityVariant,
         experimentInsightType,
+        variants,
     } = useValues(experimentLogic)
     const {
         setNewExperimentData,
@@ -85,11 +85,12 @@ export function Experiment(): JSX.Element {
     const { filters: trendsFilters, results: trendResults } = useValues(trendsLogic(insightProps))
 
     const conversionRate = conversionMetrics.totalRate * 100
+    const sampleSizePerVariant = minimumSampleSizePerVariant(conversionRate)
+    const trendCount = trendResults[0]?.count
     const entrants = results?.[0]?.count
-    const sensitivity = minimumDetectableChange(conversionRate)
-    const runningTime = expectedRunningTime(entrants, minimumSampleSizePerVariant * 2) // TODO: number of variants, not 2
-    const exposure = recommendedExposureForCountData(trendResults[0]?.count)
-    console.log(exposure, conversionRateForVariant('test'))
+    const runningTime = expectedRunningTime(entrants, sampleSizePerVariant * variants.length)
+    const exposure = recommendedExposureForCountData(trendCount)
+
     const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
     const resultsTagColors = ['purple', 'gold', 'blue', '#35416B']
     const status = (): string => {
@@ -123,7 +124,7 @@ export function Experiment(): JSX.Element {
                             feature_flag_key: newExperimentData?.feature_flag_key,
                             description: newExperimentData?.description,
                         }}
-                        onFinish={() => createExperiment(true, runningTime, sensitivity)}
+                        onFinish={() => createExperiment(true, exposure, sampleSize)}
                         scrollToFirstError
                     >
                         <div>
@@ -443,63 +444,39 @@ export function Experiment(): JSX.Element {
                                     </Col>
                                 </Row>
                                 <Row className="preview-row">
-                                    <Col span={8}>
-                                        <div className="card-secondary">Baseline Conversion Rate</div>
-                                        <div className="l4">{conversionRate.toFixed(1)}%</div>
-                                    </Col>
-                                    <Col span={8}>
-                                        <div className="card-secondary">Sensitivity</div>
-                                        <div className="l4">{sensitivity.toFixed(1)}%</div>
-                                    </Col>
-                                    <Col span={8}>
-                                        <div className="card-secondary mb-05">Undetectable Range</div>
-                                        <div>
-                                            <b>
-                                                {Math.max(0, conversionRate - sensitivity).toFixed()}% -{' '}
-                                                {Math.min(100, conversionRate + sensitivity).toFixed()}%
-                                            </b>
-                                        </div>
-                                    </Col>
-                                </Row>
-                                <Row className="preview-row">
-                                    <Col>
-                                        <div className="l4">
-                                            Minimum Participant Count
-                                            <Tooltip title={`The minimum sample size per variant.`}>
-                                                <InfoCircleOutlined style={{ marginLeft: 4 }} />
-                                            </Tooltip>
-                                        </div>
-                                        <div className="pb text-small text-muted">
-                                            Choose how many participants you want to run this experiment with. More
-                                            participants increase sensitivity, which allows you to detect smaller
-                                            changes in your conversion rate.
-                                        </div>
-                                        <div>
-                                            <span className="l4 pr">Sample size</span>
-                                            <Slider
-                                                min={100}
-                                                max={5000}
-                                                defaultValue={500}
-                                                tipFormatter={(value) => `${value}`}
-                                                onChange={(value) =>
-                                                    setNewExperimentData({
-                                                        parameters: {
-                                                            minimum_sample_size: value,
-                                                        },
-                                                    })
-                                                }
-                                                marks={{ 500: `500`, 1000: `1000` }}
-                                            />
-                                        </div>
-                                    </Col>
-                                </Row>
-                                <Row>
-                                    <Col>
-                                        <div className="card-secondary">Expected duration</div>
-                                        <div>
-                                            <span className="l4">~{runningTime}</span> days
-                                        </div>
-                                    </Col>
+                                    {experimentInsightType === InsightType.TRENDS ? (
+                                        <>
+                                            <Col span={12}>
+                                                <div className="card-secondary">Baseline Count</div>
+                                                <div className="l4">{trendCount}</div>
+                                            </Col>
+                                            <Col span={12}>
+                                                <div className="card-secondary">Expected Duration</div>
+                                                <div>
+                                                    <span className="l4">~{exposure}</span> days
+                                                </div>
+                                            </Col>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Col span={8}>
+                                                <div className="card-secondary">Baseline Conversion Rate</div>
+                                                <div className="l4">{conversionRate.toFixed(1)}%</div>
+                                            </Col>
+                                            <Col span={8}>
+                                                <div className="card-secondary">Recommended Sample Size</div>
+                                                <div className="pb">
+                                                    <span className="l4">~{sampleSizePerVariant}</span> persons
+                                                </div>
+                                            </Col>
+                                            <Col span={8}>
+                                                <div className="card-secondary">Expected Duration</div>
+                                                <div>
+                                                    <span className="l4">~{runningTime}</span> days
+                                                </div>
+                                            </Col>
+                                        </>
+                                    )}
                                 </Row>
                             </Card>
                         </div>
@@ -684,8 +661,9 @@ export function Experiment(): JSX.Element {
                                             <div className="card-secondary">{variant.key} conversion rate</div>
                                             <Row justify="center" align="middle">
                                                 <span className="mr-05" style={{ fontWeight: 700, fontSize: 20 }}>
-                                                    {/* TODO: Alternate based on trend or funnel */}
-                                                    {countDataForVariant(variant.key)}
+                                                    {experimentInsightType === InsightType.TRENDS
+                                                        ? countDataForVariant(variant.key)
+                                                        : conversionRateForVariant(variant.key)}
                                                 </span>
                                                 <Tag style={{ border: 'none' }} color={resultsTagColors[idx]}>
                                                     <b>{variant.key}</b>

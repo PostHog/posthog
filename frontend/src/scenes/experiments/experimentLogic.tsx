@@ -35,10 +35,10 @@ export const experimentLogic = kea<experimentLogicType>({
     actions: {
         setExperimentResults: (experimentResults: ExperimentResults | null) => ({ experimentResults }),
         setExperiment: (experiment: Experiment) => ({ experiment }),
-        createExperiment: (draft?: boolean, runningTime?: number, sensitivity?: number) => ({
+        createExperiment: (draft?: boolean, runningTime?: number, sampleSize?: number) => ({
             draft,
             runningTime,
-            sensitivity,
+            sampleSize,
         }),
         setExperimentInsightId: (shortId: InsightShortId) => ({ shortId }),
         createNewExperimentInsight: (filters?: Partial<FilterType>) => ({ filters }),
@@ -163,7 +163,7 @@ export const experimentLogic = kea<experimentLogicType>({
         ],
     },
     listeners: ({ values, actions }) => ({
-        createExperiment: async ({ draft, runningTime, sensitivity }) => {
+        createExperiment: async ({ draft, runningTime, sampleSize }) => {
             let response: Experiment | null = null
             const isUpdate = !!values.newExperimentData?.id
             try {
@@ -174,8 +174,8 @@ export const experimentLogic = kea<experimentLogicType>({
                             ...values.newExperimentData,
                             parameters: {
                                 ...values.newExperimentData.parameters,
-                                expected_running_time: runningTime,
-                                sensitivity,
+                                recommended_running_time: runningTime,
+                                recommended_sample_size: sampleSize,
                             },
                             ...(!draft && { start_date: dayjs() }),
                         }
@@ -186,7 +186,7 @@ export const experimentLogic = kea<experimentLogicType>({
                         parameters: {
                             ...values.newExperimentData?.parameters,
                             expected_running_time: runningTime,
-                            sensitivity,
+                            recommended_sample_size: sampleSize,
                         },
                         ...(!draft && { start_date: dayjs() }),
                     })
@@ -346,33 +346,44 @@ export const experimentLogic = kea<experimentLogicType>({
                 },
             ],
         ],
-        minimumSampleSizePerVariant: [
-            (s) => [s.newExperimentData],
-            (newExperimentData): number => {
-                return newExperimentData?.parameters?.minimum_sample_size || 500
+        variants: [
+            (s) => [s.newExperimentData, s.experimentData],
+            (newExperimentData, experimentData): MultivariateFlagVariant[] => {
+                return (
+                    newExperimentData?.parameters?.feature_flag_variants ||
+                    experimentData?.parameters?.feature_flag_variants ||
+                    []
+                )
             },
         ],
         minimumDetectableChange: [
-            (s) => [s.minimumSampleSizePerVariant],
-            (minimumSampleSize) => (conversionRate: number) => {
+            (s) => [s.newExperimentData],
+            (newExperimentData): number => {
+                return newExperimentData?.parameters?.minimum_detectable_effect || 5
+            },
+        ],
+        minimumSampleSizePerVariant: [
+            (s) => [s.minimumDetectableChange],
+            (mde) => (conversionRate: number) => {
                 // Using the rule of thumb: sampleSize = 16 * sigma^2 / (mde^2)
                 // refer https://en.wikipedia.org/wiki/Sample_size_determination with default beta and alpha
                 // The results are same as: https://www.evanmiller.org/ab-testing/sample-size.html
                 // and also: https://marketing.dynamicyield.com/ab-test-duration-calculator/
-                return Math.sqrt((1600 * conversionRate * (1 - conversionRate / 100)) / minimumSampleSize)
+                return Math.ceil((1600 * conversionRate * (1 - conversionRate / 100)) / (mde * mde))
             },
         ],
         recommendedExposureForCountData: [
-            (s) => [s.minimumDetectableChange],
-            (mde) => (baseCountData: number) => {
+            () => [],
+            () => (baseCountData: number) => {
+                console.log(baseCountData)
                 // assume a 5% mde, target count data is 5% of base count data
                 // http://www.columbia.edu/~cjd11/charles_dimaggio/DIRE/styled-4/code-12/
-                const minCountData = baseCountData * (mde / 100)
+                const minCountData = baseCountData * 0.05
                 const lambda1 = baseCountData
                 const lambda2 = minCountData + baseCountData
 
-                return 4 / Math.pow(Math.sqrt(lambda1 / 14) - Math.sqrt(lambda2 / 14), 2) // weeks to days
                 // This is exposure in units of days
+                return (4 / Math.pow(Math.sqrt(lambda1 / 14) - Math.sqrt(lambda2 / 14), 2)).toFixed(1)
             },
         ],
         expectedRunningTime: [
