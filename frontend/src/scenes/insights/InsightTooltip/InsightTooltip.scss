@@ -17,6 +17,10 @@
         border-bottom-right-radius: 0;
         border-bottom: 1px solid var(--border);
 
+        .insights-label {
+            margin: 0;
+        }
+
         .color-column {
             padding: 0;
             width: 6px;
@@ -53,6 +57,7 @@
                 font-weight: 600;
                 display: flex;
                 align-items: center;
+                height: inherit;
             }
             .series-data-cell {
                 font-weight: 600;
