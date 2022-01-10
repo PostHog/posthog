@@ -78,7 +78,11 @@ export function ActionsHorizontalBar({
                 altTitle: function _renderAltTitle(tooltipData) {
                     return (
                         <>
-                            <SeriesLetter hasBreakdown={false} seriesIndex={tooltipData?.[0]?.action?.order ?? 0} />
+                            <SeriesLetter
+                                className="mr-025"
+                                hasBreakdown={false}
+                                seriesIndex={tooltipData?.[0]?.action?.order ?? 0}
+                            />
                             <InsightLabel
                                 className="series-column-header"
                                 action={tooltipData?.[0]?.action}
