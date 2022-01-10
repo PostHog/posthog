@@ -262,6 +262,8 @@ export function InsightsTable({
     return (
         <LemonTable
             dataSource={indexedResults}
+            embedded={!isLegend}
+            style={!isLegend ? { borderTop: '1px solid var(--border)' } : undefined}
             columns={columns}
             rowKey="id"
             pagination={{ pageSize: 100, hideOnSinglePage: true }}

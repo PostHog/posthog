@@ -63,7 +63,11 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
         if (activeView !== loadedView || isLoading) {
             return (
                 <>
-                    <div style={{ minHeight: 'min(calc(90vh - 16rem), 36rem)' }} />
+                    {
+                        filters.display !== ACTIONS_TABLE && (
+                            <div className="trends-insights-container" />
+                        ) /* Tables don't need this padding, but graphs do for sizing */
+                    }
                     <Loading />
                 </>
             )

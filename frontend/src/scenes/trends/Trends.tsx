@@ -70,7 +70,17 @@ export function TrendInsight({ view }: Props): JSX.Element {
 
     return (
         <>
-            {(_filters.actions || _filters.events) && <div className="trends-insights-container">{renderViz()}</div>}
+            {(_filters.actions || _filters.events) && (
+                <div
+                    className={
+                        _filters.display !== ACTIONS_TABLE
+                            ? 'trends-insights-container'
+                            : undefined /* Tables don't need this padding, but graphs do for sizing */
+                    }
+                >
+                    {renderViz()}
+                </div>
+            )}
             {_filters.breakdown && (
                 <div className="mt text-center">
                     {loadMoreBreakdownUrl ? (
