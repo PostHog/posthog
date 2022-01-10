@@ -141,7 +141,6 @@ class FunnelCorrelation:
             # NOTE: we don't need these as we have all the information we need to
             # deduce if the person was successful or not
             include_preceding_timestamp=False,
-            no_person_limit=True,
         )
 
     def support_autocapture_elements(self) -> bool:
@@ -755,7 +754,9 @@ class FunnelCorrelation:
 
     def get_funnel_actors_cte(self) -> Tuple[str, Dict[str, Any]]:
 
-        return self._funnel_actors_generator.actor_query(extra_fields=["steps", "final_timestamp", "first_timestamp"])
+        return self._funnel_actors_generator.actor_query(
+            limit_actors=False, extra_fields=["steps", "final_timestamp", "first_timestamp"]
+        )
 
     @staticmethod
     def are_results_insignificant(event_contingency_table: EventContingencyTable) -> bool:

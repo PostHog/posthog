@@ -260,9 +260,6 @@ export function ProjectSettings(): JSX.Element {
                 <div id="session-recording" />
                 <h2 id="recordings" className="subtitle" style={{ display: 'flex', alignItems: 'center' }}>
                     Recordings
-                    <LemonTag type="warning" style={{ marginLeft: 8 }}>
-                        Beta
-                    </LemonTag>
                 </h2>
                 <p>
                     Watch recordings of how users interact with your web app to see what can be improved. Recordings are

@@ -35,7 +35,6 @@ const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
     [`${InsightType.STICKINESS}`]: <TrendInsight view={InsightType.STICKINESS} />,
     [`${InsightType.LIFECYCLE}`]: <TrendInsight view={InsightType.LIFECYCLE} />,
-    [`${InsightType.SESSIONS}`]: <TrendInsight view={InsightType.SESSIONS} />,
     [`${InsightType.FUNNELS}`]: <FunnelInsight />,
     [`${InsightType.RETENTION}`]: <RetentionContainer />,
     [`${InsightType.PATHS}`]: <Paths />,
@@ -120,7 +119,7 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
         if (
             (!filters.display ||
                 (filters?.display !== ACTIONS_TABLE && filters?.display !== ACTIONS_BAR_CHART_VALUE)) &&
-            (activeView === InsightType.TRENDS || activeView === InsightType.SESSIONS) &&
+            activeView === InsightType.TRENDS &&
             !disableTable
         ) {
             /* InsightsTable is loaded for all trend views (except below), plus the sessions view.
@@ -131,7 +130,7 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
             return (
                 <BindLogic logic={trendsLogic} props={insightProps}>
                     <InsightsTable
-                        showTotalCount={activeView !== InsightType.SESSIONS}
+                        showTotalCount
                         filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
                         canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}
                     />
@@ -177,7 +176,7 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
                         BlockingEmptyState
                     ) : featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS] &&
                       (activeView === InsightType.TRENDS || activeView === InsightType.STICKINESS) &&
-                      !filters.legend_hidden ? (
+                      filters.show_legend ? (
                         <Row className="insights-graph-container-row" wrap={false}>
                             <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>
                             <Col className="insights-graph-container-row-right">

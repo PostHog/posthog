@@ -90,7 +90,7 @@ class CohortSerializer(serializers.ModelSerializer):
             try:
                 filter = Filter(request=request)
                 team = cast(User, request.user).team
-                target_entity = get_target_entity(request)
+                target_entity = get_target_entity(filter)
                 if filter.shown_as == TRENDS_STICKINESS:
                     stickiness_filter = StickinessFilter(
                         request=request, team=team, get_earliest_timestamp=self.earliest_timestamp_func

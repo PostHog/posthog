@@ -125,6 +125,7 @@ export function InsightsTable({
                         className={clsx({
                             editable: canEditSeriesNameInline,
                         })}
+                        pillMaxWidth={165}
                         compareValue={filters.compare ? formatCompareLabel(item) : undefined}
                         onLabelClick={canEditSeriesNameInline ? () => handleEditClick(item) : undefined}
                     />

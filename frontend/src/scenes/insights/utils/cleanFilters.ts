@@ -185,12 +185,9 @@ export function cleanFilters(
             insight: InsightType.TRENDS,
             ...filters,
             interval: autocorrectInterval(filters),
-            display:
-                filters.session && filters.session === 'dist'
-                    ? ChartDisplayType.ActionsTable
-                    : insightChanged
-                    ? ChartDisplayType.ActionsLineGraphLinear
-                    : filters.display || ChartDisplayType.ActionsLineGraphLinear,
+            display: insightChanged
+                ? ChartDisplayType.ActionsLineGraphLinear
+                : filters.display || ChartDisplayType.ActionsLineGraphLinear,
             actions: Array.isArray(filters.actions) ? filters.actions : undefined,
             events: Array.isArray(filters.events) ? filters.events : undefined,
             properties: filters.properties || [],
@@ -210,10 +207,6 @@ export function cleanFilters(
             cleanSearchParams['shown_as'] = ShownAsValue.LIFECYCLE
         } else {
             cleanSearchParams['shown_as'] = undefined
-        }
-
-        if (filters.insight === InsightType.SESSIONS && !filters.session) {
-            cleanSearchParams['session'] = 'avg'
         }
 
         if (filters.date_from === 'all' || filters.insight === InsightType.LIFECYCLE) {
@@ -246,7 +239,8 @@ export function cleanFilters(
         }
 
         return cleanSearchParams
-    } else if ((filters.insight as string) === 'HISTORY') {
+    } else if ((filters.insight as string) === 'SESSIONS') {
+        // DEPRECATED: Used to show deprecation warning for dashboard items
         return cleanFilters({ insight: InsightType.TRENDS })
     }
 

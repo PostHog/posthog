@@ -504,6 +504,7 @@
        AND event = '$pageview'
        AND timestamp >= '2020-01-02 00:00:00'
        AND timestamp <= '2020-01-02 23:59:59'
+       AND NOT has([''], $group_0)
        AND NOT has([''], $group_0) )
   GROUP BY actor_id
   LIMIT 200

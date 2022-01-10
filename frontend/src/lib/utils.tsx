@@ -716,7 +716,7 @@ export const dateMapping: Record<string, dateMappingOption> = {
         getFormattedDate: (date: dayjs.Dayjs, format: string): string => date.startOf('d').format(format),
     },
     Yesterday: {
-        values: ['-1d', 'dStart'],
+        values: ['-1d', '-1d'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string => date.subtract(1, 'd').format(format),
     },
     'Last 24 hours': {
