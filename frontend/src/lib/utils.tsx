@@ -368,8 +368,6 @@ export const operatorMap: Record<string, string> = {
     lt: '< lower than',
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
-    is_date_before: '< before',
-    is_date_after: '> after',
 }
 
 export const dateTimeOperatorMap: Record<string, string> = {
