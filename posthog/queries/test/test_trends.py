@@ -542,13 +542,13 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             with freeze_time("2020-01-04T13:00:01Z"):
                 response = trends().run(Filter(data={"compare": "true", "events": [{"id": "sign up"}]}), self.team)
 
-            self.assertEqual(response[0]["label"], "sign up - current")
+            self.assertEqual(response[0]["label"], "sign up")
             self.assertEqual(response[0]["labels"][4], "day 4")
             self.assertEqual(response[0]["data"][4], 3.0)
             self.assertEqual(response[0]["labels"][5], "day 5")
             self.assertEqual(response[0]["data"][5], 1.0)
 
-            self.assertEqual(response[1]["label"], "sign up - previous")
+            self.assertEqual(response[1]["label"], "sign up")
             self.assertEqual(response[1]["labels"][4], "day 4")
             self.assertEqual(response[1]["data"][4], 1.0)
             self.assertEqual(response[1]["labels"][5], "day 5")
@@ -817,7 +817,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self._test_events_with_dates(
                 dates=["2020-11-01 05:20:00", "2020-11-01 10:22:00", "2020-11-01 10:25:00"],
                 date_from="-1d",
-                date_to="dStart",
+                date_to="-1d",
                 query_time="2020-11-02 10:20:00",
                 result=[
                     {
@@ -834,9 +834,9 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         },
                         "label": "event_name",
                         "count": 3.0,
-                        "data": [3.0, 0.0],
-                        "labels": ["1-Nov-2020", "2-Nov-2020"],
-                        "days": ["2020-11-01", "2020-11-02"],
+                        "data": [3.0],
+                        "labels": ["1-Nov-2020"],
+                        "days": ["2020-11-01"],
                     }
                 ],
             )

@@ -22,7 +22,6 @@ import {
     InsightsLifecycleIcon,
     InsightsPathsIcon,
     InsightsRetentionIcon,
-    InsightsSessionsIcon,
     InsightsStickinessIcon,
     InsightsTrendsIcon,
 } from 'lib/components/icons'
@@ -58,12 +57,6 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         description: 'Discover how many users complete or drop out of a sequence of actions',
         icon: InsightsFunnelsIcon,
         inMenu: true,
-    },
-    [InsightType.SESSIONS]: {
-        name: 'Sessions',
-        description: 'View the average and distribution of session durations',
-        icon: InsightsSessionsIcon,
-        inMenu: false,
     },
     [InsightType.RETENTION]: {
         name: 'Retention',

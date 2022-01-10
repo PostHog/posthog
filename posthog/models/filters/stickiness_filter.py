@@ -8,6 +8,9 @@ from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.mixins.common import (
     CompareMixin,
     EntitiesMixin,
+    EntityIdMixin,
+    EntityMathMixin,
+    EntityTypeMixin,
     FilterTestAccountsMixin,
     InsightMixin,
     LimitMixin,
@@ -23,6 +26,9 @@ from posthog.models.team import Team
 class StickinessFilter(
     TotalIntervalsDerivedMixin,
     EntitiesMixin,
+    EntityIdMixin,
+    EntityTypeMixin,
+    EntityMathMixin,
     SelectedIntervalMixin,
     PropertyMixin,
     FilterTestAccountsMixin,

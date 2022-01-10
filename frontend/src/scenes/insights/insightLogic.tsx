@@ -243,13 +243,6 @@ export const insightLogic = kea<insightLogicType>({
                                 )}`,
                                 cache.abortController.signal
                             )
-                        } else if (insight === InsightType.SESSIONS || filters?.session) {
-                            response = await api.get(
-                                `api/projects/${currentTeamId}/insights/session/?${toParams(
-                                    filterTrendsClientSideParams(params)
-                                )}`,
-                                cache.abortController.signal
-                            )
                         } else if (insight === InsightType.RETENTION) {
                             response = await api.get(
                                 `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}`,
@@ -501,13 +494,13 @@ export const insightLogic = kea<insightLogicType>({
                     layout: undefined,
                     hiddenLegendKeys: undefined,
                     funnel_advanced: undefined,
-                    legend_hidden: undefined,
+                    show_legend: undefined,
                 }),
                 Object.assign({}, values.loadedFilters, {
                     layout: undefined,
                     hiddenLegendKeys: undefined,
                     funnel_advanced: undefined,
-                    legend_hidden: undefined,
+                    show_legend: undefined,
                 })
             )
 
@@ -723,7 +716,7 @@ export const insightLogic = kea<insightLogicType>({
             )
         },
         toggleInsightLegend: () => {
-            actions.setFilters({ ...values.filters, legend_hidden: !values.filters.legend_hidden })
+            actions.setFilters({ ...values.filters, show_legend: !values.filters.show_legend })
         },
     }),
     actionToUrl: ({ values }) => {

@@ -421,10 +421,6 @@ export const eventUsageLogic = kea<
             if (insight === 'TRENDS') {
                 properties.breakdown_type = filters.breakdown_type
                 properties.breakdown = filters.breakdown
-            } else if (insight === 'SESSIONS') {
-                properties.session_distribution = filters.session
-            } else if (insight === 'FUNNELS') {
-                properties.session_distribution = filters.session
             } else if (insight === 'RETENTION') {
                 properties.period = filters.period
                 properties.date_to = filters.date_to

@@ -104,6 +104,7 @@ test('getPluginRows', async () => {
             latest_tag_checked_at: null,
             name: 'test-maxmind-plugin',
             plugin_type: 'custom',
+            public_jobs: null,
             source: null,
             tag: '0.0.2',
             url: 'https://www.npmjs.com/package/posthog-maxmind-plugin',

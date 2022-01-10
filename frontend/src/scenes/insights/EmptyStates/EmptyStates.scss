@@ -1,0 +1,101 @@
+@import '~/vars';
+
+.insight-empty-state {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding-top: $default_spacing * 2;
+    padding-bottom: $default_spacing * 2;
+    color: $text_muted;
+    font-size: 1.1em;
+    flex-grow: 1;
+
+    &.error {
+        .illustration-main {
+            color: #fb8c6a; // $danger with increased lightness
+        }
+
+        h2 {
+            color: $danger;
+        }
+    }
+
+    &.warning {
+        .illustration-main {
+            color: #fec34d; // $warning with increased lightness
+        }
+
+        h2 {
+            color: $warning;
+        }
+    }
+
+    &.is-dashboard:not(.white) {
+        background-color: var(--item-darker);
+        color: rgba(#ffffff, 0.7);
+        h2 {
+            color: rgba(#ffffff, 0.9);
+        }
+        .ant-empty-img-simple-ellipse {
+            fill: var(--item-darkest);
+        }
+
+        .ant-empty-img-simple-g {
+            stroke: var(--item-lighter);
+
+            .ant-empty-img-simple-path {
+                fill: var(--item-lighter);
+            }
+        }
+    }
+
+    h2 {
+        font-weight: bold;
+        font-size: 1.5rem;
+        line-height: 1.6rem;
+        color: $primary_alt;
+    }
+
+    .illustration-main {
+        color: rgba($primary_alt, 0.3);
+    }
+
+    button.ant-btn-lg {
+        height: 42px;
+    }
+
+    .empty-state-inner {
+        max-width: 600px;
+
+        .illustration-main {
+            font-size: 5rem;
+            line-height: 1em;
+            text-align: center;
+            margin-bottom: 1rem;
+
+            .anticon {
+                font-size: 6rem !important;
+            }
+
+            .ant-empty {
+                height: 6rem;
+                margin: 0;
+                .ant-empty-image {
+                    height: 100%;
+                    svg {
+                        width: 6rem;
+                    }
+                }
+            }
+        }
+
+        h2 {
+            text-align: center;
+        }
+
+        ol {
+            margin-top: $default_spacing / 2;
+        }
+    }
+}

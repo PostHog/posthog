@@ -10,6 +10,7 @@ from django.core.cache import cache
 from django.db.models import Q
 from django.db.models.expressions import F, Subquery
 from django.utils import timezone
+from sentry_sdk import capture_exception
 
 from posthog.celery import update_cache_item_task
 from posthog.constants import (
@@ -137,14 +138,20 @@ def update_cached_items() -> None:
         .exclude(refreshing=True)
         .exclude(deleted=True)
         .exclude(refresh_attempt__gt=2)
+        .exclude(filters={})
         .order_by(F("last_refresh").asc(nulls_first=True))
     )
 
     for item in items[0:PARALLEL_INSIGHT_CACHE]:
-        cache_key, cache_type, payload = dashboard_item_update_task_params(item)
-        if item.filters_hash != cache_key:
-            item.save()  # force update if the saved key is different from the cache key
-        tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
+        try:
+            cache_key, cache_type, payload = dashboard_item_update_task_params(item)
+            if item.filters_hash != cache_key:
+                item.save()  # force update if the saved key is different from the cache key
+            tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
+        except Exception as e:
+            item.refresh_attempt = (item.refresh_attempt or 0) + 1
+            item.save()
+            capture_exception(e)
 
     logger.info("Found {} items to refresh".format(len(tasks)))
     taskset = group(tasks)
