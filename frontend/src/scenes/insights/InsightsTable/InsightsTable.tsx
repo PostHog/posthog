@@ -49,12 +49,7 @@ export function DashboardInsightsTable({
 }): JSX.Element {
     return (
         <BindLogic logic={trendsLogic} props={{ dashboardItemId, filters }}>
-            <InsightsTable
-                isLegend={false}
-                showTotalCount
-                filterKey={`dashboard_${dashboardItemId}`}
-                canEditSeriesNameInline
-            />
+            <InsightsTable isLegend={false} showTotalCount filterKey={`dashboard_${dashboardItemId}`} />
         </BindLogic>
     )
 }

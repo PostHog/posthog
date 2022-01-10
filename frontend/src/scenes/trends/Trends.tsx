@@ -12,7 +12,7 @@ import {
 import { ActionsPie, ActionsLineGraph, ActionsHorizontalBar } from './viz'
 import { SaveCohortModal } from './SaveCohortModal'
 import { trendsLogic } from './trendsLogic'
-import { InsightType } from '~/types'
+import { InsightType, ItemMode } from '~/types'
 import { InsightsTable } from 'scenes/insights/InsightsTable'
 import { Button } from 'antd'
 import { personsModalLogic } from './personsModalLogic'
@@ -24,7 +24,7 @@ interface Props {
 }
 
 export function TrendInsight({ view }: Props): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, insightMode } = useValues(insightLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
     const {
@@ -55,7 +55,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
                         isLegend={false}
                         showTotalCount
                         filterKey={`trends_${view}`}
-                        canEditSeriesNameInline
+                        canEditSeriesNameInline={insightMode === ItemMode.Edit}
                     />
                 </BindLogic>
             )
