@@ -6,7 +6,6 @@ import { combineUrl, router } from 'kea-router'
 import { deleteWithUndo, Loading } from 'lib/utils'
 import React, { RefObject, useEffect, useState } from 'react'
 import { ActionsLineGraph } from 'scenes/trends/viz/ActionsLineGraph'
-import { ActionsTable } from 'scenes/trends/viz/ActionsTable'
 import { ActionsPie } from 'scenes/trends/viz/ActionsPie'
 import { Paths } from 'scenes/paths/Paths'
 import { EllipsisOutlined, SaveOutlined } from '@ant-design/icons'
@@ -48,6 +47,7 @@ import { DiveIcon } from 'lib/components/icons'
 import { teamLogic } from '../teamLogic'
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
+import { DashboardInsightsTable } from 'scenes/insights/InsightsTable/InsightsTable'
 
 interface DashboardItemProps {
     item: InsightModel
@@ -106,7 +106,7 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
     },
     ActionsTable: {
         className: 'table',
-        element: ActionsTable,
+        element: DashboardInsightsTable,
         viewText: 'View table',
     },
     ActionsPie: {

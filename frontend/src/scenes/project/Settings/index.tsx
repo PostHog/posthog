@@ -235,7 +235,7 @@ export function ProjectSettings(): JSX.Element {
                 </p>
                 <p>
                     <b>Wilcard subdomains are permitted</b>: <code>https://*.example.com</code> You cannot use wildcard
-                     top-level domains as this could present a security risk.
+                    top-level domains as this could present a security risk.
                 </p>
                 <AuthorizedUrlsTable />
                 <Divider />
