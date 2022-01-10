@@ -22,6 +22,10 @@ export const insightCommandLogic = kea<insightCommandLogicType>({
     ],
     events: ({ props }) => ({
         afterMount: () => {
+            // only load commands if this is the main insight on the main insight scene
+            if (!props.syncWithUrl) {
+                return
+            }
             const funnelCommands: Command[] = [
                 {
                     key: 'insight-graph',
@@ -49,7 +53,9 @@ export const insightCommandLogic = kea<insightCommandLogicType>({
             }
         },
         beforeUnmount: () => {
-            commandPaletteLogic.actions.deregisterScope(INSIGHT_COMMAND_SCOPE)
+            if (props.syncWithUrl) {
+                commandPaletteLogic.actions.deregisterScope(INSIGHT_COMMAND_SCOPE)
+            }
         },
     }),
 })

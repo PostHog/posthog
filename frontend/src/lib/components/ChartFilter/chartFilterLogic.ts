@@ -36,7 +36,7 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
             const { display, funnel_viz_type } = values.filters
 
             if (isFunnelVizType(chartFilter)) {
-                if (!objectsEqual(funnel_viz_type, chartFilter) || display !== ChartDisplayType.FunnelViz) {
+                if (funnel_viz_type !== chartFilter || display !== ChartDisplayType.FunnelViz) {
                     actions.setFilters({
                         ...values.filters,
                         display: ChartDisplayType.FunnelViz,
