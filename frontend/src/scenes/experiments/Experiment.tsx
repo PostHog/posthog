@@ -729,10 +729,12 @@ export function Experiment(): JSX.Element {
                                     dashboardItemId: experimentResults.itemID,
                                     filters: {
                                         ...experimentResults.filters,
-                                        insight: 'FUNNELS',
-                                        funnel_viz_type: FunnelVizType.Steps,
-                                        display: 'FunnelViz',
-                                        layout: FunnelLayout.vertical,
+                                        insight: experimentData.filters.insight,
+                                        display: experimentData.filters.display,
+                                        ...(experimentData.filters.insight === InsightType.FUNNELS && {
+                                            layout: FunnelLayout.vertical,
+                                            funnel_viz_type: FunnelVizType.Steps,
+                                        }),
                                     },
                                     cachedResults: experimentResults.insight,
                                     syncWithUrl: false,

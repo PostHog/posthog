@@ -19,6 +19,7 @@ import {
     InsightType,
     InsightShortId,
     MultivariateFlagVariant,
+    ChartDisplayType,
 } from '~/types'
 import { experimentLogicType } from './experimentLogicType'
 import { router } from 'kea-router'
@@ -227,6 +228,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 newInsightFilters = cleanFilters({
                     insight: InsightType.FUNNELS,
                     funnel_viz_type: FunnelVizType.Steps,
+                    display: ChartDisplayType.FunnelViz,
                     date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
                     layout: FunnelLayout.horizontal,
@@ -378,7 +380,7 @@ export const experimentLogic = kea<experimentLogicType>({
                         return errorResult
                     }
                     const variantResults = experimentResults.insight.find(
-                        (variantFunnel) => variantFunnel[0].breakdown_value?.[0] === variant
+                        (variantFunnel) => variantFunnel[0]?.breakdown_value?.[0] === variant
                     )
                     if (!variantResults) {
                         return errorResult
