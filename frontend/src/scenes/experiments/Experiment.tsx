@@ -675,7 +675,9 @@ export function Experiment(): JSX.Element {
                                     <div className="card-secondary">Control conversion rate</div>
                                     <Row justify="center" align="middle">
                                         <span className="mr-05" style={{ fontWeight: 700, fontSize: 20 }}>
-                                            {countDataForVariant('control')}
+                                            {experimentInsightType === InsightType.TRENDS
+                                                ? countDataForVariant('control')
+                                                : conversionRateForVariant('control')}
                                         </span>
                                         <Tag style={{ border: 'none', color: 'white' }} color={resultsTagColors[3]}>
                                             <b>control</b>
