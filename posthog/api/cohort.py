@@ -176,7 +176,7 @@ class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(deleted=False)
 
         queryset = queryset.annotate(count=Count("people"))
-        return queryset.select_related("created_by").order_by("-created_at")
+        return queryset.prefetch_related("created_by").order_by("-created_at")
 
 
 class LegacyCohortViewSet(CohortViewSet):
