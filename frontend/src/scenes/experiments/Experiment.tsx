@@ -22,6 +22,7 @@ import { dayjs } from 'lib/dayjs'
 import PropertyFilterButton from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -43,6 +44,7 @@ export function Experiment(): JSX.Element {
         editingExistingExperiment,
         highestProbabilityVariant,
         experimentInsightType,
+        experimentResultsLoading,
     } = useValues(experimentLogic)
     const {
         setNewExperimentData,
@@ -632,9 +634,8 @@ export function Experiment(): JSX.Element {
                                 {`posthog.feature_flags.override({'${experimentData.feature_flag_key}': '${currentVariant}'})`}
                             </CodeSnippet>
                             <CodeSnippet language={Language.JavaScript} wrap>
-                                {`if (posthog.getFeatureFlag('${
-                                    experimentData.feature_flag_key ?? ''
-                                }') === '${currentVariant}') {
+                                {`if (posthog.getFeatureFlag('${experimentData.feature_flag_key ?? ''
+                                    }') === '${currentVariant}') {
     // where '${currentVariant}' is the variant, run your code here
 }`}
                             </CodeSnippet>
@@ -650,34 +651,18 @@ export function Experiment(): JSX.Element {
                             </a>
                         </Col>
                     </Row>
-                    <div className="experiment-result">
+                    <div className="experiment-result text-center">
                         {experimentResults ? (
                             <Row style={{ alignItems: 'baseline' }}>
-                                {experimentData.end_date ? (
-                                    <div>
-                                        Probability that <b>{highestProbabilityVariant}</b> has higher conversion than
-                                        other variants:{' '}
-                                        <b>
-                                            {(
-                                                experimentResults?.probability[highestProbabilityVariant || ''] * 100
-                                            ).toFixed(1)}
-                                            %
-                                        </b>
-                                    </div>
-                                ) : (
-                                    <span className="description">
-                                        This experiment is in progress. Partial results are available now.
-                                    </span>
-                                )}
                                 {experimentData.parameters.feature_flag_variants
                                     ?.slice(1)
                                     .map((variant: MultivariateFlagVariant, idx: number) => (
                                         <Col className="ml" key={idx}>
-                                            <div className="card-secondary">{variant.key} conversion rate</div>
+                                            <div className="card-secondary">{variant.key} {experimentInsightType === InsightType.FUNNELS ? 'conversion rate' : 'count'}</div>
                                             <Row justify="center" align="middle">
                                                 <span className="mr-05" style={{ fontWeight: 700, fontSize: 20 }}>
                                                     {/* TODO: Alternate based on trend or funnel */}
-                                                    {countDataForVariant(variant.key)}
+                                                    {experimentInsightType === InsightType.FUNNELS ? conversionRateForVariant(variant.key) : countDataForVariant(variant.key)}
                                                 </span>
                                                 <Tag style={{ border: 'none' }} color={resultsTagColors[idx]}>
                                                     <b>{variant.key}</b>
@@ -686,10 +671,10 @@ export function Experiment(): JSX.Element {
                                         </Col>
                                     ))}
                                 <Col className="ml">
-                                    <div className="card-secondary">Control conversion rate</div>
+                                    <div className="card-secondary">Control {experimentInsightType === InsightType.FUNNELS ? 'conversion rate' : 'count'}</div>
                                     <Row justify="center" align="middle">
                                         <span className="mr-05" style={{ fontWeight: 700, fontSize: 20 }}>
-                                            {countDataForVariant('control')}
+                                            {experimentInsightType === InsightType.FUNNELS ? conversionRateForVariant('control') : countDataForVariant('control')}
                                         </span>
                                         <Tag style={{ border: 'none', color: 'white' }} color={resultsTagColors[3]}>
                                             <b>control</b>
@@ -697,32 +682,8 @@ export function Experiment(): JSX.Element {
                                     </Row>
                                 </Col>
                             </Row>
-                        ) : (
-                            <Row style={{ alignItems: 'baseline' }}>
-                                <span style={{ fontWeight: 500 }}>There are no results for this experiment yet.</span>
-                                {experimentData.parameters.feature_flag_variants
-                                    ?.slice(1)
-                                    .map((variant: MultivariateFlagVariant, idx: number) => (
-                                        <Col className="ml" key={idx}>
-                                            <div className="card-secondary">{variant.key} conversion rate</div>
-                                            <div className="text-center">
-                                                <b>--</b>{' '}
-                                                <Tag style={{ border: 'none' }} color={resultsTagColors[idx]}>
-                                                    <b>{variant.key}</b>
-                                                </Tag>
-                                            </div>
-                                        </Col>
-                                    ))}
-                                <Col className="ml">
-                                    <div className="card-secondary">Control conversion rate</div>
-                                    <div className="text-center">
-                                        <b>--</b>{' '}
-                                        <Tag style={{ border: 'none', color: 'white' }} color={resultsTagColors[3]}>
-                                            <b>control</b>
-                                        </Tag>
-                                    </div>
-                                </Col>
-                            </Row>
+                        ) : experimentResultsLoading ? <Spinner /> : (
+                            <span style={{ fontWeight: 500 }}>There are no results for this experiment yet. {!experimentData.start_date && 'Launch this experiment to start it!'}</span>
                         )}
                         {experimentResults ? (
                             <BindLogic
@@ -731,13 +692,13 @@ export function Experiment(): JSX.Element {
                                     dashboardItemId: experimentResults.itemID,
                                     filters: {
                                         ...experimentResults.filters,
-                                        insight: experimentData.filters.insight,
+                                        insight: experimentInsightType,
                                         display: experimentData.filters.display,
-                                        ...(experimentData.filters.insight === InsightType.FUNNELS && {
+                                        ...(experimentInsightType === InsightType.FUNNELS && {
                                             layout: FunnelLayout.vertical,
                                             funnel_viz_type: FunnelVizType.Steps,
                                         }),
-                                        ...(experimentData.filters.insight === InsightType.TRENDS && {
+                                        ...(experimentInsightType === InsightType.TRENDS && {
                                             display: ChartDisplayType.ActionsLineGraphCumulative,
                                         })
                                     },
@@ -764,7 +725,7 @@ export function Experiment(): JSX.Element {
                                     fontSize: 24,
                                 }}
                             >
-                                <b>There are no results for this experiment yet.</b>
+                                {experimentResultsLoading ? <Spinner /> : <b>There are no results for this experiment yet.</b>}
                             </div>
                         )}
                     </div>
