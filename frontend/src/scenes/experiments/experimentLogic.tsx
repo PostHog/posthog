@@ -33,7 +33,6 @@ export const experimentLogic = kea<experimentLogicType>({
     path: ['scenes', 'experiment', 'experimentLogic'],
     connect: { values: [teamLogic, ['currentTeamId']], actions: [experimentsLogic, ['loadExperiments']] },
     actions: {
-        setExperimentResults: (experimentResults: ExperimentResults | null) => ({ experimentResults }),
         setExperiment: (experiment: Experiment) => ({ experiment }),
         createExperiment: (draft?: boolean, runningTime?: number, sampleSize?: number) => ({
             draft,
@@ -134,12 +133,6 @@ export const experimentLogic = kea<experimentLogicType>({
                         ],
                     },
                 }),
-            },
-        ],
-        experimentResults: [
-            null as ExperimentResults | null,
-            {
-                setExperimentResults: (_, { experimentResults }) => experimentResults,
             },
         ],
         experimentInsightType: [
@@ -266,32 +259,14 @@ export const experimentLogic = kea<experimentLogicType>({
             }
         },
         loadExperimentSuccess: async ({ experimentData }) => {
+            actions.setExperimentInsightType(experimentData?.filters.insight || InsightType.FUNNELS)
             if (!experimentData?.start_date) {
                 // loading a draft mode experiment
                 actions.setNewExperimentData({ ...experimentData })
                 actions.createNewExperimentInsight(experimentData?.filters)
+                actions.emptyExperimentResults()
             } else {
-                try {
-                    const response = await api.get(
-                        `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/results`
-                    )
-                    actions.setExperimentResults({ ...response, itemID: Math.random().toString(36).substring(2, 15) })
-                } catch (error) {
-                    if (error.code === 'no_data') {
-                        actions.setExperimentResults(null)
-                        return
-                    }
-
-                    errorToast(
-                        'Error loading experiment results',
-                        'Attempting to load results returned an error:',
-                        error.status !== 0
-                            ? error.detail
-                            : "Check your internet connection and make sure you don't have an extension blocking our requests.",
-                        error.code
-                    )
-                    actions.setExperimentResults(null)
-                }
+                actions.loadExperimentResults()
             }
         },
         launchExperiment: async () => {
@@ -329,6 +304,34 @@ export const experimentLogic = kea<experimentLogicType>({
                     }
                     return null
                 },
+            },
+        ],
+        experimentResults: [
+            null as ExperimentResults | null,
+            {
+                loadExperimentResults: async () => {
+                    try {
+                        const response = await api.get(
+                            `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/results`
+                        )
+                        return { ...response, itemID: Math.random().toString(36).substring(2, 15) }
+                    } catch (error) {
+                        if (error.code === 'no_data') {
+                            return null
+                        }
+
+                        errorToast(
+                            'Error loading experiment results',
+                            'Attempting to load results returned an error:',
+                            error.status !== 0
+                                ? error.detail
+                                : "Check your internet connection and make sure you don't have an extension blocking our requests.",
+                            error.code
+                        )
+                        return null
+                    }
+                },
+                emptyExperimentResults: () => null,
             },
         ],
     }),
