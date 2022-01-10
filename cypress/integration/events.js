@@ -78,6 +78,7 @@ describe('Events', () => {
         cy.get('[data-attr=new-prop-filter-EventsTable]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').type('$browser_version')
         cy.get('.taxonomic-list-row').should('have.length', 1).click()
+
         cy.get('.taxonomic-operator').click()
         cy.get('.operator-value-option').its('length').should('eql', 10)
         cy.get('.operator-value-option').contains('< lower than').should('be.visible')

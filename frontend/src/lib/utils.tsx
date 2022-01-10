@@ -381,8 +381,6 @@ export const dateTimeOperatorMap: Record<string, string> = {
     is_not_set: '✕ is not set',
 }
 
-// formatting labels when the insights API returns them
-
 export const allOperatorsMapping: Record<string, string> = {
     ...dateTimeOperatorMap,
     ...genericOperatorMap,
