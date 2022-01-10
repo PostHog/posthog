@@ -682,12 +682,24 @@ export function Experiment(): JSX.Element {
                                                     : countDataForVariant(variant.key)}
                                             </b>
                                             {experimentInsightType === InsightType.FUNNELS && (
-                                                <Progress
-                                                    percent={Number(conversionRateForVariant(variant.key))}
-                                                    size="small"
-                                                    showInfo={false}
-                                                    strokeColor={getSeriesColor(idx + 1)}
-                                                />
+                                                <>
+                                                    <Progress
+                                                        percent={Number(conversionRateForVariant(variant.key))}
+                                                        size="small"
+                                                        showInfo={false}
+                                                        strokeColor={getSeriesColor(idx + 1)}
+                                                    />
+                                                    <div>
+                                                        Probability that this variant has higher conversion than other
+                                                        variants:{' '}
+                                                        <b>
+                                                            {(experimentResults.probability[variant.key] * 100).toFixed(
+                                                                1
+                                                            )}
+                                                            %
+                                                        </b>
+                                                    </div>
+                                                </>
                                             )}
                                         </Col>
                                     )
