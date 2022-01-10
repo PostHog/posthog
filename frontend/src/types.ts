@@ -41,6 +41,13 @@ export enum AvailableFeature {
     MULTIVARIATE_FLAGS = 'multivariate_flags',
 }
 
+export enum Realm {
+    Cloud = 'cloud',
+    Demo = 'demo',
+    SelfHostedPostgres = 'hosted',
+    SelfHostedClickHouse = 'hosted-clickhouse',
+}
+
 export type ColumnChoice = string[] | 'DEFAULT'
 
 export interface ColumnConfig {
@@ -69,7 +76,7 @@ export interface UserType extends UserBasicType {
     organization: OrganizationType | null
     team: TeamBasicType | null
     organizations: OrganizationBasicType[]
-    realm: 'cloud' | 'hosted' | 'hosted-clickhouse'
+    realm: Realm
     posthog_version?: string
 }
 
@@ -188,7 +195,6 @@ export interface TeamType extends TeamBasicType {
     app_urls: string[]
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
-    session_recording_retention_period_days: number | null
     test_account_filters: AnyPropertyFilter[]
     path_cleaning_filters: Record<string, any>[]
     data_attributes: string[]
@@ -482,22 +488,32 @@ export interface PersonType {
     created_at?: string
 }
 
-export interface PersonActorType {
-    type: 'person'
-    id?: string
+interface MatchedRecordingEvents {
+    uuid: string
+    window_id: string
+    timestamp: string
+}
+export interface MatchedRecording {
+    session_id: string
+    events: MatchedRecordingEvents[]
+}
+
+interface CommonActorType {
+    type: 'group' | 'person'
+    id?: string | number
     properties: Record<string, any>
     created_at?: string
+    matched_recordings?: MatchedRecording[]
+}
+
+export interface PersonActorType extends CommonActorType {
     uuid?: string
     name?: string
     distinct_ids: string[]
     is_identified: boolean
 }
 
-export interface GroupActorType {
-    type: 'group'
-    id?: string | number
-    properties: Record<string, any>
-    created_at?: string
+export interface GroupActorType extends CommonActorType {
     group_key: string
     group_type_index: number
 }
@@ -805,13 +821,12 @@ export enum ChartDisplayType {
 
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
 export type BreakdownType = 'cohort' | 'person' | 'event' | 'group'
-export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
+export type IntervalType = 'hour' | 'day' | 'week' | 'month'
 
 export enum InsightType {
     TRENDS = 'TRENDS',
     STICKINESS = 'STICKINESS',
     LIFECYCLE = 'LIFECYCLE',
-    SESSIONS = 'SESSIONS',
     FUNNELS = 'FUNNELS',
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
@@ -859,7 +874,6 @@ export interface FilterType {
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     shown_as?: ShownAsType
-    session?: string
     period?: string
 
     retention_type?: RetentionType
@@ -915,7 +929,7 @@ export interface FilterType {
     funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
     aggregation_group_type_index?: number | undefined // Groups aggregation
     funnel_advanced?: boolean // used to toggle advanced options on or off
-    legend_hidden?: boolean // used to show/hide legend next to insights graph
+    show_legend?: boolean // used to show/hide legend next to insights graph
 }
 
 export interface RecordingEventsFilters {
@@ -1006,10 +1020,11 @@ export interface TrendResult {
     breakdown_value?: string | number
     aggregated_value: number
     status?: string
-    compare_label?: string
+    compare_label?: CompareLabelType
     compare?: boolean
     persons_urls?: { url: string }[]
     persons?: Person
+    filter?: FilterType
 }
 
 interface Person {
@@ -1171,7 +1186,7 @@ export interface FeatureFlagGroupType {
 
 export interface MultivariateFlagVariant {
     key: string
-    name: string | null
+    name?: string | null
     rollout_percentage: number
 }
 
@@ -1242,12 +1257,14 @@ export interface PreflightStatus {
     can_create_org: boolean
     /** Whether this is PostHog Cloud. */
     cloud: boolean
+    /** Whether this is a managed demo environment. */
+    demo: boolean
     celery: boolean
     /** Whether EE code is available (but not necessarily a license). */
     ee_available?: boolean
     /** Is ClickHouse used as the analytics database instead of Postgres. */
     is_clickhouse_enabled?: boolean
-    realm: 'cloud' | 'hosted' | 'hosted-clickhouse'
+    realm: Realm
     db_backend?: 'postgres' | 'clickhouse'
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>
@@ -1375,10 +1392,11 @@ export interface Experiment {
     created_by: UserBasicType | null
 }
 export interface ExperimentResults {
-    funnel: FunnelStep[][]
-    probability: number
+    insight: FunnelStep[][]
+    probability: Record<string, number>
     filters: FilterType
     itemID: string
+    noData?: boolean
 }
 
 interface RelatedPerson {
@@ -1519,12 +1537,14 @@ export type GraphDataset = ChartDataset<ChartType> &
             | 'labels'
             | 'data'
             | 'compare'
+            | 'compare_label'
             | 'status'
             | 'action'
             | 'actions'
             | 'breakdown_value'
             | 'persons_urls'
             | 'persons'
+            | 'filter'
         >
     > & {
         /** Used in filtering out visibility of datasets. Set internally by chart.js */
@@ -1533,6 +1553,8 @@ export type GraphDataset = ChartDataset<ChartType> &
         dotted?: boolean
         /** Array of breakdown values used only in ActionsHorizontalBar.tsx data */
         breakdownValues?: (string | number | undefined)[]
+        /** Array of compare labels used only in ActionsHorizontalBar.tsx data */
+        compareLabels?: (CompareLabelType | undefined)[]
         /** Array of persons ussed only in (ActionsHorizontalBar|ActionsPie).tsx */
         personsValues?: (Person | undefined)[]
         index?: number
@@ -1562,4 +1584,9 @@ export interface GraphPointPayload {
     crossDataset?: GraphDataset[]
     /** ID for the currently selected series */
     seriesId?: number
+}
+
+export enum CompareLabelType {
+    Current = 'current',
+    Previous = 'previous',
 }

@@ -10,11 +10,9 @@ import { InfoCircleOutlined, PlusOutlined, SaveOutlined, DeleteOutlined, Loading
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { actionsModel } from '~/models/actionsModel'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import api from '../../lib/api'
-import { dayjs } from 'lib/dayjs'
 
 export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
     const relevantActionEditLogic = actionEditLogic({
@@ -26,7 +24,6 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
     const { action, errorActionId, actionCount, actionCountLoading } = useValues(relevantActionEditLogic)
     const { setAction, saveAction } = useActions(relevantActionEditLogic)
     const { loadActions } = useActions(actionsModel)
-    const { preflight } = useValues(preflightLogic)
     const { currentTeam } = useValues(teamLogic)
 
     const [edited, setEdited] = useState(false)
@@ -91,14 +88,8 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                 {actionCountLoading && <LoadingOutlined />}
                                 {actionCount !== null && actionCount > -1 && (
                                     <>
-                                        This action matches <b>{compactNumber(actionCount)}</b> events
-                                        {preflight?.db_backend !== 'clickhouse' && action.last_calculated_at && (
-                                            <>
-                                                {' (last calculated '}
-                                                <b>{dayjs(action.last_calculated_at).fromNow()}</b>
-                                                {')'}
-                                            </>
-                                        )}
+                                        This action matches <b>{compactNumber(actionCount)}</b> events in the last 3
+                                        months
                                     </>
                                 )}
                             </span>

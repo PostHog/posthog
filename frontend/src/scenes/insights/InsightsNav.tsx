@@ -5,8 +5,6 @@ import React, { ReactNode, RefObject, useMemo, useRef } from 'react'
 import { HotKeys, InsightType } from '~/types'
 import { insightLogic } from './insightLogic'
 import { Tooltip } from 'lib/components/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import clsx from 'clsx'
 import { FunnelsCue } from './InsightTabs/TrendTab/FunnelsCue'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
@@ -30,7 +28,6 @@ interface Tab {
 export function InsightsNav(): JSX.Element {
     const { activeView, createInsightUrl } = useValues(insightLogic)
     const { setActiveView } = useActions(insightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const funnelTab = useRef<HTMLSpanElement>(null)
 
     const tabs: Tab[] = useMemo(
@@ -71,13 +68,6 @@ export function InsightsNav(): JSX.Element {
                 type: InsightType.LIFECYCLE,
                 dataAttr: 'insight-lifecycle-tab',
                 hotkey: 'l',
-            },
-            {
-                label: 'Sessions',
-                type: InsightType.SESSIONS,
-                dataAttr: 'insight-sessions-tab',
-                hotkey: 'o',
-                className: clsx(featureFlags[FEATURE_FLAGS.SESSION_INSIGHT_REMOVAL] && 'deprecated'),
             },
         ],
         [funnelTab]

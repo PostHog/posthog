@@ -14,7 +14,6 @@ import {
     ProjectOutlined,
     CheckOutlined,
     TagOutlined,
-    ClockCircleOutlined,
     UserOutlined,
     UsergroupAddOutlined,
     FlagOutlined,
@@ -431,14 +430,6 @@ export const commandPaletteLogic = kea<
                         executor: () => {
                             // TODO: Don't reset insight on change
                             push(urls.insightNew({ insight: InsightType.TRENDS }))
-                        },
-                    },
-                    {
-                        icon: ClockCircleOutlined,
-                        display: 'Go to Sessions',
-                        executor: () => {
-                            // TODO: Don't reset insight on change
-                            push(urls.insightNew({ insight: InsightType.SESSIONS }))
                         },
                     },
                     {

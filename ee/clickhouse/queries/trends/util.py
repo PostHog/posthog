@@ -49,24 +49,9 @@ def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Any]]:
 
 def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) -> Dict[str, Any]:
     counts = stats[1]
-    dates = [
-        item.strftime(
-            "%Y-%m-%d{}".format(", %H:%M" if filter.interval == "hour" or filter.interval == "minute" else "")
-        )
-        for item in stats[0]
-    ]
-    labels = [
-        item.strftime(
-            "%-d-%b-%Y{}".format(" %H:%M" if filter.interval == "hour" or filter.interval == "minute" else "")
-        )
-        for item in stats[0]
-    ]
-    days = [
-        item.strftime(
-            "%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else "")
-        )
-        for item in stats[0]
-    ]
+    dates = [item.strftime("%Y-%m-%d{}".format(", %H:%M" if filter.interval == "hour" else "")) for item in stats[0]]
+    labels = [item.strftime("%-d-%b-%Y{}".format(" %H:%M" if filter.interval == "hour" else "")) for item in stats[0]]
+    days = [item.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" else "")) for item in stats[0]]
     return {
         "data": [float(c) for c in counts],
         "count": float(sum(counts)),
@@ -111,10 +96,6 @@ def enumerate_time_range(filter: Filter, seconds_in_interval: int) -> List[str]:
         return time_range
 
     while date_from <= date_to:
-        time_range.append(
-            date_from.strftime(
-                "%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else "")
-            )
-        )
+        time_range.append(date_from.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" else "")))
         date_from += delta
     return time_range

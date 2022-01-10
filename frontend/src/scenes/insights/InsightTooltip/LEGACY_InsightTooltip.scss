@@ -1,6 +1,6 @@
 @import '~/vars';
 
-.ph-graph-tooltip,
+.legacy-ph-graph-tooltip,
 .ant-popover {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     font-size: 14px;
@@ -9,7 +9,7 @@
     transition: all 0.4s;
 }
 
-.ph-graph-tooltip {
+.legacy-ph-graph-tooltip {
     max-width: 480px;
     padding: 8px 12px;
     border: 1px solid $border;

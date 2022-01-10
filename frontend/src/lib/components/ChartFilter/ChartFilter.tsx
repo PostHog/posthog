@@ -27,13 +27,10 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
     const { setChartFilter } = useActions(chartFilterLogic(insightProps))
     const { preflight } = useValues(preflightLogic)
 
-    const linearDisabled = !!filters.session && filters.session === 'dist'
-    const cumulativeDisabled =
-        !!filters.session || filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
+    const cumulativeDisabled = filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
     const tableDisabled = false
-    const pieDisabled =
-        !!filters.session || filters.insight === InsightType.RETENTION || filters.insight === InsightType.STICKINESS
-    const barDisabled = !!filters.session || filters.insight === InsightType.RETENTION
+    const pieDisabled = filters.insight === InsightType.RETENTION || filters.insight === InsightType.STICKINESS
+    const barDisabled = filters.insight === InsightType.RETENTION
     const barValueDisabled =
         barDisabled || filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
     const defaultDisplay: ChartDisplayType =
@@ -90,7 +87,6 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                           {
                               value: ChartDisplayType.ActionsLineGraphLinear,
                               label: <Label icon={<LineChartOutlined />}>Linear</Label>,
-                              disabled: linearDisabled,
                           },
                           {
                               value: ChartDisplayType.ActionsLineGraphCumulative,

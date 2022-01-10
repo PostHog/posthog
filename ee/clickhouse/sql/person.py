@@ -264,7 +264,7 @@ FROM (
 GROUP BY distinct_id
 """
 
-# Query to query distinct ids using the new table, will be used if PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS applies
+# Query to query distinct ids using the new table, will be used if 0003_fill_person_distinct_id2 migration is complete
 GET_TEAM_PERSON_DISTINCT_IDS_NEW_TABLE = """
 SELECT distinct_id, argMax(person_id, version) as person_id
 FROM person_distinct_id2
@@ -291,6 +291,10 @@ INSERT INTO person (id, created_at, team_id, properties, is_identified, _timesta
 
 INSERT_PERSON_DISTINCT_ID = """
 INSERT INTO person_distinct_id SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, %(_sign)s, now(), 0 VALUES
+"""
+
+INSERT_PERSON_DISTINCT_ID2 = """
+INSERT INTO person_distinct_id2 (distinct_id, person_id, team_id, is_deleted, version, _timestamp, _offset, _partition) SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, 0, %(version)s, now(), 0, 0 VALUES
 """
 
 DELETE_PERSON_BY_ID = """
@@ -370,8 +374,9 @@ ORDER BY count DESC, key ASC
 GET_ACTORS_FROM_EVENT_QUERY = """
 SELECT
     {id_field} AS actor_id
+    {matching_events_select_statement}
 FROM ({events_query})
 GROUP BY actor_id
-LIMIT %(limit)s
-OFFSET %(offset)s
+{limit}
+{offset}
 """

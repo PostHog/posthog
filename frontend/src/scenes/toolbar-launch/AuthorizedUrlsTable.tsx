@@ -30,6 +30,37 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                 const [urlUpdatingState, setUrlUpdatingState] = useState(record.url)
                 const [errorState, setErrorState] = useState('')
                 useEffect(() => setUrlUpdatingState(record.url), [record])
+                const save = (): void => {
+                    setErrorState('')
+                    if (urlUpdatingState === NEW_URL) {
+                        removeUrl(record.originalIndex)
+                    }
+                    // See https://regex101.com/r/UMBc9g/1 for tests
+                    if (
+                        urlUpdatingState.indexOf('*') > -1 &&
+                        !urlUpdatingState.match(/^(.*)\*[^\*]*\.[^\*]+\.[^\*]+$/)
+                    ) {
+                        setErrorState(
+                            'You can only wildcard subdomains. If you wildcard the domain or TLD, people might be able to gain access to your PostHog data.'
+                        )
+                        return
+                    }
+                    if (!isURL(urlUpdatingState)) {
+                        setErrorState('Please type a valid URL or domain.')
+                        return
+                    }
+
+                    if (
+                        appUrls.indexOf(urlUpdatingState) > -1 &&
+                        appUrls.indexOf(urlUpdatingState, record.originalIndex) !== record.originalIndex &&
+                        appUrls.indexOf(urlUpdatingState, record.originalIndex + 1) !== record.originalIndex
+                    ) {
+                        setErrorState('This URL is already registered.')
+                        return
+                    }
+
+                    updateUrl(record.originalIndex, urlUpdatingState)
+                }
                 return record.type === 'suggestion' || (url !== NEW_URL && editUrlIndex !== record.originalIndex) ? (
                     <div className={clsx('authorized-url-col', record.type)}>
                         {record.type === 'authorized' && <CheckCircleFilled style={{ marginRight: 4 }} />}
@@ -38,43 +69,18 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                     </div>
                 ) : (
                     <div>
-                        <Input
-                            value={urlUpdatingState}
-                            onChange={(e) => setUrlUpdatingState(e.target.value)}
-                            onPressEnter={() => {
-                                setErrorState('')
-                                if (urlUpdatingState === NEW_URL) {
-                                    removeUrl(record.originalIndex)
-                                }
-                                // See https://regex101.com/r/UMBc9g/1 for tests
-                                if (
-                                    urlUpdatingState.indexOf('*') > -1 &&
-                                    !urlUpdatingState.match(/^(.*)\*[^\*]*\.[^\*]+\.[^\*]+$/)
-                                ) {
-                                    setErrorState(
-                                        'You can only wildcard subdomains. If you wildcard the domain or TLD, people might be able to gain access to your PostHog data.'
-                                    )
-                                    return
-                                }
-                                if (!isURL(urlUpdatingState)) {
-                                    setErrorState('Please type a valid URL or domain.')
-                                    return
-                                }
-
-                                if (
-                                    appUrls.indexOf(urlUpdatingState) > -1 &&
-                                    appUrls.indexOf(urlUpdatingState, record.originalIndex) !== record.originalIndex &&
-                                    appUrls.indexOf(urlUpdatingState, record.originalIndex + 1) !== record.originalIndex
-                                ) {
-                                    setErrorState('This URL is already registered.')
-                                    return
-                                }
-
-                                updateUrl(record.originalIndex, urlUpdatingState)
-                            }}
-                            autoFocus
-                            placeholder="Enter a URL or wildcard subdomain (e.g. https://*.posthog.com)"
-                        />
+                        <div style={{ display: 'flex' }}>
+                            <Input
+                                value={urlUpdatingState}
+                                onChange={(e) => setUrlUpdatingState(e.target.value)}
+                                onPressEnter={save}
+                                autoFocus
+                                placeholder="Enter a URL or wildcard subdomain (e.g. https://*.posthog.com)"
+                            />
+                            <Button type="primary" onClick={save}>
+                                Save
+                            </Button>
+                        </div>
                         {errorState && <span className="text-small text-danger">{errorState}</span>}
                     </div>
                 )

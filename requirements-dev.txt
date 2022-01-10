@@ -102,6 +102,8 @@ mypy==0.910
     #   -r requirements-dev.in
     #   django-stubs
     #   djangorestframework-stubs
+numpy==1.22.0
+    # via -r requirements-dev.in
 packaging==20.4
     # via
     #   -r requirements-dev.in

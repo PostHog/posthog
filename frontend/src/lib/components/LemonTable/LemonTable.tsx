@@ -45,6 +45,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     expandable?: ExpandableConfig<T>
     /** Whether the header should be shown. The default value is `true`. */
     showHeader?: boolean
+    /** Whether header titles should be uppercased. The default value is `true`. */
+    uppercaseHeader?: boolean
     /**
      * By default sorting goes: 0. unsorted > 1. ascending > 2. descending > GOTO 0 (loop).
      * With sorting cancellation disabled, GOTO 0 is replaced by GOTO 1. */
@@ -76,6 +78,7 @@ export function LemonTable<T extends Record<string, any>>({
     pagination,
     expandable,
     showHeader = true,
+    uppercaseHeader = true,
     disableSortingCancellation = false,
     defaultSorting = null,
     sorting,
@@ -237,7 +240,7 @@ export function LemonTable<T extends Record<string, any>>({
                             ))}
                         </colgroup>
                         {showHeader && (
-                            <thead>
+                            <thead style={uppercaseHeader ? { textTransform: 'uppercase' } : {}}>
                                 <tr>
                                     {expandable && <th />}
                                     {columns.map((column, columnIndex) => (

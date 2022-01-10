@@ -14,7 +14,7 @@ class PersonManager(models.Manager):
                 return super().create(*args, **kwargs)
             distinct_ids = kwargs.pop("distinct_ids")
             person = super().create(*args, **kwargs)
-            person.add_distinct_ids(distinct_ids)
+            person._add_distinct_ids(distinct_ids)
             return person
 
     @staticmethod
@@ -34,10 +34,12 @@ class Person(models.Model):
             .values_list("distinct_id")
         ]
 
+    # :DEPRECATED: This should happen through the plugin server
     def add_distinct_id(self, distinct_id: str) -> None:
         PersonDistinctId.objects.create(person=self, distinct_id=distinct_id, team_id=self.team_id)
 
-    def add_distinct_ids(self, distinct_ids: List[str]) -> None:
+    # :DEPRECATED: This should happen through the plugin server
+    def _add_distinct_ids(self, distinct_ids: List[str]) -> None:
         for distinct_id in distinct_ids:
             self.add_distinct_id(distinct_id)
 
@@ -60,10 +62,12 @@ class Person(models.Model):
         for distinct_id in distinct_ids:
             if not distinct_id == main_distinct_id:
                 with transaction.atomic():
-                    PersonDistinctId.objects.filter(person=self, distinct_id=distinct_id).delete()
-                    person = Person.objects.create(team_id=self.team_id, distinct_ids=[distinct_id])
+                    pdi = PersonDistinctId.objects.select_for_update().get(person=self, distinct_id=distinct_id)
+                    person = Person.objects.create(team_id=self.team_id)
+                    pdi.person_id = str(person.id)
+                    pdi.version = (pdi.version or 0) + 1
+                    pdi.save(update_fields=["version", "person_id"])
 
-                # :TODO: Tests!
                 if is_clickhouse_enabled():
                     from ee.clickhouse.models.person import create_person, create_person_distinct_id
 
@@ -71,7 +75,11 @@ class Person(models.Model):
                         team_id=self.team_id, distinct_id=distinct_id, person_id=str(self.uuid), sign=-1
                     )
                     create_person_distinct_id(
-                        team_id=self.team_id, distinct_id=distinct_id, person_id=str(person.uuid), sign=1
+                        team_id=self.team_id,
+                        distinct_id=distinct_id,
+                        person_id=str(person.uuid),
+                        sign=1,
+                        version=pdi.version,
                     )
                     create_person(
                         team_id=self.team_id, uuid=str(person.uuid),

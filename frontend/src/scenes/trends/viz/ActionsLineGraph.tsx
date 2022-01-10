@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightEmptyState } from '../../insights/EmptyStates'
 import { ACTIONS_BAR_CHART } from 'lib/constants'
-import { ActionFilter, ChartParams, GraphType, InsightType } from '~/types'
+import { ChartParams, GraphType, InsightType } from '~/types'
 import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { isMultiSeriesFormula } from 'lib/utils'
@@ -17,7 +17,7 @@ export function ActionsLineGraph({
 }: ChartParams): JSX.Element | null {
     const { insightProps, isViewedOnDashboard, insight } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
-    const { filters, indexedResults, visibilityMap } = useValues(logic)
+    const { filters, indexedResults, visibilityMap, incompletenessOffsetFromEnd } = useValues(logic)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
 
     return indexedResults &&
@@ -34,13 +34,17 @@ export function ActionsLineGraph({
             datasets={indexedResults}
             visibilityMap={visibilityMap}
             labels={(indexedResults[0] && indexedResults[0].labels) || []}
-            isInProgress={!filters.date_to}
             insightId={insight.id}
             inSharedMode={inSharedMode}
             interval={filters.interval}
             showPersonsModal={showPersonsModal}
             tooltipPreferAltTitle={filters.insight === InsightType.STICKINESS}
+            tooltip={{
+                altTitle: filters.insight === InsightType.LIFECYCLE ? 'Users' : undefined,
+            }}
             isCompare={!!filters.compare}
+            isInProgress={filters.insight !== InsightType.STICKINESS && incompletenessOffsetFromEnd < 0}
+            incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             onClick={
                 dashboardItemId || isMultiSeriesFormula(filters.formula) || !showPersonsModal
                     ? undefined
@@ -56,7 +60,7 @@ export function ActionsLineGraph({
                           }
 
                           const params = {
-                              action: (dataset.action || 'session') as ActionFilter | 'session',
+                              action: dataset.action,
                               label,
                               date_from: day,
                               date_to: day,
