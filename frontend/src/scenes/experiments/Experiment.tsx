@@ -66,7 +66,7 @@ export function Experiment(): JSX.Element {
         })
     )
     const { isStepsEmpty, filterSteps, filters, results, conversionMetrics } = useValues(funnelLogic(insightProps))
-    const { filters: trendFilters, results: trendResults }= useValues(trendsLogic(insightProps))
+    const { results: trendResults } = useValues(trendsLogic(insightProps))
 
     const conversionRate = conversionMetrics.totalRate * 100
     const entrants = results?.[0]?.count
