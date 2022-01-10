@@ -10,7 +10,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { FilterType, FunnelVizType, InsightType, MultivariateFlagVariant, PropertyFilter } from '~/types'
+import { ChartDisplayType, FilterType, FunnelVizType, InsightType, MultivariateFlagVariant, PropertyFilter } from '~/types'
 import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
@@ -39,6 +39,7 @@ export function Experiment(): JSX.Element {
         expectedRunningTime,
         experimentResults,
         conversionRateForVariant,
+        countDataForVariant,
         editingExistingExperiment,
         highestProbabilityVariant,
         experimentInsightType,
@@ -58,7 +59,7 @@ export function Experiment(): JSX.Element {
 
     const [form] = Form.useForm()
 
-    const [currentVariant, setCurrentVariant] = useState('Control')
+    const [currentVariant, setCurrentVariant] = useState('control')
 
     const { insightProps } = useValues(
         insightLogic({
@@ -611,7 +612,7 @@ export function Experiment(): JSX.Element {
                                     Feature flag override for{' '}
                                     <Select
                                         onChange={setCurrentVariant}
-                                        defaultValue={'Control'}
+                                        defaultValue={'control'}
                                         suffixIcon={<CaretDownOutlined />}
                                     >
                                         {experimentData.parameters.feature_flag_variants?.map(
@@ -675,7 +676,8 @@ export function Experiment(): JSX.Element {
                                             <div className="card-secondary">{variant.key} conversion rate</div>
                                             <Row justify="center" align="middle">
                                                 <span className="mr-05" style={{ fontWeight: 700, fontSize: 20 }}>
-                                                    {conversionRateForVariant(variant.key)}
+                                                    {/* TODO: Alternate based on trend or funnel */}
+                                                    {countDataForVariant(variant.key)}
                                                 </span>
                                                 <Tag style={{ border: 'none' }} color={resultsTagColors[idx]}>
                                                     <b>{variant.key}</b>
@@ -687,10 +689,10 @@ export function Experiment(): JSX.Element {
                                     <div className="card-secondary">Control conversion rate</div>
                                     <Row justify="center" align="middle">
                                         <span className="mr-05" style={{ fontWeight: 700, fontSize: 20 }}>
-                                            {conversionRateForVariant('control')}
+                                            {countDataForVariant('control')}
                                         </span>
                                         <Tag style={{ border: 'none', color: 'white' }} color={resultsTagColors[3]}>
-                                            <b>Control</b>
+                                            <b>control</b>
                                         </Tag>
                                     </Row>
                                 </Col>
@@ -716,7 +718,7 @@ export function Experiment(): JSX.Element {
                                     <div className="text-center">
                                         <b>--</b>{' '}
                                         <Tag style={{ border: 'none', color: 'white' }} color={resultsTagColors[3]}>
-                                            <b>Control</b>
+                                            <b>control</b>
                                         </Tag>
                                     </div>
                                 </Col>
@@ -735,6 +737,9 @@ export function Experiment(): JSX.Element {
                                             layout: FunnelLayout.vertical,
                                             funnel_viz_type: FunnelVizType.Steps,
                                         }),
+                                        ...(experimentData.filters.insight === InsightType.TRENDS && {
+                                            display: ChartDisplayType.ActionsLineGraphCumulative,
+                                        })
                                     },
                                     cachedResults: experimentResults.insight,
                                     syncWithUrl: false,

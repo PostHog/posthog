@@ -391,6 +391,23 @@ export const experimentLogic = kea<experimentLogicType>({
                     ).toFixed(1)}%`
                 },
         ],
+        countDataForVariant: [
+            (s) => [s.experimentResults],
+            (experimentResults) =>
+                (variant: string): string => {
+                    const errorResult = "Can't find variant"
+                    if (!experimentResults) {
+                        return errorResult
+                    }
+                    const variantResults = experimentResults.insight.find(
+                        (variantTrend) => variantTrend.breakdown_value === variant
+                    )
+                    if (!variantResults) {
+                        return errorResult
+                    }
+                    return variantResults.count.toString()
+                },
+        ],
         highestProbabilityVariant: [
             (s) => [s.experimentResults],
             (experimentResults) => {

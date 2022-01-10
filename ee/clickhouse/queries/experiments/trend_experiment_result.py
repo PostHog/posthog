@@ -1,12 +1,12 @@
 import dataclasses
 from datetime import datetime
-from math import exp, lgamma, log
-from typing import List, Optional, Tuple, Type
+from typing import List, Optional, Type
 
 from numpy.random import default_rng
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
+from posthog.constants import TRENDS_CUMULATIVE
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
@@ -51,6 +51,7 @@ class ClickhouseTrendExperimentResult:
 
         query_filter = filter.with_data(
             {
+                "display": TRENDS_CUMULATIVE,
                 "date_from": experiment_start_date,
                 "date_to": experiment_end_date,
                 "breakdown": breakdown_key,
