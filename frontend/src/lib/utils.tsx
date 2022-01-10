@@ -381,6 +381,8 @@ export const dateTimeOperatorMap: Record<string, string> = {
     is_not_set: '✕ is not set',
 }
 
+// formatting labels when the insights API returns them
+
 export const allOperatorsMapping: Record<string, string> = {
     ...dateTimeOperatorMap,
     ...genericOperatorMap,
@@ -418,10 +420,6 @@ export function formatPropertyLabel(
                   : ` ${(allOperatorsMapping[operator || 'exact'] || '?').split(' ')[0]} ${
                         value && value.length === 1 && value[0] === '' ? '(empty string)' : valueFormatter(value) || ''
                     } `)
-}
-
-export function formatProperty(property: Record<string, any>): string {
-    return property.key + ` ${allOperatorsMapping[property.operator || 'exact'].split(' ')[0]} ` + property.value
 }
 
 // Format a label that gets returned from the /insights api
