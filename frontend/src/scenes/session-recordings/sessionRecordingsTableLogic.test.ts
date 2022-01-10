@@ -1,7 +1,6 @@
 import {
     sessionRecordingsTableLogic,
     PersonUUID,
-    SessionRecordingId,
     DEFAULT_ENTITY_FILTERS,
     DEFAULT_DURATION_FILTER,
 } from './sessionRecordingsTableLogic'
@@ -17,7 +16,7 @@ import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 jest.mock('lib/api')
 
 describe('sessionRecordingsTableLogic', () => {
-    let logic: BuiltLogic<sessionRecordingsTableLogicType<PersonUUID, SessionRecordingId>>
+    let logic: BuiltLogic<sessionRecordingsTableLogicType<PersonUUID>>
 
     mockAPI(async (url) => {
         const { pathname, searchParams } = url
@@ -74,15 +73,15 @@ describe('sessionRecordingsTableLogic', () => {
                 ).toMatchValues({
                     sessionRecordingId: 'abc',
                 })
-                expect(router.values.searchParams).toHaveProperty('sessionRecordingId', 'abc')
+                expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')
 
                 expectLogic(logic, () => logic.actions.closeSessionPlayer()).toMatchValues({ sessionRecordingId: null })
-                expect(router.values.searchParams).not.toHaveProperty('sessionRecordingId')
+                expect(router.values.hashParams).not.toHaveProperty('sessionRecordingId')
             })
 
             it('is read from the URL on the session recording page', async () => {
-                router.actions.push('/recordings', { sessionRecordingId: 'recording1212' })
-                expect(router.values.searchParams).toHaveProperty('sessionRecordingId', 'recording1212')
+                router.actions.push('/recordings', {}, { sessionRecordingId: 'recording1212' })
+                expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'recording1212')
 
                 await expectLogic(logic)
                     .toDispatchActions(['openSessionPlayer'])
@@ -286,8 +285,8 @@ describe('sessionRecordingsTableLogic', () => {
         })
 
         it('reads sessionRecordingId from the URL on the person page', async () => {
-            router.actions.push('/person/123', { sessionRecordingId: 'recording1212' })
-            expect(router.values.searchParams).toHaveProperty('sessionRecordingId', 'recording1212')
+            router.actions.push('/person/123', {}, { sessionRecordingId: 'recording1212' })
+            expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'recording1212')
 
             await expectLogic(logic)
                 .toDispatchActions(['openSessionPlayer'])

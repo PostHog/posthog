@@ -488,22 +488,32 @@ export interface PersonType {
     created_at?: string
 }
 
-export interface PersonActorType {
-    type: 'person'
-    id?: string
+interface MatchedRecordingEvents {
+    uuid: string
+    window_id: string
+    timestamp: string
+}
+export interface MatchedRecording {
+    session_id: string
+    events: MatchedRecordingEvents[]
+}
+
+interface CommonActorType {
+    type: 'group' | 'person'
+    id?: string | number
     properties: Record<string, any>
     created_at?: string
+    matched_recordings?: MatchedRecording[]
+}
+
+export interface PersonActorType extends CommonActorType {
     uuid?: string
     name?: string
     distinct_ids: string[]
     is_identified: boolean
 }
 
-export interface GroupActorType {
-    type: 'group'
-    id?: string | number
-    properties: Record<string, any>
-    created_at?: string
+export interface GroupActorType extends CommonActorType {
     group_key: string
     group_type_index: number
 }
@@ -919,7 +929,7 @@ export interface FilterType {
     funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
     aggregation_group_type_index?: number | undefined // Groups aggregation
     funnel_advanced?: boolean // used to toggle advanced options on or off
-    legend_hidden?: boolean // used to show/hide legend next to insights graph
+    show_legend?: boolean // used to show/hide legend next to insights graph
 }
 
 export interface RecordingEventsFilters {
@@ -1388,6 +1398,7 @@ export interface ExperimentResults {
     probability: Record<string, number>
     filters: FilterType
     itemID: string
+    noData?: boolean
 }
 
 interface RelatedPerson {

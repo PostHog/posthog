@@ -8,6 +8,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.property import (
+    get_property_string_expr,
     get_single_or_multi_property_string_expr,
     parse_prop_clauses,
     prop_filter_json_extract,
@@ -422,6 +423,24 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
 
         filter = Filter(data={"properties": [{"key": "test_prop", "value": 0}],})
         self.assertEqual(len(self._run_query(filter)), 1)
+
+    def test_get_property_string_expr(self):
+        string_expr = get_property_string_expr("events", "some_non_mat_prop", "'some_non_mat_prop'", "properties")
+        self.assertEqual(string_expr, ("trim(BOTH '\"' FROM JSONExtractRaw(properties, 'some_non_mat_prop'))", False))
+
+        string_expr = get_property_string_expr(
+            "events", "some_non_mat_prop", "'some_non_mat_prop'", "properties", table_alias="e"
+        )
+        self.assertEqual(string_expr, ("trim(BOTH '\"' FROM JSONExtractRaw(e.properties, 'some_non_mat_prop'))", False))
+
+        materialize("events", "some_mat_prop")
+        string_expr = get_property_string_expr("events", "some_mat_prop", "'some_mat_prop'", "properties")
+        self.assertEqual(string_expr, ("mat_some_mat_prop", True))
+
+        string_expr = get_property_string_expr(
+            "events", "some_mat_prop", "'some_mat_prop'", "properties", table_alias="e"
+        )
+        self.assertEqual(string_expr, ("e.mat_some_mat_prop", True))
 
 
 @pytest.mark.django_db
