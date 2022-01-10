@@ -35,8 +35,8 @@ describe('experimentLogic', () => {
     describe('when creating a new experiment', () => {
         it('creates an insight funnel and clears the new experiment form', async () => {
             router.actions.push(urls.experiment('new'))
-            await expectLogic(logic).toDispatchActions(['setExperimentFunnelId']).toMatchValues({
-                experimentFunnelId: 'a5qqECqP',
+            await expectLogic(logic).toDispatchActions(['setExperimentInsightId']).toMatchValues({
+                experimentInsightId: 'a5qqECqP',
             })
         })
     })
