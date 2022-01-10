@@ -17,7 +17,7 @@ _LIFECYCLE_EVENTS_QUERY = """
         -- we need to include the period prior to check if there was activity within it.
         selected_interval_from - INTERVAL {interval} AS previous_interval_from,
 
-        -- TODO: bound these events within the range, and UNION ALL either `person.created_by` 
+        -- TODO: bound these events within the range, and UNION ALL `person.created_by` 
         --       as the period of activity. This won't be as accurate in terms of lifecycle 
         --       for the specifically requested event, but will be a much smaller query.
         unbounded_filtered_events AS ({event_query}),
@@ -49,11 +49,12 @@ _LIFECYCLE_EVENTS_QUERY = """
                We want to put the status of each period onto it's own line, so we 
                can easily aggregate over them. With the inner query we end up with a structure like:
                
-                person_id  |  period_of_activity  | status_of_activity |  period_after_activity  | dormant_status_of_period_after_activity
+                person_id  |  period_of_activity  | status_of_activity  | dormant_status_of_period_after_activity
                 
                However, we want to have something of the format:
 
-                person_id  | period  |  status_of_period
+                person_id  | period_of_activity          |  status_of_activity
+                person_id  | period_just_after_activity  |  dormant_status_of_period_after_activity
 
                such that we can simply aggregate over person_id, period.
             */
