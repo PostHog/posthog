@@ -23,7 +23,7 @@ CONSTANCE_CONFIG = {
     "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT": (
         get_from_env("ASYNC_MIGRATION_ROLLBACK_TIMEOUT", 30, type_cast=int),
         "The timeout for completing the full rollback of an async migration",
-        bool,
+        int,
     ),
     "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK": (
         get_from_env("ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK", False, type_cast=str_to_bool),

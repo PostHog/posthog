@@ -1,9 +1,22 @@
+from typing import Any
+
 from constance import config, settings
-from rest_framework import request, response, serializers, viewsets
+from rest_framework import request, response, viewsets
 from rest_framework.decorators import action
 
 from posthog.permissions import StaffUser
 from posthog.settings import SETTINGS_ALLOWING_API_OVERRIDE
+from posthog.utils import str_to_bool
+
+
+def cast_str_to_desired_type(str_value: str, target_type: type) -> Any:
+    if target_type == int:
+        return int(str_value)
+
+    if target_type == bool:
+        return str_to_bool(str_value)
+
+    return str_value
 
 
 class InstanceSettingsViewset(viewsets.ViewSet):
@@ -26,7 +39,9 @@ class InstanceSettingsViewset(viewsets.ViewSet):
             return response.Response({"error": "Setting does not exist."})
 
         if setting_key in SETTINGS_ALLOWING_API_OVERRIDE:
-            setattr(config, setting_key, new_value)
+            target_type = settings.CONFIG[setting_key][2]
+            new_value_parsed = cast_str_to_desired_type(new_value, target_type)
+            setattr(config, setting_key, new_value_parsed)
             return response.Response({"status": 1})
         else:
             return response.Response({"error": "Setting cannot be updated via the API."})
