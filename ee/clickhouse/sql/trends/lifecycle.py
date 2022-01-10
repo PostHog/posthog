@@ -17,6 +17,9 @@ _LIFECYCLE_EVENTS_QUERY = """
         -- we need to include the period prior to check if there was activity within it.
         selected_interval_from - INTERVAL {interval} AS previous_interval_from,
 
+        -- TODO: bound these events within the range, and UNION ALL either `person.created_by` 
+        --       as the period of activity. This won't be as accurate in terms of lifecycle 
+        --       for the specifically requested event, but will be a much smaller query.
         unbounded_filtered_events AS ({event_query}),
 
         bounded_person_activity_by_period AS (
@@ -84,10 +87,14 @@ _LIFECYCLE_EVENTS_QUERY = """
 
             FROM bounded_person_activity_by_period activity
 
+                -- Get activity just before the requested `activity` period, needed so we 
+                -- can label the activity period either 'new', 'returning' or 'resurrecting'
                 ASOF LEFT JOIN unbounded_filtered_events previous_activity
                     ON previous_activity.person_id = activity.person_id 
                         AND activity.start_of_period > previous_activity.timestamp
 
+                -- Get the period immediately after the `activity` period. If that period has no
+                -- activity, then it must be 'dormant'
                 LEFT JOIN bounded_person_activity_by_period next_period
                 ON activity.person_id = next_period.person_id 
                     AND next_period.start_of_period = activity.start_of_period + interval_type
