@@ -55,6 +55,7 @@ describe('Events', () => {
     it('has before and after for a DateTime property', () => {
         cy.get('[data-attr=new-prop-filter-EventsTable]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').type('$time')
+        cy.get('.taxonomic-list-row').should('have.length', 1).click()
 
         cy.get('.taxonomic-operator').click()
         cy.get('.operator-value-option').its('length').should('eql', 8)
