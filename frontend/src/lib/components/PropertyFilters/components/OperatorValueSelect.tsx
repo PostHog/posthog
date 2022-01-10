@@ -1,7 +1,14 @@
 import React, { useState } from 'react'
 import { PropertyFilterValue, PropertyOperator } from '~/types'
 import { Col, Select, SelectProps } from 'antd'
-import { dateTimeOperatorMap, isMobile, isOperatorFlag, isOperatorMulti, operatorMap } from 'lib/utils'
+import {
+    dateTimeOperatorMap,
+    isMobile,
+    isOperatorFlag,
+    isOperatorMulti,
+    allOperatorsMapping,
+    genericOperatorMap,
+} from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
 import { ColProps } from 'antd/lib/col'
 import { useValues } from 'kea'
@@ -43,10 +50,11 @@ export function OperatorValueSelect({
 
     const propertyDefinition = propertyDefinitions.find((pd) => pd.name === propkey)
 
-    const operators =
+    const operatorMapping =
         allowQueryingEventsByDateTime && propertyDefinition?.property_type == 'DateTime'
-            ? (Object.keys(dateTimeOperatorMap) as Array<PropertyOperator>)
-            : (Object.keys(operatorMap) as Array<PropertyOperator>)
+            ? dateTimeOperatorMap
+            : genericOperatorMap
+    const operators = Object.keys(operatorMapping) as Array<PropertyOperator>
 
     return (
         <>
@@ -108,7 +116,7 @@ export function OperatorSelect({ operator, operators, onChange, ...props }: Oper
             labelInValue
             value={{
                 value: operator || '=',
-                label: operatorMap[operator || PropertyOperator.Exact],
+                label: allOperatorsMapping[operator || PropertyOperator.Exact],
             }}
             placeholder="Property key"
             onChange={(_value, op) => {
@@ -118,8 +126,8 @@ export function OperatorSelect({ operator, operators, onChange, ...props }: Oper
             {...props}
         >
             {operators.map((op) => (
-                <Select.Option key={op} value={op || PropertyOperator.Exact}>
-                    {operatorMap[op || PropertyOperator.Exact]}
+                <Select.Option key={op} value={op || PropertyOperator.Exact} className={'operator-value-option'}>
+                    {allOperatorsMapping[op || PropertyOperator.Exact]}
                 </Select.Option>
             ))}
         </Select>
