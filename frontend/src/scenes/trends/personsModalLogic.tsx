@@ -132,7 +132,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         switchToDataPoint: (seriesId: number) => ({ seriesId }), // Changes data point shown on PersonModal
         loadMorePeople: true,
         hidePeople: true,
-        saveCohortWithFilters: (cohortName: string, filters: Partial<FilterType>) => ({ cohortName, filters }),
+        saveCohortWithUrl: (cohortName: string) => ({ cohortName }),
         setPersonsModalFilters: (searchTerm: string, people: TrendActors, filters: Partial<FilterType>) => ({
             searchTerm,
             people,
@@ -411,18 +411,15 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         },
     }),
     listeners: ({ actions, values }) => ({
-        saveCohortWithFilters: async ({ cohortName, filters }) => {
-            if (values.people) {
-                const { label, action, day, breakdown_value } = values.people
-                const filterParams = parsePeopleParams(
-                    { label, action, date_from: day, date_to: day, breakdown_value },
-                    filters
-                )
+        saveCohortWithUrl: async ({ cohortName }) => {
+            if (values.people && values.peopleUrlParams?.url) {
                 const cohortParams = {
                     is_static: true,
                     name: cohortName,
                 }
-                const cohort = await api.create('api/cohort' + (filterParams ? '?' + filterParams : ''), cohortParams)
+
+                const qs = values.peopleUrlParams?.url.split('?').pop() || ''
+                const cohort = await api.create('api/cohort?' + qs, cohortParams)
                 cohortsModel.actions.cohortCreated(cohort)
                 toast.success(
                     <div data-attr="success-toast">

@@ -36,17 +36,8 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
     useMountedLogic(insightCommandLogic)
 
     const logic = insightLogic({ dashboardItemId: shortId, syncWithUrl: true })
-    const {
-        insightProps,
-        activeView,
-        filters,
-        cohortFilters,
-        insight,
-        insightMode,
-        filtersChanged,
-        savedFilters,
-        tagLoading,
-    } = useValues(logic)
+    const { insightProps, activeView, insight, insightMode, filtersChanged, savedFilters, tagLoading } =
+        useValues(logic)
     const {
         setActiveView,
         setInsightMode,
@@ -56,12 +47,11 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
         saveNewTag,
         deleteTag,
         saveAs,
-        setInsightCohortFilters,
     } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
-    const { saveCohortWithFilters, setCohortModalVisible } = useActions(personsModalLogic)
+    const { saveCohortWithUrl, setCohortModalVisible, peopleParams } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { reportInsightsTabReset } = useActions(eventUsageLogic)
     const { showHelp } = useActions(helpButtonLogic)
@@ -257,11 +247,9 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
             <SaveCohortModal
                 visible={cohortModalVisible}
                 onOk={(title: string) => {
-                    const allFilters = { ...filters, ...cohortFilters }
-                    saveCohortWithFilters(title, allFilters)
+                    saveCohortWithUrl(title)
                     setCohortModalVisible(false)
-                    reportCohortCreatedFromPersonsModal(allFilters)
-                    setInsightCohortFilters({}) // clear cohort filters
+                    reportCohortCreatedFromPersonsModal(peopleParams.filters)
                 }}
                 onCancel={() => setCohortModalVisible(false)}
             />

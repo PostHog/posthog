@@ -65,7 +65,6 @@ export const insightLogic = kea<insightLogicType>({
         setActiveView: (type: InsightType) => ({ type }),
         updateActiveView: (type: InsightType) => ({ type }),
         setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode) => ({ filters, insightMode }),
-        setInsightCohortFilters: (filters: Partial<FilterType>) => ({ filters }), // filters used only on cohort creation
         reportInsightViewed: (filters: Partial<FilterType>, previousFilters?: Partial<FilterType>) => ({
             filters,
             previousFilters,
@@ -348,12 +347,6 @@ export const insightLogic = kea<insightLogicType>({
                     Object.keys(state).length === 0 && insight.filters ? insight.filters : state,
                 loadResultsSuccess: (state, { insight }) =>
                     Object.keys(state).length === 0 && insight.filters ? insight.filters : state,
-            },
-        ],
-        cohortFilters: [
-            () => ({} as Partial<FilterType>),
-            {
-                setInsightCohortFilters: (_, { filters }) => filters,
             },
         ],
         /* savedFilters contain filters that are persisted on an insight */

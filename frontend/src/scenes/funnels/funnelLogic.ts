@@ -118,7 +118,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             groupPropertiesModel,
             ['groupProperties'],
         ],
-        actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess', 'setInsightCohortFilters']],
+        actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess']],
         logic: [eventUsageLogic, dashboardsModel],
     }),
 
@@ -1272,9 +1272,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 // NOTE: session value copied from previous code, not clear that this should be the case
                 action: 'session',
                 seriesId: step.order,
-            })
-            actions.setInsightCohortFilters({
-                funnel_step: funnelStep,
             })
         },
         openCorrelationPersonsModal: ({ correlation, success }) => {
