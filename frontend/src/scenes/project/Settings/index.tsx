@@ -234,8 +234,8 @@ export function ProjectSettings(): JSX.Element {
                     in) and where we'll <b>record sessions</b> (if <a href="#session-recording">enabled</a>).
                 </p>
                 <p>
-                    <b>Wilcard subdomains are permitted</b>: <code>https://*.example.com</code>. You cannot wildcard
-                    domains or top-level domains as this could present a security risk.
+                    <b>Wilcard subdomains are permitted</b>: <code>https://*.example.com</code> You cannot use wildcard
+                    top-level domains as this could present a security risk.
                 </p>
                 <AuthorizedUrlsTable />
                 <Divider />
