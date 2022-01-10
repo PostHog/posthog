@@ -3,7 +3,7 @@ import { Link } from 'lib/components/Link'
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
-import { errorToast, isGroupType, pluralize, toParams } from 'lib/utils'
+import { errorToast, fromParamsGivenUrl, isGroupType, pluralize, toParams } from 'lib/utils'
 import {
     ActionFilter,
     FilterType,
@@ -143,6 +143,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
     }),
     connect: {
         values: [groupsModel, ['groupTypes']],
+        actions: [eventUsageLogic, ['reportCohortCreatedFromPersonsModal']],
     },
     reducers: () => ({
         searchTerm: [
@@ -418,7 +419,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     name: cohortName,
                 }
 
-                const qs = values.peopleUrlParams?.url.split('?').pop() || ''
+                const qs = values.peopleUrlParams.url.split('?').pop() || ''
                 const cohort = await api.create('api/cohort?' + qs, cohortParams)
                 cohortsModel.actions.cohortCreated(cohort)
                 toast.success(
@@ -432,6 +433,10 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                         toastId: `cohort-saved-${cohort.id}`,
                     }
                 )
+
+                const filters = fromParamsGivenUrl('?' + qs) // this function expects the question mark to be included
+                console.log(filters)
+                actions.reportCohortCreatedFromPersonsModal(filters)
             } else {
                 errorToast(undefined, "We couldn't create your cohort:")
             }

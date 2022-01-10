@@ -51,12 +51,11 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
     const { hasAvailableFeature } = useValues(userLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
-    const { saveCohortWithUrl, setCohortModalVisible, peopleParams } = useActions(personsModalLogic)
+    const { saveCohortWithUrl, setCohortModalVisible } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { reportInsightsTabReset } = useActions(eventUsageLogic)
     const { showHelp } = useActions(helpButtonLogic)
 
-    const { reportCohortCreatedFromPersonsModal } = useActions(eventUsageLogic)
     const verticalLayout = activeView === InsightType.FUNNELS && !featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] // Whether to display the control tab on the side instead of on top
 
     const handleHotkeyNavigation = (view: InsightType, hotkey: HotKeys): void => {
@@ -249,7 +248,6 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                 onOk={(title: string) => {
                     saveCohortWithUrl(title)
                     setCohortModalVisible(false)
-                    reportCohortCreatedFromPersonsModal(peopleParams.filters)
                 }}
                 onCancel={() => setCohortModalVisible(false)}
             />
