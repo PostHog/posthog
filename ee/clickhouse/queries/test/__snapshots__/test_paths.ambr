@@ -81,18 +81,11 @@
                              FROM events e
                              INNER JOIN
                                (SELECT distinct_id,
-                                       argMax(person_id, _timestamp) as person_id
-                                FROM
-                                  (SELECT distinct_id,
-                                          person_id,
-                                          max(_timestamp) as _timestamp
-                                   FROM person_distinct_id
-                                   WHERE team_id = 2
-                                   GROUP BY person_id,
-                                            distinct_id,
-                                            team_id
-                                   HAVING max(is_deleted) = 0)
-                                GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                       argMax(person_id, version) as person_id
+                                FROM person_distinct_id2
+                                WHERE team_id = 2
+                                GROUP BY distinct_id
+                                HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                              WHERE team_id = 2
                                AND event IN ['step one', 'step three', 'step two']
                                AND timestamp >= '2021-05-01 00:00:00'
@@ -105,8 +98,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps = 1
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1)
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1)
   SELECT last_path_key as source_event,
          path_key as target_event,
          COUNT(*) AS event_count,
@@ -164,18 +156,11 @@
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
-                           argMax(person_id, _timestamp) as person_id
-                    FROM
-                      (SELECT distinct_id,
-                              person_id,
-                              max(_timestamp) as _timestamp
-                       FROM person_distinct_id
-                       WHERE team_id = 2
-                       GROUP BY person_id,
-                                distinct_id,
-                                team_id
-                       HAVING max(is_deleted) = 0)
-                    GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  INNER JOIN
                    (SELECT group_key,
                            argMax(group_properties, _timestamp) AS group_properties_0
@@ -289,18 +274,11 @@
                              FROM events e
                              INNER JOIN
                                (SELECT distinct_id,
-                                       argMax(person_id, _timestamp) as person_id
-                                FROM
-                                  (SELECT distinct_id,
-                                          person_id,
-                                          max(_timestamp) as _timestamp
-                                   FROM person_distinct_id
-                                   WHERE team_id = 2
-                                   GROUP BY person_id,
-                                            distinct_id,
-                                            team_id
-                                   HAVING max(is_deleted) = 0)
-                                GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                       argMax(person_id, version) as person_id
+                                FROM person_distinct_id2
+                                WHERE team_id = 2
+                                GROUP BY distinct_id
+                                HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                              WHERE team_id = 2
                                AND event IN ['step one', 'step three', 'step two']
                                AND timestamp >= '2021-05-01 00:00:00'
@@ -313,9 +291,8 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps = 1
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1)
-  SELECT DISTINCT person_id
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1)
+  SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
             path,
@@ -369,18 +346,11 @@
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
-                           argMax(person_id, _timestamp) as person_id
-                    FROM
-                      (SELECT distinct_id,
-                              person_id,
-                              max(_timestamp) as _timestamp
-                       FROM person_distinct_id
-                       WHERE team_id = 2
-                       GROUP BY person_id,
-                                distinct_id,
-                                team_id
-                       HAVING max(is_deleted) = 0)
-                    GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  INNER JOIN
                    (SELECT group_key,
                            argMax(group_properties, _timestamp) AS group_properties_0
@@ -492,18 +462,11 @@
                              FROM events e
                              INNER JOIN
                                (SELECT distinct_id,
-                                       argMax(person_id, _timestamp) as person_id
-                                FROM
-                                  (SELECT distinct_id,
-                                          person_id,
-                                          max(_timestamp) as _timestamp
-                                   FROM person_distinct_id
-                                   WHERE team_id = 2
-                                   GROUP BY person_id,
-                                            distinct_id,
-                                            team_id
-                                   HAVING max(is_deleted) = 0)
-                                GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                       argMax(person_id, version) as person_id
+                                FROM person_distinct_id2
+                                WHERE team_id = 2
+                                GROUP BY distinct_id
+                                HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                              WHERE team_id = 2
                                AND event IN ['step one', 'step three', 'step two']
                                AND timestamp >= '2021-05-01 00:00:00'
@@ -516,9 +479,8 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps = 1
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1)
-  SELECT DISTINCT person_id
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1)
+  SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
             path,
@@ -572,18 +534,11 @@
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
-                           argMax(person_id, _timestamp) as person_id
-                    FROM
-                      (SELECT distinct_id,
-                              person_id,
-                              max(_timestamp) as _timestamp
-                       FROM person_distinct_id
-                       WHERE team_id = 2
-                       GROUP BY person_id,
-                                distinct_id,
-                                team_id
-                       HAVING max(is_deleted) = 0)
-                    GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  INNER JOIN
                    (SELECT group_key,
                            argMax(group_properties, _timestamp) AS group_properties_0
@@ -695,18 +650,11 @@
                              FROM events e
                              INNER JOIN
                                (SELECT distinct_id,
-                                       argMax(person_id, _timestamp) as person_id
-                                FROM
-                                  (SELECT distinct_id,
-                                          person_id,
-                                          max(_timestamp) as _timestamp
-                                   FROM person_distinct_id
-                                   WHERE team_id = 2
-                                   GROUP BY person_id,
-                                            distinct_id,
-                                            team_id
-                                   HAVING max(is_deleted) = 0)
-                                GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                       argMax(person_id, version) as person_id
+                                FROM person_distinct_id2
+                                WHERE team_id = 2
+                                GROUP BY distinct_id
+                                HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                              WHERE team_id = 2
                                AND event IN ['step one', 'step three', 'step two']
                                AND timestamp >= '2021-05-01 00:00:00'
@@ -719,9 +667,8 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps = 1
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1)
-  SELECT DISTINCT person_id
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1)
+  SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
             path,
@@ -775,18 +722,11 @@
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
-                           argMax(person_id, _timestamp) as person_id
-                    FROM
-                      (SELECT distinct_id,
-                              person_id,
-                              max(_timestamp) as _timestamp
-                       FROM person_distinct_id
-                       WHERE team_id = 2
-                       GROUP BY person_id,
-                                distinct_id,
-                                team_id
-                       HAVING max(is_deleted) = 0)
-                    GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  INNER JOIN
                    (SELECT group_key,
                            argMax(group_properties, _timestamp) AS group_properties_0
@@ -898,18 +838,11 @@
                              FROM events e
                              INNER JOIN
                                (SELECT distinct_id,
-                                       argMax(person_id, _timestamp) as person_id
-                                FROM
-                                  (SELECT distinct_id,
-                                          person_id,
-                                          max(_timestamp) as _timestamp
-                                   FROM person_distinct_id
-                                   WHERE team_id = 2
-                                   GROUP BY person_id,
-                                            distinct_id,
-                                            team_id
-                                   HAVING max(is_deleted) = 0)
-                                GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                       argMax(person_id, version) as person_id
+                                FROM person_distinct_id2
+                                WHERE team_id = 2
+                                GROUP BY distinct_id
+                                HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                              WHERE team_id = 2
                                AND event IN ['step one', 'step three', 'step two']
                                AND timestamp >= '2021-05-01 00:00:00'
@@ -922,9 +855,8 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps = 1
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1)
-  SELECT DISTINCT person_id
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1)
+  SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
             path,
@@ -978,18 +910,11 @@
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
-                           argMax(person_id, _timestamp) as person_id
-                    FROM
-                      (SELECT distinct_id,
-                              person_id,
-                              max(_timestamp) as _timestamp
-                       FROM person_distinct_id
-                       WHERE team_id = 2
-                       GROUP BY person_id,
-                                distinct_id,
-                                team_id
-                       HAVING max(is_deleted) = 0)
-                    GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  INNER JOIN
                    (SELECT group_key,
                            argMax(group_properties, _timestamp) AS group_properties_0
@@ -1077,18 +1002,11 @@
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
-                           argMax(person_id, _timestamp) as person_id
-                    FROM
-                      (SELECT distinct_id,
-                              person_id,
-                              max(_timestamp) as _timestamp
-                       FROM person_distinct_id
-                       WHERE team_id = 2
-                       GROUP BY person_id,
-                                distinct_id,
-                                team_id
-                       HAVING max(is_deleted) = 0)
-                    GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  INNER JOIN
                    (SELECT group_key,
                            argMax(group_properties, _timestamp) AS group_properties_0
@@ -1179,18 +1097,11 @@
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
-                           argMax(person_id, _timestamp) as person_id
-                    FROM
-                      (SELECT distinct_id,
-                              person_id,
-                              max(_timestamp) as _timestamp
-                       FROM person_distinct_id
-                       WHERE team_id = 2
-                       GROUP BY person_id,
-                                distinct_id,
-                                team_id
-                       HAVING max(is_deleted) = 0)
-                    GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  INNER JOIN
                    (SELECT group_key,
                            argMax(group_properties, _timestamp) AS group_properties_0
@@ -1281,18 +1192,11 @@
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
-                           argMax(person_id, _timestamp) as person_id
-                    FROM
-                      (SELECT distinct_id,
-                              person_id,
-                              max(_timestamp) as _timestamp
-                       FROM person_distinct_id
-                       WHERE team_id = 2
-                       GROUP BY person_id,
-                                distinct_id,
-                                team_id
-                       HAVING max(is_deleted) = 0)
-                    GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  INNER JOIN
                    (SELECT group_key,
                            argMax(group_properties, _timestamp) AS group_properties_1

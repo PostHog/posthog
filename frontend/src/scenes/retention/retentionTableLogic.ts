@@ -19,6 +19,14 @@ import { retentionTableLogicType } from './retentionTableLogicType'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 
+// https://day.js.org/docs/en/durations/creating#list-of-all-available-units
+const dateOptionToTimeIntervalMap = {
+    Hour: 'h',
+    Day: 'd',
+    Week: 'w',
+    Month: 'M',
+}
+
 export const retentionOptions = {
     [`${RETENTION_FIRST_TIME}`]: 'First Time',
     [`${RETENTION_RECURRING}`]: 'Recurring',
@@ -106,11 +114,11 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                 // go further and translate thhese numbers into percentage of the previous value
                 // so we get some idea for the rate of convergence.
 
-                return results.map((cohortRetention) => {
+                return results.map((cohortRetention, datasetIndex) => {
                     const retentionPercentages = cohortRetention.values
                         .map((value) => value.count / cohortRetention.values[0].count)
                         // Make them display in the right scale
-                        .map((value) => 100 * value)
+                        .map((value) => (isNaN(value) ? 0 : 100 * value))
 
                     // To calculate relative percentages, we take for instance Cohort 1 as percentages
                     // of the cohort size and create another series that has a 100 at prepended so we have
@@ -142,6 +150,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                                       // map values to percentage of previous
                                       .map(([value, previous]) => (100 * value) / previous)
                                 : retentionPercentages,
+                        index: datasetIndex,
                     }
                 })
             },
@@ -167,6 +176,29 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                 plural: string
             } => {
                 return aggregationLabel(filters.aggregation_group_type_index)
+            },
+        ],
+        incompletenessOffsetFromEnd: [
+            (s) => [s.filters, s.trendSeries],
+            (filters, trendSeries) => {
+                // Returns negative number of points to paint over starting from end of array
+                if (!trendSeries?.[0]?.days) {
+                    return 0
+                } else if (!filters?.date_to) {
+                    return -1
+                }
+                const numUnits = trendSeries[0].days.length
+                const interval = dateOptionToTimeIntervalMap?.[filters.period ?? 'Day']
+                const startDate = dayjs().startOf(interval)
+                const startIndex = trendSeries[0].days.findIndex(
+                    (_, i) => dayjs(filters?.date_to).add(i - numUnits, interval) >= startDate
+                )
+
+                if (startIndex !== undefined && startIndex !== -1) {
+                    return startIndex - trendSeries[0].days.length
+                } else {
+                    return 0
+                }
             },
         ],
     },

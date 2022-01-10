@@ -575,6 +575,7 @@ export interface ClickHousePersonDistinctId2 {
 export interface Cohort {
     id: number
     name: string
+    description: string
     deleted: boolean
     groups: any[]
     team_id: Team['id']
@@ -617,6 +618,8 @@ export enum PropertyOperator {
     LessThan = 'lt',
     IsSet = 'is_set',
     IsNotSet = 'is_not_set',
+    IsDateBefore = 'is_date_before',
+    IsDateAfter = 'is_date_after',
 }
 
 /** Sync with posthog/frontend/src/types.ts */

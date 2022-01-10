@@ -37,8 +37,6 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
         hideCreateOrganizationModal: true,
         showCreateProjectModal: true,
         hideCreateProjectModal: true,
-        showToolbarModal: true,
-        hideToolbarModal: true,
         toggleProjectSwitcher: true,
         hideProjectSwitcher: true,
         setHotkeyNavigationEngaged: (hotkeyNavigationEngaged: boolean) => ({ hotkeyNavigationEngaged }),
@@ -87,13 +85,6 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
             {
                 showCreateProjectModal: () => true,
                 hideCreateProjectModal: () => false,
-            },
-        ],
-        isToolbarModalShown: [
-            false,
-            {
-                showToolbarModal: () => true,
-                hideToolbarModal: () => false,
             },
         ],
         isProjectSwitcherShown: [
@@ -168,8 +159,12 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
             },
         ],
         demoWarning: [
-            () => [organizationLogic.selectors.currentOrganization, teamLogic.selectors.currentTeam],
-            (organization, currentTeam): WarningType => {
+            () => [
+                organizationLogic.selectors.currentOrganization,
+                teamLogic.selectors.currentTeam,
+                preflightLogic.selectors.preflight,
+            ],
+            (organization, currentTeam, preflight): WarningType => {
                 if (!organization) {
                     return null
                 }
@@ -184,7 +179,10 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
                     return 'incomplete_setup_on_demo_project'
                 } else if (organization.setup.is_active) {
                     return 'incomplete_setup_on_real_project'
-                } else if (currentTeam?.is_demo) {
+                } else if (currentTeam?.is_demo && !preflight?.demo) {
+                    // If the project is a demo one, show a project-level warning
+                    // Don't show this project-level warning in the PostHog demo environemnt though,
+                    // as then Announcement is shown instance-wide
                     return 'demo_project'
                 } else if (currentTeam && !currentTeam.ingested_event) {
                     return 'real_project_with_no_events'

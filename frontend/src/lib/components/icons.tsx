@@ -716,21 +716,6 @@ export function InsightsFunnelsIcon({ color = 'white', ...props }: InsightIconIn
     )
 }
 
-export function InsightsSessionsIcon({ color = 'white', ...props }: InsightIconInstanceProps): JSX.Element {
-    return (
-        <InsightIcon {...props}>
-            <path
-                d="M9 8H23C24.11 8 25 8.9 25 10V14H23V12H9V22H11V24H9C7.89 24 7 23.1 7 22V10C7 8.9 7.89 8 9 8Z"
-                fill={color}
-            />
-            <path
-                d="M19.5267 15C16.4094 15 13.8817 17.5277 13.8817 20.645H12L14.4399 23.0849L14.4838 23.1727L17.0178 20.645H15.1361C15.1361 18.2177 17.0993 16.2544 19.5267 16.2544C21.954 16.2544 23.9172 18.2177 23.9172 20.645C23.9172 23.0724 21.954 25.0356 19.5267 25.0356C18.3161 25.0356 17.2185 24.5401 16.4282 23.7435L15.5375 24.6341C16.5599 25.6565 17.9649 26.29 19.5267 26.29C22.644 26.29 25.1717 23.7623 25.1717 20.645C25.1717 17.5277 22.644 15 19.5267 15ZM18.8994 18.1361V21.2722L21.5651 22.8528L22.0481 22.05L19.8403 20.7391V18.1361H18.8994Z"
-                fill={color}
-            />
-        </InsightIcon>
-    )
-}
-
 export function InsightsRetentionIcon({ color = 'white', ...props }: InsightIconInstanceProps): JSX.Element {
     return (
         <InsightIcon {...props}>
@@ -930,6 +915,17 @@ export function IconExperiment({ style }: { style?: CSSProperties }): JSX.Elemen
         <svg width="18" height="16" viewBox="0 0 18 16" fill="none" style={style} xmlns="http://www.w3.org/2000/svg">
             <path
                 d="M9.99999 7.33L15 14H2.99999L7.99999 7.33V2H9.99999V7.33ZM12.96 0H5.03999C4.61999 0 4.38999 0.48 4.64999 0.81L5.99999 2.5V6.67L0.199992 14.4C-0.290008 15.06 0.179992 16 0.999992 16H17C17.82 16 18.29 15.06 17.8 14.4L12 6.67V2.5L13.35 0.81C13.61 0.48 13.38 0 12.96 0Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export function IconHeatmap(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="1em" height="1em" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="M17.5 1.49056C17.5 0.00305736 15.5844 -0.557568 14.7406 0.675557C7 11.9899 18 12.4993 18 17.9993C18 20.2262 16.1806 22.0281 13.9469 21.9987C11.7487 21.9706 10 20.1381 10 17.9399V12.5956C10 11.2393 8.34562 10.5812 7.41062 11.5643C5.7375 13.3218 4 16.3324 4 19.9993C4 26.6162 9.38312 31.9993 16 31.9993C22.6169 31.9993 28 26.6162 28 19.9993C28 9.35618 17.5 7.93681 17.5 1.49056V1.49056Z"
                 fill="currentColor"
             />
         </svg>

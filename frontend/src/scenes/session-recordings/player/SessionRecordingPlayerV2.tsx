@@ -1,20 +1,17 @@
 import './styles.scss'
 import React, { useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PLAYBACK_SPEEDS, sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 import { PlayerFrame } from 'scenes/session-recordings/player/PlayerFrame'
 import { PlayerController } from 'scenes/session-recordings/player/PlayerController'
 import { PlayerEvents } from 'scenes/session-recordings/player/PlayerEvents'
 import { Col, Row } from 'antd'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { PlayerMeta } from './PlayerMeta'
 
 export function SessionRecordingPlayerV2(): JSX.Element {
     const { togglePlayPause, seekForward, seekBackward, setSpeed, setRootFrame } =
         useActions(sessionRecordingPlayerLogic)
     const { isSmallScreen } = useValues(sessionRecordingPlayerLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const frame = useRef<HTMLDivElement | null>(null)
     // Need useEffect to populate replayer on component paint
     useEffect(() => {
@@ -51,12 +48,12 @@ export function SessionRecordingPlayerV2(): JSX.Element {
                 <div className="player-container ph-no-capture">
                     <PlayerFrame ref={frame} />
                 </div>
-                {featureFlags[FEATURE_FLAGS.NEW_SESSIONS_PLAYER_EVENTS_LIST] && !isSmallScreen && <PlayerSidebar />}
+                {!isSmallScreen && <PlayerSidebar />}
             </Row>
             <Row className="player-controller" align="middle">
                 <PlayerController />
             </Row>
-            {featureFlags[FEATURE_FLAGS.NEW_SESSIONS_PLAYER_EVENTS_LIST] && isSmallScreen && <PlayerSidebar />}
+            {isSmallScreen && <PlayerSidebar />}
         </Col>
     )
 }

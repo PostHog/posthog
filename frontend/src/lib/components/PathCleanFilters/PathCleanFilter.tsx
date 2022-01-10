@@ -29,8 +29,11 @@ export function PathRegexPopup({ item, onComplete, onClose }: PathRegexPopupProp
                     defaultValue={regex}
                     onChange={(e) => setRegex(e.target.value)}
                     onPressEnter={() => false}
-                    style={{ marginTop: 8 }}
+                    style={{ marginTop: 8, marginBottom: 0, fontFamily: 'monospace' }}
                 />
+                <div className="text-muted" style={{ marginBottom: 12 }}>
+                    For example: <code>\/merchant\/\d+\/dashboard$</code>
+                </div>
                 <Row style={{ width: '100%', justifyContent: 'flex-end', marginTop: 12 }}>
                     <Button onClick={onClose} type="link">
                         {' '}

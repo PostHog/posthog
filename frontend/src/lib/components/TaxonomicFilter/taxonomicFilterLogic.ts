@@ -19,6 +19,9 @@ import { groupsModel } from '~/models/groupsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { capitalizeFirstLetter, toParams } from 'lib/utils'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
+import { combineUrl } from 'kea-router'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
     path: (key) => ['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic', key],
@@ -90,9 +93,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             () => [(_, props) => props.taxonomicFilterLogicKey],
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
+        eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames],
         taxonomicGroups: [
-            (selectors) => [selectors.currentTeamId, selectors.groupAnalyticsTaxonomicGroups],
-            (teamId, groupAnalyticsTaxonomicGroups): TaxonomicFilterGroup[] => [
+            (selectors) => [
+                selectors.currentTeamId,
+                selectors.groupAnalyticsTaxonomicGroups,
+                selectors.eventNames,
+                featureFlagLogic.selectors.featureFlags,
+            ],
+            (teamId, groupAnalyticsTaxonomicGroups, eventNames, featureFlags): TaxonomicFilterGroup[] => [
                 {
                     name: 'Events',
                     searchPlaceholder: 'events',
@@ -124,7 +133,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     name: 'Event properties',
                     searchPlaceholder: 'event properties',
                     type: TaxonomicFilterGroupType.EventProperties,
-                    endpoint: `api/projects/${teamId}/property_definitions`,
+                    endpoint: combineUrl(
+                        `api/projects/${teamId}/property_definitions`,
+                        featureFlags[FEATURE_FLAGS.UNSEEN_EVENT_PROPERTIES] ? { event_names: eventNames } : {}
+                    ).url,
                     getName: (propertyDefinition: PropertyDefinition): string => propertyDefinition.name,
                     getValue: (propertyDefinition: PropertyDefinition): TaxonomicFilterValue => propertyDefinition.name,
                 },

@@ -20,14 +20,14 @@ describe('Retention', () => {
         cy.get('[data-attr=prop-val-0]').click()
         cy.get('[data-attr=retention-table').should('exist')
 
-        cy.get('.percentage-cell').last().click()
+        // cy.get('.percentage-cell').last().click()
 
-        cy.get('[data-attr=retention-person-link]').its('length').should('eq', 1)
-        cy.get('[data-attr=retention-person-link]').contains('smith.nunez@gmail.com')
+        // cy.get('[data-attr=retention-person-link]').its('length').should('eq', 1)
+        // cy.get('[data-attr=retention-person-link]').contains('smith.nunez@gmail.com')
 
-        cy.get('[data-attr=retention-person-link]').click()
+        // cy.get('[data-attr=retention-person-link]').click()
 
-        cy.url().should('include', '/person/')
-        cy.contains('smith.nunez@gmail.com').should('exist')
+        // cy.url().should('include', '/person/')
+        // cy.contains('smith.nunez@gmail.com').should('exist')
     })
 })

@@ -7,6 +7,8 @@ import { InsightEmptyState } from '../../insights/EmptyStates'
 import { ActionFilter, FilterType, GraphType, InsightShortId } from '~/types'
 import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { InsightLabel } from 'lib/components/InsightLabel'
+import { SeriesLetter } from 'lib/components/SeriesGlyph'
 
 interface Props {
     dashboardItemId?: InsightShortId | null
@@ -49,6 +51,7 @@ export function ActionsHorizontalBar({
                 personsValues: _data.map((item) => item.persons),
                 days,
                 breakdownValues: _data.map((item) => item.breakdown_value),
+                compareLabels: _data.map((item) => item.compare_label),
                 backgroundColor: colorList,
                 hoverBackgroundColor: colorList,
                 hoverBorderColor: colorList,
@@ -71,6 +74,28 @@ export function ActionsHorizontalBar({
             data-attr="trend-bar-value-graph"
             type={GraphType.HorizontalBar}
             color={color}
+            tooltip={{
+                altTitle: function _renderAltTitle(tooltipData) {
+                    return (
+                        <>
+                            <SeriesLetter
+                                className="mr-025"
+                                hasBreakdown={false}
+                                seriesIndex={tooltipData?.[0]?.action?.order ?? 0}
+                            />
+                            <InsightLabel
+                                className="series-column-header"
+                                action={tooltipData?.[0]?.action}
+                                fallbackName="Series"
+                                hideBreakdown
+                                hideCompare
+                                hideIcon
+                                allowWrap
+                            />
+                        </>
+                    )
+                },
+            }}
             datasets={data}
             labels={data[0].labels}
             insightId={insight.id}
@@ -80,13 +105,9 @@ export function ActionsHorizontalBar({
                 dashboardItemId || filtersParam.formula || !showPersonsModal
                     ? undefined
                     : (point) => {
-                          const { value: pointValue, index, points } = point
+                          const { value: pointValue, index, points, seriesId } = point
 
-                          // For now, take first point when clicking a specific point.
-                          // TODO: Implement case when if the entire line was clicked, show people for that entire day across actions.
-                          const dataset = points.clickedPointNotLine
-                              ? points.pointsIntersectingClick[0].dataset
-                              : points.pointsIntersectingLine[0].dataset
+                          const dataset = points.referencePoint.dataset
 
                           const action = dataset.actions?.[point.index]
                           const label = dataset.labels?.[point.index]
@@ -103,6 +124,7 @@ export function ActionsHorizontalBar({
                               filters: filtersParam,
                               breakdown_value: breakdown_value ?? '',
                               pointValue,
+                              seriesId,
                           }
                           if (dataset.persons_urls?.[index].url) {
                               loadPeopleFromUrl({

@@ -77,7 +77,7 @@ async function waitForLogEntries(number: number) {
     }
 }
 
-describe('job queues', () => {
+describe.skip('job queues', () => {
     let server: ServerInstance
     let posthog: DummyPostHog
 

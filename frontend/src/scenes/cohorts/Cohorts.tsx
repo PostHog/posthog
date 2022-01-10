@@ -246,7 +246,7 @@ export function Cohorts(): JSX.Element {
                     columns={columns}
                     loading={cohortsLoading}
                     rowKey="id"
-                    pagination={{ pageSize: 30 }}
+                    pagination={{ pageSize: 100 }}
                     dataSource={searchTerm ? searchCohorts(cohorts, searchTerm) : cohorts}
                     nouns={['cohort', 'cohorts']}
                 />

@@ -54,9 +54,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         crontab(day_of_week="mon,fri", hour=0, minute=0), update_event_partitions.s(),  # check twice a week
     )
 
-    if getattr(settings, "MULTI_TENANCY", False) and not is_clickhouse_enabled():
-        sender.add_periodic_task(crontab(minute=0, hour="*/12"), run_session_recording_retention.s())
-
     # Send weekly status report on self-hosted instances
     if not getattr(settings, "MULTI_TENANCY", False):
         sender.add_periodic_task(crontab(day_of_week="mon", hour=0, minute=0), status_report.s())
@@ -163,6 +160,7 @@ CLICKHOUSE_TABLES = [
     "events",
     "person",
     "person_distinct_id",
+    "person_distinct_id2",
     "session_recording_events",
 ]
 
@@ -251,15 +249,20 @@ def clickhouse_mutation_count():
         pass
 
 
-def materialized_columns_enabled() -> bool:
-    if is_clickhouse_enabled() and settings.EE_AVAILABLE and getattr(config, "MATERIALIZED_COLUMNS_ENABLED"):
+def recompute_materialized_columns_enabled() -> bool:
+    if (
+        is_clickhouse_enabled()
+        and settings.EE_AVAILABLE
+        and getattr(config, "MATERIALIZED_COLUMNS_ENABLED")
+        and getattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED")
+    ):
         return True
     return False
 
 
 @app.task(ignore_result=True)
 def clickhouse_materialize_columns():
-    if materialized_columns_enabled():
+    if recompute_materialized_columns_enabled():
         from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 
         materialize_properties_task()
@@ -267,7 +270,7 @@ def clickhouse_materialize_columns():
 
 @app.task(ignore_result=True)
 def clickhouse_mark_all_materialized():
-    if materialized_columns_enabled():
+    if recompute_materialized_columns_enabled():
         from ee.tasks.materialized_columns import mark_all_materialized
 
         mark_all_materialized()
@@ -327,13 +330,6 @@ def status_report():
     from posthog.tasks.status_report import status_report
 
     status_report()
-
-
-@app.task(ignore_result=True)
-def run_session_recording_retention():
-    from posthog.tasks.session_recording_retention import session_recording_retention_scheduler
-
-    session_recording_retention_scheduler()
 
 
 @app.task(ignore_result=True)

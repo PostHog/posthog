@@ -13,40 +13,40 @@ export function ActionsTable(): JSX.Element {
     const { filters, indexedResults, resultsLoading } = useValues(logic)
 
     let data = indexedResults
-    if (!filters.session && data) {
+    if (data) {
         data = [...data].sort((a, b) => b.aggregated_value - a.aggregated_value)
     }
 
     data = data.map((d: any) => {
-        const key: string = filters.session ? 'count' : 'aggregated_value'
+        const key = 'aggregated_value'
         const value: any = d[key]
         d[key + '_formatted'] = maybeAddCommasToInteger(value)
         return d
     })
 
     return data && !resultsLoading ? (
-        data[0] && (filters.session || data[0].labels) ? (
+        data[0] && data[0].labels ? (
             <Table
                 size="small"
                 columns={[
                     {
-                        title: filters.session ? 'Session Attribute' : 'Action',
+                        title: 'Action',
                         dataIndex: 'label',
                         render: function renderLabel(_, { label, action }: { label: string; action: ActionFilter }) {
                             return (
                                 <div style={{ wordBreak: 'break-all' }}>
-                                    {filters.session ? label : filters.formula ? label : formatLabel(label, action)}
+                                    {filters.formula ? label : formatLabel(label, action)}
                                 </div>
                             )
                         },
                     },
                     {
-                        title: filters.session ? 'Value' : 'Count',
-                        dataIndex: filters.session ? 'count_formatted' : 'aggregated_value_formatted',
+                        title: 'Count',
+                        dataIndex: 'aggregated_value_formatted',
                     },
                 ]}
                 rowKey="label"
-                pagination={{ pageSize: 9999, hideOnSinglePage: true }}
+                pagination={false}
                 dataSource={data}
                 data-attr="actions-table-graph"
             />

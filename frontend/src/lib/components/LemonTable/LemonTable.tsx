@@ -45,6 +45,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     expandable?: ExpandableConfig<T>
     /** Whether the header should be shown. The default value is `true`. */
     showHeader?: boolean
+    /** Whether header titles should be uppercased. The default value is `true`. */
+    uppercaseHeader?: boolean
     /**
      * By default sorting goes: 0. unsorted > 1. ascending > 2. descending > GOTO 0 (loop).
      * With sorting cancellation disabled, GOTO 0 is replaced by GOTO 1. */
@@ -76,6 +78,7 @@ export function LemonTable<T extends Record<string, any>>({
     pagination,
     expandable,
     showHeader = true,
+    uppercaseHeader = true,
     disableSortingCancellation = false,
     defaultSorting = null,
     sorting,
@@ -201,6 +204,17 @@ export function LemonTable<T extends Record<string, any>>({
         }
     }, [currentPage, pageCount, pagination, dataSource, currentSorting])
 
+    useEffect(() => {
+        // When the current page changes, scroll back to the top of the table
+        if (scrollRef.current) {
+            const realTableOffsetTop = scrollRef.current.getBoundingClientRect().top - 320 // Extra breathing room
+            // If the table starts above the top edge of the view, scroll to the top of the table minus breathing room
+            if (realTableOffsetTop < 0) {
+                window.scrollTo(window.scrollX, window.scrollY + realTableOffsetTop)
+            }
+        }
+    }, [currentPage, scrollRef.current])
+
     return (
         <div
             id={id}
@@ -226,7 +240,7 @@ export function LemonTable<T extends Record<string, any>>({
                             ))}
                         </colgroup>
                         {showHeader && (
-                            <thead>
+                            <thead style={uppercaseHeader ? { textTransform: 'uppercase' } : {}}>
                                 <tr>
                                     {expandable && <th />}
                                     {columns.map((column, columnIndex) => (
@@ -270,7 +284,10 @@ export function LemonTable<T extends Record<string, any>>({
                                                     })
                                                 }
                                             >
-                                                <div className="LemonTable__header-content">
+                                                <div
+                                                    className="LemonTable__header-content"
+                                                    style={{ justifyContent: column.align }}
+                                                >
                                                     {column.title}
                                                     {column.sorter && (
                                                         <SortingIndicator

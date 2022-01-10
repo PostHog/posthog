@@ -72,8 +72,8 @@ export function ActionsPie({
                             dashboardItemId || filtersParam.formula || !showPersonsModal
                                 ? undefined
                                 : (payload) => {
-                                      const { points, index } = payload
-                                      const dataset = points.pointsIntersectingClick?.[0]?.dataset
+                                      const { points, index, seriesId } = payload
+                                      const dataset = points.referencePoint.dataset
                                       const action = dataset.actions?.[index]
                                       const label = dataset.labels?.[index]
                                       const date_from = filtersParam.date_from || ''
@@ -87,6 +87,7 @@ export function ActionsPie({
                                           date_from,
                                           date_to,
                                           filters: filtersParam,
+                                          seriesId,
                                           breakdown_value: breakdown_value ?? '',
                                       }
                                       if (dataset.persons_urls?.[index].url) {

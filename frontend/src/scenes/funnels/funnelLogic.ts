@@ -1269,8 +1269,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 funnelStep: converted ? step.order : -step.order,
                 breakdown_value: breakdownValues.isEmpty ? undefined : breakdownValues.breakdown_value.join(', '),
                 label: step.name,
-                // NOTE: session value copied from previous code, not clear that this should be the case
-                action: 'session',
+                seriesId: step.order,
             })
         },
         openCorrelationPersonsModal: ({ correlation, success }) => {
@@ -1283,7 +1282,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                     funnelStep: success ? values.stepsWithCount.length : -2,
                     label: breakdown,
                     breakdown_value,
-                    action: 'session',
                     date_from: '',
                 })
 
@@ -1299,7 +1297,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                     url: success ? correlation.success_people_url : correlation.failure_people_url,
                     funnelStep: success ? values.stepsWithCount.length : -2,
                     label: name,
-                    action: 'session',
                     date_from: '',
                 })
 

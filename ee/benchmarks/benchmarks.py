@@ -9,9 +9,11 @@ from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from ee.clickhouse.materialized_columns import backfill_materialized_columns, get_materialized_columns, materialize
 from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
+from ee.clickhouse.queries.funnels import ClickhouseFunnel
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.session_recordings.clickhouse_session_recording_list import ClickhouseSessionRecordingList
 from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
+from ee.clickhouse.queries.util import get_earliest_timestamp
 from posthog.models import Action, ActionStep, Cohort, Team, Organization
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
@@ -241,6 +243,18 @@ class QuerySuite:
         filter = Filter(data={"actions": [{"id": action.id}], **DATE_RANGE}, team=self.team)
         with no_materialized_columns():
             ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_funnel_normal(self):
+        filter = Filter(
+            data={
+                "insight": "FUNNELS",
+                "events": [{"id": "user signed up", "order": 0}, {"id": "insight analyzed", "order": 1}],
+                **DATE_RANGE,
+            },
+            team=self.team,
+        )
+        ClickhouseFunnel(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_correlations_by_events(self):
@@ -478,6 +492,10 @@ class QuerySuite:
         )
 
         ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_earliest_timestamp(self):
+        get_earliest_timestamp(2)
 
     def setup(self):
         for table, property in MATERIALIZED_PROPERTIES:

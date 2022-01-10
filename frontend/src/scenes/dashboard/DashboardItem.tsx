@@ -37,6 +37,7 @@ import {
     FunnelSingleStepState,
     InsightErrorState,
     InsightTimeoutState,
+    InsightDeprecatedState,
 } from 'scenes/insights/EmptyStates'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -183,8 +184,6 @@ export function DashboardItem({
             ? 'Paths'
             : item.filters.insight === InsightType.FUNNELS
             ? 'Funnel'
-            : item.filters.insight === InsightType.SESSIONS
-            ? 'Sessions'
             : item.filters.insight === InsightType.STICKINESS
             ? 'Stickiness'
             : 'Trends'
@@ -251,6 +250,11 @@ export function DashboardItem({
         }
         if (showTimeoutMessage) {
             return <InsightTimeoutState isLoading={isLoading} />
+        }
+
+        // Deprecated insights
+        if ((item.filters.insight as string) === 'SESSIONS') {
+            return <InsightDeprecatedState deleteCallback={loadDashboardItems} itemId={item.id} itemName={item.name} />
         }
 
         return null

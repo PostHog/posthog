@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.models import Action, ActionStep, Element, Event, Organization
@@ -254,14 +255,15 @@ def factory_test_action_api(event_factory):
             action = Action.objects.get()
             self.assertEqual(action.steps.get().event, "test_event ")
 
+        @freeze_time("2021-12-12")
         def test_get_event_count(self, *args):
             team2 = Organization.objects.bootstrap(None, team_fields={"name": "bla"})[2]
             action = Action.objects.create(team=self.team, name="bla")
             ActionStep.objects.create(action=action, event="custom event")
-            event_factory(event="custom event", team=self.team, distinct_id="test")
-            event_factory(event="another event", team=self.team, distinct_id="test")
+            event_factory(event="custom event", team=self.team, distinct_id="test", timestamp="2021-12-04T19:20:00Z")
+            event_factory(event="another event", team=self.team, distinct_id="test", timestamp="2021-12-04T19:20:00Z")
             # test team leakage
-            event_factory(event="custom event", team=team2, distinct_id="test")
+            event_factory(event="custom event", team=team2, distinct_id="test", timestamp="2021-12-04T19:20:00Z")
 
             action.calculate_events()
             response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/count").json()

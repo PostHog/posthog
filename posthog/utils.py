@@ -61,7 +61,7 @@ __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file
 
 def format_label_date(date: datetime.datetime, interval: str) -> str:
     labels_format = "%-d-%b-%Y"
-    if interval == "hour" or interval == "minute":
+    if interval == "hour":
         labels_format += " %H:%M"
     return date.strftime(labels_format)
 
@@ -323,7 +323,7 @@ def append_data(dates_filled: List, interval=None, math="sum") -> Dict[str, Any]
 
     days_format = "%Y-%m-%d"
 
-    if interval == "hour" or interval == "minute":
+    if interval == "hour":
         days_format += " %H:%M:%S"
 
     for item in dates_filled:
@@ -601,10 +601,12 @@ def is_clickhouse_enabled() -> bool:
 
 def get_instance_realm() -> str:
     """
-    Returns the realm for the current instance. `cloud` or `hosted` or `hosted-clickhouse`.
+    Returns the realm for the current instance. `cloud` or 'demo' or `hosted` or `hosted-clickhouse`.
     """
     if settings.MULTI_TENANCY:
         return "cloud"
+    elif settings.DEMO:
+        return "demo"
     elif is_clickhouse_enabled():
         return "hosted-clickhouse"
     else:
@@ -624,6 +626,7 @@ def get_can_create_org() -> bool:
 
     if (
         settings.MULTI_TENANCY
+        or settings.DEMO
         or settings.E2E_TESTING
         or not Organization.objects.filter(for_internal_metrics=False).exists()
     ):

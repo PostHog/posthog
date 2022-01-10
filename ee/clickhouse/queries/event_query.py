@@ -15,6 +15,7 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.property import PropertyName
 
 
 class ClickhouseEventQuery(metaclass=ABCMeta):
@@ -30,6 +31,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
     _should_join_persons = False
     _should_round_interval = False
     _extra_fields: List[ColumnName]
+    _extra_event_properties: List[PropertyName]
     _extra_person_fields: List[ColumnName]
 
     def __init__(
@@ -41,11 +43,13 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         should_join_persons=False,
         # Extra events/person table columns to fetch since parent query needs them
         extra_fields: List[ColumnName] = [],
+        extra_event_properties: List[PropertyName] = [],
         extra_person_fields: List[ColumnName] = [],
         **kwargs,
     ) -> None:
         self._filter = filter
         self._team_id = team_id
+        self._extra_event_properties = extra_event_properties
         self._column_optimizer = ColumnOptimizer(self._filter, self._team_id)
         self._person_query = ClickhousePersonQuery(
             self._filter, self._team_id, self._column_optimizer, extra_fields=extra_person_fields
@@ -79,7 +83,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         if self._should_join_distinct_ids:
             return f"""
             INNER JOIN ({get_team_distinct_ids_query(self._team_id)}) AS {self.DISTINCT_ID_TABLE_ALIAS}
-            ON events.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id
+            ON {self.EVENT_TABLE_ALIAS}.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id
             """
         else:
             return ""

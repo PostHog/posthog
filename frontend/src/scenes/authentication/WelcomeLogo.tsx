@@ -1,6 +1,7 @@
 import React from 'react'
 import cloudLogo from 'public/posthog-logo-cloud.svg'
-import selfHostedLogo from 'public/posthog-logo-selfhosted.svg'
+import demoLogo from 'public/posthog-logo-demo.svg'
+import defaultLogo from 'public/posthog-logo-default.svg'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { useValues } from 'kea'
 
@@ -12,8 +13,8 @@ export function WelcomeLogo({ view }: { view?: string }): JSX.Element {
         <a href={`https://posthog.com?${UTM_TAGS}`}>
             <div className="header-logo">
                 <img
-                    src={preflight?.cloud ? cloudLogo : selfHostedLogo}
-                    alt={`PostHog ${preflight?.cloud ? 'Cloud' : 'Self-hosted'}`}
+                    src={preflight?.demo ? demoLogo : preflight?.cloud ? cloudLogo : defaultLogo}
+                    alt={`PostHog${preflight?.cloud ? ' Cloud' : ''}`}
                 />
             </div>
         </a>

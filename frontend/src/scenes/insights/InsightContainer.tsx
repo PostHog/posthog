@@ -35,7 +35,6 @@ const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
     [`${InsightType.STICKINESS}`]: <TrendInsight view={InsightType.STICKINESS} />,
     [`${InsightType.LIFECYCLE}`]: <TrendInsight view={InsightType.LIFECYCLE} />,
-    [`${InsightType.SESSIONS}`]: <TrendInsight view={InsightType.SESSIONS} />,
     [`${InsightType.FUNNELS}`]: <FunnelInsight />,
     [`${InsightType.RETENTION}`]: <RetentionContainer />,
     [`${InsightType.PATHS}`]: <Paths />,
@@ -115,17 +114,12 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
             filters?.layout === FunnelLayout.horizontal &&
             !disableTable
         ) {
-            return (
-                <Card>
-                    <h3 className="l3">Details table</h3>
-                    <FunnelStepTable />
-                </Card>
-            )
+            return <FunnelStepTable />
         }
         if (
             (!filters.display ||
                 (filters?.display !== ACTIONS_TABLE && filters?.display !== ACTIONS_BAR_CHART_VALUE)) &&
-            (activeView === InsightType.TRENDS || activeView === InsightType.SESSIONS) &&
+            activeView === InsightType.TRENDS &&
             !disableTable
         ) {
             /* InsightsTable is loaded for all trend views (except below), plus the sessions view.
@@ -134,16 +128,13 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
         2. Bar value chart. Because this view displays data in completely different dimensions.
     */
             return (
-                <Card style={{ marginTop: 8 }}>
-                    <BindLogic logic={trendsLogic} props={insightProps}>
-                        <h3 className="l3">Details table</h3>
-                        <InsightsTable
-                            showTotalCount={activeView !== InsightType.SESSIONS}
-                            filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
-                            canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}
-                        />
-                    </BindLogic>
-                </Card>
+                <BindLogic logic={trendsLogic} props={insightProps}>
+                    <InsightsTable
+                        showTotalCount
+                        filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
+                        canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}
+                    />
+                </BindLogic>
             )
         }
 
@@ -185,7 +176,7 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
                         BlockingEmptyState
                     ) : featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS] &&
                       (activeView === InsightType.TRENDS || activeView === InsightType.STICKINESS) &&
-                      !filters.legend_hidden ? (
+                      filters.show_legend ? (
                         <Row className="insights-graph-container-row" wrap={false}>
                             <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>
                             <Col className="insights-graph-container-row-right">

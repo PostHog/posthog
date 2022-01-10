@@ -18,6 +18,7 @@ import {
     InsightModel,
     InsightType,
     InsightShortId,
+    MultivariateFlagVariant,
 } from '~/types'
 import { experimentLogicType } from './experimentLogicType'
 import { router } from 'kea-router'
@@ -42,10 +43,13 @@ export const experimentLogic = kea<experimentLogicType>({
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
         setExperimentId: (experimentId: number | 'new') => ({ experimentId }),
         setNewExperimentData: (experimentData: Partial<Experiment>) => ({ experimentData }),
-        emptyData: true,
+        updateExperimentGroup: (variant: MultivariateFlagVariant, idx: number) => ({ variant, idx }),
+        removeExperimentGroup: (idx: number) => ({ idx }),
+        resetNewExperiment: true,
         launchExperiment: true,
         endExperiment: true,
         editExperiment: true,
+        addExperimentGroup: true,
     },
     reducers: {
         experimentId: [
@@ -64,7 +68,69 @@ export const experimentLogic = kea<experimentLogicType>({
                     }
                     return { ...vals, ...experimentData }
                 },
-                emptyData: () => null,
+                updateExperimentGroup: (state, { variant, idx }) => {
+                    const featureFlagVariants = [...(state?.parameters?.feature_flag_variants || [])]
+                    featureFlagVariants[idx] = { ...featureFlagVariants[idx], ...variant }
+                    return {
+                        ...state,
+                        parameters: { ...state?.parameters, feature_flag_variants: featureFlagVariants },
+                    }
+                },
+                addExperimentGroup: (state) => {
+                    if (state?.parameters?.feature_flag_variants) {
+                        const newRolloutPercentage = Math.round(
+                            100 / (state.parameters.feature_flag_variants.length + 1)
+                        )
+                        const updatedRolloutPercentageVariants = state.parameters.feature_flag_variants.map(
+                            (variant: MultivariateFlagVariant) => ({
+                                ...variant,
+                                rollout_percentage: newRolloutPercentage,
+                            })
+                        )
+                        return {
+                            ...state,
+                            parameters: {
+                                ...state.parameters,
+                                feature_flag_variants: [
+                                    ...updatedRolloutPercentageVariants,
+                                    {
+                                        key: `test_group_${state.parameters.feature_flag_variants.length}`,
+                                        rollout_percentage: newRolloutPercentage,
+                                    },
+                                ],
+                            },
+                        }
+                    }
+                    return state
+                },
+                removeExperimentGroup: (state, { idx }) => {
+                    if (!state) {
+                        return state
+                    }
+                    const variants = [...(state.parameters?.feature_flag_variants || [])]
+                    variants.splice(idx, 1)
+                    const newRolloutPercentage = Math.round(100 / (state?.parameters?.feature_flag_variants.length - 1))
+                    const updatedVariants = variants.map((variant: MultivariateFlagVariant) => ({
+                        ...variant,
+                        rollout_percentage: newRolloutPercentage,
+                    }))
+
+                    return {
+                        ...state,
+                        parameters: {
+                            ...state.parameters,
+                            feature_flag_variants: updatedVariants,
+                        },
+                    }
+                },
+                resetNewExperiment: () => ({
+                    parameters: {
+                        feature_flag_variants: [
+                            { key: 'control', rollout_percentage: 50 },
+                            { key: 'test_group', rollout_percentage: 50 },
+                        ],
+                    },
+                }),
             },
         ],
         experimentResults: [
@@ -133,7 +199,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 toast.success(
                     <div data-attr="success-toast">
                         <h1>Experiment {isUpdate ? 'updated' : 'created'} successfully!</h1>
-                        {!isUpdate && <p>Click here to launch this experiment.</p>}
+                        {!isUpdate && <p>Click here to view this experiment.</p>}
                     </div>,
                     {
                         onClick: () => {
@@ -167,6 +233,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 newInsight
             )
             actions.setExperimentFunnelId(createdInsight.short_id)
+            actions.setNewExperimentData({ filters: { ...newInsight.filters } })
         },
         setFilters: ({ filters }) => {
             funnelLogic.findMounted({ dashboardItemId: values.experimentFunnelId })?.actions.setFilters(filters)
@@ -174,8 +241,8 @@ export const experimentLogic = kea<experimentLogicType>({
         loadExperimentSuccess: async ({ experimentData }) => {
             if (!experimentData?.start_date) {
                 // loading a draft mode experiment
-                actions.createNewExperimentFunnel(experimentData?.filters)
                 actions.setNewExperimentData({ ...experimentData })
+                actions.createNewExperimentFunnel(experimentData?.filters)
             } else {
                 try {
                     const response = await api.get(
@@ -184,12 +251,7 @@ export const experimentLogic = kea<experimentLogicType>({
                     actions.setExperimentResults({ ...response, itemID: Math.random().toString(36).substring(2, 15) })
                 } catch (error) {
                     if (error.code === 'no_data') {
-                        actions.setExperimentResults({
-                            funnel: [],
-                            filters: {},
-                            probability: 0,
-                            itemID: Math.random().toString(36).substring(2, 15),
-                        })
+                        actions.setExperimentResults(null)
                         return
                     }
 
@@ -289,7 +351,7 @@ export const experimentLogic = kea<experimentLogicType>({
                     if (!experimentResults) {
                         return errorResult
                     }
-                    const variantResults = experimentResults.funnel.find(
+                    const variantResults = experimentResults.insight.find(
                         (variantFunnel) => variantFunnel[0].breakdown_value?.[0] === variant
                     )
                     if (!variantResults) {
@@ -301,6 +363,17 @@ export const experimentLogic = kea<experimentLogicType>({
                     ).toFixed(1)}%`
                 },
         ],
+        highestProbabilityVariant: [
+            (s) => [s.experimentResults],
+            (experimentResults) => {
+                if (experimentResults) {
+                    const maxValue = Math.max(...Object.values(experimentResults.probability))
+                    return Object.keys(experimentResults.probability).find(
+                        (key) => Math.abs(experimentResults.probability[key] - maxValue) < Number.EPSILON
+                    )
+                }
+            },
+        ],
     },
     urlToAction: ({ actions, values }) => ({
         '/experiments/:id': ({ id }) => {
@@ -310,7 +383,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 // like in featureFlagLogic.tsx
                 if (parsedId === 'new') {
                     actions.createNewExperimentFunnel()
-                    actions.emptyData()
+                    actions.resetNewExperiment()
                 }
                 if (parsedId !== values.experimentId) {
                     actions.setExperimentId(parsedId)

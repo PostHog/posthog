@@ -82,7 +82,6 @@ def robots_txt(request):
 
 @never_cache
 def preflight_check(request: HttpRequest) -> JsonResponse:
-
     response = {
         "django": True,
         "redis": is_redis_alive() or settings.TEST,
@@ -91,6 +90,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "db": is_postgres_alive(),
         "initiated": Organization.objects.exists(),
         "cloud": settings.MULTI_TENANCY,
+        "demo": settings.DEMO,
         "realm": get_instance_realm(),
         "available_social_auth_providers": get_available_social_auth_providers(),
         "can_create_org": get_can_create_org(),

@@ -45,7 +45,8 @@ export function Signup(): JSX.Element | null {
     const passwordInputRef = useRef<Input | null>(null)
 
     useEffect(() => {
-        if (initialEmail) {
+        // There's no password in the demo environment
+        if (!preflight?.demo && initialEmail) {
             passwordInputRef?.current?.focus()
         } else {
             emailInputRef?.current?.focus()
@@ -54,7 +55,13 @@ export function Signup(): JSX.Element | null {
 
     const handleFormSubmit = async (values: Record<string, string>): Promise<void> => {
         setFormSubmitted(true)
-        if (await form.validateFields(['email', 'password', 'first_name', 'organization_name'])) {
+        if (
+            await form.validateFields(
+                !preflight?.demo
+                    ? ['email', 'password', 'first_name', 'organization_name']
+                    : ['email', 'first_name', 'organization_name']
+            )
+        ) {
             signup(values)
         }
     }
@@ -77,11 +84,13 @@ export function Signup(): JSX.Element | null {
                         <WelcomeLogo view="signup" />
                         <div className="inner">
                             <h2 className="subtitle" style={{ justifyContent: 'center' }}>
-                                Get started
+                                {!preflight?.demo ? 'Get started' : 'Explore PostHog yourself'}
                             </h2>
-                            {(preflight?.cloud || preflight?.initiated) && ( // For now, if you're not on Cloud, you wouldn't see
-                                // this page, but future-proofing this (with `preflight.initiated`) in case this changes.
-                                <div className="text-center" style={{ marginBottom: 32 }}>
+                            {!preflight?.demo && (preflight?.cloud || preflight?.initiated) && (
+                                // If we're in the demo environment, login is unified with signup and it's passwordless
+                                // For now, if you're not on Cloud, you wouldn't see this page,
+                                // but future-proofing this (with `preflight.initiated`) in case this changes
+                                <div className="text-center">
                                     Already have an account?{' '}
                                     <Link to="/login" data-attr="signup-login-link">
                                         Log in
@@ -140,28 +149,32 @@ export function Signup(): JSX.Element | null {
                                         disabled={signupResponseLoading}
                                     />
                                 </Form.Item>
-                                <PasswordInput
-                                    ref={passwordInputRef}
-                                    showStrengthIndicator
-                                    validateStatus={signupResponse?.errorAttribute === 'password' ? 'error' : undefined}
-                                    help={
-                                        signupResponse?.errorAttribute === 'password' ? (
-                                            signupResponse.errorDetail
-                                        ) : (
-                                            <span style={{ paddingBottom: 16 }}>
-                                                <ExclamationCircleFilled style={{ marginRight: 4 }} />
-                                                Passwords must be at least 8 characters
-                                            </span>
-                                        )
-                                    }
-                                    validateMinLength
-                                    validationDisabled={!formSubmitted}
-                                    disabled={signupResponseLoading}
-                                />
+                                {!preflight?.demo && (
+                                    <PasswordInput
+                                        ref={passwordInputRef}
+                                        showStrengthIndicator
+                                        validateStatus={
+                                            signupResponse?.errorAttribute === 'password' ? 'error' : undefined
+                                        }
+                                        help={
+                                            signupResponse?.errorAttribute === 'password' ? (
+                                                signupResponse.errorDetail
+                                            ) : (
+                                                <span style={{ paddingBottom: 16 }}>
+                                                    <ExclamationCircleFilled style={{ marginRight: 4 }} />
+                                                    Passwords must be at least 8 characters
+                                                </span>
+                                            )
+                                        }
+                                        validateMinLength
+                                        validationDisabled={!formSubmitted}
+                                        disabled={signupResponseLoading}
+                                    />
+                                )}
                                 <Form.Item
                                     name="first_name"
-                                    label="Your full name"
-                                    rules={formSubmitted ? requiredRule('Please enter your first name') : undefined}
+                                    label="Your name"
+                                    rules={formSubmitted ? requiredRule('Please enter your name') : undefined}
                                 >
                                     <Input
                                         className="ph-ignore-input"
@@ -189,7 +202,8 @@ export function Signup(): JSX.Element | null {
                                 </Form.Item>
 
                                 <Form.Item className="text-center" style={{ marginTop: 32 }}>
-                                    By creating an account, you agree to our{' '}
+                                    By {!preflight?.demo ? 'creating an account' : 'entering the demo environment'}, you
+                                    agree to our{' '}
                                     <a href={`https://posthog.com/terms?${UTM_TAGS}`} target="_blank" rel="noopener">
                                         Terms of Service
                                     </a>{' '}
@@ -207,13 +221,15 @@ export function Signup(): JSX.Element | null {
                                         block
                                         loading={signupResponseLoading}
                                     >
-                                        Create account
+                                        {!preflight?.demo ? 'Create account' : 'Enter the demo environment'}
                                     </Button>
                                 </Form.Item>
                             </Form>
-                            <div>
-                                <SocialLoginButtons caption="Or sign up with" />
-                            </div>
+                            {!preflight?.demo && (
+                                <div>
+                                    <SocialLoginButtons caption="Or sign up with" />
+                                </div>
+                            )}
                         </div>
                     </div>
                 </Col>

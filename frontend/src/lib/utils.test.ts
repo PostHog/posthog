@@ -208,7 +208,7 @@ describe('dateFilterToText()', () => {
             expect(dateFilterToText(null, null, 'default')).toEqual('default')
             expect(dateFilterToText('-24h', null, 'default')).toEqual('Last 24 hours')
             expect(dateFilterToText('-48h', undefined, 'default')).toEqual('Last 48 hours')
-            expect(dateFilterToText('-1d', 'dStart', 'default')).toEqual('Yesterday')
+            expect(dateFilterToText('-1d', '-1d', 'default')).toEqual('Yesterday')
             expect(dateFilterToText('-1mStart', '-1mEnd', 'default')).toEqual('Previous month')
         })
 
@@ -240,7 +240,7 @@ describe('dateFilterToText()', () => {
             expect(dateFilterToText('-48h', undefined, 'default', dateMapping, true)).toEqual(
                 '29 Feb 2012 - 2 Mar 2012'
             )
-            expect(dateFilterToText('-1d', 'dStart', 'default', dateMapping, true)).toEqual('1 Mar 2012')
+            expect(dateFilterToText('-1d', '-1d', 'default', dateMapping, true)).toEqual('1 Mar 2012')
             expect(dateFilterToText('-1mStart', '-1mEnd', 'default', dateMapping, true)).toEqual(
                 '1 Mar 2012 - 31 Mar 2012'
             )
@@ -264,11 +264,11 @@ describe('dateFilterToText()', () => {
         })
 
         it('can have overridden date format', () => {
-            const from = dayjs('2018-04-04T16:00:00.000Z')
-            const to = dayjs('2018-04-09T15:05:00.000Z')
+            const from = dayjs('2018-04-04T16:00:00.000Z').tz('America/New_York')
+            const to = dayjs('2018-04-09T15:05:00.000Z').tz('America/New_York')
 
             expect(dateFilterToText(from, to, 'custom', dateMapping, true, 'YYYY-MM-DD hh:mm:ss')).toEqual(
-                '2018-04-04 04:00:00 - 2018-04-09 03:05:00'
+                '2018-04-04 12:00:00 - 2018-04-09 11:05:00'
             )
         })
     })

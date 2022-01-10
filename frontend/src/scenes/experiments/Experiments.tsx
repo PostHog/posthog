@@ -98,7 +98,7 @@ export function Experiments(): JSX.Element {
                 rowKey="id"
                 loading={experimentsLoading}
                 defaultSorting={{ columnKey: 'id', order: 1 }}
-                pagination={{ pageSize: 20 }}
+                pagination={{ pageSize: 100 }}
                 nouns={['Experiment', 'Experiments']}
                 data-attr="experiment-table"
             />

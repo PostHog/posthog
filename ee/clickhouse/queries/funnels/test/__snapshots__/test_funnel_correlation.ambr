@@ -57,18 +57,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up', 'user signed up', 'paid']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -80,8 +73,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        toDateTime('2020-01-14 23:59:59') AS date_to,
        toDateTime('2020-01-01 00:00:00') AS date_from,
        2 AS target_step,
@@ -92,18 +84,11 @@
   FROM events AS event
   JOIN
     (SELECT distinct_id,
-            argMax(person_id, _timestamp) as person_id
-     FROM
-       (SELECT distinct_id,
-               person_id,
-               max(_timestamp) as _timestamp
-        FROM person_distinct_id
-        WHERE team_id = 2
-        GROUP BY person_id,
-                 distinct_id,
-                 team_id
-        HAVING max(is_deleted) = 0)
-     GROUP BY distinct_id) AS pdi ON pdi.distinct_id = events.distinct_id
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
+     WHERE team_id = 2
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON pdi.distinct_id = events.distinct_id
   JOIN funnel_actors AS actors ON pdi.person_id = actors.actor_id
   WHERE event.timestamp >= date_from
     AND event.timestamp < date_to
@@ -174,18 +159,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -197,8 +175,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -279,18 +256,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -302,8 +272,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
   SELECT DISTINCT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -375,18 +344,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -398,8 +360,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
   SELECT DISTINCT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -471,18 +432,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -494,8 +448,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
   SELECT DISTINCT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -567,18 +520,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -590,8 +536,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
   SELECT DISTINCT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -663,18 +608,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -686,8 +624,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -768,18 +705,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -791,8 +721,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
   SELECT DISTINCT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -863,18 +792,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -886,8 +808,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
   SELECT DISTINCT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -958,18 +879,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -981,8 +895,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
   SELECT DISTINCT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -1053,18 +966,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -1076,8 +982,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
   SELECT DISTINCT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -1148,18 +1053,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -1171,8 +1069,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        toDateTime('2020-01-14 23:59:59') AS date_to,
        toDateTime('2020-01-01 00:00:00') AS date_from,
        2 AS target_step,
@@ -1261,18 +1158,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -1284,8 +1174,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        toDateTime('2020-01-14 23:59:59') AS date_to,
        toDateTime('2020-01-01 00:00:00') AS date_from,
        2 AS target_step,
@@ -1374,18 +1263,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -1397,8 +1279,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        toDateTime('2020-01-14 23:59:59') AS date_to,
        toDateTime('2020-01-01 00:00:00') AS date_from,
        2 AS target_step,
@@ -1477,18 +1358,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -1500,8 +1374,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        toDateTime('2020-01-14 23:59:59') AS date_to,
        toDateTime('2020-01-01 00:00:00') AS date_from,
        2 AS target_step,
@@ -1576,18 +1449,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -1599,8 +1465,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        toDateTime('2020-01-14 23:59:59') AS date_to,
        toDateTime('2020-01-01 00:00:00') AS date_from,
        2 AS target_step,
@@ -1675,18 +1540,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -1698,8 +1556,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        toDateTime('2020-01-14 23:59:59') AS date_to,
        toDateTime('2020-01-01 00:00:00') AS date_from,
        2 AS target_step,
@@ -1774,18 +1631,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -1797,8 +1647,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        toDateTime('2020-01-14 23:59:59') AS date_to,
        toDateTime('2020-01-01 00:00:00') AS date_from,
        2 AS target_step,
@@ -1874,18 +1723,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        INNER JOIN
                          (SELECT group_key,
                                  argMax(group_properties, _timestamp) AS group_properties_0
@@ -1906,8 +1748,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        toDateTime('2020-01-14 23:59:59') AS date_to,
        toDateTime('2020-01-01 00:00:00') AS date_from,
        2 AS target_step,
@@ -1987,18 +1828,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        INNER JOIN
                          (SELECT group_key,
                                  argMax(group_properties, _timestamp) AS group_properties_0
@@ -2019,8 +1853,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        toDateTime('2020-01-14 23:59:59') AS date_to,
        toDateTime('2020-01-01 00:00:00') AS date_from,
        2 AS target_step,
@@ -2096,18 +1929,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        INNER JOIN
                          (SELECT group_key,
                                  argMax(group_properties, _timestamp) AS group_properties_0
@@ -2128,8 +1954,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        toDateTime('2020-01-14 23:59:59') AS date_to,
        toDateTime('2020-01-01 00:00:00') AS date_from,
        2 AS target_step,
@@ -2204,18 +2029,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -2227,8 +2045,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -2309,18 +2126,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -2332,8 +2142,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
   SELECT DISTINCT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -2406,18 +2215,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -2429,8 +2231,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
   SELECT DISTINCT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -2503,18 +2304,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -2526,8 +2320,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
   SELECT DISTINCT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -2600,18 +2393,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -2623,8 +2409,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
   SELECT DISTINCT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -2697,18 +2482,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -2720,8 +2498,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -2804,18 +2581,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -2827,8 +2597,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -2909,18 +2678,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -2932,8 +2694,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
   SELECT DISTINCT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3006,18 +2767,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -3029,8 +2783,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
   SELECT DISTINCT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3103,18 +2856,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -3126,8 +2872,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
   SELECT DISTINCT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3200,18 +2945,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -3223,8 +2961,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
   SELECT DISTINCT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3297,18 +3034,11 @@
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
-                                 argMax(person_id, _timestamp) as person_id
-                          FROM
-                            (SELECT distinct_id,
-                                    person_id,
-                                    max(_timestamp) as _timestamp
-                             FROM person_distinct_id
-                             WHERE team_id = 2
-                             GROUP BY person_id,
-                                      distinct_id,
-                                      team_id
-                             HAVING max(is_deleted) = 0)
-                          GROUP BY distinct_id) AS pdi ON events.distinct_id = pdi.distinct_id
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= '2020-01-01 00:00:00'
@@ -3320,8 +3050,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target
-     OFFSET 0 SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
