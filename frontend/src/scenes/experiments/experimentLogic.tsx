@@ -142,7 +142,7 @@ export const experimentLogic = kea<experimentLogicType>({
             },
         ],
         experimentInsightType: [
-            InsightType.TRENDS as InsightType,
+            InsightType.FUNNELS as InsightType,
             {
                 setExperimentInsightType: (_, { insightType }) => insightType,
             },

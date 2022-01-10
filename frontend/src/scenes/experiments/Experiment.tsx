@@ -308,7 +308,7 @@ export function Experiment(): JSX.Element {
                                                 </div>
                                                 <Select
                                                     style={{ display: 'flex' }}
-                                                    defaultValue={InsightType.TRENDS}
+                                                    defaultValue={experimentInsightType}
                                                     onChange={setExperimentInsightType}
                                                     suffixIcon={<CaretDownOutlined />}
                                                     dropdownMatchSelectWidth={false}
