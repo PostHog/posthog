@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Button, Row, Spin, Table } from 'antd'
+import { Row, Spin, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined, EllipsisOutlined, InfoCircleOutlined } from '@ant-design/icons'
@@ -24,13 +24,7 @@ export const CorrelationToast = (): JSX.Element => (
         <h3>
             <IconSelectEvents /> {'Correlation results are ready'}{' '}
         </h3>
-        <Button
-            style={{ display: 'inline-block' }}
-            type="default"
-            onClick={() => window.scrollBy({ left: 0, top: window.innerHeight, behavior: 'smooth' })}
-        >
-            View
-        </Button>
+        Click to view
     </div>
 )
 

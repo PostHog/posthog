@@ -1188,11 +1188,13 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             }
         },
         loadCorrelationsSuccess: async () => {
-            if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.EXPERIMENT_CORRELATION_DISCOVERY] == 'test') {
+            if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.EXPERIMENT_CORRELATION_DISCOVERY] === 'test') {
                 toast(CorrelationToast(), {
                     toastId: 'correlation', // id prevents duplicates
-                    autoClose: false,
                     className: 'correlation-toast',
+                    onClick: () => {
+                        window.scrollBy({ left: 0, top: window.innerHeight, behavior: 'smooth' })
+                    },
                 })
             }
         },
