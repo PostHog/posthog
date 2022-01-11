@@ -28,6 +28,7 @@ from posthog.decorators import CacheType
 from posthog.models import Dashboard, Filter, Insight, Team
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
+from posthog.settings import statsd
 from posthog.types import FilterType
 from posthog.utils import generate_cache_key, is_clickhouse_enabled
 
@@ -75,6 +76,7 @@ else:
 
 
 def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Dict[str, Any]]:
+    timer = statsd.timer("update_cache_item_timer").start()
     result: Optional[Union[List, Dict]] = None
     filter_dict = json.loads(payload["filter"])
     team_id = int(payload["team_id"])
@@ -93,10 +95,14 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Di
             key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, settings.CACHED_RESULTS_TTL
         )
     except Exception as e:
+        timer.stop()
+        statsd.incr("update_cache_item_error")
         dashboard_items.filter(refresh_attempt=None).update(refresh_attempt=0)
         dashboard_items.update(refreshing=False, refresh_attempt=F("refresh_attempt") + 1)
         raise e
 
+    timer.stop()
+    statsd.incr("update_cache_item_success")
     dashboard_items.update(last_refresh=timezone.now(), refreshing=False, refresh_attempt=0)
     return result
 
@@ -156,6 +162,7 @@ def update_cached_items() -> None:
     logger.info("Found {} items to refresh".format(len(tasks)))
     taskset = group(tasks)
     taskset.apply_async()
+    statsd.gauge("update_cache_queue_depth", items.count())
 
 
 def dashboard_item_update_task_params(
