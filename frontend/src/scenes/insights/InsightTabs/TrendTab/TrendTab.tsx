@@ -6,7 +6,7 @@ import { Row, Checkbox, Col, Button } from 'antd'
 import { BreakdownFilter } from '../../BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
 import { InfoCircleOutlined, PlusCircleOutlined } from '@ant-design/icons'
-import { trendsLogic } from '../../../trends/trendsLogic'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { FilterType, InsightType } from '~/types'
 import { Formula } from './Formula'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
@@ -101,6 +101,8 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         <>
                             <GlobalFiltersTitle />
                             <PropertyFilters
+                                propertyFilters={filters.properties}
+                                onChange={(properties) => setFilters({ properties })}
                                 taxonomicGroupTypes={[
                                     TaxonomicFilterGroupType.EventProperties,
                                     TaxonomicFilterGroupType.PersonProperties,

@@ -523,6 +523,8 @@ export function PathTab(): JSX.Element {
                     <GlobalFiltersTitle title={'Filters'} unit="actions/events" />
                     <PropertyFilters
                         pageKey="insight-path"
+                        propertyFilters={filter.properties}
+                        onChange={(properties) => setFilter({ properties })}
                         taxonomicGroupTypes={[
                             TaxonomicFilterGroupType.EventProperties,
                             TaxonomicFilterGroupType.PersonProperties,

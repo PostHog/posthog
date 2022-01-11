@@ -160,6 +160,8 @@ export function RetentionTab(): JSX.Element {
                     <GlobalFiltersTitle unit="actions/events" />
                     <PropertyFilters
                         pageKey="insight-retention"
+                        propertyFilters={filters.properties}
+                        onChange={(properties) => setFilters({ properties })}
                         taxonomicGroupTypes={[
                             TaxonomicFilterGroupType.EventProperties,
                             TaxonomicFilterGroupType.PersonProperties,

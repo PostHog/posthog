@@ -12,7 +12,7 @@ import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/componen
 interface PropertyFiltersProps {
     endpoint?: string | null
     propertyFilters?: AnyPropertyFilter[] | null
-    onChange?: null | ((filters: AnyPropertyFilter[]) => void)
+    onChange: (filters: AnyPropertyFilter[]) => void
     pageKey: string
     showConditionBadge?: boolean
     disablePopover?: boolean
@@ -26,8 +26,8 @@ interface PropertyFiltersProps {
 }
 
 export function PropertyFilters({
-    propertyFilters = null,
-    onChange = null,
+    propertyFilters,
+    onChange,
     pageKey,
     showConditionBadge = false,
     disablePopover = false, // use bare PropertyFilter without popover
