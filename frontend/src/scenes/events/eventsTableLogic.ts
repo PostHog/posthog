@@ -240,7 +240,13 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 router.values.location.pathname,
                 {
                     ...router.values.searchParams,
-                    properties: values.properties,
+                    ...(Array.isArray(values.properties) && values.properties.length === 0
+                        ? {
+                              properties: undefined,
+                          }
+                        : {
+                              properties: values.properties,
+                          }),
                 },
                 router.values.hashParams,
                 { replace: true },
@@ -295,10 +301,12 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             async ({ nextParams }, breakpoint) => {
                 clearTimeout(values.pollTimeout)
 
-                const properties = [...values.properties, ...(props.fixedFilters?.properties || [])]
+                const properties = [...values.properties, ...(props.fixedFilters?.properties || [])].filter(
+                    isValidPropertyFilter
+                )
                 if (featureFlagLogic?.values.featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME]) {
                     // hard coded property definitions until the API returns them
-                    properties.forEach((p: AnyPropertyFilter) => {
+                    properties.forEach((p) => {
                         if (p.key === '$time') {
                             p['property_definition'] = { dataType: 'DateTime', format: 'unix_timestamp' }
                         }
