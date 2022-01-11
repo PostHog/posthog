@@ -65,7 +65,7 @@ describe('Events', () => {
             cy.log('Status code is ' + api_interception.response.statusCode)
             cy.log('response body is ' + api_interception.response.body)
 
-            expect(interception.response.statusCode).to.eq(200)
+            expect(api_interception.response.statusCode).to.eq(200)
         })
         cy.get('.taxonomic-list-row').should('have.length', 1).click()
 
