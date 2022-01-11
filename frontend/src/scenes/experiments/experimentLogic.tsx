@@ -177,6 +177,10 @@ export const experimentLogic = kea<experimentLogicType>({
                             ...(!draft && { start_date: dayjs() }),
                         }
                     )
+                    if (response?.id) {
+                        router.actions.push(urls.experiment(response.id))
+                        return
+                    }
                 } else {
                     response = await api.create(`api/projects/${values.currentTeamId}/experiments`, {
                         ...values.newExperimentData,

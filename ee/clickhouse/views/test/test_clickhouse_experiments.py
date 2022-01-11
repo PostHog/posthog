@@ -116,7 +116,7 @@ class TestExperimentCRUD(APIBaseTest):
             {"description": "Bazinga", "filters": {}, "feature_flag_key": "new_key",},  # invalid
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Can't update keys: filters, get_feature_flag_key on Experiment")
+        self.assertEqual(response.json()["detail"], "Can't update keys: get_feature_flag_key on Experiment")
 
     def test_cant_reuse_existing_feature_flag(self):
         ff_key = "a-b-test"

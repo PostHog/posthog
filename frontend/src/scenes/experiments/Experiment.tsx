@@ -151,13 +151,13 @@ export function Experiment(): JSX.Element {
                                         ]}
                                         help={
                                             <span className="text-small text-muted">
-                                                Enter a new and unique name for the feature flag key to be associated
-                                                with this experiment.
+                                                {editingExistingExperiment ? '' : 'Enter a new and unique name for the feature flag key to be associated with this experiment.'}
                                             </span>
                                         }
                                     >
                                         <Input
                                             data-attr="experiment-feature-flag-key"
+                                            disabled={editingExistingExperiment}
                                             placeholder="examples: new-landing-page-experiment, betaFeatureExperiment, ab_test_1_experiment"
                                         />
                                     </Form.Item>
