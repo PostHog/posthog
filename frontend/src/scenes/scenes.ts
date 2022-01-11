@@ -64,19 +64,19 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Events]: {
         projectBased: true,
-        name: 'Live Events',
+        name: 'Events & Actions',
     },
     [Scene.Taxonomy]: {
         projectBased: true,
-        name: 'Taxonomy',
+        name: 'Data Management',
     },
     [Scene.TaxonomyEvents]: {
         projectBased: true,
-        name: 'Taxonomy',
+        name: 'Data Management',
     },
     [Scene.TaxonomyCalculatedEvents]: {
         projectBased: true,
-        name: 'Taxonomy',
+        name: 'Data Management',
     },
     [Scene.SessionRecordings]: {
         projectBased: true,

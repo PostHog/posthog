@@ -337,7 +337,7 @@ export function EventsTable({
             <div className="events" data-attr="events-table">
                 {!disableActions && (
                     <PageHeader
-                        title="Live Events"
+                        title="Events & Actions"
                         caption="See events being sent to this project in real time."
                         tabbedPage
                     />

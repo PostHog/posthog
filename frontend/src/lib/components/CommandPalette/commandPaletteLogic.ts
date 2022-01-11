@@ -462,7 +462,7 @@ export const commandPaletteLogic = kea<
                         ? [
                               {
                                   icon: ContainerOutlined,
-                                  display: 'Go to Live Events',
+                                  display: 'Go to Events & Actions',
                                   executor: () => {
                                       push(urls.events())
                                   },
