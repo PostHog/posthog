@@ -21,6 +21,15 @@ export const groupsModel = kea<groupsModelType>({
                     }
                     return []
                 },
+                updateGroupTypesMetadata: async (payload: Array<GroupType>) => {
+                    if (values.groupsEnabled) {
+                        return await api.update(
+                            `/api/projects/${teamLogic.values.currentTeamId}/groups_types/update_metadata`,
+                            payload
+                        )
+                    }
+                    return []
+                },
             },
         ],
     }),
