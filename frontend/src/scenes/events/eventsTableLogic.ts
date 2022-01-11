@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { errorToast, successToast, toParams } from 'lib/utils'
+import { errorToast, objectsEqual, successToast, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { eventsTableLogicType } from './eventsTableLogicType'
@@ -172,7 +172,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         newEvents: [
             [] as EventType[],
             {
-                setProperties: () => [],
+                fetchEvents: () => [],
                 pollEventsSuccess: (_, { events }) => events || [],
                 prependEvents: () => [],
             },
@@ -226,12 +226,11 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 })}`,
         ],
         months: [() => [], () => props.fetchMonths || 12],
+        earliestAfter: [() => [selectors.months], (months) => now().subtract(months, 'months').toISOString()],
         afterParam: [
-            () => [selectors.events, selectors.months],
-            (events, months) =>
-                events?.length > 0 && events[0].timestamp
-                    ? events[0].timestamp
-                    : now().subtract(months, 'months').toISOString(),
+            () => [selectors.events, selectors.earliestAfter],
+            (events, earliestAfter) =>
+                events?.length > 0 && events[0].timestamp ? events[0].timestamp : earliestAfter,
         ],
     }),
 
@@ -262,7 +261,9 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
 
     urlToAction: ({ actions, values, props }) => ({
         [props.sceneUrl]: (_: Record<string, any>, searchParams: Record<string, any>): void => {
-            actions.setProperties(searchParams.properties || values.properties || {})
+            if (!objectsEqual(searchParams.properties || {}, values.properties || {})) {
+                actions.setProperties(searchParams.properties || {})
+            }
 
             if (searchParams.eventFilter) {
                 actions.setEventFilter(searchParams.eventFilter)
@@ -282,17 +283,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         },
         setProperties: () => actions.fetchEvents(),
         setEventFilter: () => actions.fetchEvents(),
-        fetchNextEvents: async () => {
-            const { events } = values
-
-            if (events.length === 0) {
-                actions.fetchEvents()
-            } else {
-                actions.fetchEvents({
-                    before: events[events.length - 1].timestamp,
-                })
-            }
-        },
         fetchEvents: [
             async (_, breakpoint) => {
                 if (values.events.length > 0) {
@@ -321,7 +311,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                     ...(nextParams || {}),
                     ...(values.eventFilter ? { event: values.eventFilter } : {}),
                     orderBy: [values.orderBy],
-                    after: values.afterParam,
+                    after: values.earliestAfter,
                 }
 
                 let apiResponse = null
