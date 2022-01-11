@@ -36,7 +36,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
     } = useValues(trendsLogic(insightProps))
     const { loadMoreBreakdownValues } = useActions(trendsLogic(insightProps))
     const { showingPeople } = useValues(personsModalLogic)
-    const { saveCohortWithFilters } = useActions(personsModalLogic)
+    const { saveCohortWithUrl } = useActions(personsModalLogic)
     const { reportCohortCreatedFromPersonsModal } = useActions(eventUsageLogic)
 
     const renderViz = (): JSX.Element | undefined => {
@@ -119,7 +119,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
             <SaveCohortModal
                 visible={cohortModalVisible}
                 onOk={(title: string) => {
-                    saveCohortWithFilters(title, _filters)
+                    saveCohortWithUrl(title)
                     setCohortModalVisible(false)
                     reportCohortCreatedFromPersonsModal(_filters)
                 }}

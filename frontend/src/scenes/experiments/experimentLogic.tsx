@@ -82,13 +82,13 @@ export const experimentLogic = kea<experimentLogicType>({
                 },
                 addExperimentGroup: (state) => {
                     if (state?.parameters?.feature_flag_variants) {
-                        const newRolloutPercentage = Math.round(
-                            100 / (state.parameters.feature_flag_variants.length + 1)
+                        const newRolloutPercentages = percentageDistribution(
+                            state.parameters.feature_flag_variants.length + 1
                         )
                         const updatedRolloutPercentageVariants = state.parameters.feature_flag_variants.map(
-                            (variant: MultivariateFlagVariant) => ({
+                            (variant: MultivariateFlagVariant, i: number) => ({
                                 ...variant,
-                                rollout_percentage: newRolloutPercentage,
+                                rollout_percentage: newRolloutPercentages[i],
                             })
                         )
                         return {
@@ -99,7 +99,7 @@ export const experimentLogic = kea<experimentLogicType>({
                                     ...updatedRolloutPercentageVariants,
                                     {
                                         key: `test_group_${state.parameters.feature_flag_variants.length}`,
-                                        rollout_percentage: newRolloutPercentage,
+                                        rollout_percentage: newRolloutPercentages[newRolloutPercentages.length - 1],
                                     },
                                 ],
                             },
@@ -113,10 +113,12 @@ export const experimentLogic = kea<experimentLogicType>({
                     }
                     const variants = [...(state.parameters?.feature_flag_variants || [])]
                     variants.splice(idx, 1)
-                    const newRolloutPercentage = Math.round(100 / (state?.parameters?.feature_flag_variants.length - 1))
-                    const updatedVariants = variants.map((variant: MultivariateFlagVariant) => ({
+                    const newRolloutPercentages = percentageDistribution(
+                        state?.parameters?.feature_flag_variants.length - 1
+                    )
+                    const updatedVariants = variants.map((variant: MultivariateFlagVariant, i: number) => ({
                         ...variant,
-                        rollout_percentage: newRolloutPercentage,
+                        rollout_percentage: newRolloutPercentages[i],
                     }))
 
                     return {
@@ -449,3 +451,12 @@ export const experimentLogic = kea<experimentLogicType>({
         },
     }),
 })
+
+function percentageDistribution(variantCount: number): number[] {
+    const percentageRounded = Math.round(100 / variantCount)
+    const totalRounded = percentageRounded * variantCount
+    const delta = totalRounded - 100
+    const percentages = new Array(variantCount).fill(percentageRounded)
+    percentages[variantCount - 1] = percentageRounded - delta
+    return percentages
+}
