@@ -11,6 +11,7 @@ from django.db.models import Q
 from django.db.models.expressions import F, Subquery
 from django.utils import timezone
 from sentry_sdk import capture_exception
+from statshog.defaults.django import statsd
 
 from posthog.celery import update_cache_item_task
 from posthog.constants import (
@@ -28,7 +29,6 @@ from posthog.decorators import CacheType
 from posthog.models import Dashboard, Filter, Insight, Team
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
-from posthog.settings import statsd
 from posthog.types import FilterType
 from posthog.utils import generate_cache_key, is_clickhouse_enabled
 
