@@ -12,7 +12,7 @@ import { killProcess } from '../utils/kill'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { statusReport } from '../utils/status-report'
-import { delay, getPiscinaStats, stalenessCheck } from '../utils/utils'
+import { delay, determineNodeEnv, getPiscinaStats, NodeEnv, stalenessCheck } from '../utils/utils'
 import { startQueues } from './ingestion-queues/queue'
 import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
 import { createHttpServer } from './services/http-server'
@@ -246,11 +246,13 @@ export async function startPluginsServer(
         serverInstance.queue = queue
         serverInstance.stop = closeJobs
 
-        // start http server used for the healthcheck
-        const httpServer = createHttpServer(hub, serverConfig)
-        httpServer.listen(HTTP_SERVER_PORT, () => {
-            status.info('🩺', `Status server listening on port ${HTTP_SERVER_PORT}`)
-        })
+        if (!(determineNodeEnv() === NodeEnv.Test)) {
+            // start http server used for the healthcheck
+            const httpServer = createHttpServer(hub, serverConfig)
+            httpServer.listen(HTTP_SERVER_PORT, () => {
+                status.info('🩺', `Status server listening on port ${HTTP_SERVER_PORT}`)
+            })
+        }
 
         status.info('🚀', 'All systems go')
 
