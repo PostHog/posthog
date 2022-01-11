@@ -14,5 +14,5 @@ def test_system_status(db):
         "clickhouse_system_metrics",
         "last_event_ingested_timestamp",
     ]
+    assert len(results[-3]["subrows"]["rows"]) > 0
     assert len(results[-2]["subrows"]["rows"]) > 0
-    assert len(results[-1]["subrows"]["rows"]) > 0
