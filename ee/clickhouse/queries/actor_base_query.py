@@ -108,8 +108,7 @@ class ActorBaseQuery:
     def query_for_session_ids_with_recordings(self, session_ids: Set[str]) -> Set[str]:
         """ Filters a list of session_ids to those that actually have recordings """
         query = """
-        SELECT 
-            distinct session_id
+        SELECT DISTINCT session_id
         FROM session_recording_events
         WHERE
             team_id = %(team_id)s
