@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
@@ -18,20 +18,23 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { PersonsModal } from 'scenes/trends/PersonsModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { combineUrl, encodeParams, router } from 'kea-router'
-// import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-// import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { PayCard } from 'lib/components/PayCard/PayCard'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { groupsModel } from '~/models/groupsModel'
 import { PathAdvanded } from './PathAdvanced'
+import clsx from 'clsx'
+import { IconArrowDropDown } from 'lib/components/icons'
 
 export function PathTab(): JSX.Element {
     const { insightProps, allEventNames } = useValues(insightLogic)
     const { filter, wildcards } = useValues(pathsLogic(insightProps))
     const { setFilter, updateExclusions } = useActions(pathsLogic(insightProps))
-    //const { featureFlags } = useValues(featureFlagLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const [advancedOptionsShown, setAdvancedOptionShown] = useState(false) // TODO: Move to kea logic if option is kept
 
     const { showingPeople, cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
@@ -379,15 +382,42 @@ export function PathTab(): JSX.Element {
                                 </Row>
                             </>
                         )}
-                        {hasAdvancedPaths && (
-                            <>
-                                <hr />
-                                <h4 className="secondary" style={{ flexGrow: 1 }}>
-                                    Advanced options
-                                </h4>
-                                <PathAdvanded />
-                            </>
-                        )}
+                        {['control', 'direct'].includes(
+                            featureFlags[FEATURE_FLAGS.PATHS_ADVANCED_EXPERIMENT] as string
+                        ) &&
+                            hasAdvancedPaths && (
+                                <>
+                                    <hr />
+                                    <h4
+                                        className="secondary"
+                                        style={{ display: 'flex', cursor: 'pointer', alignItems: 'center' }}
+                                        onClick={() => setAdvancedOptionShown(!advancedOptionsShown)}
+                                    >
+                                        <span style={{ flexGrow: 1 }}>Advanced options</span>
+                                        {featureFlags[FEATURE_FLAGS.PATHS_ADVANCED_EXPERIMENT] === 'control' && (
+                                            <div
+                                                className={clsx(
+                                                    'advanced-options-dropdown',
+                                                    advancedOptionsShown && 'expanded'
+                                                )}
+                                            >
+                                                <IconArrowDropDown />
+                                            </div>
+                                        )}
+                                    </h4>
+                                    {featureFlags[FEATURE_FLAGS.PATHS_ADVANCED_EXPERIMENT] === 'direct' ||
+                                    advancedOptionsShown ? (
+                                        <PathAdvanded />
+                                    ) : (
+                                        <div
+                                            className="text-muted-alt cursor-pointer"
+                                            onClick={() => setAdvancedOptionShown(!advancedOptionsShown)}
+                                        >
+                                            Adjust maximum number of paths, path density or path cleaning options.
+                                        </div>
+                                    )}
+                                </>
+                            )}
                         {!hasAdvancedPaths && !preflight?.instance_preferences?.disable_paid_fs && (
                             <Row align="middle">
                                 <Col span={24}>
