@@ -4,16 +4,18 @@ import { intervalFilterLogicType } from './intervalFilterLogicType'
 import { IntervalKeyType } from 'lib/components/IntervalFilter/intervals'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightLogicProps } from '~/types'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 export const intervalFilterLogic = kea<intervalFilterLogicType>({
     props: {} as InsightLogicProps,
-    path: ['lib', 'components', 'IntervalFilter', 'intervalFilterLogic'],
-    actions: () => ({
-        setInterval: (interval: IntervalKeyType) => ({ interval }),
-    }),
+    key: keyForInsightLogicProps('new'),
+    path: (key) => ['lib', 'components', 'IntervalFilter', 'intervalFilterLogic', key],
     connect: (props: InsightLogicProps) => ({
         actions: [insightLogic(props), ['setFilters']],
         values: [insightLogic(props), ['filters']],
+    }),
+    actions: () => ({
+        setInterval: (interval: IntervalKeyType) => ({ interval }),
     }),
     listeners: ({ values, actions }) => ({
         setInterval: ({ interval }) => {
@@ -23,11 +25,6 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
         },
     }),
     selectors: {
-        interval: [
-            (s) => [s.filters],
-            (filters) => {
-                return filters?.interval
-            },
-        ],
+        interval: [(s) => [s.filters], (filters) => filters?.interval],
     },
 })

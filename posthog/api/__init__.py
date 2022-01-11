@@ -15,6 +15,7 @@ from . import (
     event_definition,
     feature_flag,
     insight,
+    instance_settings,
     instance_status,
     organization,
     organization_invite,
@@ -96,6 +97,8 @@ router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "p
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
 router.register(r"shared_dashboards", dashboard.SharedDashboardsViewSet)
 router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
+router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
+
 
 if is_clickhouse_enabled():
     from ee.clickhouse.views.actions import ClickhouseActionsViewSet, LegacyClickhouseActionsViewSet

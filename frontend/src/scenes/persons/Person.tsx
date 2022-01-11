@@ -5,7 +5,7 @@ import { EventsTable } from 'scenes/LEGACY_events'
 import { SessionRecordingsTable } from 'scenes/session-recordings/SessionRecordingsTable'
 import { useActions, useValues, BindLogic } from 'kea'
 import { PersonLogicProps, personsLogic } from './personsLogic'
-import { PersonHeader } from './PersonHeader'
+import { asDisplay, PersonHeader } from './PersonHeader'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis } from 'lib/utils'
@@ -149,10 +149,10 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element {
                                             <MergeCellsOutlined /> Split or merge IDs
                                         </Button>
                                         <Popconfirm
-                                            title="Are you sure to delete this person and all associated data?"
+                                            title="Are you sure you want to delete this person?"
                                             onConfirm={deletePerson}
-                                            okText="Yes"
-                                            cancelText="No"
+                                            okText={`Yes, delete ${asDisplay(person)}`}
+                                            cancelText="No, cancel"
                                         >
                                             <Button
                                                 className="text-danger"

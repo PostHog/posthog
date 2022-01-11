@@ -6,6 +6,7 @@ import { SystemStatusSubrows } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { IconOpenInNew } from 'lib/components/icons'
 import { Link } from 'lib/components/Link'
+import { humanFriendlyDetailedTime } from 'lib/utils'
 
 interface MetricRow {
     metric: string
@@ -17,13 +18,26 @@ const METRIC_KEY_TO_INTERNAL_LINK = {
     async_migrations_ok: '/instance/async_migrations',
 }
 
-function RenderValue(value: any): JSX.Element | string {
+const TIMESTAMP_VALUES = new Set(['last_event_ingested_timestamp'])
+
+function RenderValue(metricRow: MetricRow): JSX.Element | string {
+    const value = metricRow.value
+
+    if (TIMESTAMP_VALUES.has(metricRow.key)) {
+        if (new Date(value).getTime() === new Date('1970-01-01T00:00:00').getTime()) {
+            return 'Never'
+        }
+        return humanFriendlyDetailedTime(value)
+    }
+
     if (typeof value === 'boolean') {
         return <Tag color={value ? 'success' : 'error'}>{value ? 'Yes' : 'No'}</Tag>
     }
+
     if (value === null || value === undefined || value === '') {
         return <Tag>Unknown</Tag>
     }
+
     return value.toString()
 }
 
@@ -52,7 +66,6 @@ export function OverviewTab(): JSX.Element {
         },
         {
             title: 'Value',
-            dataIndex: 'value',
             render: RenderValue,
         },
     ]
