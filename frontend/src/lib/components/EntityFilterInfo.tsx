@@ -7,6 +7,7 @@ import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 
 interface EntityFilterInfoProps {
     filter: EntityFilter | ActionFilter | FunnelStepRangeEntityFilter
+    allowWrap?: boolean
 }
 
 function TextWrapper(props: TextProps): JSX.Element {
@@ -17,7 +18,7 @@ function TextWrapper(props: TextProps): JSX.Element {
     )
 }
 
-export function EntityFilterInfo({ filter }: EntityFilterInfoProps): JSX.Element {
+export function EntityFilterInfo({ filter, allowWrap = false }: EntityFilterInfoProps): JSX.Element {
     const title = getDisplayNameFromEntityFilter(filter, false)
 
     // No filter
@@ -31,7 +32,7 @@ export function EntityFilterInfo({ filter }: EntityFilterInfoProps): JSX.Element
     if (!filter?.custom_name) {
         return (
             <span style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
-                <TextWrapper ellipsis={false} title={titleToDisplay}>
+                <TextWrapper ellipsis={!allowWrap} title={titleToDisplay}>
                     {titleToDisplay}
                 </TextWrapper>
             </span>
@@ -43,11 +44,11 @@ export function EntityFilterInfo({ filter }: EntityFilterInfoProps): JSX.Element
 
     return (
         <span style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
-            <TextWrapper ellipsis={false} title={customTitle ?? undefined}>
+            <TextWrapper ellipsis={!allowWrap} title={customTitle ?? undefined}>
                 {customTitle}
             </TextWrapper>
             <TextWrapper
-                ellipsis={true}
+                ellipsis={!allowWrap}
                 type="secondary"
                 style={{ fontSize: 13, marginLeft: 4 }}
                 title={titleToDisplay}

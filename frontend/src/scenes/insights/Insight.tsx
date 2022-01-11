@@ -1,9 +1,9 @@
 import './Insight.scss'
 import React from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
-import { Row, Col, Card, Button, Popconfirm, Alert } from 'antd'
+import { Row, Col, Card, Button, Popconfirm } from 'antd'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { FunnelTab, PathTab, RetentionTab, SessionTab, TrendTab } from './InsightTabs'
+import { FunnelTab, PathTab, RetentionTab, TrendTab } from './InsightTabs'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
 import { HotKeys, ItemMode, InsightType, InsightShortId, AvailableFeature } from '~/types'
@@ -22,8 +22,6 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { UNNAMED_INSIGHT_NAME } from './EmptyStates'
 import { InsightSaveButton } from './InsightSaveButton'
-import posthog from 'posthog-js'
-import { helpButtonLogic } from 'lib/components/HelpButton/HelpButton'
 import { userLogic } from 'scenes/userLogic'
 
 export const scene: SceneExport = {
@@ -54,7 +52,6 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
     const { saveCohortWithUrl, setCohortModalVisible } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { reportInsightsTabReset } = useActions(eventUsageLogic)
-    const { showHelp } = useActions(helpButtonLogic)
 
     const verticalLayout = activeView === InsightType.FUNNELS && !featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] // Whether to display the control tab on the side instead of on top
 
@@ -69,9 +66,6 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
         },
         f: {
             action: () => handleHotkeyNavigation(InsightType.FUNNELS, 'f'),
-        },
-        o: {
-            action: () => handleHotkeyNavigation(InsightType.SESSIONS, 'o'),
         },
         r: {
             action: () => handleHotkeyNavigation(InsightType.RETENTION, 'r'),
@@ -96,7 +90,6 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
         [`${InsightType.TRENDS}`]: <TrendTab view={InsightType.TRENDS} />,
         [`${InsightType.STICKINESS}`]: <TrendTab view={InsightType.STICKINESS} />,
         [`${InsightType.LIFECYCLE}`]: <TrendTab view={InsightType.LIFECYCLE} />,
-        [`${InsightType.SESSIONS}`]: <SessionTab />,
         [`${InsightType.FUNNELS}`]: <FunnelTab />,
         [`${InsightType.RETENTION}`]: <RetentionTab />,
         [`${InsightType.PATHS}`]: <PathTab />,
@@ -186,45 +179,9 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                         <InsightsNav />
                     </Row>
 
-                    {activeView === InsightType.SESSIONS && featureFlags[FEATURE_FLAGS.SESSION_INSIGHT_REMOVAL] && (
-                        <Alert
-                            style={{ marginBottom: 16 }}
-                            type="warning"
-                            showIcon
-                            message={
-                                <div>
-                                    We're deprecating and removing this feature soon as session-based analytics is not
-                                    fully supported in PostHog.{' '}
-                                    <a
-                                        href="https://posthog.com/blog/sessions-removal?utm_campaign=sessions-insight-deprecation&utm_medium=in-product"
-                                        target="_blank"
-                                        rel="noopener"
-                                    >
-                                        Read more
-                                    </a>{' '}
-                                    about this change in our docs.
-                                    <div>
-                                        <b>Still interested in this feature?</b>{' '}
-                                        <Button
-                                            type="link"
-                                            onClick={() => {
-                                                showHelp()
-                                                posthog.capture('session removal still interested')
-                                            }}
-                                            style={{ paddingLeft: 0, paddingRight: 0 }}
-                                        >
-                                            Share your feedback
-                                        </Button>
-                                        .
-                                    </div>
-                                </div>
-                            }
-                        />
-                    )}
-
                     <Row gutter={16} style={verticalLayout ? { marginBottom: 64 } : undefined}>
                         <Col span={24} xl={verticalLayout ? 8 : undefined}>
-                            {featureFlags[FEATURE_FLAGS.FUNNEL_SIMPLE_MODE] && verticalLayout ? (
+                            {verticalLayout ? (
                                 insightTab
                             ) : (
                                 <Card className="insight-controls">

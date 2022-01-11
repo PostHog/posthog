@@ -1,12 +1,12 @@
 import React from 'react'
 import { Dropdown, Menu } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { getChartColors } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
-import { BreakdownKeyType, CohortType, IntervalType, TrendResult } from '~/types'
+import { BreakdownKeyType, CohortType, FilterType, InsightShortId, IntervalType, TrendResult } from '~/types'
 import { average, median, maybeAddCommasToInteger, capitalizeFirstLetter } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -25,9 +25,13 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/
 import stringWithWBR from 'lib/utils/stringWithWBR'
 
 interface InsightsTableProps {
-    isLegend?: boolean // `true` -> Used as a supporting legend at the bottom of another graph; `false` -> used as it's own display
+    /** Whether this is just a legend instead of standalone insight viz. Default: false. */
+    isLegend?: boolean
+    /** Whether this is table is embedded in another card or whether it should be a card of its own. Default: false. */
+    embedded?: boolean
     showTotalCount?: boolean
-    filterKey: string // key for the entityFilterLogic
+    /** Key for the entityFilterLogic */
+    filterKey: string
     canEditSeriesNameInline?: boolean
 }
 
@@ -37,8 +41,26 @@ const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
     median: 'Median',
 }
 
+/**
+ * InsightsTable for use in a dashboard.
+ */
+export function DashboardInsightsTable({
+    filters,
+    dashboardItemId,
+}: {
+    filters: FilterType
+    dashboardItemId: InsightShortId
+}): JSX.Element {
+    return (
+        <BindLogic logic={trendsLogic} props={{ dashboardItemId, filters }}>
+            <InsightsTable showTotalCount filterKey={`dashboard_${dashboardItemId}`} />
+        </BindLogic>
+    )
+}
+
 export function InsightsTable({
-    isLegend = true,
+    isLegend = false,
+    embedded = false,
     showTotalCount = false,
     filterKey,
     canEditSeriesNameInline,
@@ -125,6 +147,7 @@ export function InsightsTable({
                         className={clsx({
                             editable: canEditSeriesNameInline,
                         })}
+                        pillMaxWidth={165}
                         compareValue={filters.compare ? formatCompareLabel(item) : undefined}
                         onLabelClick={canEditSeriesNameInline ? () => handleEditClick(item) : undefined}
                     />
@@ -239,6 +262,8 @@ export function InsightsTable({
     return (
         <LemonTable
             dataSource={indexedResults}
+            embedded={embedded}
+            style={embedded ? { borderTop: '1px solid var(--border)' } : undefined}
             columns={columns}
             rowKey="id"
             pagination={{ pageSize: 100, hideOnSinglePage: true }}

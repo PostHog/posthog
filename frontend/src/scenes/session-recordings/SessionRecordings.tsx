@@ -9,22 +9,12 @@ import { urls } from 'scenes/urls'
 import { ArrowRightOutlined } from '@ant-design/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { sessionRecordingsTableLogic } from 'scenes/session-recordings/sessionRecordingsTableLogic'
-import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     return (
         <div>
-            <PageHeader
-                title={
-                    <Row align="middle">
-                        Recordings
-                        <LemonTag type="warning" style={{ marginLeft: 8 }}>
-                            Beta
-                        </LemonTag>
-                    </Row>
-                }
-            />
+            <PageHeader title={<Row align="middle">Recordings</Row>} />
             {currentTeam && !currentTeam?.session_recording_opt_in ? (
                 <Alert
                     style={{ marginBottom: 16, display: 'flex', alignItems: 'center' }}

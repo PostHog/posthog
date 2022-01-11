@@ -810,12 +810,13 @@ export class DB {
     }
 
     // Cohort & CohortPeople
-
+    // testutil
     public async createCohort(cohort: Partial<Cohort>): Promise<Cohort> {
         const insertResult = await this.postgresQuery(
-            `INSERT INTO posthog_cohort (name, deleted, groups, team_id, created_at, created_by_id, is_calculating, last_calculation,errors_calculating, is_static) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *;`,
+            `INSERT INTO posthog_cohort (name, description, deleted, groups, team_id, created_at, created_by_id, is_calculating, last_calculation,errors_calculating, is_static) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *;`,
             [
                 cohort.name,
+                cohort.description,
                 cohort.deleted ?? false,
                 cohort.groups ?? [],
                 cohort.team_id,

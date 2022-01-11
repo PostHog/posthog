@@ -105,7 +105,6 @@ def mark_async_migration_as_running(migration_instance: AsyncMigration):
         migration_instance=migration_instance,
         last_error="",
         current_query_id="",
-        celery_task_id="",
         progress=0,
         current_operation_index=0,
         status=MigrationStatus.Running,

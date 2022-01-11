@@ -1,0 +1,95 @@
+.ph-graph-tooltip {
+    padding: 0 !important;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    font-size: 14px;
+    z-index: var(--z-graph-tooltip);
+    transition: all 0.4s;
+    max-width: 480px;
+    border-radius: var(--radius);
+    background: #fafafa;
+
+    .LemonTable {
+        font-size: 0.75rem;
+        border: none;
+        border-bottom-left-radius: 0;
+        border-bottom-right-radius: 0;
+        border-bottom: 1px solid var(--border);
+
+        .insights-label {
+            margin: 0;
+        }
+
+        .color-column {
+            padding: 0;
+            width: 6px;
+        }
+
+        .datum-column {
+            padding-left: 0.5rem;
+        }
+
+        .LemonTable__scroll {
+            width: 100%;
+            overflow: hidden;
+        }
+        .LemonTable__content > table > thead {
+            .datum-column {
+                .LemonTable__header-content {
+                    white-space: nowrap;
+                }
+            }
+        }
+
+        .LemonTable__content > table > tbody {
+            .color-column {
+                position: relative;
+
+                .color-cell {
+                    position: absolute;
+                    top: 0;
+                    bottom: 0;
+                    width: 6px;
+                }
+            }
+            .datum-label-column {
+                font-weight: 600;
+                display: flex;
+                align-items: center;
+                height: inherit;
+            }
+            .series-data-cell {
+                font-weight: 600;
+            }
+            .tag-pill {
+                background-color: rgba(0, 0, 0, 0.08);
+                margin-right: 0;
+                border: 0;
+                color: var(--bg-navy);
+                overflow: hidden;
+                vertical-align: middle;
+            }
+        }
+    }
+
+    .table-subtext {
+        font-size: 0.75rem;
+        text-align: center;
+        padding: 8px 16px;
+        color: var(--text-muted);
+        background-color: var(--bg-light);
+
+        .table-subtext-truncated {
+            margin-bottom: 4px;
+        }
+
+        .table-subtext-click-to-inspect {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-default);
+            font-weight: 600;
+        }
+    }
+}

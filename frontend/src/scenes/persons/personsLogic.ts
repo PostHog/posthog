@@ -42,7 +42,7 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
         values: [teamLogic, ['currentTeam']],
     },
     actions: {
-        setPerson: (person: PersonType) => ({ person }),
+        setPerson: (person: PersonType | null) => ({ person }),
         loadPerson: (id: string) => ({ id }),
         loadPersons: (url: string | null = '') => ({ url }),
         setListFilters: (payload: Filters) => ({ payload }),
@@ -86,8 +86,13 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
         persons: {
             setPerson: (state, { person }) => ({
                 ...state,
-                results: state.results.map((p) => (p.id === person.id ? person : p)),
+                results: state.results.map((p) => (person && p.id === person.id ? person : p)),
             }),
+        },
+        person: {
+            setPerson: (_, { person }): PersonType | null => {
+                return person
+            },
         },
     },
     selectors: {
@@ -200,16 +205,13 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
             null as PersonType | null,
             {
                 loadPerson: async ({ id }): Promise<PersonType | null> => {
+                    actions.setPerson(null)
                     const response = await api.get(`api/person/?distinct_id=${id}`)
                     if (!response.results.length) {
                         router.actions.push(urls.notFound())
                     }
                     const person = response.results[0] as PersonType
                     person && actions.reportPersonDetailViewed(person)
-                    return person
-                },
-                setPerson: ({ person }): PersonType => {
-                    // Used after merging persons to update the view without an additional request
                     return person
                 },
             },
