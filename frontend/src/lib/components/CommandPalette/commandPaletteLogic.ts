@@ -764,8 +764,6 @@ export const commandPaletteLogic = kea<
                 },
             }
 
-            console.log('GO TO', goTo, featureFlagLogic[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY])
-
             actions.registerCommand(goTo)
             actions.registerCommand(openUrls)
             actions.registerCommand(debugClickhouseQueries)
