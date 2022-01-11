@@ -89,9 +89,10 @@ export function Experiment(): JSX.Element {
 
     const conversionRate = conversionMetrics.totalRate * 100
     const sampleSizePerVariant = minimumSampleSizePerVariant(conversionRate)
+    const sampleSize = sampleSizePerVariant * variants.length
     const trendCount = trendResults[0]?.count
     const entrants = results?.[0]?.count
-    const runningTime = expectedRunningTime(entrants, sampleSizePerVariant * variants.length)
+    const runningTime = expectedRunningTime(entrants, sampleSize)
     const exposure = recommendedExposureForCountData(trendCount)
 
     const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
@@ -456,7 +457,7 @@ export function Experiment(): JSX.Element {
                                                 <div className="l4">{trendCount}</div>
                                             </Col>
                                             <Col span={12}>
-                                                <div className="card-secondary">Expected Duration</div>
+                                                <div className="card-secondary">Recommended Duration</div>
                                                 <div>
                                                     <span className="l4">~{exposure}</span> days
                                                 </div>
@@ -554,20 +555,23 @@ export function Experiment(): JSX.Element {
                                     )}
                                 </div>
                             </Col>
-                            <Col>
-                                <div className="card-secondary mt">Recommended running time</div>
-                                <span>
-                                    ~{experimentData.parameters?.recommended_running_time}{' '}
-                                    <span className="text-muted">days</span>
-                                </span>
-                            </Col>
-                            <Col>
-                                <div className="card-secondary mt">Recommended sample size</div>
-                                <span>
-                                    ~{experimentData.parameters?.recommended_sample_size}{' '}
-                                    <span className="text-muted">persons</span>
-                                </span>
-                            </Col>
+                            {experimentInsightType === InsightType.TRENDS ? (
+                                <Col>
+                                    <div className="card-secondary mt">Recommended running time</div>
+                                    <span>
+                                        ~{experimentData.parameters?.recommended_running_time}{' '}
+                                        <span className="text-muted">days</span>
+                                    </span>
+                                </Col>
+                            ) : (
+                                <Col>
+                                    <div className="card-secondary mt">Recommended sample size</div>
+                                    <span>
+                                        ~{experimentData.parameters?.recommended_sample_size}{' '}
+                                        <span className="text-muted">persons</span>
+                                    </span>
+                                </Col>
+                            )}
                             <Col>
                                 <div className="card-secondary mt">Variants</div>
                                 <ul className="variants-list">

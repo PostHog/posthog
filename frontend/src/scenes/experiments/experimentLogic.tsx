@@ -401,18 +401,22 @@ export const experimentLogic = kea<experimentLogicType>({
         ],
         recommendedExposureForCountData: [
             () => [],
-            () => (baseCountData: number) => {
-                // assume a 5% mde, target count data is 5% of base count data
-                // http://www.columbia.edu/~cjd11/charles_dimaggio/DIRE/styled-4/code-12/
-                const minCountData = baseCountData * 0.05
-                const lambda1 = baseCountData
-                const lambda2 = minCountData + baseCountData
+            () =>
+                (baseCountData: number): number => {
+                    // assume a 5% mde, target count data is 5% of base count data
+                    // http://www.columbia.edu/~cjd11/charles_dimaggio/DIRE/styled-4/code-12/
+                    const minCountData = baseCountData * 0.05
+                    const lambda1 = baseCountData
+                    const lambda2 = minCountData + baseCountData
 
-                // This is exposure in units of days
-                return (
-                    4 / Math.pow(Math.sqrt(lambda1 / DEFAULT_DURATION) - Math.sqrt(lambda2 / DEFAULT_DURATION), 2)
-                ).toFixed(1)
-            },
+                    // This is exposure in units of days
+                    return parseFloat(
+                        (
+                            4 /
+                            Math.pow(Math.sqrt(lambda1 / DEFAULT_DURATION) - Math.sqrt(lambda2 / DEFAULT_DURATION), 2)
+                        ).toFixed(1)
+                    )
+                },
         ],
         expectedRunningTime: [
             () => [],

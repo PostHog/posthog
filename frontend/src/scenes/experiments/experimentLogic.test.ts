@@ -92,10 +92,11 @@ describe('experimentLogic', () => {
 
         it('given control count data, calculates correct running time', async () => {
             // 1000 count over 14 days
-            expect(logic.values.recommendedExposureForCountData(1000)).toEqual(28)
+            expect(logic.values.recommendedExposureForCountData(1000)).toEqual(91.8)
 
-            // 500 entrants over 14 days
-            expect(logic.values.recommendedExposureForCountData(500)).toEqual(7)
+            // 10,000 entrants over 14 days
+            // 10x entrants, so 1/10th running time
+            expect(logic.values.recommendedExposureForCountData(10000)).toEqual(9.2)
 
             // 0 entrants over 14 days, so infinite running time
             expect(logic.values.recommendedExposureForCountData(0)).toEqual(Infinity)
