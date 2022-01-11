@@ -47,15 +47,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
-    def validate_feature_flag_key(self, value):
-        if self.context['request'].method == 'PUT' or self.context['request'].method == 'PATCH' and self.initial_data["feature_flag_key"] == value:
-            return value
-
-        if FeatureFlag.objects.filter(key=value, team_id=self.context["team_id"], deleted=False).exists():
-            raise ValidationError("Feature Flag key already exists. Please select a unique key")
-
-        return value
-
     def validate_parameters(self, value):
         if not value:
             return value
@@ -118,6 +109,14 @@ class ExperimentSerializer(serializers.ModelSerializer):
     def update(self, instance: Experiment, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
         has_start_date = "start_date" in validated_data
         feature_flag = instance.feature_flag
+
+        expected_keys = set(["name", "description", "start_date", "end_date", "filters", "parameters"])
+        given_keys = set(validated_data.keys())
+
+        extra_keys = given_keys - expected_keys
+
+        if extra_keys:
+            raise ValidationError(f"Can't update keys: {', '.join(sorted(extra_keys))} on Experiment")
 
         if instance.is_draft and has_start_date:
             feature_flag.active = True
