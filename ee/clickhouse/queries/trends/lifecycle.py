@@ -114,9 +114,6 @@ class ClickhouseLifecycle(LifecycleTrend):
 
 
 class LifecycleEventQuery(TrendsEventQuery):
-    _entity: Entity
-    _filter: Filter
-
     def _get_date_filter(self):
         """
         To be able to check if an event is the first of it's kind by user, we
