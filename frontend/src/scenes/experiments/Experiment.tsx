@@ -388,12 +388,9 @@ export function Experiment(): JSX.Element {
                                                                 typeKey={`experiment-trends`}
                                                                 buttonCopy="Add graph series"
                                                                 showSeriesIndicator
-                                                                singleFilter={
-                                                                    trendsFilters.insight === InsightType.LIFECYCLE
-                                                                }
-                                                                hideMathSelector={
-                                                                    trendsFilters.insight === InsightType.LIFECYCLE
-                                                                }
+                                                                singleFilter={true}
+                                                                hideFilter={false}
+                                                                hideMathSelector={true}
                                                                 propertiesTaxonomicGroupTypes={[
                                                                     TaxonomicFilterGroupType.EventProperties,
                                                                     TaxonomicFilterGroupType.PersonProperties,
