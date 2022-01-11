@@ -1228,7 +1228,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 return
             }
 
-            const funnelStep = converted ? step.order : -step.order
+            const funnelStep = converted ? step.order : -step.order - 1
             const breakdownValues = getBreakdownStepValues(step, funnelStep)
 
             personsModalLogic.actions.loadPeopleFromUrl({
