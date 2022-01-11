@@ -52,6 +52,7 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
         navigateToTab: (tab: PersonsTabType) => ({ tab }),
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
+        setPropertySearchTerm: (searchTerm: string) => ({ searchTerm }),
     },
     reducers: {
         listFilters: [
@@ -90,11 +91,12 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
                 results: state.results.map((p) => (person && p.id === person.id ? person : p)),
             }),
         },
-        person: {
-            setPerson: (_, { person }): PersonType | null => {
-                return person
+        propertySearchTerm: [
+            '',
+            {
+                setPropertySearchTerm: (_, { searchTerm }) => searchTerm,
             },
-        },
+        ],
     },
     selectors: {
         showSessionRecordings: [
@@ -114,6 +116,21 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
                     return PersonsTabType.EVENTS
                 }
                 return activeTab
+            },
+        ],
+        propertiesSearched: [
+            (s) => [s.person, s.propertySearchTerm],
+            (person, propertySearchTerm): PersonType['properties'] => {
+                const normalizedPropertySearchTerm = propertySearchTerm.toLowerCase()
+                return person
+                    ? Object.fromEntries(
+                          Object.entries(person.properties).filter(
+                              ([key, value]) =>
+                                  key.toLowerCase().includes(normalizedPropertySearchTerm) ||
+                                  JSON.stringify(value).toLowerCase().includes(normalizedPropertySearchTerm)
+                          )
+                      )
+                    : {}
             },
         ],
         breadcrumbs: [

@@ -122,6 +122,8 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
 interface PropertiesTableType extends BasePropertyType {
     properties: any
     sortProperties?: boolean
+    /** Whether this table should be style for being embedded. Default: true. */
+    embedded?: boolean
     onDelete?: (key: string) => void
     className?: string
 }
@@ -131,6 +133,7 @@ export function PropertiesTable({
     rootKey,
     onEdit,
     sortProperties = false,
+    embedded = true,
     nestingLevel = 0,
     onDelete,
     className,
@@ -169,11 +172,13 @@ export function PropertiesTable({
 
     const columns: LemonTableColumns<Record<string, any>> = [
         {
-            title: 'key',
+            key: 'key',
+            title: 'Key',
             width: '15rem',
             render: function Key(_, item: any): JSX.Element {
                 return (
                     <div className="properties-table-key">
+                        <PropertyKeyInfo value={item[0]} />
                         {onDelete && nestingLevel <= 1 && !keyMappingKeys.includes(item[0]) && (
                             <Popconfirm
                                 onConfirm={() => onDelete(item[0])}
@@ -186,13 +191,14 @@ export function PropertiesTable({
                                 <DeleteOutlined className="cursor-pointer" />
                             </Popconfirm>
                         )}
-                        <PropertyKeyInfo value={item[0]} />
                     </div>
                 )
             },
+            sorter: (a, b) => String(a[0]).localeCompare(String(b[0])),
         },
         {
-            title: 'value',
+            key: 'value',
+            title: 'Value',
             render: function Value(_, item: any): JSX.Element {
                 return (
                     <PropertiesTable
@@ -210,13 +216,13 @@ export function PropertiesTable({
         return (
             <LemonTable
                 columns={columns}
-                showHeader={false}
+                showHeader={!embedded}
                 size="small"
                 rowKey="0"
-                embedded
+                embedded={embedded}
                 dataSource={objectProperties}
                 className={className}
-                emptyState="This property contains an empty object."
+                emptyState="This property value is an empty object."
             />
         )
     }

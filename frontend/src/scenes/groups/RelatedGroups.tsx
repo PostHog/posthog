@@ -70,7 +70,6 @@ export function RelatedGroups({ groupTypeIndex, id }: Props): JSX.Element {
             columns={columns}
             rowKey="id"
             pagination={{ pageSize: 30, hideOnSinglePage: true }}
-            embedded
         />
     ) : (
         <i>No related groups found</i>

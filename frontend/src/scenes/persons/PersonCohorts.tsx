@@ -4,10 +4,12 @@ import { personsLogic } from './personsLogic'
 import Skeleton from 'antd/lib/skeleton'
 import { CohortType } from '~/types'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { urls } from 'scenes/urls'
+import { Link } from 'lib/components/Link'
 
 export function PersonCohorts(): JSX.Element {
     const { cohorts, cohortsLoading } = useValues(personsLogic)
-    const { loadCohorts, navigateToCohort } = useActions(personsLogic)
+    const { loadCohorts } = useActions(personsLogic)
 
     useEffect(() => {
         if (cohorts === null && !cohortsLoading) {
@@ -25,6 +27,13 @@ export function PersonCohorts(): JSX.Element {
             dataIndex: 'name',
             key: 'name',
             className: 'ph-no-capture',
+            render: function RenderName(_, cohort) {
+                return (
+                    <Link to={urls.cohort(cohort.id)}>
+                        <strong>{cohort.name}</strong>
+                    </Link>
+                )
+            },
             sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
         },
         {
@@ -37,20 +46,14 @@ export function PersonCohorts(): JSX.Element {
         },
     ]
 
-    return cohorts?.length ? (
+    return (
         <LemonTable
-            dataSource={cohorts}
+            dataSource={cohorts || []}
             loading={cohortsLoading}
             columns={columns}
-            rowClassName="cursor-pointer"
             rowKey="id"
             pagination={{ pageSize: 30, hideOnSinglePage: true }}
-            embedded
-            onRow={(cohort) => ({
-                onClick: () => navigateToCohort(cohort),
-            })}
+            emptyState="This person doesn't belong to any cohort"
         />
-    ) : (
-        <i>This person doesn't belong to any cohort</i>
     )
 }
