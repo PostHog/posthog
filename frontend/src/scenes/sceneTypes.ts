@@ -18,7 +18,7 @@ export enum Scene {
     LEGACY_Actions = 'LEGACY_ActionsTable',
     Events = 'Events',
     Taxonomy = 'Taxonomy',
-    TaxonomyEventStats = 'TaxonomyEventStats',
+    TaxonomyEvents = 'TaxonomyEvents',
     TaxonomyCalculatedEvents = 'CalculatedEvent',
     SessionRecordings = 'SessionsRecordings',
     Person = 'Person',

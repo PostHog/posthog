@@ -15,10 +15,10 @@ export const urls = {
     LEGACY_eventPropertyStats: () => '/events/properties',
     LEGACY_events: () => '/events',
     // TODO: Deprecate above with `collaborations-taxonomy` FF
-    events: () => '/events_v2', // live events
+    events: () => '/live_events',
     taxonomy: () => '/taxonomy',
-    taxonomyEventStats: () => '/taxonomy/events/stats',
-    taxonomyEventStatsView: (id: string | number) => `/taxonomy/events/stats/${id}`,
+    taxonomyEvent: () => '/taxonomy/events',
+    taxonomyEventView: (id: string | number) => `/taxonomy/events/${id}`,
     taxonomyCalculatedEvents: () => '/taxonomy/calculated_events',
     taxonomyCalculatedEventsEdit: (id: string | number) => `/taxonomy/calculated_events/${id}`,
     insightNew: (filters?: Partial<FilterType>) => `/insights/new${filters ? combineUrl('', filters).search : ''}`,

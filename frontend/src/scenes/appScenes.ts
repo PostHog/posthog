@@ -19,7 +19,7 @@ export const appScenes: Record<Scene, () => any> = {
     // TODO: Deprecate above with `collaborations-taxonomy` FF
     [Scene.Events]: () => import('./events/Events'),
     [Scene.Taxonomy]: () => import('./taxonomy/Taxonomy'),
-    [Scene.TaxonomyEventStats]: () => import('./taxonomy/Taxonomy'),
+    [Scene.TaxonomyEvents]: () => import('./taxonomy/Taxonomy'),
     [Scene.TaxonomyCalculatedEvents]: () => import('./taxonomy/Taxonomy'),
     [Scene.SessionRecordings]: () => import('./session-recordings/SessionRecordings'),
     [Scene.Person]: () => import('./persons/Person'),

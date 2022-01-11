@@ -70,7 +70,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Taxonomy',
     },
-    [Scene.TaxonomyEventStats]: {
+    [Scene.TaxonomyEvents]: {
         projectBased: true,
         name: 'Taxonomy',
     },
@@ -227,8 +227,8 @@ export const routes: Record<string, Scene> = {
     // TODO: Deprecate above with `collaborations-taxonomy` FF
     [urls.events()]: Scene.Events,
     [urls.taxonomy()]: Scene.Taxonomy,
-    [urls.taxonomyEventStats()]: Scene.TaxonomyEventStats,
-    [urls.taxonomyEventStatsView(':id')]: Scene.TaxonomyEventStats,
+    [urls.taxonomyEvent()]: Scene.TaxonomyEvents,
+    [urls.taxonomyEventView(':id')]: Scene.TaxonomyEvents,
     [urls.taxonomyCalculatedEvents()]: Scene.TaxonomyCalculatedEvents,
     [urls.taxonomyCalculatedEventsEdit(':id')]: Scene.TaxonomyCalculatedEvents,
     [urls.insightNew()]: Scene.Insight,
