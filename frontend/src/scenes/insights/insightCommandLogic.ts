@@ -3,16 +3,29 @@ import { kea } from 'kea'
 import { insightCommandLogicType } from './insightCommandLogicType'
 import { compareFilterLogic } from 'lib/components/CompareFilter/compareFilterLogic'
 import { RiseOutlined } from '@ant-design/icons'
-import { insightDateFilterLogic } from 'scenes/insights/InsightDateFilter/insightDateFilterLogic'
 import { dateMapping } from 'lib/utils'
+import { InsightLogicProps } from '~/types'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { insightDateFilterLogic } from 'scenes/insights/InsightDateFilter/insightDateFilterLogic'
 
 const INSIGHT_COMMAND_SCOPE = 'insights'
 
 export const insightCommandLogic = kea<insightCommandLogicType>({
-    path: ['scenes', 'insights', 'insightCommandLogic'],
-    connect: [commandPaletteLogic, compareFilterLogic, insightDateFilterLogic],
-    events: () => ({
+    props: {} as InsightLogicProps,
+    key: keyForInsightLogicProps('new'),
+    path: (key) => ['scenes', 'insights', 'insightCommandLogic', key],
+
+    connect: (props: InsightLogicProps) => [
+        commandPaletteLogic,
+        compareFilterLogic(props),
+        insightDateFilterLogic(props),
+    ],
+    events: ({ props }) => ({
         afterMount: () => {
+            // only load commands if this is the main insight on the main insight scene
+            if (!props.syncWithUrl) {
+                return
+            }
             const funnelCommands: Command[] = [
                 {
                     key: 'insight-graph',
@@ -21,14 +34,14 @@ export const insightCommandLogic = kea<insightCommandLogicType>({
                             icon: RiseOutlined,
                             display: 'Toggle "Compare Previous" on Graph',
                             executor: () => {
-                                compareFilterLogic.actions.toggleCompare()
+                                compareFilterLogic(props).actions.toggleCompare()
                             },
                         },
                         ...Object.entries(dateMapping).map(([key, { values }]) => ({
                             icon: RiseOutlined,
                             display: `Set Time Range to ${key}`,
                             executor: () => {
-                                insightDateFilterLogic.actions.setDates(values[0], values[1])
+                                insightDateFilterLogic(props).actions.setDates(values[0], values[1])
                             },
                         })),
                     ],
@@ -40,7 +53,9 @@ export const insightCommandLogic = kea<insightCommandLogicType>({
             }
         },
         beforeUnmount: () => {
-            commandPaletteLogic.actions.deregisterScope(INSIGHT_COMMAND_SCOPE)
+            if (props.syncWithUrl) {
+                commandPaletteLogic.actions.deregisterScope(INSIGHT_COMMAND_SCOPE)
+            }
         },
     }),
 })

@@ -62,6 +62,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
     /** What to describe the entries as, singular and plural. The default value is `['entry', 'entries']`. */
     nouns?: [string, string]
     className?: string
+    style?: React.CSSProperties
     'data-attr'?: string
 }
 
@@ -86,6 +87,7 @@ export function LemonTable<T extends Record<string, any>>({
     emptyState,
     nouns = ['entry', 'entries'],
     className,
+    style,
     'data-attr': dataAttr,
 }: LemonTableProps<T>): JSX.Element {
     /** Search param that will be used for storing and syncing the current page */
@@ -228,6 +230,7 @@ export function LemonTable<T extends Record<string, any>>({
                 isScrollable[1] && 'LemonTable--scrollable-right',
                 className
             )}
+            style={style}
             data-attr={dataAttr}
         >
             <div className="LemonTable__scroll" ref={scrollRef}>
