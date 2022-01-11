@@ -20,6 +20,8 @@ import {
     InsightShortId,
     MultivariateFlagVariant,
     ChartDisplayType,
+    TrendResult,
+    FunnelStep,
 } from '~/types'
 import { experimentLogicType } from './experimentLogicType'
 import { router } from 'kea-router'
@@ -385,8 +387,8 @@ export const experimentLogic = kea<experimentLogicType>({
                     if (!experimentResults) {
                         return errorResult
                     }
-                    const variantResults = experimentResults?.insight.find(
-                        (variantFunnel) => variantFunnel[0]?.breakdown_value?.[0] === variant
+                    const variantResults = (experimentResults?.insight as FunnelStep[][]).find(
+                        (variantFunnel: FunnelStep[]) => variantFunnel[0]?.breakdown_value?.[0] === variant
                     )
                     if (!variantResults) {
                         return errorResult
@@ -404,8 +406,8 @@ export const experimentLogic = kea<experimentLogicType>({
                     if (!experimentResults) {
                         return errorResult
                     }
-                    const variantResults = experimentResults.insight.find(
-                        (variantTrend) => variantTrend.breakdown_value === variant
+                    const variantResults = (experimentResults?.insight as TrendResult[]).find(
+                        (variantTrend: TrendResult) => variantTrend.breakdown_value === variant
                     )
                     if (!variantResults) {
                         return errorResult
