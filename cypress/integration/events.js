@@ -63,7 +63,7 @@ describe('Events', () => {
             cy.log(api_interception.id)
             cy.log(api_interception.state)
             cy.log('Status code is ' + api_interception.response.statusCode)
-            cy.log('response body is ' + api_interception.response.body)
+            cy.log('response body is ' + JSON.stringify(api_interception.response.body))
 
             expect(api_interception.response.statusCode).to.eq(200)
         })
