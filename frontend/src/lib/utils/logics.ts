@@ -7,4 +7,5 @@ export function getCurrentTeamId(providedMaybeTeamId?: TeamType['id'] | null): T
     if (!maybeTeamId) {
         throw new Error(`Project ID is not known.${getAppContext()?.anonymous ? ' User is anonymous.' : ''}`)
     }
+    return maybeTeamId
 }
