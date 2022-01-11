@@ -21,6 +21,8 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.LEGACY_Actions]: Scene.LEGACY_Events,
     [Scene.LEGACY_EventStats]: Scene.LEGACY_Events,
     [Scene.LEGACY_EventPropertyStats]: Scene.LEGACY_Events,
+    [Scene.TaxonomyEventStats]: Scene.Taxonomy,
+    [Scene.TaxonomyCalculatedEvents]: Scene.Taxonomy,
     [Scene.Person]: Scene.Persons,
     [Scene.Groups]: Scene.Persons,
     [Scene.Group]: Scene.Persons,
