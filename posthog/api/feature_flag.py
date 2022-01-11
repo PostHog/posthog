@@ -2,6 +2,8 @@ import json
 from typing import Any, Dict, Optional, cast
 
 from django.db.models import Prefetch, QuerySet
+from django.db.models.signals import post_delete, pre_delete
+from django.dispatch.dispatcher import receiver
 from rest_framework import authentication, exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -13,6 +15,7 @@ from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthenticat
 from posthog.event_usage import report_user_action
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import FeatureFlag
+from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
@@ -265,6 +268,11 @@ class FeatureFlagOverrideViewset(StructuredViewSetMixin, AnalyticsDestroyModelMi
             serializer.is_valid(raise_exception=True)
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+@receiver(pre_delete, sender=Experiment)
+def delete_experiment_flags(sender, instance, **kwargs):
+    FeatureFlag.objects.filter(experiment=instance).update(deleted=True)
 
 
 class LegacyFeatureFlagViewSet(FeatureFlagViewSet):
