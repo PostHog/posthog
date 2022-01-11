@@ -32,7 +32,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             teamLogic,
             ['currentTeamId'],
             groupsModel,
-            ['groupTypes'],
+            ['groupTypes', 'aggregationLabel'],
             groupPropertiesModel,
             ['allGroupProperties'],
         ],
@@ -215,19 +215,22 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 groupTypes || taxonomicGroups.map((g) => g.type),
         ],
         groupAnalyticsTaxonomicGroups: [
-            (selectors) => [selectors.groupTypes, selectors.currentTeamId],
-            (groupTypes, teamId): TaxonomicFilterGroup[] =>
-                groupTypes.map((type, index) => ({
-                    name: capitalizeFirstLetter(type.group_type),
-                    searchPlaceholder: `${type.group_type} properties`,
-                    type: `${TaxonomicFilterGroupType.GroupsPrefix}_${index}` as TaxonomicFilterGroupType,
+            (selectors) => [selectors.groupTypes, selectors.currentTeamId, selectors.aggregationLabel],
+            (groupTypes, teamId, aggregationLabel): TaxonomicFilterGroup[] =>
+                groupTypes.map((type) => ({
+                    name: capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular),
+                    searchPlaceholder: `${aggregationLabel(type.group_type_index).singular} properties`,
+                    type: `${TaxonomicFilterGroupType.GroupsPrefix}_${type.group_type_index}` as TaxonomicFilterGroupType,
                     logic: groupPropertiesModel,
-                    value: `groupProperties_${index}`,
+                    value: `groupProperties_${type.group_type_index}`,
                     valuesEndpoint: (key) =>
-                        `api/projects/${teamId}/groups/property_values/?${toParams({ key, group_type_index: index })}`,
-                    getName: (group) => capitalizeFirstLetter(group.name),
+                        `api/projects/${teamId}/groups/property_values/?${toParams({
+                            key,
+                            group_type_index: type.group_type_index,
+                        })}`,
+                    getName: () => capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular),
                     getValue: (group) => group.name,
-                    groupTypeIndex: index,
+                    groupTypeIndex: type.group_type_index,
                 })),
         ],
         infiniteListLogics: [

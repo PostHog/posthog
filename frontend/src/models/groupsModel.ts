@@ -52,7 +52,10 @@ export const groupsModel = kea<groupsModelType>({
             (groupTypes) => (groupTypeIndex: number | null | undefined) => {
                 if (groupTypeIndex != undefined && groupTypes.length > 0 && groupTypes[groupTypeIndex]) {
                     const groupType = groupTypes[groupTypeIndex]
-                    return { singular: groupType.group_type, plural: `${groupType.group_type}(s)` }
+                    return {
+                        singular: groupType.name_plural || groupType.group_type,
+                        plural: groupType.name_plural || `${groupType.group_type}(s)`,
+                    }
                 }
                 return { singular: 'person', plural: 'people' }
             },
