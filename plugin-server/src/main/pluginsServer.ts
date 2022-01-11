@@ -11,7 +11,7 @@ import { killProcess } from '../utils/kill'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { statusReport } from '../utils/status-report'
-import { delay, getPiscinaStats } from '../utils/utils'
+import { delay, getPiscinaStats, stalenessCheck } from '../utils/utils'
 import { startQueues } from './ingestion-queues/queue'
 import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
@@ -203,19 +203,20 @@ export async function startPluginsServer(
 
         if (serverConfig.STALENESS_RESTART_SECONDS > 0) {
             // check every 10 sec how long it has been since the last activity
+
             let lastFoundActivity: number
             lastActivityCheck = setInterval(() => {
+                const stalenessCheckResult = stalenessCheck(hub, serverConfig.STALENESS_RESTART_SECONDS)
+
                 if (
                     hub?.lastActivity &&
-                    new Date().valueOf() - hub?.lastActivity > serverConfig.STALENESS_RESTART_SECONDS * 1000 &&
+                    stalenessCheckResult.isServerStale &&
                     lastFoundActivity !== hub?.lastActivity
                 ) {
                     lastFoundActivity = hub?.lastActivity
                     const extra = {
-                        instanceId: hub.instanceId.toString(),
-                        lastActivity: hub.lastActivity ? new Date(hub.lastActivity).toISOString() : null,
-                        lastActivityType: hub.lastActivityType,
                         piscina: piscina ? JSON.stringify(getPiscinaStats(piscina)) : null,
+                        ...stalenessCheckResult,
                     }
                     Sentry.captureMessage(
                         `Plugin Server has not ingested events for over ${serverConfig.STALENESS_RESTART_SECONDS} seconds! Rebooting.`,
@@ -227,7 +228,7 @@ export async function startPluginsServer(
                         `Plugin Server has not ingested events for over ${serverConfig.STALENESS_RESTART_SECONDS} seconds! Rebooting.`,
                         extra
                     )
-                    hub.statsd?.increment(`alerts.stale_plugin_server_restarted`)
+                    hub?.statsd?.increment(`alerts.stale_plugin_server_restarted`)
 
                     killProcess()
                 }
