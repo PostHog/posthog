@@ -1,12 +1,13 @@
 from typing import Dict, Optional
 
+from constance import config
 from django.core.exceptions import ImproperlyConfigured
 from infi.clickhouse_orm.utils import import_submodules
 from semantic_version.base import Version
 
 from posthog.async_migrations.definition import AsyncMigrationDefinition
 from posthog.models.async_migration import AsyncMigration, get_all_completed_async_migrations
-from posthog.settings import AUTO_START_ASYNC_MIGRATIONS, TEST
+from posthog.settings import TEST
 from posthog.utils import is_clickhouse_enabled
 from posthog.version import VERSION
 
@@ -75,7 +76,7 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
     for key, val in ASYNC_MIGRATION_TO_DEPENDENCY.items():
         DEPENDENCY_TO_ASYNC_MIGRATION[val] = key
 
-    if AUTO_START_ASYNC_MIGRATIONS and first_migration:
+    if getattr(config, "AUTO_START_ASYNC_MIGRATIONS") and first_migration:
         kickstart_migration_if_possible(first_migration, applied_migrations)
 
 
