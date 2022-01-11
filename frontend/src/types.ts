@@ -1392,7 +1392,7 @@ export interface Experiment {
     created_by: UserBasicType | null
 }
 export interface ExperimentResults {
-    insight: FunnelStep[][]
+    insight: FunnelStep[][] | TrendResult[]
     probability: Record<string, number>
     filters: FilterType
     itemID: string
