@@ -750,6 +750,11 @@ export const dateMapping: Record<string, dateMappingOption> = {
         getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
             `${date.subtract(90, 'd').format(format)} - ${date.endOf('d').format(format)}`,
     },
+    'Last 180 days': {
+        values: ['-180d'],
+        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
+            `${date.subtract(180, 'd').format(format)} - ${date.endOf('d').format(format)}`,
+    },
     'This month': {
         values: ['mStart'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
