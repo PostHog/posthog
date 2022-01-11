@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from rest_framework import status
+from rest_framework import exceptions, status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
@@ -102,6 +102,23 @@ def get_decide(request: HttpRequest):
                 generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
             )
 
+        if not "distinct_id" in data:
+            capture_exception(
+                exceptions.ValidationError(
+                    "The `properties`.`distinct_id` property is always required. This ID uniquely identifies the end user."
+                )
+            )
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "decide",
+                    "The `properties`.`distinct_id` property is always required. This ID uniquely identifies the end user.",
+                    code="required",
+                    type="validation_error",
+                    attr="distinct_id",
+                ),
+            )
+
         token = get_token(data, request)
         team = Team.objects.get_team_from_token(token)
         if team is None and token:
@@ -134,11 +151,8 @@ def get_decide(request: HttpRequest):
             team = user.teams.get(id=project_id)
 
         if team:
-            if "distinct_id" in data:
-                feature_flags = get_overridden_feature_flags(team, data["distinct_id"], data.get("groups", {}))
-                response["featureFlags"] = feature_flags if api_version >= 2 else list(feature_flags.keys())
-            else:
-                response["featureFlags"] = []
+            feature_flags = get_overridden_feature_flags(team, data["distinct_id"], data.get("groups", {}))
+            response["featureFlags"] = feature_flags if api_version >= 2 else list(feature_flags.keys())
 
             if team.session_recording_opt_in and (on_permitted_domain(team, request) or len(team.app_urls) == 0):
                 response["sessionRecording"] = {"endpoint": "/s/"}

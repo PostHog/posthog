@@ -224,7 +224,7 @@ class TestDecide(BaseTest):
                 "third-variant", response.json()["featureFlags"]["multivariate-flag"]
             )  # different hash, different variant assigned
 
-    def test_decide_with_feature_flags_with_no_distinct_id(self):
+    def test_decide_with_no_distinct_id(self):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
         self.client.logout()
@@ -238,8 +238,16 @@ class TestDecide(BaseTest):
             {"data": self._dict_to_b64({"token": self.team.api_token})},
             HTTP_ORIGIN="http://127.0.0.1:8000",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["featureFlags"], [])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "required",
+                "detail": "The `properties`.`distinct_id` property is always required. This ID uniquely identifies the end user.",
+                "attr": "distinct_id",
+            },
+        )
 
     def test_feature_flags_v2_complex(self):
         self.team.app_urls = ["https://example.com"]
