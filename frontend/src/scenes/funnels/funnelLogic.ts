@@ -1,6 +1,7 @@
 import { BreakPointFunction, kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
+import { toast } from 'react-toastify'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { autoCaptureEventToDescription, average, successToast, sum } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -64,6 +65,7 @@ import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { groupsModel } from '~/models/groupsModel'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { CorrelationToast } from 'scenes/insights/InsightTabs/FunnelTab/FunnelCorrelationTable'
 
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 // Chosen via heuristics by eyeballing some values
@@ -1185,11 +1187,13 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 actions.setPropertyNames(values.allProperties) // select all properties by default
             }
         },
-        loadCorrelationsSuccess: async (_, breakpoint) => {
-            breakpoint(2000)
+        loadCorrelationsSuccess: async () => {
             if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.EXPERIMENT_CORRELATION_DISCOVERY] == 'test') {
-                // TODO: maybe make this less frequent when successive changes are made?
-                successToast('Correlations loaded', 'Scroll down to see property and event correlations')
+                toast(CorrelationToast(), {
+                    toastId: 'correlation', // id prevents duplicates
+                    autoClose: false,
+                    className: 'correlation-toast',
+                })
             }
         },
         toggleVisibilityByBreakdown: ({ breakdownValue }) => {

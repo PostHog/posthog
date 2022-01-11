@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Row, Spin, Table } from 'antd'
+import { Button, Row, Spin, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined, EllipsisOutlined, InfoCircleOutlined } from '@ant-design/icons'
@@ -18,6 +18,21 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { Popup } from 'lib/components/Popup/Popup'
 import { CorrelationMatrix } from './CorrelationMatrix'
 import { capitalizeFirstLetter } from 'lib/utils'
+
+export const CorrelationToast = (): JSX.Element => (
+    <div data-attr="success-toast">
+        <h3>
+            <IconSelectEvents /> {'Correlation results are ready'}{' '}
+        </h3>
+        <Button
+            style={{ display: 'inline-block' }}
+            type="default"
+            onClick={() => window.scrollBy({ left: 0, top: window.innerHeight, behavior: 'smooth' })}
+        >
+            View
+        </Button>
+    </div>
+)
 
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
