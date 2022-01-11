@@ -218,7 +218,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             (selectors) => [selectors.groupTypes, selectors.currentTeamId, selectors.aggregationLabel],
             (groupTypes, teamId, aggregationLabel): TaxonomicFilterGroup[] =>
                 groupTypes.map((type) => ({
-                    name: capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular),
+                    name: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular)} properties`,
                     searchPlaceholder: `${aggregationLabel(type.group_type_index).singular} properties`,
                     type: `${TaxonomicFilterGroupType.GroupsPrefix}_${type.group_type_index}` as TaxonomicFilterGroupType,
                     logic: groupPropertiesModel,
