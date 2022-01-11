@@ -536,6 +536,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
         saveLayouts: async (_, breakpoint) => {
             await breakpoint(300)
             if (getAppContext()?.anonymous) {
+                // If user is anonymous (i.e. viewing a shared dashboard logged out), we don't save any layout changes.
                 return
             }
             await api.update(`api/projects/${values.currentTeamId}/insights/layouts`, {

@@ -5,10 +5,6 @@ import { getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 import { LOGS_PORTION_LIMIT } from 'scenes/plugins/plugin/pluginLogsLogic'
 import { toParams } from 'lib/utils'
-import { getAppContext } from './utils/getAppContext'
-
-/** Allowed API requests that can be sent even when unauthenticated.  */
-const UNAUTHENTICATED_ROUTES = ['api/reset', 'api/shared_dashboards', 'api/signup', '_preflight']
 
 export interface PaginatedResponse<T> {
     results: T[]
@@ -86,7 +82,7 @@ class ApiRequest {
         return this.addPathComponent('projects')
     }
 
-    public projectsDetail(id: TeamType['id'] | null = getCurrentTeamId()): ApiRequest {
+    public projectsDetail(id: TeamType['id'] = getCurrentTeamId()): ApiRequest {
         return this.projects().addPathComponent(id?.toString() || '')
     }
 
@@ -96,19 +92,19 @@ class ApiRequest {
             .addPathComponent('logs')
     }
 
-    public actions(teamId: TeamType['id'] | null = getCurrentTeamId()): ApiRequest {
+    public actions(teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('actions')
     }
 
-    public actionsDetail(actionId: ActionType['id'], teamId: TeamType['id'] | null = getCurrentTeamId()): ApiRequest {
+    public actionsDetail(actionId: ActionType['id'], teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
         return this.actions(teamId).addPathComponent(actionId.toString())
     }
 
-    public cohorts(teamId: TeamType['id'] | null = getCurrentTeamId()): ApiRequest {
+    public cohorts(teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('cohorts')
     }
 
-    public cohortsDetail(cohortId: CohortType['id'], teamId: TeamType['id'] | null = getCurrentTeamId()): ApiRequest {
+    public cohortsDetail(cohortId: CohortType['id'], teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
         return this.cohorts(teamId).addPathComponent(cohortId.toString())
     }
 
@@ -140,17 +136,6 @@ const normalise_url = (url: string): string => {
         url = url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
     }
     return url
-}
-
-const validate_authenticated_request = (url: string): boolean => {
-    if (
-        getAppContext()?.anonymous &&
-        !url.startsWith('http') &&
-        !UNAUTHENTICATED_ROUTES.find((route) => url.indexOf(route) > -1)
-    ) {
-        return false
-    }
-    return true
 }
 
 const api = {
@@ -264,11 +249,6 @@ const api = {
 
     async get(url: string, signal?: AbortSignal): Promise<any> {
         url = normalise_url(url)
-
-        if (!validate_authenticated_request(url)) {
-            return {}
-        }
-
         let response
         const startTime = new Date().getTime()
         try {
