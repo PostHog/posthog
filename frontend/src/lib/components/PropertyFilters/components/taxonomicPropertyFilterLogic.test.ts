@@ -16,14 +16,21 @@ describe('the taxonomic property filter', () => {
     initKeaTestLogic({
         logic: taxonomicPropertyFilterLogic,
         props: {
-            taxonomicGroupTypes: [
-                TaxonomicFilterGroupType.EventProperties,
-                TaxonomicFilterGroupType.PersonProperties,
-                TaxonomicFilterGroupType.Cohorts,
-                TaxonomicFilterGroupType.Elements,
-            ],
+            taxonomicFilterLogicProps: {
+                taxonomicFilterLogicKey: 'test',
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.Elements,
+                ],
+            },
+            propertyFilterLogicProps: {
+                pageKey: 'test',
+                propertyFilters: [],
+                onChange: () => {},
+            },
             filterIndex: 1,
-            pageKey: 'test',
         },
         onLogic: (l) => (logic = l),
     })

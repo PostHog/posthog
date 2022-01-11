@@ -1,8 +1,7 @@
 import './TaxonomicPropertyFilter.scss'
-import React, { useMemo } from 'react'
+import React from 'react'
 import { Button, Col } from 'antd'
 import { useActions, useValues } from 'kea'
-import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
 import { SelectDownIcon } from 'lib/components/SelectDownIcon'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -16,49 +15,47 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
-import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
+import { PropertyFilterInternalProps, TaxonomicPropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import clsx from 'clsx'
 
-let uniqueMemoizedIndex = 0
-
 export function TaxonomicPropertyFilter({
-    pageKey: pageKeyInput,
     index,
     onComplete,
     disablePopover, // inside a dropdown if this is false
     taxonomicGroupTypes,
     eventNames,
+    propertyFilterLogicProps,
 }: PropertyFilterInternalProps): JSX.Element {
-    const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || [
         TaxonomicFilterGroupType.EventProperties,
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
     ]
-    const taxonomicOnChange: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void = (
-        taxonomicGroup,
-        value
-    ) => {
-        selectItem(taxonomicGroup, value)
-        if (taxonomicGroup.type === TaxonomicFilterGroupType.Cohorts) {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const taxonomicOnChange = (group: TaxonomicFilterGroup, value: TaxonomicFilterValue): void => {
+        selectItem(group, value)
+        if (group.type === TaxonomicFilterGroupType.Cohorts) {
             onComplete?.()
         }
     }
-    const { setFilter } = useActions(propertyFilterLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const logic = taxonomicPropertyFilterLogic({
-        pageKey,
+    const taxonomicPropertyFilterLogicProps: TaxonomicPropertyFilterLogicProps = {
         filterIndex: index,
-        taxonomicGroupTypes: groupTypes,
-        taxonomicOnChange,
         eventNames,
-    })
+        propertyFilterLogicProps,
+        taxonomicFilterLogicProps: {
+            taxonomicFilterLogicKey: propertyFilterLogicProps.pageKey,
+            taxonomicGroupTypes: taxonomicGroupTypes || [],
+            eventNames,
+            onChange: taxonomicOnChange,
+        },
+    }
+    const logic = taxonomicPropertyFilterLogic(taxonomicPropertyFilterLogicProps)
     const { filter, dropdownOpen, selectedCohortName, activeTaxonomicGroup } = useValues(logic)
-    const { openDropdown, closeDropdown, selectItem } = useActions(logic)
+    const { openDropdown, closeDropdown, selectItem, setFilter } = useActions(logic)
     const showInitialSearchInline = !disablePopover && ((!filter?.type && !filter?.key) || filter?.type === 'cohort')
     const showOperatorValueSelect = filter?.type && filter?.key && filter?.type !== 'cohort'
 

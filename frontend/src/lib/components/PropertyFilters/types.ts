@@ -1,9 +1,5 @@
 import { AnyPropertyFilter } from '~/types'
-import {
-    TaxonomicFilterGroup,
-    TaxonomicFilterGroupType,
-    TaxonomicFilterValue,
-} from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import { SelectGradientOverflowProps } from 'lib/components/SelectGradientOverflow'
 
 export interface PropertyFilterBaseProps {
@@ -13,18 +9,17 @@ export interface PropertyFilterBaseProps {
 export interface PropertyFilterLogicProps extends PropertyFilterBaseProps {
     propertyFilters?: AnyPropertyFilter[] | null
     onChange: (filters: AnyPropertyFilter[]) => void
-    urlOverride?: string
 }
 
-export interface TaxonomicPropertyFilterLogicProps extends PropertyFilterBaseProps {
-    taxonomicGroupTypes: TaxonomicFilterGroupType[]
-    taxonomicOnChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
+export interface TaxonomicPropertyFilterLogicProps {
+    propertyFilterLogicProps: PropertyFilterLogicProps
+    taxonomicFilterLogicProps: TaxonomicFilterLogicProps
     filterIndex: number
     eventNames?: string[]
 }
 
 export interface PropertyFilterInternalProps {
-    pageKey?: string
+    propertyFilterLogicProps: PropertyFilterLogicProps
     index: number
     selectProps: Partial<SelectGradientOverflowProps>
     onComplete: () => void

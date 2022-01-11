@@ -14,20 +14,16 @@ import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFi
 export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType>({
     path: (key) => ['lib', 'components', 'PropertyFilters', 'components', 'taxonomicPropertyFilterLogic', key],
     props: {} as TaxonomicPropertyFilterLogicProps,
-    key: (props) => `${props.pageKey}-${props.filterIndex}`,
+    key: (props) => `${props.propertyFilterLogicProps.pageKey}-${props.filterIndex}`,
 
     connect: (props: TaxonomicPropertyFilterLogicProps) => ({
         values: [
-            propertyFilterLogic(props),
+            propertyFilterLogic(props.propertyFilterLogicProps),
             ['filters'],
-            taxonomicFilterLogic({
-                taxonomicFilterLogicKey: props.pageKey,
-                taxonomicGroupTypes: props.taxonomicGroupTypes,
-                onChange: props.taxonomicOnChange,
-                eventNames: props.eventNames,
-            }),
+            taxonomicFilterLogic(props.taxonomicFilterLogicProps),
             ['taxonomicGroups'],
         ],
+        actions: [propertyFilterLogic(props.propertyFilterLogicProps), ['setFilter', 'setFilters']],
     }),
 
     actions: {
@@ -77,20 +73,14 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
             const propertyType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
             if (propertyKey && propertyType) {
                 if (propertyType === 'cohort') {
-                    propertyFilterLogic(props).actions.setFilter(
-                        props.filterIndex,
-                        'id',
-                        propertyKey,
-                        null,
-                        propertyType
-                    )
+                    actions.setFilter(props.filterIndex, 'id', propertyKey, null, propertyType)
                 } else {
                     const operator =
                         propertyKey === '$active_feature_flags'
                             ? PropertyOperator.IContains
                             : values.filter?.operator || PropertyOperator.Exact
 
-                    propertyFilterLogic(props).actions.setFilter(
+                    actions.setFilter(
                         props.filterIndex,
                         propertyKey.toString(),
                         null, // Reset value field
