@@ -222,6 +222,31 @@ export function shouldUpdateProperty(
     return false
 }
 
+export function calculateUpdateSingleProperty(
+    result: PropertiesUpdate,
+    key: string,
+    value: any,
+    operation: PropertyUpdateOperation,
+    timestamp: DateTime,
+    currentPropertiesLastOperation: PropertiesLastOperation,
+    currentPropertiesLastUpdatedAt: PropertiesLastUpdatedAt
+): void {
+    if (
+        !(key in result.properties) ||
+        shouldUpdateProperty(
+            operation,
+            timestamp,
+            getPropertiesLastOperationOrSet(currentPropertiesLastOperation, key),
+            getPropertyLastUpdatedAtDateTimeOrEpoch(currentPropertiesLastUpdatedAt, key)
+        )
+    ) {
+        result.updated = true
+        result.properties[key] = value
+        result.properties_last_operation[key] = operation
+        result.properties_last_updated_at[key] = timestamp.toISO()
+    }
+}
+
 export function calculateUpdateForMerge(
     currentProperties: Properties,
     currentPropertiesLastUpdatedAt: PropertiesLastUpdatedAt,
@@ -240,20 +265,15 @@ export function calculateUpdateForMerge(
     Object.entries(newProperties).forEach(([key, value]) => {
         const operation = getPropertiesLastOperationOrSet(newPropertiesLastOperation, key)
         const timestamp = getPropertyLastUpdatedAtDateTimeOrEpoch(newPropertiesLastUpdatedAt, key)
-        if (
-            !(key in result.properties) ||
-            shouldUpdateProperty(
-                operation,
-                timestamp,
-                getPropertiesLastOperationOrSet(currentPropertiesLastOperation, key),
-                getPropertyLastUpdatedAtDateTimeOrEpoch(currentPropertiesLastUpdatedAt, key)
-            )
-        ) {
-            result.updated = true
-            result.properties[key] = value
-            result.properties_last_operation[key] = operation
-            result.properties_last_updated_at[key] = timestamp.toISO()
-        }
+        calculateUpdateSingleProperty(
+            result,
+            key,
+            value,
+            operation,
+            timestamp,
+            currentPropertiesLastOperation,
+            currentPropertiesLastUpdatedAt
+        )
     })
     return result
 }
@@ -273,26 +293,21 @@ export function calculateUpdate(
         properties_last_operation: { ...currentPropertiesLastOperation },
     }
 
-    const setOnceThenSet: [Properties, PropertyUpdateOperation][] = [
+    const allProperties: [Properties, PropertyUpdateOperation][] = [
         [propertiesOnce, PropertyUpdateOperation.SetOnce],
         [properties, PropertyUpdateOperation.Set],
     ]
-    setOnceThenSet.forEach(([props, operation]) => {
+    allProperties.forEach(([props, operation]) => {
         Object.entries(props).forEach(([key, value]) => {
-            if (
-                !(key in result.properties) ||
-                shouldUpdateProperty(
-                    operation,
-                    timestamp,
-                    getPropertiesLastOperationOrSet(currentPropertiesLastOperation, key),
-                    getPropertyLastUpdatedAtDateTimeOrEpoch(currentPropertiesLastUpdatedAt, key)
-                )
-            ) {
-                result.updated = true
-                result.properties[key] = value
-                result.properties_last_operation[key] = operation
-                result.properties_last_updated_at[key] = timestamp.toISO()
-            }
+            calculateUpdateSingleProperty(
+                result,
+                key,
+                value,
+                operation,
+                timestamp,
+                currentPropertiesLastOperation,
+                currentPropertiesLastUpdatedAt
+            )
         })
     })
     return result
