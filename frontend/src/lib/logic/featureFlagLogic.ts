@@ -31,6 +31,8 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
     const persistedFlags = getPersistedFeatureFlags()
     const availableFlags = Object.keys(persistedFlags).length ? persistedFlags : featureFlags
 
+    console.log({ persistedFlags, availableFlags })
+
     if (typeof window.Proxy !== 'undefined') {
         return new Proxy(
             {},
@@ -67,7 +69,10 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
 export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagsSet>>({
     path: ['lib', 'logic', 'featureFlagLogic'],
     actions: {
-        setFeatureFlags: (flags: string[], variants: Record<string, string | boolean>) => ({ flags, variants }),
+        setFeatureFlags: (flags: string[], variants: Record<string, string | boolean>) => {
+            console.log({ flags, variants })
+            return { flags, variants }
+        },
     },
 
     reducers: {

@@ -61,11 +61,6 @@ describe('Events', () => {
         cy.get('.taxonomic-list-row').should('have.length', 1).click()
 
         cy.get('.taxonomic-operator').click()
-        cy.get('.operator-value-option .ant-select-item-option-content')
-            .invoke('text')
-            .then((something) => {
-                cy.log(something)
-            })
         cy.get('.operator-value-option').its('length').should('eql', 8)
         cy.get('.operator-value-option').contains('< before').should('be.visible')
         cy.get('.operator-value-option').contains('> after').should('be.visible')
