@@ -22,8 +22,8 @@ export function ToggleButtonChartFilter({
 }: ToggleButtonChartFilterProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { clickhouseFeaturesEnabled, aggregationTargetLabel } = useValues(funnelLogic(insightProps))
-    const { chartFilter } = useValues(chartFilterLogic)
-    const { setChartFilter } = useActions(chartFilterLogic)
+    const { chartFilter } = useValues(chartFilterLogic(insightProps))
+    const { setChartFilter } = useActions(chartFilterLogic(insightProps))
     const defaultDisplay = FunnelVizType.Steps
 
     const options = [
