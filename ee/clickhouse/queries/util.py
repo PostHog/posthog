@@ -132,8 +132,3 @@ def deep_dump_object(params: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(params[key], dict) or isinstance(params[key], list):
             params[key] = json.dumps(params[key])
     return params
-
-
-@lru_cache(maxsize=100000)
-def logbeta(x: int, y: int) -> float:
-    return lgamma(x) + lgamma(y) - lgamma(x + y)

@@ -64,6 +64,13 @@ export enum GraphSeriesAddedSource {
     Duplicate = 'duplicate',
 }
 
+export enum SessionRecordingFilterType {
+    Duration = 'duration',
+    EventAndAction = 'event_and_action',
+    PersonAndCohort = 'person_and_cohort',
+    DateRange = 'date_range',
+}
+
 interface RecordingViewedProps {
     delay: number // Not reported: Number of delayed **seconds** to report event (useful to measure insights where users don't navigate immediately away)
     load_time: number // How much time it took to load the session (backend) (milliseconds)
@@ -176,7 +183,12 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
 }
 
 export const eventUsageLogic = kea<
-    eventUsageLogicType<DashboardEventSource, GraphSeriesAddedSource, RecordingWatchedSource>
+    eventUsageLogicType<
+        DashboardEventSource,
+        GraphSeriesAddedSource,
+        RecordingWatchedSource,
+        SessionRecordingFilterType
+    >
 >({
     path: ['lib', 'utils', 'eventUsageLogic'],
     connect: () => [preflightLogic],
@@ -329,6 +341,11 @@ export const eventUsageLogic = kea<
         reportRecordingEventsFetched: (numEvents: number, loadTime: number) => ({ numEvents, loadTime }),
         reportCorrelationAnalysisFeedback: (rating: number) => ({ rating }),
         reportCorrelationAnalysisDetailedFeedback: (rating: number, comments: string) => ({ rating, comments }),
+        reportRecordingsListFetched: (loadTime: number) => ({ loadTime }),
+        reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => ({ filterType }),
+        reportRecordingPlayerSeekbarEventHovered: true,
+        reportRecordingPlayerSpeedChanged: (newSpeed: number) => ({ newSpeed }),
+        reportRecordingPlayerSkipInactivityToggled: (skipInactivity: boolean) => ({ skipInactivity }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -401,7 +418,7 @@ export const eventUsageLogic = kea<
                 ...sanitizeFilterParams(filters),
                 report_delay: delay,
                 is_first_component_load: isFirstLoad,
-                from_dashboard: fromDashboard, // Whether the insight is on a dashboard
+                from_dashboard: fromDashboard,
             }
 
             properties.total_event_actions_count = (properties.events_count || 0) + (properties.actions_count || 0)
@@ -421,10 +438,6 @@ export const eventUsageLogic = kea<
             if (insight === 'TRENDS') {
                 properties.breakdown_type = filters.breakdown_type
                 properties.breakdown = filters.breakdown
-            } else if (insight === 'SESSIONS') {
-                properties.session_distribution = filters.session
-            } else if (insight === 'FUNNELS') {
-                properties.session_distribution = filters.session
             } else if (insight === 'RETENTION') {
                 properties.period = filters.period
                 properties.date_to = filters.date_to
@@ -458,8 +471,8 @@ export const eventUsageLogic = kea<
                 has_breakdown_value: Boolean(breakdown_value),
                 save_original: saveOriginal,
                 has_search_term: Boolean(searchTerm),
-                count, // Total count of persons
-                has_next: hasNext, // Whether there are other persons to be loaded (pagination)
+                count,
+                has_next: hasNext,
             }
             posthog.capture('insight person modal viewed', properties)
         },
@@ -738,6 +751,21 @@ export const eventUsageLogic = kea<
                     delay,
                 })
             }
+        },
+        reportRecordingsListFilterAdded: ({ filterType }) => {
+            posthog.capture('recording list filter added', { filter_type: filterType })
+        },
+        reportRecordingsListFetched: ({ loadTime }) => {
+            posthog.capture('recording list fetched', { load_time: loadTime })
+        },
+        reportRecordingPlayerSeekbarEventHovered: () => {
+            posthog.capture('recording player seekbar event hovered')
+        },
+        reportRecordingPlayerSpeedChanged: ({ newSpeed }) => {
+            posthog.capture('recording player speed changed', { new_speed: newSpeed })
+        },
+        reportRecordingPlayerSkipInactivityToggled: ({ skipInactivity }) => {
+            posthog.capture('recording player skip inactivity toggled', { skip_inactivity: skipInactivity })
         },
     },
 })

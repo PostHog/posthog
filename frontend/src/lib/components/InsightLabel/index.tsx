@@ -2,7 +2,7 @@ import React from 'react'
 import { Col, Row, Space, Tag, Typography } from 'antd'
 import { ActionFilter, BreakdownKeyType } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { capitalizeFirstLetter, hexToRGBA } from 'lib/utils'
+import { capitalizeFirstLetter, hexToRGBA, midEllipsis } from 'lib/utils'
 import './InsightLabel.scss'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -10,6 +10,7 @@ import { useValues } from 'kea'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import clsx from 'clsx'
 import { groupsModel } from '~/models/groupsModel'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export enum IconSize {
     Small = 'small',
@@ -37,6 +38,8 @@ interface InsightsLabelProps {
     allowWrap?: boolean // Allow wrapping to multiple lines (useful for long values like URLs)
     onLabelClick?: () => void // Click handler for inner label
     showEventName?: boolean // Override internally calculated to always show event name
+    pillMidEllipsis?: boolean // Whether to use mid ellipsis if pill text needs to be truncated
+    pillMaxWidth?: number // Max width of each pill in px
 }
 
 interface MathTagProps {
@@ -94,11 +97,13 @@ export function InsightLabel({
     allowWrap = false,
     showEventName: _showEventName = false,
     onLabelClick,
+    pillMidEllipsis = false,
+    pillMaxWidth,
 }: InsightsLabelProps): JSX.Element {
     const showEventName = _showEventName || !breakdownValue || (hasMultipleSeries && !Array.isArray(breakdownValue))
     const eventName = seriesStatus ? capitalizeFirstLetter(seriesStatus) : action?.name || fallbackName || ''
     const iconSizePx = iconSize === IconSize.Large ? 14 : iconSize === IconSize.Medium ? 12 : 10
-    const pillValues = [hideCompare ? null : compareValue, ...(hideBreakdown ? [] : [breakdownValue].flat())].filter(
+    const pillValues = [...(hideBreakdown ? [] : [breakdownValue].flat()), hideCompare ? null : compareValue].filter(
         (pill) => !!pill
     )
 
@@ -130,7 +135,7 @@ export function InsightLabel({
                     {showEventName && (
                         <>
                             {action ? (
-                                <EntityFilterInfo filter={action} />
+                                <EntityFilterInfo filter={action} allowWrap={allowWrap} />
                             ) : (
                                 <PropertyKeyInfo disableIcon disablePopover value={eventName} ellipsis={!allowWrap} />
                             )}
@@ -150,11 +155,16 @@ export function InsightLabel({
                     {pillValues.length > 0 && (
                         <Space direction={'horizontal'} wrap={true}>
                             {pillValues.map((pill) => (
-                                <Tag className="tag-pill" key={pill} closable={false}>
-                                    <Typography.Text ellipsis={{ tooltip: pill }} style={{ maxWidth: 165 }}>
-                                        {pill}
-                                    </Typography.Text>
-                                </Tag>
+                                <Tooltip title={pill} key={pill}>
+                                    <Tag className="tag-pill" closable={false}>
+                                        <Typography.Text
+                                            ellipsis={{ tooltip: pill }}
+                                            style={{ maxWidth: pillMaxWidth }}
+                                        >
+                                            {pillMidEllipsis ? midEllipsis(String(pill), 50) : pill}
+                                        </Typography.Text>
+                                    </Tag>
+                                </Tooltip>
                             ))}
                         </Space>
                     )}

@@ -83,7 +83,7 @@ describe('DB', () => {
         })
 
         test('without properties', async () => {
-            const person = await db.createPerson(TIMESTAMP, {}, {}, team.id, null, false, uuid, [distinctId])
+            const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, false, uuid, [distinctId])
             const fetched_person = await fetchPersonByPersonId(team.id, person.id)
 
             expect(fetched_person.is_identified).toEqual(false)
@@ -95,7 +95,7 @@ describe('DB', () => {
         })
 
         test('without properties indentified true', async () => {
-            const person = await db.createPerson(TIMESTAMP, {}, {}, team.id, null, true, uuid, [distinctId])
+            const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [distinctId])
             const fetched_person = await fetchPersonByPersonId(team.id, person.id)
             expect(fetched_person.is_identified).toEqual(true)
             expect(fetched_person.properties).toEqual({})
@@ -108,8 +108,9 @@ describe('DB', () => {
         test('with properties', async () => {
             const person = await db.createPerson(
                 TIMESTAMP,
-                { a: 123, b: false },
-                { c: 'bbb' },
+                { a: 123, b: false, c: 'bbb' },
+                { a: TIMESTAMP.toISO(), b: TIMESTAMP.toISO(), c: TIMESTAMP.toISO() },
+                { a: PropertyUpdateOperation.Set, b: PropertyUpdateOperation.Set, c: PropertyUpdateOperation.SetOnce },
                 team.id,
                 null,
                 false,
@@ -129,19 +130,6 @@ describe('DB', () => {
                 b: TIMESTAMP.toISO(),
                 c: TIMESTAMP.toISO(),
             })
-            expect(fetched_person.uuid).toEqual(uuid)
-            expect(fetched_person.team_id).toEqual(team.id)
-        })
-
-        test('with set and set_once for the same key', async () => {
-            const person = await db.createPerson(TIMESTAMP, { a: 1 }, { a: 2 }, team.id, null, false, uuid, [
-                distinctId,
-            ])
-            const fetched_person = await fetchPersonByPersonId(team.id, person.id)
-            expect(fetched_person.is_identified).toEqual(false)
-            expect(fetched_person.properties).toEqual({ a: 1 })
-            expect(fetched_person.properties_last_operation).toEqual({ a: PropertyUpdateOperation.Set })
-            expect(fetched_person.properties_last_updated_at).toEqual({ a: TIMESTAMP.toISO() })
             expect(fetched_person.uuid).toEqual(uuid)
             expect(fetched_person.team_id).toEqual(team.id)
         })
@@ -267,7 +255,7 @@ describe('DB', () => {
                 0,
                 'group_key',
                 { prop: 'newVal', prop2: 2 },
-                timestamp2,
+                TIMESTAMP,
                 { prop: timestamp2.toISO(), prop2: timestamp2.toISO() },
                 { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
                 2

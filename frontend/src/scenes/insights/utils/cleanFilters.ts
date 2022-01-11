@@ -113,7 +113,6 @@ export function cleanFilters(
             ...(filters.funnel_viz_type
                 ? { funnel_viz_type: filters.funnel_viz_type }
                 : { funnel_viz_type: FunnelVizType.Steps }),
-            ...(filters.funnel_step ? { funnel_to_step: filters.funnel_step } : {}),
             ...(filters.entrance_period_start ? { entrance_period_start: filters.entrance_period_start } : {}),
             ...(filters.drop_off != undefined ? { drop_off: filters.drop_off } : {}),
             ...(filters.funnel_step_breakdown !== undefined
@@ -125,7 +124,7 @@ export function cleanFilters(
                 : {}),
             ...(filters.funnel_window_interval ? { funnel_window_interval: filters.funnel_window_interval } : {}),
             ...(filters.funnel_order_type ? { funnel_order_type: filters.funnel_order_type } : {}),
-            ...(filters.hiddenLegendKeys ? { hiddenLegendKeys: filters.hiddenLegendKeys } : {}),
+            ...(filters.hidden_legend_keys ? { hidden_legend_keys: filters.hidden_legend_keys } : {}),
             ...(filters.funnel_advanced ? { funnel_advanced: filters.funnel_advanced } : {}),
             exclusions: deepCleanFunnelExclusionEvents(filters),
             interval: autocorrectInterval(filters),
@@ -185,15 +184,13 @@ export function cleanFilters(
             insight: InsightType.TRENDS,
             ...filters,
             interval: autocorrectInterval(filters),
-            display:
-                filters.session && filters.session === 'dist'
-                    ? ChartDisplayType.ActionsTable
-                    : insightChanged
-                    ? ChartDisplayType.ActionsLineGraphLinear
-                    : filters.display || ChartDisplayType.ActionsLineGraphLinear,
+            display: insightChanged
+                ? ChartDisplayType.ActionsLineGraphLinear
+                : filters.display || ChartDisplayType.ActionsLineGraphLinear,
             actions: Array.isArray(filters.actions) ? filters.actions : undefined,
             events: Array.isArray(filters.events) ? filters.events : undefined,
             properties: filters.properties || [],
+            ...(filters.hidden_legend_keys ? { hidden_legend_keys: filters.hidden_legend_keys } : {}),
             ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
         }
 
@@ -210,10 +207,6 @@ export function cleanFilters(
             cleanSearchParams['shown_as'] = ShownAsValue.LIFECYCLE
         } else {
             cleanSearchParams['shown_as'] = undefined
-        }
-
-        if (filters.insight === InsightType.SESSIONS && !filters.session) {
-            cleanSearchParams['session'] = 'avg'
         }
 
         if (filters.date_from === 'all' || filters.insight === InsightType.LIFECYCLE) {
@@ -246,7 +239,8 @@ export function cleanFilters(
         }
 
         return cleanSearchParams
-    } else if ((filters.insight as string) === 'HISTORY') {
+    } else if ((filters.insight as string) === 'SESSIONS') {
+        // DEPRECATED: Used to show deprecation warning for dashboard items
         return cleanFilters({ insight: InsightType.TRENDS })
     }
 

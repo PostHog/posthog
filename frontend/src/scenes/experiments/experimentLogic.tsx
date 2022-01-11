@@ -78,13 +78,13 @@ export const experimentLogic = kea<experimentLogicType>({
                 },
                 addExperimentGroup: (state) => {
                     if (state?.parameters?.feature_flag_variants) {
-                        const newRolloutPercentage = Math.round(
-                            100 / (state.parameters.feature_flag_variants.length + 1)
+                        const newRolloutPercentages = percentageDistribution(
+                            state.parameters.feature_flag_variants.length + 1
                         )
                         const updatedRolloutPercentageVariants = state.parameters.feature_flag_variants.map(
-                            (variant: MultivariateFlagVariant) => ({
+                            (variant: MultivariateFlagVariant, i: number) => ({
                                 ...variant,
-                                rollout_percentage: newRolloutPercentage,
+                                rollout_percentage: newRolloutPercentages[i],
                             })
                         )
                         return {
@@ -95,7 +95,7 @@ export const experimentLogic = kea<experimentLogicType>({
                                     ...updatedRolloutPercentageVariants,
                                     {
                                         key: `test_group_${state.parameters.feature_flag_variants.length}`,
-                                        rollout_percentage: newRolloutPercentage,
+                                        rollout_percentage: newRolloutPercentages[newRolloutPercentages.length - 1],
                                     },
                                 ],
                             },
@@ -109,10 +109,12 @@ export const experimentLogic = kea<experimentLogicType>({
                     }
                     const variants = [...(state.parameters?.feature_flag_variants || [])]
                     variants.splice(idx, 1)
-                    const newRolloutPercentage = Math.round(100 / (state?.parameters?.feature_flag_variants.length - 1))
-                    const updatedVariants = variants.map((variant: MultivariateFlagVariant) => ({
+                    const newRolloutPercentages = percentageDistribution(
+                        state?.parameters?.feature_flag_variants.length - 1
+                    )
+                    const updatedVariants = variants.map((variant: MultivariateFlagVariant, i: number) => ({
                         ...variant,
-                        rollout_percentage: newRolloutPercentage,
+                        rollout_percentage: newRolloutPercentages[i],
                     }))
 
                     return {
@@ -251,16 +253,7 @@ export const experimentLogic = kea<experimentLogicType>({
                     actions.setExperimentResults({ ...response, itemID: Math.random().toString(36).substring(2, 15) })
                 } catch (error) {
                     if (error.code === 'no_data') {
-                        actions.setExperimentResults({
-                            insight: [],
-                            filters: { events: [{ id: 'random1' }, { id: 'random2' }] }, // ensures we get the funnel empty state
-                            // rather than "Add another Step" button
-                            probability: {
-                                control: 0,
-                                test: 0,
-                            },
-                            itemID: Math.random().toString(36).substring(2, 15),
-                        })
+                        actions.setExperimentResults(null)
                         return
                     }
 
@@ -372,6 +365,17 @@ export const experimentLogic = kea<experimentLogicType>({
                     ).toFixed(1)}%`
                 },
         ],
+        highestProbabilityVariant: [
+            (s) => [s.experimentResults],
+            (experimentResults) => {
+                if (experimentResults) {
+                    const maxValue = Math.max(...Object.values(experimentResults.probability))
+                    return Object.keys(experimentResults.probability).find(
+                        (key) => Math.abs(experimentResults.probability[key] - maxValue) < Number.EPSILON
+                    )
+                }
+            },
+        ],
     },
     urlToAction: ({ actions, values }) => ({
         '/experiments/:id': ({ id }) => {
@@ -393,3 +397,12 @@ export const experimentLogic = kea<experimentLogicType>({
         },
     }),
 })
+
+function percentageDistribution(variantCount: number): number[] {
+    const percentageRounded = Math.round(100 / variantCount)
+    const totalRounded = percentageRounded * variantCount
+    const delta = totalRounded - 100
+    const percentages = new Array(variantCount).fill(percentageRounded)
+    percentages[variantCount - 1] = percentageRounded - delta
+    return percentages
+}

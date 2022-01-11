@@ -488,22 +488,32 @@ export interface PersonType {
     created_at?: string
 }
 
-export interface PersonActorType {
-    type: 'person'
-    id?: string
+interface MatchedRecordingEvents {
+    uuid: string
+    window_id: string
+    timestamp: string
+}
+export interface MatchedRecording {
+    session_id: string
+    events: MatchedRecordingEvents[]
+}
+
+interface CommonActorType {
+    type: 'group' | 'person'
+    id?: string | number
     properties: Record<string, any>
     created_at?: string
+    matched_recordings?: MatchedRecording[]
+}
+
+export interface PersonActorType extends CommonActorType {
     uuid?: string
     name?: string
     distinct_ids: string[]
     is_identified: boolean
 }
 
-export interface GroupActorType {
-    type: 'group'
-    id?: string | number
-    properties: Record<string, any>
-    created_at?: string
+export interface GroupActorType extends CommonActorType {
     group_key: string
     group_type_index: number
 }
@@ -817,7 +827,6 @@ export enum InsightType {
     TRENDS = 'TRENDS',
     STICKINESS = 'STICKINESS',
     LIFECYCLE = 'LIFECYCLE',
-    SESSIONS = 'SESSIONS',
     FUNNELS = 'FUNNELS',
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
@@ -865,7 +874,6 @@ export interface FilterType {
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     shown_as?: ShownAsType
-    session?: string
     period?: string
 
     retention_type?: RetentionType
@@ -893,7 +901,7 @@ export interface FilterType {
     funnel_step?: number
     entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
     drop_off?: boolean
-    funnel_viz_type?: string // parameter sent to funnels API for time conversion code path
+    funnel_viz_type?: FunnelVizType // parameter sent to funnels API for time conversion code path
     funnel_from_step?: number // used in time to convert: initial step index to compute time to convert
     funnel_to_step?: number // used in time to convert: ending step index to compute time to convert
     funnel_step_breakdown?: string | number[] | number | null // used in steps breakdown: persons modal
@@ -903,7 +911,6 @@ export interface FilterType {
     funnel_window_interval?: number | undefined // length of conversion window
     funnel_order_type?: StepOrderValue
     exclusions?: FunnelStepRangeEntityFilter[] // used in funnel exclusion filters
-    hiddenLegendKeys?: Record<string, boolean | undefined> // used to toggle visibility of breakdowns with legend
     exclude_events?: string[] // Paths Exclusion type
     step_limit?: number // Paths Step Limit
     path_start_key?: string // Paths People Start Key
@@ -921,7 +928,8 @@ export interface FilterType {
     funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
     aggregation_group_type_index?: number | undefined // Groups aggregation
     funnel_advanced?: boolean // used to toggle advanced options on or off
-    legend_hidden?: boolean // used to show/hide legend next to insights graph
+    show_legend?: boolean // used to show/hide legend next to insights graph
+    hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
 }
 
 export interface RecordingEventsFilters {
@@ -1012,10 +1020,11 @@ export interface TrendResult {
     breakdown_value?: string | number
     aggregated_value: number
     status?: string
-    compare_label?: string
+    compare_label?: CompareLabelType
     compare?: boolean
     persons_urls?: { url: string }[]
     persons?: Person
+    filter?: FilterType
 }
 
 interface Person {
@@ -1385,6 +1394,7 @@ export interface ExperimentResults {
     probability: Record<string, number>
     filters: FilterType
     itemID: string
+    noData?: boolean
 }
 
 interface RelatedPerson {
@@ -1525,12 +1535,14 @@ export type GraphDataset = ChartDataset<ChartType> &
             | 'labels'
             | 'data'
             | 'compare'
+            | 'compare_label'
             | 'status'
             | 'action'
             | 'actions'
             | 'breakdown_value'
             | 'persons_urls'
             | 'persons'
+            | 'filter'
         >
     > & {
         /** Used in filtering out visibility of datasets. Set internally by chart.js */
@@ -1539,6 +1551,8 @@ export type GraphDataset = ChartDataset<ChartType> &
         dotted?: boolean
         /** Array of breakdown values used only in ActionsHorizontalBar.tsx data */
         breakdownValues?: (string | number | undefined)[]
+        /** Array of compare labels used only in ActionsHorizontalBar.tsx data */
+        compareLabels?: (CompareLabelType | undefined)[]
         /** Array of persons ussed only in (ActionsHorizontalBar|ActionsPie).tsx */
         personsValues?: (Person | undefined)[]
         index?: number
@@ -1568,4 +1582,9 @@ export interface GraphPointPayload {
     crossDataset?: GraphDataset[]
     /** ID for the currently selected series */
     seriesId?: number
+}
+
+export enum CompareLabelType {
+    Current = 'current',
+    Previous = 'previous',
 }

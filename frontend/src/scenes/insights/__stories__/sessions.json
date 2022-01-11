@@ -1031,12 +1031,6 @@
                         }
                     ],
                     "toggledLifecycles": ["new", "resurrecting", "returning", "dormant"],
-                    "visibilityMap": {
-                        "0": true,
-                        "1": true,
-                        "2": true,
-                        "3": true
-                    },
                     "breakdownValuesLoading": false
                 }
             }
@@ -2969,12 +2963,6 @@
                     {
                         "id": "0179fcb7-50bc-0000-2244-7da438ab0f0e",
                         "name": "scene",
-                        "is_numerical": false,
-                        "query_usage_30_day": null
-                    },
-                    {
-                        "id": "017a9f32-b653-0001-303d-00cfe32e335c",
-                        "name": "session_distribution",
                         "is_numerical": false,
                         "query_usage_30_day": null
                     },

@@ -106,7 +106,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
     connect: (props: InsightLogicProps) => ({
         values: [
             insightLogic(props),
-            ['filters', 'insight', 'insightLoading', 'insightMode', 'isViewedOnDashboard'],
+            ['filters', 'insight', 'insightLoading', 'insightMode', 'isViewedOnDashboard', 'hiddenLegendKeys'],
             teamLogic,
             ['currentTeamId', 'currentTeam'],
             personPropertiesModel,
@@ -118,7 +118,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             groupPropertiesModel,
             ['groupProperties'],
         ],
-        actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess']],
+        actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess', 'toggleVisibility', 'setHiddenById']],
         logic: [eventUsageLogic, dashboardsModel],
     }),
 
@@ -150,9 +150,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         }),
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
         setBinCount: (binCount: BinCountValue) => ({ binCount }),
-        toggleVisibility: (index: string) => ({ index }),
         toggleVisibilityByBreakdown: (breakdownValue?: BreakdownKeyType) => ({ breakdownValue }),
-        setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
         toggleAdvancedMode: true,
 
         // Correlation related actions
@@ -716,12 +714,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 })
             },
         ],
-        hiddenLegendKeys: [
-            () => [selectors.filters],
-            (filters) => {
-                return filters.hiddenLegendKeys ?? {}
-            },
-        ],
         visibleStepsWithConversionMetrics: [
             () => [
                 selectors.stepsWithConversionMetrics,
@@ -1191,28 +1183,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 actions.setHiddenById({ [key]: currentIsHidden ? undefined : true })
             })
         },
-        toggleVisibility: ({ index }) => {
-            const currentIsHidden = !!values.hiddenLegendKeys?.[index]
-
-            actions.setFilters({
-                hiddenLegendKeys: {
-                    ...values.hiddenLegendKeys,
-                    [`${index}`]: currentIsHidden ? undefined : true,
-                },
-            })
-        },
-        setHiddenById: ({ entry }) => {
-            const nextEntries = Object.fromEntries(
-                Object.entries(entry).map(([index, hiddenState]) => [index, hiddenState ? true : undefined])
-            )
-
-            actions.setFilters({
-                hiddenLegendKeys: {
-                    ...values.hiddenLegendKeys,
-                    ...nextEntries,
-                },
-            })
-        },
         setFilters: ({ filters, mergeWithExisting }) => {
             const cleanedParams = cleanFilters(
                 mergeWithExisting
@@ -1258,7 +1228,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 return
             }
 
-            const funnelStep = converted ? step.order : -step.order
+            const funnelStep = converted ? step.order : -step.order - 1
             const breakdownValues = getBreakdownStepValues(step, funnelStep)
 
             personsModalLogic.actions.loadPeopleFromUrl({
@@ -1269,8 +1239,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 funnelStep: converted ? step.order : -step.order,
                 breakdown_value: breakdownValues.isEmpty ? undefined : breakdownValues.breakdown_value.join(', '),
                 label: step.name,
-                // NOTE: session value copied from previous code, not clear that this should be the case
-                action: 'session',
                 seriesId: step.order,
             })
         },
@@ -1284,7 +1252,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                     funnelStep: success ? values.stepsWithCount.length : -2,
                     label: breakdown,
                     breakdown_value,
-                    action: 'session',
                     date_from: '',
                 })
 
@@ -1300,7 +1267,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                     url: success ? correlation.success_people_url : correlation.failure_people_url,
                     funnelStep: success ? values.stepsWithCount.length : -2,
                     label: name,
-                    action: 'session',
                     date_from: '',
                 })
 

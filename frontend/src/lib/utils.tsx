@@ -73,7 +73,7 @@ export function uuid(): string {
     )
 }
 
-export function areObjectValuesEmpty(obj: Record<string, any>): boolean {
+export function areObjectValuesEmpty(obj?: Record<string, any>): boolean {
     return (
         !!obj && typeof obj === 'object' && !Object.values(obj).some((x) => x !== null && x !== '' && x !== undefined)
     )
@@ -749,6 +749,11 @@ export const dateMapping: Record<string, dateMappingOption> = {
         values: ['-90d'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
             `${date.subtract(90, 'd').format(format)} - ${date.endOf('d').format(format)}`,
+    },
+    'Last 180 days': {
+        values: ['-180d'],
+        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
+            `${date.subtract(180, 'd').format(format)} - ${date.endOf('d').format(format)}`,
     },
     'This month': {
         values: ['mStart'],

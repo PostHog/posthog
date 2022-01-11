@@ -76,7 +76,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS, check_cached_items.s(), name="check dashboard items"
     )
 
-    sender.add_periodic_task(crontab(minute=30, hour="*"), check_async_migration_health.s())
+    sender.add_periodic_task(crontab(minute="*/15"), check_async_migration_health.s())
 
     sender.add_periodic_task(
         crontab(
