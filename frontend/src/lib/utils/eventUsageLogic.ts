@@ -15,7 +15,6 @@ import {
     EntityType,
     InsightModel,
     InsightType,
-    PropertyFilter,
     HelpType,
     SessionPlayerData,
     AvailableFeature,
@@ -82,10 +81,10 @@ interface RecordingViewedProps {
     source: RecordingWatchedSource
 }
 
-function flattenProperties(properties: PropertyFilter[]): string[] {
+function flattenProperties(properties: AnyPropertyFilter[]): string[] {
     const output = []
     for (const prop of properties || []) {
-        if (isPostHogProp(prop.key)) {
+        if (prop.key && isPostHogProp(prop.key)) {
             output.push(prop.key)
         } else {
             output.push('redacted') // Custom property names are not reported
