@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
+from reversion.admin import VersionAdmin
 
 from posthog.models import (
     Action,
@@ -20,10 +21,18 @@ from posthog.models import (
 
 admin.site.register(Person)
 admin.site.register(Element)
-admin.site.register(FeatureFlag)
 admin.site.register(Action)
 admin.site.register(ActionStep)
-admin.site.register(Insight)
+
+
+@admin.register(Insight)
+class InsightAdmin(VersionAdmin):
+    pass
+
+
+@admin.register(FeatureFlag)
+class FeatureFlagAdmin(VersionAdmin):
+    pass
 
 
 @admin.register(Plugin)

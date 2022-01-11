@@ -78,6 +78,8 @@ django-redis==4.12.1
     # via -r requirements.in
 git+https://github.com/zapier/django-rest-hooks.git@v1.6.0
     # via -r requirements.in
+django-reversion==4.0.1
+    # via -r requirements.in
 django-statsd==2.5.2
     # via -r requirements.in
 django-structlog==2.1.3
@@ -93,6 +95,7 @@ django==3.2.5
     #   django-picklefield
     #   django-redis
     #   django-rest-hooks
+    #   django-reversion
     #   django-structlog
     #   djangorestframework
 djangorestframework-csv==2.1.0

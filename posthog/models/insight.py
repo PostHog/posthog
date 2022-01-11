@@ -2,6 +2,7 @@ import secrets
 import string
 from typing import Optional
 
+import reversion
 from django.contrib.postgres.fields.array import ArrayField
 from django.db import models
 from django.db.models.signals import pre_save
@@ -18,6 +19,7 @@ def generate_short_id():
     return "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(8))
 
 
+@reversion.register()
 class Insight(models.Model):
     """
     Stores saved insights along with their entire configuration options. Saved insights can be stored as standalone

@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     "axes",
     "constance",
     "constance.backends.database",
+    "reversion",
 ]
 
 
@@ -61,6 +62,7 @@ MIDDLEWARE = [
     "posthog.middleware.CSVNeverCacheMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "axes.middleware.AxesMiddleware",
+    "reversion.middleware.RevisionMiddleware",
 ]
 
 if STATSD_HOST is not None:
