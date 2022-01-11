@@ -8,8 +8,6 @@ import { ACTION_TYPE, ENTITY_MATCH_TYPE, EVENT_TYPE, PROPERTY_MATCH_TYPE } from 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DeleteOutlined } from '@ant-design/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { useValues } from 'kea'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 const { Option } = Select
 
@@ -155,9 +153,6 @@ function EntityCriteriaRow({
         setOpen(false)
     }
 
-    const { preflight } = useValues(preflightLogic)
-    const COUNT_ENABLED = preflight?.is_clickhouse_enabled
-
     return (
         <div style={{ marginTop: 16, width: '100%' }}>
             <Row gutter={8}>
@@ -177,23 +172,19 @@ function EntityCriteriaRow({
                     </Button>
                     <CohortEntityFilterBox open={open} onSelect={onEntityChange} />
                 </Col>
-                {COUNT_ENABLED && (
-                    <>
-                        <Col span={4}>
-                            <OperatorSelect value={count_operator} onChange={onOperatorChange} />
-                        </Col>
-                        <Col span={3}>
-                            <Input
-                                required
-                                value={count}
-                                data-attr="entity-count"
-                                onChange={(e) => onEntityCountChange(parseInt(e.target.value))}
-                                placeholder="1"
-                                type="number"
-                            />
-                        </Col>
-                    </>
-                )}
+                <Col span={4}>
+                    <OperatorSelect value={count_operator} onChange={onOperatorChange} />
+                </Col>
+                <Col span={3}>
+                    <Input
+                        required
+                        value={count}
+                        data-attr="entity-count"
+                        onChange={(e) => onEntityCountChange(parseInt(e.target.value))}
+                        placeholder="1"
+                        type="number"
+                    />
+                </Col>
                 <Col style={{ display: 'flex', alignItems: 'center' }}>{COUNT_ENABLED && 'times '}in the last</Col>
                 <Col span={4}>
                     <DateIntervalSelect value={days} onChange={onDateIntervalChange} />

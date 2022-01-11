@@ -74,7 +74,6 @@ class TestPreflight(APIBaseTest):
                     "cloud": False,
                     "demo": False,
                     "realm": "hosted",
-                    "is_clickhouse_enabled": True,
                     "db_backend": "postgres",
                     "available_social_auth_providers": {
                         "google-oauth2": False,
@@ -147,7 +146,6 @@ class TestPreflight(APIBaseTest):
                     "cloud": True,
                     "demo": False,
                     "realm": "cloud",
-                    "is_clickhouse_enabled": True,
                     "db_backend": "clickhouse",
                     "available_social_auth_providers": {
                         "google-oauth2": False,
@@ -195,7 +193,6 @@ class TestPreflight(APIBaseTest):
                     "cloud": True,
                     "demo": False,
                     "realm": "cloud",
-                    "is_clickhouse_enabled": True,
                     "db_backend": "clickhouse",
                     "available_social_auth_providers": {
                         "google-oauth2": True,

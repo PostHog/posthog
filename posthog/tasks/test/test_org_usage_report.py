@@ -38,7 +38,6 @@ def factory_org_usage_report(
             self.assertEqual(all_reports[0]["posthog_version"], VERSION)
             self.assertEqual(all_reports[0]["deployment_infrastructure"], "tests")
             self.assertIsNotNone(all_reports[0]["realm"])
-            self.assertIsNotNone(all_reports[0]["is_clickhouse_enabled"])
             self.assertIsNotNone(all_reports[0]["site_url"])
             self.assertGreaterEqual(len(all_reports[0]["license_keys"]), 0)
             self.assertIsNotNone(all_reports[0]["product"])

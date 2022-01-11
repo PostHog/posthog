@@ -5,7 +5,6 @@ import { router } from 'kea-router'
 import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 import { EventsTable } from 'scenes/events'
 import { urls } from 'scenes/urls'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { ActionType } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/components/Spinner/Spinner'
@@ -33,8 +32,6 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
     )
     const { action, isComplete } = useValues(actionLogic({ id, onComplete: fetchEvents }))
     const { loadAction } = useActions(actionLogic({ id, onComplete: fetchEvents }))
-    const { preflight } = useValues(preflightLogic)
-    const isClickHouseEnabled = !!preflight?.is_clickhouse_enabled
 
     return (
         <div>
@@ -61,25 +58,23 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
             )}
             {isComplete && (
                 <div style={{ marginTop: 86 }}>
-                    {!isClickHouseEnabled ? (
-                        <>
-                            <h2 className="subtitle">Event List</h2>
-                            <p className="text-muted">
-                                List of the events that match this action.{' '}
-                                {action && (
-                                    <>
-                                        This list was{' '}
-                                        <b>
-                                            calculated{' '}
-                                            {action.last_calculated_at
-                                                ? dayjs(action.last_calculated_at).fromNow()
-                                                : 'a while ago'}
-                                        </b>
-                                    </>
-                                )}
-                            </p>{' '}
-                        </>
-                    ) : null}
+                    <>
+                        <h2 className="subtitle">Event List</h2>
+                        <p className="text-muted">
+                            List of the events that match this action.{' '}
+                            {action && (
+                                <>
+                                    This list was{' '}
+                                    <b>
+                                        calculated{' '}
+                                        {action.last_calculated_at
+                                            ? dayjs(action.last_calculated_at).fromNow()
+                                            : 'a while ago'}
+                                    </b>
+                                </>
+                            )}
+                        </p>{' '}
+                    </>
                     {id && (
                         <>
                             <PageHeader

@@ -237,18 +237,6 @@ describe('funnelLogic', () => {
             await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
         })
 
-        it('has clickhouse enabled once preflight loads', async () => {
-            await expectLogic()
-                .toDispatchActions(preflightLogic, ['loadPreflight'])
-                .toMatchValues(logic, {
-                    clickhouseFeaturesEnabled: false,
-                })
-                .toDispatchActions(preflightLogic, ['loadPreflightSuccess'])
-                .toMatchValues(logic, {
-                    clickhouseFeaturesEnabled: true,
-                })
-        })
-
         it('sets filters after load if valid', async () => {
             await expectLogic(logic)
                 .toDispatchActions(['loadResults'])

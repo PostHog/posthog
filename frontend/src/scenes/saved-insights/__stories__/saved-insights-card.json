@@ -116,7 +116,6 @@
                     },
                     "can_create_org": false,
                     "ee_available": true,
-                    "is_clickhouse_enabled": true,
                     "db_backend": "clickhouse",
                     "available_timezones": {
                         "Africa/Abidjan": 0,
@@ -9780,16 +9779,6 @@
                         "updated_at": null,
                         "updated_by": null,
                         "query_usage_30_day": 0
-                    },
-                    {
-                        "id": "017989da-7571-0001-bc1f-c48306dd7a5e",
-                        "name": "is_clickhouse_enabled",
-                        "description": null,
-                        "tags": null,
-                        "is_numerical": false,
-                        "updated_at": null,
-                        "updated_by": null,
-                        "query_usage_30_day": null
                     },
                     {
                         "id": "01791516-32bb-0000-4094-b9829f5f9651",

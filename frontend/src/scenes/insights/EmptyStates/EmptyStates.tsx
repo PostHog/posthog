@@ -95,7 +95,7 @@ export function InsightTimeoutState({ isLoading }: { isLoading: boolean }): JSX.
                     <li>Reduce the date range of your query.</li>
                     <li>Remove some filters.</li>
                     {!preflight?.cloud && <li>Increase the size of your database server.</li>}
-                    {!preflight?.cloud && !preflight?.is_clickhouse_enabled && (
+                    {!preflight?.cloud && (
                         <li>
                             <a
                                 data-attr="insight-timeout-upgrade-to-clickhouse"
@@ -208,7 +208,7 @@ export function InsightErrorState({ excludeDetail, title }: InsightErrorStatePro
 
 export function FunnelSingleStepState(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { filters, clickhouseFeaturesEnabled } = useValues(funnelLogic(insightProps))
+    const { filters } = useValues(funnelLogic(insightProps))
     const { setFilters } = useActions(funnelLogic(insightProps))
     const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
 
@@ -221,9 +221,7 @@ export function FunnelSingleStepState(): JSX.Element {
                 <h2 className="funnels-empty-state__title">Add another step!</h2>
                 <p className="funnels-empty-state__description">
                     You’re almost there! Funnels require at least two steps before calculating.
-                    {clickhouseFeaturesEnabled
-                        ? ' Once you have two steps defined, additional changes will recalculate automatically.'
-                        : ''}
+                    {' Once you have two steps defined, additional changes will recalculate automatically.'}
                 </p>
                 <div className="mt text-center">
                     <Button

@@ -15,7 +15,6 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { Tooltip } from 'lib/components/Tooltip'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import './SessionRecordingTable.scss'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
@@ -74,7 +73,6 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
         setDurationFilter,
         enableFilter,
     } = useActions(sessionRecordingsTableLogicInstance)
-    const { preflight } = useValues(preflightLogic)
 
     const columns: LemonTableColumns<SessionRecordingType> = [
         {
@@ -151,7 +149,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                             ]}
                         />
                     </div>
-                    {!isPersonPage && preflight?.is_clickhouse_enabled && (
+                    {!isPersonPage && (
                         <div className="mt-2">
                             <Typography.Text strong>
                                 {`Filter by persons and cohorts `}

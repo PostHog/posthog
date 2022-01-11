@@ -10,7 +10,6 @@ import './PersonsModal.scss'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { DateDisplay } from 'lib/components/DateDisplay'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { PersonHeader } from '../persons/PersonHeader'
 import api from '../../lib/api'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
@@ -45,7 +44,6 @@ export function PersonsModal({
         firstLoadedPeople,
         searchTerm,
         isInitialLoad,
-        clickhouseFeaturesEnabled,
         peopleParams,
         actorLabel,
         sessionRecordingId,
@@ -60,7 +58,6 @@ export function PersonsModal({
         openRecordingModal,
         closeRecordingModal,
     } = useActions(personsModalLogic)
-    const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const title = useMemo(
@@ -95,7 +92,6 @@ export function PersonsModal({
 
     const isDownloadCsvAvailable: boolean = view === InsightType.TRENDS && showModalActions && !!people?.action
     const isSaveAsCohortAvailable =
-        clickhouseFeaturesEnabled &&
         (view === InsightType.TRENDS || view === InsightType.STICKINESS || view === InsightType.FUNNELS) &&
         showModalActions
 
@@ -156,25 +152,23 @@ export function PersonsModal({
                 ) : (
                     people && (
                         <>
-                            {!preflight?.is_clickhouse_enabled && (
-                                <Input.Search
-                                    allowClear
-                                    enterButton
-                                    placeholder="Search for persons by email, name, or ID"
-                                    onChange={(e) => {
-                                        setSearchTerm(e.target.value)
-                                        if (!e.target.value) {
-                                            setFirstLoadedActors(firstLoadedPeople)
-                                        }
-                                    }}
-                                    value={searchTerm}
-                                    onSearch={(term) =>
-                                        term
-                                            ? setPersonsModalFilters(term, people, filters)
-                                            : setFirstLoadedActors(firstLoadedPeople)
+                            <Input.Search
+                                allowClear
+                                enterButton
+                                placeholder="Search for persons by email, name, or ID"
+                                onChange={(e) => {
+                                    setSearchTerm(e.target.value)
+                                    if (!e.target.value) {
+                                        setFirstLoadedActors(firstLoadedPeople)
                                     }
-                                />
-                            )}
+                                }}
+                                value={searchTerm}
+                                onSearch={(term) =>
+                                    term
+                                        ? setPersonsModalFilters(term, people, filters)
+                                        : setFirstLoadedActors(firstLoadedPeople)
+                                }
+                            />
                             {featureFlags[FEATURE_FLAGS.MULTI_POINT_PERSON_MODAL] &&
                                 !!people.crossDataset?.length &&
                                 people.seriesId !== undefined && (

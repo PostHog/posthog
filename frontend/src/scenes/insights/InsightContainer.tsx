@@ -24,7 +24,6 @@ import {
 } from 'scenes/insights/EmptyStates'
 import { Loading } from 'lib/utils'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import clsx from 'clsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
@@ -41,7 +40,6 @@ const VIEW_MAP = {
 }
 
 export function InsightContainer({ disableTable }: { disableTable?: boolean } = { disableTable: false }): JSX.Element {
-    const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const {
         insightProps,
@@ -98,7 +96,6 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
 
     function renderTable(): JSX.Element | null {
         if (
-            !preflight?.is_clickhouse_enabled &&
             !showErrorMessage &&
             !showTimeoutMessage &&
             areFiltersValid &&
@@ -109,7 +106,6 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
         }
 
         if (
-            preflight?.is_clickhouse_enabled &&
             activeView === InsightType.FUNNELS &&
             !showErrorMessage &&
             !showTimeoutMessage &&

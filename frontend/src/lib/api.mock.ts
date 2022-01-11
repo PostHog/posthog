@@ -59,7 +59,7 @@ export function defaultAPIMocks(
 ): any {
     const organization = { ...MOCK_DEFAULT_ORGANIZATION, available_features: availableFeatures || [] }
     if (pathname === '_preflight/') {
-        return { is_clickhouse_enabled: true }
+        return {}
     } else if (pathname === 'api/users/@me/') {
         return {
             organization,
