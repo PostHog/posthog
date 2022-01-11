@@ -83,7 +83,7 @@ class ApiRequest {
     }
 
     public projectsDetail(id: TeamType['id'] = getCurrentTeamId()): ApiRequest {
-        return this.projects().addPathComponent(id?.toString() || '')
+        return this.projects().addPathComponent(id.toString())
     }
 
     public pluginLogs(pluginConfigId: number): ApiRequest {
