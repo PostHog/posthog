@@ -90,7 +90,7 @@ class RelatedActorsQuery:
             )
         )
 
-        _, serialize_groups = get_groups(self.team_id, group_ids)
+        _, serialize_groups = get_groups(self.team_id, group_type_index, group_ids)
         return serialize_groups
 
     def _take_first(self, rows: List) -> List:

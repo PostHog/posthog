@@ -79,9 +79,13 @@ class ActorBaseQuery:
         raise NotImplementedError()
 
     @cached_property
-    def is_aggregating_by_groups(self) -> bool:
+    def aggregation_group_type_index(self) -> Optional[int]:
         """Override in child class with insight specific logic to determine group aggregation"""
-        return False
+        return None
+
+    @property
+    def is_aggregating_by_groups(self) -> bool:
+        return self.aggregation_group_type_index is not None
 
     @cached_property
     def should_include_recordings(self) -> bool:
@@ -165,21 +169,26 @@ class ActorBaseQuery:
         actor_ids = [row[0] for row in raw_result]
 
         if self.is_aggregating_by_groups:
-            actors, serialized_actors = get_groups(self._team.pk, actor_ids)
+            actors, serialized_actors = get_groups(
+                self._team.pk, cast(int, self.aggregation_group_type_index), actor_ids
+            )
         else:
             actors, serialized_actors = get_people(self._team.pk, actor_ids)
 
         return actors, serialized_actors
 
 
-# :TODO: This should be filtered by group_type_index
-def get_groups(team_id, group_ids) -> Tuple[QuerySet[Group], List[SerializedGroup]]:
+def get_groups(
+    team_id: int, group_type_index: int, group_ids: List[Any]
+) -> Tuple[QuerySet[Group], List[SerializedGroup]]:
     """ Get groups from raw SQL results in data model and dict formats """
-    groups: QuerySet[Group] = Group.objects.filter(team_id=team_id, group_key__in=group_ids)
+    groups: QuerySet[Group] = Group.objects.filter(
+        team_id=team_id, group_type_index=group_type_index, group_key__in=group_ids
+    )
     return groups, serialize_groups(groups)
 
 
-def get_people(team_id, people_ids) -> Tuple[QuerySet[Person], List[SerializedPerson]]:
+def get_people(team_id: int, people_ids: List[Any]) -> Tuple[QuerySet[Person], List[SerializedPerson]]:
     """ Get people from raw SQL results in data model and dict formats """
     persons: QuerySet[Person] = Person.objects.filter(team_id=team_id, uuid__in=people_ids)
     return persons, serialize_people(persons)
