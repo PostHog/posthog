@@ -372,6 +372,25 @@ export const experimentLogic = kea<experimentLogicType>({
                 return Math.ceil((1600 * conversionRate * (1 - conversionRate / 100)) / (mde * mde))
             },
         ],
+        mdeGivenSampleSizeAndConversionRate: [
+            () => [],
+            () =>
+                (sampleSize: number, conversionRate: number): number => {
+                    return Math.sqrt((1600 * conversionRate * (1 - conversionRate / 100)) / sampleSize)
+                },
+        ],
+        mdeGivenCountData: [
+            () => [],
+            () =>
+                (controlCountData: number): number => {
+                    // ref http://www.columbia.edu/~cjd11/charles_dimaggio/DIRE/styled-4/code-12/
+                    // 4*sqrt(lambda*)
+
+                    // background rates:
+                    // roughly matches significance for https://www.evanmiller.org/ab-testing/poisson-means.html
+                    return Math.ceil(2 * Math.sqrt(2) * Math.sqrt(controlCountData))
+                },
+        ],
         recommendedExposureForCountData: [
             () => [],
             () => (baseCountData: number) => {
