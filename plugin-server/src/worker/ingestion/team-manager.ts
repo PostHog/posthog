@@ -237,7 +237,12 @@ export class TeamManager {
                 const { propertyType, propertyTypeFormat } = detectPropertyDefinitionTypes(value, key)
 
                 await this.db.postgresQuery(
-                    `INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6) ON CONFLICT DO NOTHING`,
+                    `
+INSERT INTO posthog_propertydefinition
+(id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format)
+VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6)
+ON CONFLICT ON CONSTRAINT posthog_propertydefinition_team_id_name_e21599fc_uniq
+DO UPDATE SET property_type=$5, property_type_format=$6 where posthog_propertydefinition.property_type is null`,
                     [new UUIDT().toString(), key, isNumerical, team.id, propertyType, propertyTypeFormat],
                     'insertPropertyDefinition'
                 )
@@ -293,7 +298,7 @@ export class TeamManager {
         let propertyDefinitionsCache = this.propertyDefinitionsCache.get(teamId)
         if (!propertyDefinitionsCache) {
             const eventProperties = await this.db.postgresQuery(
-                'SELECT name FROM posthog_propertydefinition WHERE team_id = $1',
+                'SELECT name FROM posthog_propertydefinition WHERE team_id = $1 and property_type is not null',
                 [teamId],
                 'fetchPropertyDefinitions'
             )

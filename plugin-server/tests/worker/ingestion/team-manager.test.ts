@@ -2,7 +2,7 @@ import { DateTime, Settings } from 'luxon'
 import { mocked } from 'ts-jest/utils'
 
 import { defaultConfig } from '../../../src/config/config'
-import { Hub } from '../../../src/types'
+import { Hub, PropertyType } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { posthog } from '../../../src/utils/posthog'
 import { UUIDT } from '../../../src/utils/utils'
@@ -176,17 +176,7 @@ describe('TeamManager()', () => {
                     id: expect.any(String),
                     is_numerical: false,
                     name: 'property_name',
-                    property_type: null,
-                    property_type_format: null,
-                    query_usage_30_day: null,
-                    team_id: 2,
-                    volume_30_day: null,
-                },
-                {
-                    id: expect.any(String),
-                    is_numerical: true,
-                    name: 'numeric_prop',
-                    property_type: null,
+                    property_type: 'String',
                     property_type_format: null,
                     query_usage_30_day: null,
                     team_id: 2,
@@ -196,6 +186,16 @@ describe('TeamManager()', () => {
                     id: expect.any(String),
                     is_numerical: true,
                     name: 'number',
+                    property_type: 'Numeric',
+                    property_type_format: null,
+                    query_usage_30_day: null,
+                    team_id: 2,
+                    volume_30_day: null,
+                },
+                {
+                    id: expect.any(String),
+                    is_numerical: true,
+                    name: 'numeric_prop',
                     property_type: 'Numeric',
                     property_type_format: null,
                     query_usage_30_day: null,
@@ -323,12 +323,17 @@ describe('TeamManager()', () => {
         })
 
         describe('auto-detection of property types', () => {
-            const insertPropertyDefinitionQuery =
-                'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6) ON CONFLICT DO NOTHING'
+            const insertPropertyDefinitionQuery = `
+INSERT INTO posthog_propertydefinition
+(id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format)
+VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6)
+ON CONFLICT ON CONSTRAINT posthog_propertydefinition_team_id_name_e21599fc_uniq
+DO UPDATE SET property_type=$5, property_type_format=$6 where posthog_propertydefinition.property_type is null`
             const teamId = 2
 
             const randomInteger = () => Math.floor(Math.random() * 1000) + 1
             const randomString = () => [...Array(10)].map(() => (~~(Math.random() * 36)).toString(36)).join('')
+
             const expectMockQueryCallToMatch = (
                 expected: { query: string; tag: string; params: any[] },
                 postgresQuery: jest.SpyInstance,
@@ -341,9 +346,12 @@ describe('TeamManager()', () => {
                 expect(query).toEqual(expected.query)
             }
 
-            it('adds no type for objects', async () => {
-                const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
+            let postgresQuery: jest.SpyInstance
+            beforeEach(() => {
+                postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
+            })
 
+            it('adds no type for objects', async () => {
                 await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
                     anObjectProperty: { anything: randomInteger() },
                 })
@@ -361,8 +369,6 @@ describe('TeamManager()', () => {
             })
 
             it('identifies a numeric type', async () => {
-                const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
-
                 await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
                     some_number: randomInteger(),
                 })
@@ -380,8 +386,6 @@ describe('TeamManager()', () => {
             })
 
             it('identifies a string type', async () => {
-                const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
-
                 await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
                     some_string: randomString(),
                 })
@@ -399,8 +403,6 @@ describe('TeamManager()', () => {
             })
 
             it('identifies a date type with format YYYY-MM-DD', async () => {
-                const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
-
                 await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
                     aDate: '2021-12-31',
                 })
@@ -411,15 +413,13 @@ describe('TeamManager()', () => {
                     {
                         tag: 'insertPropertyDefinition',
                         query: insertPropertyDefinitionQuery,
-                        params: [expect.any(String), 'aDate', false, teamId, 'DateTime', 'YYYY-MM-DD'],
+                        params: [expect.any(String), 'aDate', false, teamId, PropertyType.DateTime, 'YYYY-MM-DD'],
                     },
                     postgresQuery
                 )
             })
 
             it('identifies a date type with format YYYY-MM-DD hh:mm:ss', async () => {
-                const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
-
                 await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
                     aDate: '2021-12-31 23:59:59',
                 })
@@ -430,15 +430,20 @@ describe('TeamManager()', () => {
                     {
                         tag: 'insertPropertyDefinition',
                         query: insertPropertyDefinitionQuery,
-                        params: [expect.any(String), 'aDate', false, teamId, 'DateTime', 'YYYY-MM-DD hh:mm:ss'],
+                        params: [
+                            expect.any(String),
+                            'aDate',
+                            false,
+                            teamId,
+                            PropertyType.DateTime,
+                            'YYYY-MM-DD hh:mm:ss',
+                        ],
                     },
                     postgresQuery
                 )
             })
 
             it('identifies as a date type a string of a ten digit timestamp', async () => {
-                const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
-
                 await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
                     someTimestamp: '0123456789',
                 })
@@ -449,15 +454,20 @@ describe('TeamManager()', () => {
                     {
                         tag: 'insertPropertyDefinition',
                         query: insertPropertyDefinitionQuery,
-                        params: [expect.any(String), 'someTimestamp', false, teamId, 'DateTime', 'unix_timestamp'],
+                        params: [
+                            expect.any(String),
+                            'someTimestamp',
+                            false,
+                            teamId,
+                            PropertyType.DateTime,
+                            'unix_timestamp',
+                        ],
                     },
                     postgresQuery
                 )
             })
 
             it('identifies as a date type a string with a ten digit timestamp and 3 decimal places', async () => {
-                const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
-
                 await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
                     someTimestamp: '0123456789.012',
                 })
@@ -468,15 +478,20 @@ describe('TeamManager()', () => {
                     {
                         tag: 'insertPropertyDefinition',
                         query: insertPropertyDefinitionQuery,
-                        params: [expect.any(String), 'someTimestamp', false, teamId, 'DateTime', 'unix_timestamp'],
+                        params: [
+                            expect.any(String),
+                            'someTimestamp',
+                            false,
+                            teamId,
+                            PropertyType.DateTime,
+                            'unix_timestamp',
+                        ],
                     },
                     postgresQuery
                 )
             })
 
             it('identifies as a date type a string of a thirteen digit timestamp', async () => {
-                const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
-
                 await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
                     someTimestamp: '0123456789012',
                 })
@@ -487,15 +502,20 @@ describe('TeamManager()', () => {
                     {
                         tag: 'insertPropertyDefinition',
                         query: insertPropertyDefinitionQuery,
-                        params: [expect.any(String), 'someTimestamp', false, teamId, 'DateTime', 'unix_timestamp'],
+                        params: [
+                            expect.any(String),
+                            'someTimestamp',
+                            false,
+                            teamId,
+                            PropertyType.DateTime,
+                            'unix_timestamp',
+                        ],
                     },
                     postgresQuery
                 )
             })
 
             it('does not identify as a timestamp date type a if the property key does not suggest it is a timestamp', async () => {
-                const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
-
                 await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
                     aLongNumberString: '0123456789',
                 })
@@ -513,8 +533,6 @@ describe('TeamManager()', () => {
             })
 
             it('does identify as a unix_timestamp if the property key includes time', async () => {
-                const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
-
                 await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
                     aProductSpecificTime: '0123456789',
                 })
@@ -530,7 +548,7 @@ describe('TeamManager()', () => {
                             'aProductSpecificTime',
                             false,
                             teamId,
-                            'DateTime',
+                            PropertyType.DateTime,
                             'unix_timestamp',
                         ],
                     },
@@ -539,8 +557,6 @@ describe('TeamManager()', () => {
             })
 
             it('does identify as a unix_timestamp if the property is a number', async () => {
-                const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
-
                 await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
                     aProductSpecificTime: 1234567890,
                 })
@@ -551,15 +567,20 @@ describe('TeamManager()', () => {
                     {
                         tag: 'insertPropertyDefinition',
                         query: insertPropertyDefinitionQuery,
-                        params: [expect.any(String), 'aProductSpecificTime', true, 2, 'DateTime', 'unix_timestamp'],
+                        params: [
+                            expect.any(String),
+                            'aProductSpecificTime',
+                            true,
+                            2,
+                            PropertyType.DateTime,
+                            'unix_timestamp',
+                        ],
                     },
                     postgresQuery
                 )
             })
 
             it('does identify as a unix_timestamp with fractional seconds if the property is a number', async () => {
-                const postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
-
                 await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
                     aProductSpecificTime: 1234567890.123,
                 })
@@ -575,12 +596,59 @@ describe('TeamManager()', () => {
                             'aProductSpecificTime',
                             true,
                             teamId,
-                            'DateTime',
+                            PropertyType.DateTime,
                             'unix_timestamp',
                         ],
                     },
                     postgresQuery
                 )
+            })
+
+            it('does identify type if the property was previously saved with no type', async () => {
+                await teamManager.db.postgresQuery(
+                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6)',
+                    [new UUIDT().toString(), 'a_timestamp', false, teamId, null, null],
+                    'testTag'
+                )
+
+                await teamManager.updateEventNamesAndProperties(teamId, 'a_test_event', {
+                    a_timestamp: 1234567890,
+                })
+
+                const results = await teamManager.db.postgresQuery(
+                    `
+                    SELECT property_type, property_type_format from posthog_propertydefinition
+                    where name=$1
+                `,
+                    ['a_timestamp'],
+                    'queryForProperty'
+                )
+                expect(results.rows[0]).toEqual({ property_type: 'DateTime', property_type_format: 'unix_timestamp' })
+            })
+
+            it('does not replace property type if the property was previously saved with a different type', async () => {
+                await teamManager.db.postgresQuery(
+                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6)',
+                    [new UUIDT().toString(), 'a_prop_with_type', false, teamId, PropertyType.DateTime, 'YYYY-MM-DD'],
+                    'testTag'
+                )
+
+                await teamManager.updateEventNamesAndProperties(teamId, 'a_test_event', {
+                    a_prop_with_type: 1234567890,
+                })
+
+                const results = await teamManager.db.postgresQuery(
+                    `
+                    SELECT property_type, property_type_format from posthog_propertydefinition
+                    where name=$1
+                `,
+                    ['a_prop_with_type'],
+                    'queryForProperty'
+                )
+                expect(results.rows[0]).toEqual({
+                    property_type: PropertyType.DateTime,
+                    property_type_format: 'YYYY-MM-DD',
+                })
             })
         })
     })
