@@ -26,7 +26,9 @@ describe('Events', () => {
             return req.reply([{ name: '96' }, { name: '97' }])
         })
 
-        cy.intercept('https://app.posthog.com/decide/*', (req) =>
+        // sometimes the system under test calls `/decide`
+        // and sometimes it calls https://app.posthog.com/decide
+        cy.intercept(/.*\/decide\/.*/, (req) =>
             req.reply(
                 decideResponse({
                     '6619-query-events-by-date': true,
