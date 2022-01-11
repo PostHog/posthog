@@ -1,16 +1,17 @@
-import { createServer, IncomingMessage, ServerResponse } from 'http'
+import { createServer, IncomingMessage, Server, ServerResponse } from 'http'
 
 import { healthcheck } from '../../healthcheck'
-import { Status } from '../../utils/status'
-import { Hub } from './../../types'
+import { stalenessCheck } from '../../utils/utils'
+import { Hub, PluginsServerConfig } from './../../types'
 
 const PORT = 5000
 
-export function createHttpServer(hub: Hub): (logger: Status) => void {
+export function createHttpServer(hub: Hub | undefined, serverConfig: PluginsServerConfig): Server {
     const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
         if (req.url === '/health' && req.method === 'GET') {
             const status = await healthcheck()
-            if (status) {
+            const ok = status ? !stalenessCheck(hub, serverConfig.HEALTHCHECK_MAX_STALE_SECONDS).isServerStale : false
+            if (ok) {
                 const responseBody = {
                     status: 'ok',
                 }
@@ -26,11 +27,5 @@ export function createHttpServer(hub: Hub): (logger: Status) => void {
         }
     })
 
-    const startServer = (logger: Status): void => {
-        server.listen(PORT, () => {
-            logger.info('🩺', `Status server listening on port ${PORT}`)
-        })
-    }
-
-    return startServer
+    return server
 }

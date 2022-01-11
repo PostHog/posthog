@@ -1,6 +1,7 @@
 import { ReaderModel } from '@maxmind/geoip2-node'
 import Piscina from '@posthog/piscina'
 import * as Sentry from '@sentry/node'
+import { Server } from 'http'
 import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 
@@ -14,10 +15,13 @@ import { statusReport } from '../utils/status-report'
 import { delay, getPiscinaStats, stalenessCheck } from '../utils/utils'
 import { startQueues } from './ingestion-queues/queue'
 import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
+import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
 import { startSchedule } from './services/schedule'
 
 const { version } = require('../../package.json')
+
+const HTTP_SERVER_PORT = 5000
 
 // TODO: refactor this into a class, removing the need for many different Servers
 export type ServerInstance = {
@@ -55,6 +59,7 @@ export async function startPluginsServer(
     let scheduleControl: ScheduleControl | undefined
     let mmdbServer: net.Server | undefined
     let lastActivityCheck: NodeJS.Timeout | undefined
+    let httpServer: Server | undefined
 
     let shutdownStatus = 0
 
@@ -98,6 +103,8 @@ export async function startPluginsServer(
             await stopPiscina(piscina)
         }
         await closeHub?.()
+        httpServer?.close()
+
         status.info('👋', 'Over and out!')
         // wait an extra second for any misc async task to finish
         await delay(1000)
@@ -238,6 +245,12 @@ export async function startPluginsServer(
         serverInstance.piscina = piscina
         serverInstance.queue = queue
         serverInstance.stop = closeJobs
+
+        // start http server used for the healthcheck
+        const httpServer = createHttpServer(hub, serverConfig)
+        httpServer.listen(HTTP_SERVER_PORT, () => {
+            status.info('🩺', `Status server listening on port ${HTTP_SERVER_PORT}`)
+        })
 
         status.info('🚀', 'All systems go')
 
