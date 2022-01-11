@@ -133,6 +133,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                     const paddedValues = [100].concat(retentionPercentages)
 
                     return {
+                        id: datasetIndex,
                         days: retentionPercentages.map((_, index) => `${filters.period} ${index}`),
                         labels: retentionPercentages.map((_, index) => `${filters.period} ${index}`),
                         count: 0,
