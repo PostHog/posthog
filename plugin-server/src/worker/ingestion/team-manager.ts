@@ -58,27 +58,27 @@ function detectPropertyDefinitionTypes(isNumerical: boolean, value: any, key: st
             (key.toLowerCase().indexOf('timestamp') > -1 || key.toLowerCase().indexOf('time') > -1) &&
             propertyValue.match(/^(\d{10}|\d{13})(\.\d*)?$/)
         ) {
-            propertyType = 'DateTime'
+            propertyType = PropertyType.DateTime
             propertyTypeFormat = 'unix_timestamp'
         }
     }
 
     if (isNumerical) {
-        propertyType = 'Numeric'
+        propertyType = PropertyType.Numeric
 
         detectUnixTimestamps(value.toString())
     }
 
     if (typeof value === 'string') {
-        propertyType = 'String'
+        propertyType = PropertyType.String
 
         if (value.match(/^\d{4}-\d{2}-\d{2}$/)) {
-            propertyType = 'DateTime'
+            propertyType = PropertyType.DateTime
             propertyTypeFormat = 'YYYY-MM-DD'
         }
 
         if (value.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)) {
-            propertyType = 'DateTime'
+            propertyType = PropertyType.DateTime
             propertyTypeFormat = 'YYYY-MM-DD hh:mm:ss'
         }
 
