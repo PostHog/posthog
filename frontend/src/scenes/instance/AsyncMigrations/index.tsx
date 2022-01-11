@@ -3,9 +3,15 @@ import './index.scss'
 import React from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
-import { Button, Modal, Progress, Space, Table } from 'antd'
+import { Button, Modal, Progress, Space, Table, Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
-import { AsyncMigration, migrationStatusNumberToMessage, asyncMigrationsLogic } from './asyncMigrationsLogic'
+import {
+    AsyncMigration,
+    migrationStatusNumberToMessage,
+    asyncMigrationsLogic,
+    AsyncMigrationsTab,
+    AsyncMigrationsSetting,
+} from './asyncMigrationsLogic'
 import {
     PlayCircleOutlined,
     StopOutlined,
@@ -17,10 +23,13 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { Tooltip } from 'lib/components/Tooltip'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { userLogic } from 'scenes/userLogic'
+import { SettingUpdateField } from './SettingUpdateField'
 
 export const scene: SceneExport = {
     component: AsyncMigrations,
 }
+
+const { TabPane } = Tabs
 
 export const tooltipMessageForStatus = {
     0: 'Run migration',
@@ -32,8 +41,9 @@ export const tooltipMessageForStatus = {
 
 export function AsyncMigrations(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { asyncMigrations, asyncMigrationsLoading } = useValues(asyncMigrationsLogic)
-    const { triggerMigration, forceStopMigration, loadAsyncMigrations } = useActions(asyncMigrationsLogic)
+    const { asyncMigrations, asyncMigrationsLoading, activeTab, asyncMigrationSettings } =
+        useValues(asyncMigrationsLogic)
+    const { triggerMigration, forceStopMigration, loadAsyncMigrations, setActiveTab } = useActions(asyncMigrationsLogic)
 
     const columns = [
         {
@@ -200,21 +210,42 @@ export function AsyncMigrations(): JSX.Element {
                             </>
                         }
                     />
-                    <div className="mb float-right">
-                        <Button
-                            icon={asyncMigrationsLoading ? <Spinner size="sm" /> : <RedoOutlined />}
-                            onClick={loadAsyncMigrations}
-                        >
-                            Refresh
-                        </Button>
-                    </div>
-                    <Space />
-                    <Table
-                        pagination={false}
-                        loading={asyncMigrationsLoading}
-                        columns={columns}
-                        dataSource={asyncMigrations}
-                    />
+
+                    <Tabs activeKey={activeTab} onChange={(t) => setActiveTab(t as AsyncMigrationsTab)}>
+                        <TabPane tab="Management" key={AsyncMigrationsTab.Management} />
+                        <TabPane tab="Settings" key={AsyncMigrationsTab.Settings} />
+                    </Tabs>
+
+                    {activeTab === AsyncMigrationsTab.Management ? (
+                        <>
+                            <div className="mb float-right">
+                                <Button
+                                    icon={asyncMigrationsLoading ? <Spinner size="sm" /> : <RedoOutlined />}
+                                    onClick={loadAsyncMigrations}
+                                >
+                                    Refresh
+                                </Button>
+                            </div>
+                            <Space />
+                            <Table
+                                pagination={false}
+                                loading={asyncMigrationsLoading}
+                                columns={columns}
+                                dataSource={asyncMigrations}
+                            />
+                        </>
+                    ) : activeTab === AsyncMigrationsTab.Settings ? (
+                        <>
+                            <br />
+                            {asyncMigrationSettings.map((setting: AsyncMigrationsSetting) => {
+                                return (
+                                    <div key={setting.key}>
+                                        <SettingUpdateField setting={setting} />
+                                    </div>
+                                )
+                            })}
+                        </>
+                    ) : null}
                 </>
             ) : (
                 <PageHeader

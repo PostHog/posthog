@@ -18,7 +18,6 @@ from posthog.async_migrations.utils import (
 )
 from posthog.models.async_migration import AsyncMigration, MigrationStatus, get_all_running_async_migrations
 from posthog.models.utils import UUIDT
-from posthog.settings import ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT
 from posthog.version_requirement import ServiceVersionRequirement
 
 """

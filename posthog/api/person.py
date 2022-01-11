@@ -102,8 +102,6 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
         try:
             person = Person.objects.get(team_id=self.team_id, pk=pk)
-            events = Event.objects.filter(team_id=self.team_id, distinct_id__in=person.distinct_ids)
-            events.delete()
             person.delete()
             return response.Response(status=204)
         except Person.DoesNotExist:

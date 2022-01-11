@@ -3,7 +3,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.core.management.base import BaseCommand
 from semantic_version.base import Version
 
-from posthog.async_migrations.runner import start_async_migration
+from posthog.async_migrations.runner import complete_migration, is_migration_dependency_fulfilled, start_async_migration
 from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS, POSTHOG_VERSION, setup_async_migrations
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
 
@@ -12,7 +12,7 @@ logger = structlog.get_logger(__name__)
 
 def get_necessary_migrations():
     necessary_migrations = []
-    for migration_name, definition in ALL_ASYNC_MIGRATIONS.items():
+    for migration_name, definition in sorted(ALL_ASYNC_MIGRATIONS.items()):
         sm = AsyncMigration.objects.get_or_create(name=migration_name)[0]
 
         sm.description = definition.description
@@ -20,8 +20,16 @@ def get_necessary_migrations():
         sm.posthog_min_version = definition.posthog_min_version
 
         sm.save()
-        if POSTHOG_VERSION > Version(sm.posthog_max_version) and ALL_ASYNC_MIGRATIONS[migration_name].is_required():
-            necessary_migrations.append(sm)
+
+        is_migration_required = ALL_ASYNC_MIGRATIONS[migration_name].is_required()
+
+        if is_migration_required:
+            if POSTHOG_VERSION > Version(sm.posthog_max_version):
+                necessary_migrations.append(sm)
+        else:
+            dependency_ok, _ = is_migration_dependency_fulfilled(migration_name)
+            if dependency_ok:
+                complete_migration(sm)
 
     return necessary_migrations
 
