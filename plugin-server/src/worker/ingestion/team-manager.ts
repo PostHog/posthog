@@ -13,7 +13,7 @@ import { getByAge, UUIDT } from '../../utils/utils'
 
 type TeamCache<T> = Map<TeamId, [T, number]>
 
-function detectPropertyDefinitionTypes(isNumerical: boolean, value: any, key: string) {
+function detectPropertyDefinitionTypes(value: unknown, key: string) {
     let propertyType: PropertyType | null = null
     let propertyTypeFormat: PropertyTypeFormat | null = null
 
@@ -50,23 +50,21 @@ function detectPropertyDefinitionTypes(isNumerical: boolean, value: any, key: st
      * SQL Lite
      * select strftime('%s', 'now')
      * 1641478347
-     *
-     * @param propertyValue
      */
-    const detectUnixTimestamps = (propertyValue: string) => {
+    const detectUnixTimestamps = () => {
         if (
-            (key.toLowerCase().indexOf('timestamp') > -1 || key.toLowerCase().indexOf('time') > -1) &&
-            propertyValue.match(/^(\d{10}|\d{13})(\.\d*)?$/)
+            (key.toLowerCase().includes('timestamp') || key.toLowerCase().includes('time')) &&
+            String(value).match(/^(\d{10}|\d{13})(\.\d*)?$/)
         ) {
             propertyType = PropertyType.DateTime
             propertyTypeFormat = 'unix_timestamp'
         }
     }
 
-    if (isNumerical) {
+    if (typeof value === 'number') {
         propertyType = PropertyType.Numeric
 
-        detectUnixTimestamps(value.toString())
+        detectUnixTimestamps()
     }
 
     if (typeof value === 'string') {
@@ -82,7 +80,7 @@ function detectPropertyDefinitionTypes(isNumerical: boolean, value: any, key: st
             propertyTypeFormat = 'YYYY-MM-DD hh:mm:ss'
         }
 
-        detectUnixTimestamps(value)
+        detectUnixTimestamps()
     }
 
     return { propertyType, propertyTypeFormat }
@@ -236,7 +234,7 @@ export class TeamManager {
         for (const [key, value] of Object.entries(properties)) {
             if (!this.propertyDefinitionsCache.get(team.id)?.has(key)) {
                 const isNumerical = typeof value === 'number'
-                const { propertyType, propertyTypeFormat } = detectPropertyDefinitionTypes(isNumerical, value, key)
+                const { propertyType, propertyTypeFormat } = detectPropertyDefinitionTypes(value, key)
 
                 await this.db.postgresQuery(
                     `INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6) ON CONFLICT DO NOTHING`,
