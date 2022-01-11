@@ -54,9 +54,13 @@ describe('sessionRecordingLogic', () => {
             })
         })
         it('reads recording ids from the url', async () => {
-            router.actions.push('/recordings', {
-                sessionRecordingId: 'abc',
-            })
+            router.actions.push(
+                '/recordings',
+                {},
+                {
+                    sessionRecordingId: 'abc',
+                }
+            )
 
             await expectLogic(logic).toDispatchActions([
                 logic.actionCreators.loadRecordingMeta('abc'),

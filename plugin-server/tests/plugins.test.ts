@@ -77,6 +77,7 @@ test('setupPlugins and runProcessEvent', async () => {
     const vm = await pluginConfig.vm!.resolveInternalVm
     expect(Object.keys(vm!.methods).sort()).toEqual([
         'exportEvents',
+        'onAction',
         'onEvent',
         'onSnapshot',
         'processEvent',
@@ -151,6 +152,7 @@ test('plugin meta has what it should have', async () => {
         'jobs',
         'metrics',
         'storage',
+        'utils',
     ])
     expect(returnedEvent!.properties!['attachments']).toEqual({
         maxmindMmdb: { content_type: 'application/octet-stream', contents: Buffer.from('test'), file_name: 'test.txt' },
@@ -739,7 +741,7 @@ test('plugin sets exported metrics', async () => {
     })
 })
 
-test('exportEvents automatically sets metrics', async () => {
+test.skip('exportEvents automatically sets metrics', async () => {
     getPluginRows.mockReturnValueOnce([
         mockPluginWithArchive(`
             export function exportEvents() {}

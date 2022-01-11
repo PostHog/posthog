@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
@@ -75,18 +75,30 @@ class ClickhouseTrendsActors(ActorBaseQuery):
 
             self._filter = self._filter.with_data({"properties": self._filter.properties + [breakdown_prop]})
 
+        extra_fields: List[str] = ["distinct_id", "team_id"] if not self.is_aggregating_by_groups else []
+        if self.should_include_recordings:
+            extra_fields += ["uuid"]
+
         events_query, params = TrendsEventQuery(
             filter=self._filter,
             team_id=self._team.pk,
             entity=self.entity,
             should_join_distinct_ids=not self.is_aggregating_by_groups,
             should_join_persons=not self.is_aggregating_by_groups,
-            extra_fields=[] if self.is_aggregating_by_groups else ["distinct_id", "team_id"],
+            extra_event_properties=["$window_id", "$session_id"] if self.should_include_recordings else [],
+            extra_fields=extra_fields,
         ).get_query()
+
+        matching_events_select_statement = (
+            ", groupUniqArray(10)((uuid, timestamp, $session_id, $window_id)) as matching_events"
+            if self.should_include_recordings
+            else ""
+        )
 
         return (
             GET_ACTORS_FROM_EVENT_QUERY.format(
                 id_field=self._aggregation_actor_field,
+                matching_events_select_statement=matching_events_select_statement,
                 events_query=events_query,
                 limit="LIMIT %(limit)s" if limit_actors else "",
                 offset="OFFSET %(offset)s" if limit_actors else "",

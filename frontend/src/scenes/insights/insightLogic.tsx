@@ -117,6 +117,8 @@ export const insightLogic = kea<insightLogicType>({
         setInsightMetadata: (metadata: Partial<InsightModel>) => ({ metadata }),
         createAndRedirectToNewInsight: (filters?: Partial<FilterType>) => ({ filters }),
         toggleInsightLegend: true,
+        toggleVisibility: (index: number) => ({ index }),
+        setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
     }),
     loaders: ({ actions, cache, values, props }) => ({
         insight: [
@@ -479,6 +481,12 @@ export const insightLogic = kea<insightLogicType>({
                 return Array.from(new Set(allEvents.filter((a): a is string => !!a)))
             },
         ],
+        hiddenLegendKeys: [
+            (s) => [s.filters],
+            (filters) => {
+                return filters.hidden_legend_keys ?? {}
+            },
+        ],
     },
     listeners: ({ actions, selectors, values, props }) => ({
         setFilters: async ({ filters }, _, __, previousState) => {
@@ -492,15 +500,15 @@ export const insightLogic = kea<insightLogicType>({
             const backendFilterChanged = !objectsEqual(
                 Object.assign({}, values.filters, {
                     layout: undefined,
-                    hiddenLegendKeys: undefined,
+                    hidden_legend_keys: undefined,
                     funnel_advanced: undefined,
-                    legend_hidden: undefined,
+                    show_legend: undefined,
                 }),
                 Object.assign({}, values.loadedFilters, {
                     layout: undefined,
-                    hiddenLegendKeys: undefined,
+                    hidden_legend_keys: undefined,
                     funnel_advanced: undefined,
-                    legend_hidden: undefined,
+                    show_legend: undefined,
                 })
             )
 
@@ -716,7 +724,31 @@ export const insightLogic = kea<insightLogicType>({
             )
         },
         toggleInsightLegend: () => {
-            actions.setFilters({ ...values.filters, legend_hidden: !values.filters.legend_hidden })
+            actions.setFilters({ ...values.filters, show_legend: !values.filters.show_legend })
+        },
+        toggleVisibility: ({ index }) => {
+            const currentIsHidden = !!values.hiddenLegendKeys?.[index]
+
+            actions.setFilters({
+                ...values.filters,
+                hidden_legend_keys: {
+                    ...values.hiddenLegendKeys,
+                    [`${index}`]: currentIsHidden ? undefined : true,
+                },
+            })
+        },
+        setHiddenById: ({ entry }) => {
+            const nextEntries = Object.fromEntries(
+                Object.entries(entry).map(([index, hiddenState]) => [index, hiddenState ? true : undefined])
+            )
+
+            actions.setFilters({
+                ...values.filters,
+                hidden_legend_keys: {
+                    ...values.hiddenLegendKeys,
+                    ...nextEntries,
+                },
+            })
         },
     }),
     actionToUrl: ({ values }) => {

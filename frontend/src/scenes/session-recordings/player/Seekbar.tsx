@@ -5,10 +5,12 @@ import clsx from 'clsx'
 import { seekbarLogic } from 'scenes/session-recordings/player/seekbarLogic'
 import { RecordingEventType, RecordingSegment } from '~/types'
 import { sessionRecordingLogic } from '../sessionRecordingLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 function Tick({ event }: { event: RecordingEventType }): JSX.Element {
     const [hovering, setHovering] = useState(false)
     const { handleTickClick } = useActions(seekbarLogic)
+    const { reportRecordingPlayerSeekbarEventHovered } = useActions(eventUsageLogic)
     return (
         <div
             className="tick-hover-box"
@@ -22,6 +24,7 @@ function Tick({ event }: { event: RecordingEventType }): JSX.Element {
             onMouseEnter={(e) => {
                 e.stopPropagation()
                 setHovering(true)
+                reportRecordingPlayerSeekbarEventHovered()
             }}
             onMouseLeave={(e) => {
                 e.stopPropagation()

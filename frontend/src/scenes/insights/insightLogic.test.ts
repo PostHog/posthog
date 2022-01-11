@@ -123,18 +123,55 @@ describe('insightLogic', () => {
     })
 
     describe('insight legend', () => {
-        it('toggles insight legend', () => {
+        it('toggles insight legend', async () => {
             logic = insightLogic({
                 dashboardItemId: undefined,
-                filters: { legend_hidden: false },
+                filters: { show_legend: false },
             })
-            expectLogic(logic, () => {
+            logic.mount()
+
+            await expectLogic(logic, () => {
                 logic.actions.toggleInsightLegend()
             })
-                .toDispatchActions(['toggleInsightLegend', 'setFilter'])
+                .toDispatchActions(['toggleInsightLegend', 'setFilters'])
                 .toMatchValues({
-                    filters: partial({ legend_hidden: true }),
+                    filters: partial({ show_legend: true }),
                 })
+        })
+        it('initialize insight with hidden keys', async () => {
+            logic = insightLogic({
+                dashboardItemId: undefined,
+                filters: { hidden_legend_keys: { 0: true, 10: true } },
+            })
+            logic.mount()
+            await expectLogic(logic).toMatchValues({
+                filters: partial({ hidden_legend_keys: { 0: true, 10: true } }),
+            })
+        })
+        it('setHiddenById', async () => {
+            logic = insightLogic({
+                dashboardItemId: undefined,
+            })
+            logic.mount()
+
+            expectLogic(logic, () => {
+                logic.actions.setHiddenById({ '0': true, '2': false })
+                logic.actions.setHiddenById({ '8': true, '2': true })
+            }).toMatchValues({ hiddenLegendKeys: { 0: true, 2: true, 8: true } })
+        })
+        it('toggleVisibility', async () => {
+            logic = insightLogic({
+                dashboardItemId: undefined,
+            })
+            logic.mount()
+
+            expectLogic(logic, () => {
+                logic.actions.toggleVisibility(1)
+            }).toMatchValues({ hiddenLegendKeys: { 1: true } })
+
+            expectLogic(logic, () => {
+                logic.actions.toggleVisibility(1)
+            }).toMatchValues({ hiddenLegendKeys: { 1: undefined } })
         })
     })
 

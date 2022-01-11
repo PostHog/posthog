@@ -13,6 +13,7 @@ import {
 import { ChartDisplayType, FilterType, FunnelVizType, InsightType } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface ChartFilterProps {
     filters: FilterType
@@ -21,8 +22,9 @@ interface ChartFilterProps {
 }
 
 export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): JSX.Element {
-    const { chartFilter } = useValues(chartFilterLogic)
-    const { setChartFilter } = useActions(chartFilterLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { chartFilter } = useValues(chartFilterLogic(insightProps))
+    const { setChartFilter } = useActions(chartFilterLogic(insightProps))
     const { preflight } = useValues(preflightLogic)
 
     const cumulativeDisabled = filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION

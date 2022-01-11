@@ -6,9 +6,9 @@
     "main": "dist/index.js",
     "scripts": {
         "test": "jest --runInBand --forceExit tests/**/*.test.ts",
-        "test:postgres:1": "jest --runInBand --forceExit tests/*.test.ts",
-        "test:postgres:2": "jest --runInBand --forceExit tests/postgres/*.test.ts",
-        "test:clickhouse:1": "jest --runInBand --forceExit tests/clickhouse/postgres-parity.test.ts tests/clickhouse/e2e.test.ts tests/clickhouse/ingestion-utils.test.ts",
+        "test:postgres:1": "jest --runInBand --forceExit tests/ --testPathIgnorePatterns tests/clickhouse/ --testPathIgnorePatterns tests/postgres/",
+        "test:postgres:2": "jest --runInBand --forceExit tests/postgres/",
+        "test:clickhouse:1": "jest --runInBand --forceExit tests/clickhouse/ --testPathIgnorePatterns tests/clickhouse/process-event.test.ts",
         "test:clickhouse:2": "jest --runInBand --forceExit tests/clickhouse/process-event.test.ts",
         "benchmark": "yarn run benchmarks:clickhouse && yarn run benchmark:postgres && yarn run benchmarks:vm",
         "benchmark:clickhouse": "node --expose-gc node_modules/.bin/jest --runInBand benchmarks/clickhouse/",

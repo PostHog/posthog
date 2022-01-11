@@ -10,6 +10,7 @@ import { useValues } from 'kea'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import clsx from 'clsx'
 import { groupsModel } from '~/models/groupsModel'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export enum IconSize {
     Small = 'small',
@@ -154,11 +155,16 @@ export function InsightLabel({
                     {pillValues.length > 0 && (
                         <Space direction={'horizontal'} wrap={true}>
                             {pillValues.map((pill) => (
-                                <Tag className="tag-pill" key={pill} closable={false}>
-                                    <Typography.Text ellipsis={{ tooltip: pill }} style={{ maxWidth: pillMaxWidth }}>
-                                        {pillMidEllipsis ? midEllipsis(String(pill), 50) : pill}
-                                    </Typography.Text>
-                                </Tag>
+                                <Tooltip title={pill} key={pill}>
+                                    <Tag className="tag-pill" closable={false}>
+                                        <Typography.Text
+                                            ellipsis={{ tooltip: pill }}
+                                            style={{ maxWidth: pillMaxWidth }}
+                                        >
+                                            {pillMidEllipsis ? midEllipsis(String(pill), 50) : pill}
+                                        </Typography.Text>
+                                    </Tag>
+                                </Tooltip>
                             ))}
                         </Space>
                     )}

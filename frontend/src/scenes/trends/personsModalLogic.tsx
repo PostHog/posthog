@@ -21,11 +21,12 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { TrendActors } from 'scenes/trends/types'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
-import { ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_CUMULATIVE, FEATURE_FLAGS } from 'lib/constants'
 import { toast } from 'react-toastify'
 import { cohortsModel } from '~/models/cohortsModel'
 import { dayjs } from 'lib/dayjs'
 import { groupsModel } from '~/models/groupsModel'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export interface PersonsModalParams {
     action?: ActionFilter
@@ -95,7 +96,7 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
 // NOTE: this interface isn't particularly clean. Separation of concerns of load
 // and displaying of people and the display of the modal would be helpful to
 // keep this interfaces smaller.
-interface LoadPeopleFromUrlProps {
+export interface LoadPeopleFromUrlProps {
     // The url from which we can load urls
     url: string
     // The funnel step the dialog should display as the complete/dropped step.
@@ -140,11 +141,20 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         }),
         saveFirstLoadedActors: (people: TrendActors) => ({ people }),
         setFirstLoadedActors: (firstLoadedPeople: TrendActors | null) => ({ firstLoadedPeople }),
+        openRecordingModal: (sessionRecordingId: string) => ({ sessionRecordingId }),
+        closeRecordingModal: () => true,
     }),
     connect: {
-        values: [groupsModel, ['groupTypes']],
+        values: [groupsModel, ['groupTypes'], featureFlagLogic, ['featureFlags']],
     },
     reducers: () => ({
+        sessionRecordingId: [
+            null as null | string,
+            {
+                openRecordingModal: (_, { sessionRecordingId }) => sessionRecordingId,
+                closeRecordingModal: () => null,
+            },
+        ],
         searchTerm: [
             '',
             {
@@ -357,6 +367,11 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                 crossDataset,
                 seriesId,
             }) => {
+                if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_TRENDS_PERSON_MODAL]) {
+                    // A bit hacky (doesn't account for hash params),
+                    // but it works and only needed while we have this feature flag
+                    url += '&include_recordings=true'
+                }
                 const people = await api.get(url)
 
                 return {
@@ -496,6 +511,17 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { personModal: _discard, ...otherHashParams } = router.values.hashParams
             return [router.values.location.pathname, router.values.searchParams, otherHashParams]
+        },
+        openRecordingModal: ({ sessionRecordingId }) => {
+            return [
+                router.values.location.pathname,
+                { ...router.values.searchParams },
+                { ...router.values.hashParams, sessionRecordingId },
+            ]
+        },
+        closeRecordingModal: () => {
+            delete router.values.hashParams.sessionRecordingId
+            return [router.values.location.pathname, { ...router.values.searchParams }, { ...router.values.hashParams }]
         },
     }),
     urlToAction: ({ actions, values }) => ({

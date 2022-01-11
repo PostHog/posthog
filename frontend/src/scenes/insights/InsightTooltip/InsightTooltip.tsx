@@ -44,6 +44,7 @@ export function InsightTooltip({
     forceEntitiesAsColumns = false,
     rowCutoff = ROW_CUTOFF,
     colCutoff = COL_CUTOFF,
+    showHeader = true,
 }: InsightTooltipProps): JSX.Element {
     // If multiple entities exist (i.e., pageview + autocapture) and there is a breakdown/compare/multi-group happening, itemize entities as columns to save vertical space..
     // If only a single entity exists, itemize entity counts as rows.
@@ -109,6 +110,7 @@ export function InsightTooltip({
                         rowKey="id"
                         size="small"
                         uppercaseHeader={false}
+                        showHeader={showHeader}
                     />
                     <ClickToInspectActors isTruncated={isTruncated} />
                 </>
@@ -172,6 +174,7 @@ export function InsightTooltip({
                     rowKey="id"
                     size="small"
                     uppercaseHeader={false}
+                    showHeader={showHeader}
                 />
                 <ClickToInspectActors isTruncated={isTruncated} />
             </>

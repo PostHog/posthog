@@ -63,7 +63,11 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
         if (activeView !== loadedView || isLoading) {
             return (
                 <>
-                    <div style={{ minHeight: 'min(calc(90vh - 16rem), 36rem)' }} />
+                    {
+                        filters.display !== ACTIONS_TABLE && (
+                            <div className="trends-insights-container" />
+                        ) /* Tables don't need this padding, but graphs do for sizing */
+                    }
                     <Loading />
                 </>
             )
@@ -130,6 +134,7 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
             return (
                 <BindLogic logic={trendsLogic} props={insightProps}>
                     <InsightsTable
+                        isLegend
                         showTotalCount
                         filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
                         canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}
@@ -176,7 +181,7 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
                         BlockingEmptyState
                     ) : featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS] &&
                       (activeView === InsightType.TRENDS || activeView === InsightType.STICKINESS) &&
-                      !filters.legend_hidden ? (
+                      filters.show_legend ? (
                         <Row className="insights-graph-container-row" wrap={false}>
                             <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>
                             <Col className="insights-graph-container-row-right">
