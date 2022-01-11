@@ -151,7 +151,9 @@ export function Experiment(): JSX.Element {
                                         ]}
                                         help={
                                             <span className="text-small text-muted">
-                                                {editingExistingExperiment ? '' : 'Enter a new and unique name for the feature flag key to be associated with this experiment.'}
+                                                {editingExistingExperiment
+                                                    ? ''
+                                                    : 'Enter a new and unique name for the feature flag key to be associated with this experiment.'}
                                             </span>
                                         }
                                     >
