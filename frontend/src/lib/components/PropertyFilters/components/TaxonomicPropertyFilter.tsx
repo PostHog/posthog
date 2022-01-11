@@ -24,16 +24,15 @@ export function TaxonomicPropertyFilter({
     index,
     onComplete,
     disablePopover, // inside a dropdown if this is false
-    taxonomicGroupTypes,
-    eventNames,
-    propertyFilterLogicProps,
-}: PropertyFilterInternalProps): JSX.Element {
-    const groupTypes = taxonomicGroupTypes || [
+    taxonomicGroupTypes = [
         TaxonomicFilterGroupType.EventProperties,
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
-    ]
+    ],
+    eventNames,
+    propertyFilterLogicProps,
+}: PropertyFilterInternalProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const taxonomicOnChange = (group: TaxonomicFilterGroup, value: TaxonomicFilterValue): void => {
@@ -44,11 +43,10 @@ export function TaxonomicPropertyFilter({
     }
     const taxonomicPropertyFilterLogicProps: TaxonomicPropertyFilterLogicProps = {
         filterIndex: index,
-        eventNames,
         propertyFilterLogicProps,
         taxonomicFilterLogicProps: {
             taxonomicFilterLogicKey: propertyFilterLogicProps.pageKey,
-            taxonomicGroupTypes: taxonomicGroupTypes || [],
+            taxonomicGroupTypes,
             eventNames,
             onChange: taxonomicOnChange,
         },
@@ -69,7 +67,7 @@ export function TaxonomicPropertyFilter({
             groupType={propertyFilterTypeToTaxonomicFilterType(filter?.type, filter?.group_type_index)}
             value={cohortOrOtherValue}
             onChange={taxonomicOnChange}
-            taxonomicGroupTypes={groupTypes}
+            taxonomicGroupTypes={taxonomicGroupTypes}
             eventNames={eventNames}
         />
     )

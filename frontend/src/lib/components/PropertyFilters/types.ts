@@ -15,7 +15,6 @@ export interface TaxonomicPropertyFilterLogicProps {
     propertyFilterLogicProps: PropertyFilterLogicProps
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
     filterIndex: number
-    eventNames?: string[]
 }
 
 export interface PropertyFilterInternalProps {
