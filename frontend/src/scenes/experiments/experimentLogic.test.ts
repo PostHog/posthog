@@ -89,5 +89,16 @@ describe('experimentLogic', () => {
             // 0 entrants over 14 days, so infinite running time
             expect(logic.values.expectedRunningTime(0, 1000)).toEqual(Infinity)
         })
+
+        it('given control count data, calculates correct running time', async () => {
+            // 1000 count over 14 days
+            expect(logic.values.recommendedExposureForCountData(1000)).toEqual(28)
+
+            // 500 entrants over 14 days
+            expect(logic.values.recommendedExposureForCountData(500)).toEqual(7)
+
+            // 0 entrants over 14 days, so infinite running time
+            expect(logic.values.recommendedExposureForCountData(0)).toEqual(Infinity)
+        })
     })
 })

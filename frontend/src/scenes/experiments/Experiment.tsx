@@ -1,5 +1,5 @@
 import SaveOutlined from '@ant-design/icons/lib/icons/SaveOutlined'
-import { Button, Card, Col, Form, Input, InputNumber, Row, Select, Tag, Tooltip } from 'antd'
+import { Button, Card, Col, Form, Input, InputNumber, Progress, Row, Select, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -29,6 +29,9 @@ import { dayjs } from 'lib/dayjs'
 import PropertyFilterButton from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { Spinner } from 'lib/components/Spinner/Spinner'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { getSeriesColor } from 'scenes/funnels/funnelUtils'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -48,9 +51,9 @@ export function Experiment(): JSX.Element {
         recommendedExposureForCountData,
         countDataForVariant,
         editingExistingExperiment,
-        highestProbabilityVariant,
         experimentInsightType,
         variants,
+        experimentResultsLoading,
     } = useValues(experimentLogic)
     const {
         setNewExperimentData,
@@ -92,7 +95,6 @@ export function Experiment(): JSX.Element {
     const exposure = recommendedExposureForCountData(trendCount)
 
     const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
-    const resultsTagColors = ['purple', 'gold', 'blue', '#35416B']
     const status = (): string => {
         if (!experimentData?.start_date) {
             return 'draft'
@@ -415,7 +417,10 @@ export function Experiment(): JSX.Element {
                                                 </Row>
                                             </Col>
                                             <Col span={16}>
-                                                <InsightContainer disableTable={true} />
+                                                <InsightContainer
+                                                    disableHeader={experimentInsightType === InsightType.TRENDS}
+                                                    disableTable={true}
+                                                />
                                             </Col>
                                         </Row>
                                     </BindLogic>
@@ -573,20 +578,22 @@ export function Experiment(): JSX.Element {
                                     )}
                                 </ul>
                             </Col>
-                            <Col>
-                                <div className="card-secondary mt">Start date</div>
-                                {experimentData.start_date ? (
-                                    <span>{dayjs(experimentData.start_date).format('D MMM YYYY')}</span>
-                                ) : (
-                                    <span className="description">Not started yet</span>
-                                )}
-                            </Col>
-                            {experimentData.end_date && (
-                                <Col>
-                                    <div className="card-secondary mt">Completed date</div>
-                                    <span>{dayjs(experimentData.end_date).format('D MMM YYYY')}</span>
+                            <Row>
+                                <Col className="mr">
+                                    <div className="card-secondary mt">Start date</div>
+                                    {experimentData.start_date ? (
+                                        <span>{dayjs(experimentData.start_date).format('D MMM YYYY')}</span>
+                                    ) : (
+                                        <span className="description">Not started yet</span>
+                                    )}
                                 </Col>
-                            )}
+                                {experimentData.end_date && (
+                                    <Col className="ml">
+                                        <div className="card-secondary mt">Completed date</div>
+                                        <span>{dayjs(experimentData.end_date).format('D MMM YYYY')}</span>
+                                    </Col>
+                                )}
+                            </Row>
                         </Col>
                         <Col span={14}>
                             <div style={{ borderBottom: '1px solid (--border)' }}>
@@ -637,80 +644,54 @@ export function Experiment(): JSX.Element {
                     </Row>
                     <div className="experiment-result">
                         {experimentResults ? (
-                            <Row style={{ alignItems: 'baseline' }}>
-                                {experimentData.end_date ? (
-                                    <div>
-                                        Probability that <b>{highestProbabilityVariant}</b> has higher conversion than
-                                        other variants:{' '}
-                                        <b>
-                                            {(
-                                                experimentResults?.probability[highestProbabilityVariant || ''] * 100
-                                            ).toFixed(1)}
-                                            %
-                                        </b>
-                                    </div>
-                                ) : (
-                                    <span className="description">
-                                        This experiment is in progress. Partial results are available now.
-                                    </span>
-                                )}
-                                {experimentData.parameters.feature_flag_variants
-                                    ?.slice(1)
-                                    .map((variant: MultivariateFlagVariant, idx: number) => (
-                                        <Col className="ml" key={idx}>
-                                            <div className="card-secondary">{variant.key} conversion rate</div>
-                                            <Row justify="center" align="middle">
-                                                <span className="mr-05" style={{ fontWeight: 700, fontSize: 20 }}>
-                                                    {experimentInsightType === InsightType.TRENDS
-                                                        ? countDataForVariant(variant.key)
-                                                        : conversionRateForVariant(variant.key)}
-                                                </span>
-                                                <Tag style={{ border: 'none' }} color={resultsTagColors[idx]}>
-                                                    <b>{variant.key}</b>
-                                                </Tag>
-                                            </Row>
-                                        </Col>
-                                    ))}
-                                <Col className="ml">
-                                    <div className="card-secondary">Control conversion rate</div>
-                                    <Row justify="center" align="middle">
-                                        <span className="mr-05" style={{ fontWeight: 700, fontSize: 20 }}>
-                                            {experimentInsightType === InsightType.TRENDS
-                                                ? countDataForVariant('control')
-                                                : conversionRateForVariant('control')}
-                                        </span>
-                                        <Tag style={{ border: 'none', color: 'white' }} color={resultsTagColors[3]}>
-                                            <b>control</b>
-                                        </Tag>
-                                    </Row>
-                                </Col>
-                            </Row>
-                        ) : (
-                            <Row style={{ alignItems: 'baseline' }}>
-                                <span style={{ fontWeight: 500 }}>There are no results for this experiment yet.</span>
-                                {experimentData.parameters.feature_flag_variants
-                                    ?.slice(1)
-                                    .map((variant: MultivariateFlagVariant, idx: number) => (
-                                        <Col className="ml" key={idx}>
-                                            <div className="card-secondary">{variant.key} conversion rate</div>
-                                            <div className="text-center">
-                                                <b>--</b>{' '}
-                                                <Tag style={{ border: 'none' }} color={resultsTagColors[idx]}>
-                                                    <b>{variant.key}</b>
-                                                </Tag>
+                            <Row justify="space-around">
+                                {experimentData.parameters.feature_flag_variants.map(
+                                    (variant: MultivariateFlagVariant, idx: number) => (
+                                        <Col key={idx}>
+                                            <div style={{ fontSize: 16 }}>
+                                                <b>{capitalizeFirstLetter(variant.key)}</b>
                                             </div>
+                                            {experimentInsightType === InsightType.FUNNELS
+                                                ? 'Conversion rate: '
+                                                : 'Count: '}
+                                            <b>
+                                                {experimentInsightType === InsightType.FUNNELS
+                                                    ? `${conversionRateForVariant(variant.key)}%`
+                                                    : countDataForVariant(variant.key)}
+                                            </b>
+                                            {experimentInsightType === InsightType.FUNNELS && (
+                                                <>
+                                                    <Progress
+                                                        percent={Number(conversionRateForVariant(variant.key))}
+                                                        size="small"
+                                                        showInfo={false}
+                                                        strokeColor={getSeriesColor(idx + 1)}
+                                                    />
+                                                    <div>
+                                                        Probability that this variant has higher conversion than other
+                                                        variants:{' '}
+                                                        <b>
+                                                            {(experimentResults.probability[variant.key] * 100).toFixed(
+                                                                1
+                                                            )}
+                                                            %
+                                                        </b>
+                                                    </div>
+                                                </>
+                                            )}
                                         </Col>
-                                    ))}
-                                <Col className="ml">
-                                    <div className="card-secondary">Control conversion rate</div>
-                                    <div className="text-center">
-                                        <b>--</b>{' '}
-                                        <Tag style={{ border: 'none', color: 'white' }} color={resultsTagColors[3]}>
-                                            <b>control</b>
-                                        </Tag>
-                                    </div>
-                                </Col>
+                                    )
+                                )}
                             </Row>
+                        ) : experimentResultsLoading ? (
+                            <div className="text-center">
+                                <Spinner />
+                            </div>
+                        ) : (
+                            <span style={{ fontWeight: 500 }}>
+                                There are no results for this experiment yet.{' '}
+                                {!experimentData.start_date && 'Launch this experiment to start it!'}
+                            </span>
                         )}
                         {experimentResults ? (
                             <BindLogic
@@ -719,13 +700,13 @@ export function Experiment(): JSX.Element {
                                     dashboardItemId: experimentResults.itemID,
                                     filters: {
                                         ...experimentResults.filters,
-                                        insight: experimentData.filters.insight,
+                                        insight: experimentInsightType,
                                         display: experimentData.filters.display,
-                                        ...(experimentData.filters.insight === InsightType.FUNNELS && {
+                                        ...(experimentInsightType === InsightType.FUNNELS && {
                                             layout: FunnelLayout.vertical,
                                             funnel_viz_type: FunnelVizType.Steps,
                                         }),
-                                        ...(experimentData.filters.insight === InsightType.TRENDS && {
+                                        ...(experimentInsightType === InsightType.TRENDS && {
                                             display: ChartDisplayType.ActionsLineGraphCumulative,
                                         }),
                                     },
@@ -735,7 +716,10 @@ export function Experiment(): JSX.Element {
                                 }}
                             >
                                 <div className="mt">
-                                    <InsightContainer disableTable={true} />
+                                    <InsightContainer
+                                        disableHeader={experimentInsightType === InsightType.TRENDS}
+                                        disableTable={experimentInsightType === InsightType.FUNNELS}
+                                    />
                                 </div>
                             </BindLogic>
                         ) : (
@@ -752,7 +736,11 @@ export function Experiment(): JSX.Element {
                                     fontSize: 24,
                                 }}
                             >
-                                <b>There are no results for this experiment yet.</b>
+                                {experimentResultsLoading ? (
+                                    <Spinner />
+                                ) : (
+                                    <b>There are no results for this experiment yet.</b>
+                                )}
                             </div>
                         )}
                     </div>
