@@ -29,8 +29,8 @@ export const asDisplay = (person: Partial<PersonType> | PersonActorType | null |
     return customIdentifier ? customIdentifier : `User ${displayId}`
 }
 
-export const asLink = (person: Partial<PersonType> | null | undefined): string | null =>
-    person?.distinct_ids?.length ? urls.person(person.distinct_ids[0]) : null
+export const asLink = (person: Partial<PersonType> | null | undefined): string | undefined =>
+    person?.distinct_ids?.length ? urls.person(person.distinct_ids[0]) : undefined
 
 export function PersonHeader(props: PersonHeaderProps): JSX.Element {
     const href = asLink(props.person)
