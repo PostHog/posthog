@@ -19,7 +19,7 @@ import {
 } from 'chart.js'
 import { CrosshairOptions, CrosshairPlugin } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs'
-import { compactNumber, lightenDarkenColor, mapRange } from '~/lib/utils'
+import { areObjectValuesEmpty, compactNumber, lightenDarkenColor, mapRange } from '~/lib/utils'
 import { getBarColorFromStatus, getChartColors, getGraphColors } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { AnnotationMarker, Annotations, annotationsLogic } from 'lib/components/Annotations'
@@ -50,7 +50,7 @@ interface TooltipConfig {
 
 interface LineGraphProps {
     datasets: GraphDataset[]
-    visibilityMap?: Record<string | number, any>
+    hiddenLegendKeys?: Record<string | number, boolean | undefined>
     labels: string[]
     color: string
     type: GraphType
@@ -80,7 +80,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
 
     const {
         datasets: _datasets,
-        visibilityMap,
+        hiddenLegendKeys,
         labels,
         color,
         type,
@@ -133,7 +133,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
 
     useEffect(() => {
         buildChart()
-    }, [datasets, color, visibilityMap])
+    }, [datasets, color, hiddenLegendKeys])
 
     // annotation related effects
 
@@ -192,13 +192,14 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
         }
     }
 
-    function processDataset(dataset: ChartDataset<any>, index: number): ChartDataset<any> {
-        const colorList = getChartColors(color || 'white', datasets.length, isCompare)
-        const mainColor = dataset?.status ? getBarColorFromStatus(dataset.status) : colorList[index % colorList.length]
+    function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
+        const colorList = getChartColors(color || 'white', _datasets.length, isCompare)
+        const mainColor = dataset?.status
+            ? getBarColorFromStatus(dataset.status)
+            : colorList[(dataset.id ?? 0) % (_datasets?.length ?? 1)]
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
 
-        // `horizontalBar` colors are set in `ActionsHorizontalBar.tsx` and overriden in spread of `dataset` below
-
+        // `horizontalBar` colors are set in `ActionsHorizontalBar.tsx` and overridden in spread of `dataset` below
         return {
             borderColor: mainColor,
             hoverBorderColor: isBackgroundBasedGraphType ? lightenDarkenColor(mainColor, -20) : hoverColor,
@@ -224,10 +225,30 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
             myLineChart.current.destroy()
         }
 
-        // if chart is line graph, make duplicate lines and overlay to show dotted lines
+        // Hide intentionally hidden keys
+        if (!areObjectValuesEmpty(hiddenLegendKeys)) {
+            if (isHorizontal) {
+                // If series are nested (for ActionsHorizontalBar only), filter out the series by index
+                const filterFn = (_: any, i: number): boolean => !hiddenLegendKeys?.[i]
+                datasets = datasets.map((_data) => {
+                    // Performs a filter transformation on properties that contain arrayed data
+                    return Object.fromEntries(
+                        Object.entries(_data).map(([key, val]) =>
+                            Array.isArray(val) && val.length === datasets?.[0]?.actions?.length
+                                ? [key, val?.filter(filterFn)]
+                                : [key, val]
+                        )
+                    ) as GraphDataset
+                })
+            } else {
+                datasets = datasets.filter((data) => !hiddenLegendKeys?.[data.id])
+            }
+        }
+
+        // If chart is line graph, make duplicate lines and overlay to show dotted lines
         if (type === GraphType.Line && isInProgress) {
             datasets = [
-                ...datasets.map((dataset, index) => {
+                ...datasets.map((dataset) => {
                     const sliceTo = incompletenessOffsetFromEnd
                     const datasetCopy = Object.assign({}, dataset, {
                         data: [
@@ -235,9 +256,9 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                             ...(dataset.data?.slice(sliceTo).map(() => null) ?? []),
                         ],
                     })
-                    return processDataset(datasetCopy, index)
+                    return processDataset(datasetCopy)
                 }),
-                ...datasets.map((dataset, index) => {
+                ...datasets.map((dataset) => {
                     const datasetCopy = Object.assign({}, dataset)
                     datasetCopy.dotted = true
 
@@ -250,14 +271,11 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                         ...(datasetCopy.data?.slice(0, sliceFrom).map(() => null) ?? []),
                         ...(datasetCopy.data?.slice(sliceFrom) ?? []),
                     ] as number[]
-                    return processDataset(datasetCopy, index)
+                    return processDataset(datasetCopy)
                 }),
             ]
-            if (visibilityMap && Object.keys(visibilityMap).length > 0) {
-                datasets = datasets.filter((data) => visibilityMap[data.id])
-            }
         } else {
-            datasets = datasets.map((dataset, index) => processDataset(dataset, index))
+            datasets = datasets.map((dataset) => processDataset(dataset))
         }
 
         const tickOptions: Partial<TickOptions> = {

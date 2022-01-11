@@ -66,7 +66,7 @@ export function InsightsTable({
     canEditSeriesNameInline,
 }: InsightsTableProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { indexedResults, visibilityMap, filters, resultsLoading } = useValues(trendsLogic(insightProps))
+    const { indexedResults, hiddenLegendKeys, filters, resultsLoading } = useValues(trendsLogic(insightProps))
     const { toggleVisibility, setFilters } = useActions(trendsLogic(insightProps))
     const { cohorts } = useValues(cohortsModel)
     const { reportInsightsTableCalcToggled } = useActions(eventUsageLogic)
@@ -121,7 +121,7 @@ export function InsightsTable({
                 return (
                     <PHCheckbox
                         color={colorList[item.id]}
-                        checked={visibilityMap[item.id]}
+                        checked={!hiddenLegendKeys[item.id]}
                         onChange={() => toggleVisibility(item.id)}
                     />
                 )
@@ -261,7 +261,7 @@ export function InsightsTable({
 
     return (
         <LemonTable
-            dataSource={indexedResults}
+            dataSource={isLegend ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])}
             embedded={embedded}
             style={embedded ? { borderTop: '1px solid var(--border)' } : undefined}
             columns={columns}

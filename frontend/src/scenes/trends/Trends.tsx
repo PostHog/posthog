@@ -52,7 +52,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
             return (
                 <BindLogic logic={trendsLogic} props={{ dashboardItemId: null, view, filters: null }}>
                     <InsightsTable
-                        embedded={true}
+                        embedded
                         showTotalCount
                         filterKey={`trends_${view}`}
                         canEditSeriesNameInline={insightMode === ItemMode.Edit}
