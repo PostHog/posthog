@@ -435,7 +435,6 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                 )
 
                 const filters = fromParamsGivenUrl('?' + qs) // this function expects the question mark to be included
-                console.log(filters)
                 actions.reportCohortCreatedFromPersonsModal(filters)
             } else {
                 errorToast(undefined, "We couldn't create your cohort:")
