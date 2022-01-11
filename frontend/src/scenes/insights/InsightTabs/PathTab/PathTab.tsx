@@ -1,11 +1,11 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
-import { Button, Checkbox, Col, Collapse, InputNumber, Row, Select } from 'antd'
+import { Button, Checkbox, Col, Row, Select } from 'antd'
 import { InfoCircleOutlined, BarChartOutlined } from '@ant-design/icons'
 import { TestAccountFilter } from '../../TestAccountFilter'
-import { PathType, InsightType, FunnelPathType, PathEdgeParameters, AvailableFeature } from '~/types'
+import { PathType, InsightType, FunnelPathType, AvailableFeature } from '~/types'
 import './PathTab.scss'
 import { GlobalFiltersTitle } from '../../common'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
@@ -18,34 +18,27 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { PersonsModal } from 'scenes/trends/PersonsModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { combineUrl, encodeParams, router } from 'kea-router'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+// import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+// import { FEATURE_FLAGS } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { PayCard } from 'lib/components/PayCard/PayCard'
-import { Link } from 'lib/components/Link'
-import { PathCleanFilterInput } from './PathCleanFilterInput'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { groupsModel } from '~/models/groupsModel'
+import { PathAdvanded } from './PathAdvanced'
 
 export function PathTab(): JSX.Element {
     const { insightProps, allEventNames } = useValues(insightLogic)
     const { filter, wildcards } = useValues(pathsLogic(insightProps))
     const { setFilter, updateExclusions } = useActions(pathsLogic(insightProps))
+    //const { featureFlags } = useValues(featureFlagLogic)
 
     const { showingPeople, cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
-
-    const [localEdgeParameters, setLocalEdgeParameters] = useState<PathEdgeParameters>({
-        edge_limit: filter.edge_limit,
-        min_edge_weight: filter.min_edge_weight,
-        max_edge_weight: filter.max_edge_weight,
-    })
 
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
@@ -68,16 +61,6 @@ export function PathTab(): JSX.Element {
         filter.funnel_paths && [FunnelPathType.between, FunnelPathType.after].includes(filter.funnel_paths)
     const overrideEndInput =
         filter.funnel_paths && [FunnelPathType.between, FunnelPathType.before].includes(filter.funnel_paths)
-
-    const updateEdgeParameters = (): void => {
-        if (
-            localEdgeParameters.edge_limit !== filter.edge_limit ||
-            localEdgeParameters.min_edge_weight !== filter.min_edge_weight ||
-            localEdgeParameters.max_edge_weight !== filter.max_edge_weight
-        ) {
-            setFilter({ ...localEdgeParameters })
-        }
-    }
 
     const onClickPathtype = (pathType: PathType): void => {
         if (filter.include_event_types) {
@@ -396,113 +379,13 @@ export function PathTab(): JSX.Element {
                                 </Row>
                             </>
                         )}
-                        {featureFlags[FEATURE_FLAGS.NEW_PATHS_UI_EDGE_WEIGHTS] && hasAdvancedPaths && (
+                        {hasAdvancedPaths && (
                             <>
                                 <hr />
-                                <Row align="middle">
-                                    <Col span={24}>
-                                        <Collapse expandIconPosition="right">
-                                            <Collapse.Panel header="Advanced Options" key="1">
-                                                <Col>
-                                                    <Row gutter={8} align="middle" className="mt-05">
-                                                        <Col>Maximum number of Paths</Col>
-                                                        <Col>
-                                                            <InputNumber
-                                                                style={{
-                                                                    paddingTop: 2,
-                                                                    width: '80px',
-                                                                    marginLeft: 5,
-                                                                    marginRight: 5,
-                                                                }}
-                                                                size="small"
-                                                                min={0}
-                                                                max={1000}
-                                                                defaultValue={50}
-                                                                onChange={(value): void =>
-                                                                    setLocalEdgeParameters((state) => ({
-                                                                        ...state,
-                                                                        edge_limit: Number(value),
-                                                                    }))
-                                                                }
-                                                                onBlur={updateEdgeParameters}
-                                                                onPressEnter={updateEdgeParameters}
-                                                            />
-                                                        </Col>
-                                                    </Row>
-                                                    <Row gutter={8} align="middle" className="mt-05">
-                                                        <Col>Number of people on each Path between</Col>
-                                                        <Col>
-                                                            <InputNumber
-                                                                style={{
-                                                                    paddingTop: 2,
-                                                                    width: '80px',
-                                                                    marginLeft: 5,
-                                                                    marginRight: 5,
-                                                                }}
-                                                                size="small"
-                                                                min={0}
-                                                                max={100000}
-                                                                onChange={(value): void =>
-                                                                    setLocalEdgeParameters((state) => ({
-                                                                        ...state,
-                                                                        min_edge_weight: Number(value),
-                                                                    }))
-                                                                }
-                                                                onBlur={updateEdgeParameters}
-                                                                onPressEnter={updateEdgeParameters}
-                                                            />
-                                                        </Col>
-                                                        <Col>and</Col>
-                                                        <Col>
-                                                            <InputNumber
-                                                                style={{
-                                                                    paddingTop: 2,
-                                                                    width: '80px',
-                                                                    marginLeft: 5,
-                                                                    marginRight: 5,
-                                                                }}
-                                                                size="small"
-                                                                onChange={(value): void =>
-                                                                    setLocalEdgeParameters((state) => ({
-                                                                        ...state,
-                                                                        max_edge_weight: Number(value),
-                                                                    }))
-                                                                }
-                                                                min={0}
-                                                                max={100000}
-                                                                onBlur={updateEdgeParameters}
-                                                                onPressEnter={updateEdgeParameters}
-                                                            />
-                                                        </Col>
-                                                    </Row>
-                                                    <hr />
-                                                    <Row align="middle" justify="space-between">
-                                                        <Col>
-                                                            <b>Path Cleaning Rules: (optional)</b>
-                                                            <Tooltip
-                                                                title={
-                                                                    <>
-                                                                        Cleaning rules are an advanced feature that uses
-                                                                        regex to normalize URLS for paths visualization.
-                                                                        Rules can be set for all insights in the project
-                                                                        settings, or they can be defined specifically
-                                                                        for an insight.
-                                                                    </>
-                                                                }
-                                                            >
-                                                                <InfoCircleOutlined className="info-indicator" />
-                                                            </Tooltip>
-                                                        </Col>
-                                                        <Link to="/project/settings#path_cleaning_filtering">
-                                                            Configure Project Rules
-                                                        </Link>
-                                                    </Row>
-                                                    <PathCleanFilterInput />
-                                                </Col>
-                                            </Collapse.Panel>
-                                        </Collapse>
-                                    </Col>
-                                </Row>
+                                <h4 className="secondary" style={{ flexGrow: 1 }}>
+                                    Advanced options
+                                </h4>
+                                <PathAdvanded />
                             </>
                         )}
                         {!hasAdvancedPaths && !preflight?.instance_preferences?.disable_paid_fs && (
