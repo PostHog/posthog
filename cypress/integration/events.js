@@ -4,12 +4,15 @@ function interceptPropertyDefinitions() {
     cy.intercept('api/projects/@current/property_definitions/?limit=5000', {
         fixture: 'api/event/property_definitions',
     })
+
     cy.intercept('/api/projects/1/property_definitions?search=&*', {
         fixture: 'api/event/property_definitions',
     })
+
     cy.intercept('/api/projects/1/property_definitions?search=%24time*', {
         fixture: 'api/event/only_time_property_definition',
-    })
+    }).as('time_property_definition')
+
     cy.intercept('/api/projects/1/property_definitions?search=%24browser*', {
         fixture: 'api/event/only_browser_version_property_definition',
     })
@@ -55,6 +58,15 @@ describe('Events', () => {
     it('has before and after for a DateTime property', () => {
         cy.get('[data-attr=new-prop-filter-EventsTable]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').type('$time')
+
+        cy.wait('@time_property_definition').then((api_interception) => {
+            cy.log(api_interception.id)
+            cy.log(api_interception.state)
+            cy.log('Status code is ' + api_interception.response.statusCode)
+            cy.log('response body is ' + api_interception.response.body)
+
+            expect(interception.response.statusCode).to.eq(200)
+        })
         cy.get('.taxonomic-list-row').should('have.length', 1).click()
 
         cy.get('.taxonomic-operator').click()
