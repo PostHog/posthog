@@ -40,7 +40,12 @@ const VIEW_MAP = {
     [`${InsightType.PATHS}`]: <Paths />,
 }
 
-export function InsightContainer({ disableTable }: { disableTable?: boolean } = { disableTable: false }): JSX.Element {
+export function InsightContainer(
+    { disableHeader, disableTable }: { disableHeader?: boolean; disableTable?: boolean } = {
+        disableHeader: false,
+        disableTable: false,
+    }
+): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const {
@@ -63,7 +68,11 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
         if (activeView !== loadedView || isLoading) {
             return (
                 <>
-                    <div style={{ minHeight: 'min(calc(90vh - 16rem), 36rem)' }} />
+                    {
+                        filters.display !== ACTIONS_TABLE && (
+                            <div className="trends-insights-container" />
+                        ) /* Tables don't need this padding, but graphs do for sizing */
+                    }
                     <Loading />
                 </>
             )
@@ -130,6 +139,7 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
             return (
                 <BindLogic logic={trendsLogic} props={insightProps}>
                     <InsightsTable
+                        isLegend
                         showTotalCount
                         filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
                         canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}
@@ -146,12 +156,14 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
             <Card
                 title={
-                    <InsightDisplayConfig
-                        activeView={activeView as InsightType}
-                        insightMode={insightMode}
-                        filters={filters}
-                        disableTable={!!disableTable}
-                    />
+                    disableHeader ? null : (
+                        <InsightDisplayConfig
+                            activeView={activeView as InsightType}
+                            insightMode={insightMode}
+                            filters={filters}
+                            disableTable={!!disableTable}
+                        />
+                    )
                 }
                 data-attr="insights-graph"
                 className="insights-graph-container"

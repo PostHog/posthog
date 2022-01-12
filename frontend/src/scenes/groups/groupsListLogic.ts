@@ -17,7 +17,14 @@ interface GroupsPaginatedResponse {
 export const groupsListLogic = kea<groupsListLogicType<GroupsPaginatedResponse>>({
     path: ['groups', 'groupsListLogic'],
     connect: {
-        values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes'], groupsAccessLogic, ['groupsEnabled']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            groupsModel,
+            ['groupTypes', 'aggregationLabel'],
+            groupsAccessLogic,
+            ['groupsEnabled'],
+        ],
     },
     actions: () => ({
         loadGroups: (url?: string | null) => ({ url }),
@@ -47,12 +54,12 @@ export const groupsListLogic = kea<groupsListLogicType<GroupsPaginatedResponse>>
     },
     selectors: {
         currentTabName: [
-            (s) => [s.currentTab, s.groupTypes],
-            (currentTab, groupTypes): string =>
+            (s) => [s.currentTab, s.groupTypes, s.aggregationLabel],
+            (currentTab, groupTypes, aggregationLabel): string =>
                 currentTab === '-1'
                     ? 'Persons'
                     : groupTypes?.length
-                    ? capitalizeFirstLetter(groupTypes[parseInt(currentTab)].group_type)
+                    ? capitalizeFirstLetter(aggregationLabel(parseInt(currentTab)).singular)
                     : '',
         ],
         breadcrumbs: [

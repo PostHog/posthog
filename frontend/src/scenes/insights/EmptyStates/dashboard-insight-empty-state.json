@@ -1322,23 +1322,14 @@
             "trendsLogic": {
                 "22": {
                     "toggledLifecycles": ["new", "resurrecting", "returning", "dormant"],
-                    "visibilityMap": {
-                        "0": true
-                    },
                     "breakdownValuesLoading": false
                 },
                 "29": {
                     "toggledLifecycles": ["new", "resurrecting", "returning", "dormant"],
-                    "visibilityMap": {
-                        "0": true
-                    },
                     "breakdownValuesLoading": false
                 },
                 "30": {
                     "toggledLifecycles": ["new", "resurrecting", "returning", "dormant"],
-                    "visibilityMap": {
-                        "0": true
-                    },
                     "breakdownValuesLoading": false
                 }
             },

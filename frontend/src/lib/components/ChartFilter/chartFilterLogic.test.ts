@@ -1,17 +1,20 @@
 import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic'
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { urls } from 'scenes/urls'
-import { ChartDisplayType, InsightShortId } from '~/types'
+import { ChartDisplayType, InsightLogicProps, InsightShortId } from '~/types'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 describe('the chart filter', () => {
     let logic: ReturnType<typeof chartFilterLogic.build>
 
-    initKeaTestLogic({
-        logic: chartFilterLogic,
-        props: {},
-        onLogic: (l) => (logic = l),
+    beforeEach(() => {
+        initKeaTests()
+        const logicProps: InsightLogicProps = { dashboardItemId: '1' as InsightShortId, syncWithUrl: true }
+        insightLogic(logicProps).mount()
+        logic = chartFilterLogic(logicProps)
+        logic.mount()
     })
 
     it('defaults to null', () => {

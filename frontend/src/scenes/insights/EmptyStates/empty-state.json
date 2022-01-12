@@ -644,9 +644,6 @@
             "trendsLogic": {
                 "scene": {
                     "toggledLifecycles": ["new", "resurrecting", "returning", "dormant"],
-                    "visibilityMap": {
-                        "0": true
-                    },
                     "breakdownValuesLoading": false
                 }
             }
