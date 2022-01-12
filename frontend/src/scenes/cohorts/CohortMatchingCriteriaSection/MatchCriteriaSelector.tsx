@@ -185,7 +185,7 @@ function EntityCriteriaRow({
                         type="number"
                     />
                 </Col>
-                <Col style={{ display: 'flex', alignItems: 'center' }}>{COUNT_ENABLED && 'times '}in the last</Col>
+                <Col style={{ display: 'flex', alignItems: 'center' }}>times in the last</Col>
                 <Col span={4}>
                     <DateIntervalSelect value={days} onChange={onDateIntervalChange} />
                 </Col>
