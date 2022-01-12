@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { Modal, Button } from 'antd'
 import { useValues, useActions } from 'kea'
 import { DeleteOutlined, ExclamationCircleOutlined, PlusOutlined } from '@ant-design/icons'
@@ -8,10 +8,10 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { inviteLogic } from './inviteLogic'
 import { InviteModal } from './InviteModal'
+import { EmailUnavailableMessage } from './InviteModal'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { InfoMessage } from 'lib/components/InfoMessage/InfoMessage'
 
 function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.Element {
     const url = new URL(`/signup/${id}`, document.baseURI).href
@@ -103,15 +103,7 @@ export function Invites(): JSX.Element {
                     Invite team member
                 </Button>
             </h2>
-            {!preflight?.email_service_available && (
-                <InfoMessage style={{ marginTop: 16 }}>
-                    <div>
-                        Sending emails is not enabled in your PostHog instance. Remember to{' '}
-                        <b style={{ fontWeight: 800 }}>share the invite link</b> with each team member you want to
-                        invite.
-                    </div>
-                </InfoMessage>
-            )}
+            {!preflight?.email_service_available && <EmailUnavailableMessage />}
             <LemonTable
                 dataSource={invites}
                 columns={columns}

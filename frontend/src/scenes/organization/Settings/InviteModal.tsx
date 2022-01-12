@@ -10,12 +10,28 @@ import { isEmail, pluralize } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { inviteLogic } from './inviteLogic'
 import { InfoMessage } from 'lib/components/InfoMessage/InfoMessage'
+import { IconOpenInNew } from 'lib/components/icons'
 
 /** Shuffled placeholder names */
 const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fill('John'), 'Sonic'].sort(
     () => Math.random() - 0.5
 )
 const MAX_INVITES_AT_ONCE = 20
+
+export function EmailUnavailableMessage(): JSX.Element {
+    return (
+        <InfoMessage style={{ marginTop: 16 }}>
+            <>
+                This PostHog instance hasn't been{' '}
+                <a href="https://posthog.com/docs/self-host/configure/email" target="_blank" rel="noopener">
+                    configured&nbsp;to&nbsp;send&nbsp;emails <IconOpenInNew />
+                </a>
+                .<br />
+                Remember to <u>share the invite link</u> with each team member you invite.
+            </>
+        </InfoMessage>
+    )
+}
 
 function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean }): JSX.Element {
     const name = PLACEHOLDER_NAMES[index % PLACEHOLDER_NAMES.length]
@@ -148,15 +164,7 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                     </div>
                 </div>
             )}
-            {!preflight?.email_service_available && (
-                <InfoMessage style={{ marginTop: 16 }}>
-                    <div>
-                        Sending emails is not enabled in your PostHog instance. Remember to{' '}
-                        <b style={{ fontWeight: 800 }}>share the invite link</b> with each team member you want to
-                        invite.
-                    </div>
-                </InfoMessage>
-            )}
+            {!preflight?.email_service_available && <EmailUnavailableMessage />}
         </Modal>
     )
 }
