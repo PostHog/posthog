@@ -244,10 +244,8 @@ export async function startPluginsServer(
         serverInstance.queue = queue
         serverInstance.stop = closeJobs
 
-        if (!(determineNodeEnv() === NodeEnv.Test)) {
-            // start http server used for the healthcheck
-            httpServer = createHttpServer(hub, serverConfig)
-        }
+        // start http server used for the healthcheck
+        httpServer = createHttpServer(hub, serverConfig)
 
         status.info('🚀', 'All systems go')
 

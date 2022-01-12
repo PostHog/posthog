@@ -45,7 +45,10 @@
             "disableOptimisticBPs": true,
             "program": "${workspaceFolder}/node_modules/.bin/jest",
             "cwd": "${workspaceFolder}",
-            "args": ["--runInBand", "--forceExit", "--watchAll=false"]
+            "args": ["--runInBand", "--forceExit", "--watchAll=false"],
+            "env": {
+                "DATABASE_URL": "postgres://localhost:5432/test_posthog"
+            }
         }
     ]
 }
