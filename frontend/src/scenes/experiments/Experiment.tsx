@@ -45,14 +45,14 @@ export function Experiment(): JSX.Element {
         experimentData,
         experimentInsightId,
         minimumSampleSizePerVariant,
+        recommendedExposureForCountData,
+        variants,
         expectedRunningTime,
         experimentResults,
         conversionRateForVariant,
-        recommendedExposureForCountData,
         countDataForVariant,
         editingExistingExperiment,
         experimentInsightType,
-        variants,
         experimentResultsLoading,
     } = useValues(experimentLogic)
     const {
@@ -393,12 +393,8 @@ export function Experiment(): JSX.Element {
                                                                 typeKey={`experiment-trends`}
                                                                 buttonCopy="Add graph series"
                                                                 showSeriesIndicator
-                                                                singleFilter={
-                                                                    trendsFilters.insight === InsightType.LIFECYCLE
-                                                                }
-                                                                hideMathSelector={
-                                                                    trendsFilters.insight === InsightType.LIFECYCLE
-                                                                }
+                                                                singleFilter={true}
+                                                                hideMathSelector={true}
                                                                 propertiesTaxonomicGroupTypes={[
                                                                     TaxonomicFilterGroupType.EventProperties,
                                                                     TaxonomicFilterGroupType.PersonProperties,

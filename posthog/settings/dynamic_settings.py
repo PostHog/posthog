@@ -15,4 +15,25 @@ CONSTANCE_CONFIG = {
         "Whether materialized columns should be created or updated (existing columns will still be used at query time)",
         bool,
     ),
+    "AUTO_START_ASYNC_MIGRATIONS": (
+        get_from_env("AUTO_START_ASYNC_MIGRATIONS", False, type_cast=str_to_bool),
+        "Whether the earliest unapplied async migration should be triggered automatically on server startup",
+        bool,
+    ),
+    "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT": (
+        get_from_env("ASYNC_MIGRATION_ROLLBACK_TIMEOUT", 30, type_cast=int),
+        "The timeout for completing the full rollback of an async migration",
+        int,
+    ),
+    "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK": (
+        get_from_env("ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK", False, type_cast=str_to_bool),
+        "Used to disable automatic rollback of failed async migrations",
+        bool,
+    ),
 }
+
+SETTINGS_ALLOWING_API_OVERRIDE = (
+    "AUTO_START_ASYNC_MIGRATIONS",
+    "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",
+    "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
+)

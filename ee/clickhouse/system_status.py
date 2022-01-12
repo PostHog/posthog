@@ -82,6 +82,14 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
         "subrows": {"columns": ["Metric", "Value", "Description"], "rows": list(sorted(system_metrics))},
     }
 
+    last_event_ingested_timestamp = sync_execute("SELECT max(_timestamp) FROM events")
+
+    yield {
+        "key": "last_event_ingested_timestamp",
+        "metric": "Last event ingested",
+        "value": last_event_ingested_timestamp[0],
+    }
+
 
 def is_alive() -> bool:
     try:

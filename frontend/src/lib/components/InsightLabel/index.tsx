@@ -10,6 +10,7 @@ import { useValues } from 'kea'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import clsx from 'clsx'
 import { groupsModel } from '~/models/groupsModel'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export enum IconSize {
     Small = 'small',
@@ -49,7 +50,7 @@ interface MathTagProps {
 
 function MathTag({ math, mathProperty, mathGroupTypeIndex }: MathTagProps): JSX.Element {
     const { mathDefinitions } = useValues(mathsLogic)
-    const { groupTypes } = useValues(groupsModel)
+    const { aggregationLabel } = useValues(groupsModel)
 
     if (!math || math === 'total') {
         return <Tag>Total</Tag>
@@ -58,8 +59,7 @@ function MathTag({ math, mathProperty, mathGroupTypeIndex }: MathTagProps): JSX.
         return <Tag>Unique</Tag>
     }
     if (math === 'unique_group' && mathGroupTypeIndex != undefined) {
-        const groupType = groupTypes[mathGroupTypeIndex]
-        return <Tag>Unique {groupType?.group_type || ''}(s)</Tag>
+        return <Tag>Unique {aggregationLabel(mathGroupTypeIndex).plural}</Tag>
     }
     if (math && ['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(math || '')) {
         return (
@@ -154,11 +154,16 @@ export function InsightLabel({
                     {pillValues.length > 0 && (
                         <Space direction={'horizontal'} wrap={true}>
                             {pillValues.map((pill) => (
-                                <Tag className="tag-pill" key={pill} closable={false}>
-                                    <Typography.Text ellipsis={{ tooltip: pill }} style={{ maxWidth: pillMaxWidth }}>
-                                        {pillMidEllipsis ? midEllipsis(String(pill), 50) : pill}
-                                    </Typography.Text>
-                                </Tag>
+                                <Tooltip title={pill} key={pill}>
+                                    <Tag className="tag-pill" closable={false}>
+                                        <Typography.Text
+                                            ellipsis={{ tooltip: pill }}
+                                            style={{ maxWidth: pillMaxWidth }}
+                                        >
+                                            {pillMidEllipsis ? midEllipsis(String(pill), 50) : pill}
+                                        </Typography.Text>
+                                    </Tag>
+                                </Tooltip>
                             ))}
                         </Space>
                     )}

@@ -744,6 +744,7 @@ describe('ActionMatcher', () => {
                 DateTime.local(),
                 {},
                 {},
+                {},
                 actionDefinition.team_id,
                 null,
                 true,
@@ -808,6 +809,7 @@ describe('ActionMatcher', () => {
 
             await hub.db.createPerson(
                 DateTime.local(),
+                {},
                 {},
                 {},
                 actionDefinition.team_id,

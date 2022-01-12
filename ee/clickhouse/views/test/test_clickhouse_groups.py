@@ -171,6 +171,33 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response), 0)
         self.assertEqual(response, [])
 
+    def test_update_groups_metadata(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="playlist", group_type_index=1)
+        GroupTypeMapping.objects.create(team=self.team, group_type="another", group_type_index=2)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/groups_types/update_metadata",
+            [
+                {"group_type_index": 0, "name_singular": "organization!"},
+                {"group_type_index": 1, "group_type": "rename attempt", "name_plural": "playlists"},
+            ],
+        ).json()
+
+        self.assertEqual(
+            response,
+            [
+                {
+                    "group_type_index": 0,
+                    "group_type": "organization",
+                    "name_singular": "organization!",
+                    "name_plural": None,
+                },
+                {"group_type_index": 1, "group_type": "playlist", "name_singular": None, "name_plural": "playlists"},
+                {"group_type_index": 2, "group_type": "another", "name_singular": None, "name_plural": None},
+            ],
+        )
+
     def _create_related_groups_data(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="playlist", group_type_index=1)

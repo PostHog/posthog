@@ -901,7 +901,7 @@ export interface FilterType {
     funnel_step?: number
     entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
     drop_off?: boolean
-    funnel_viz_type?: string // parameter sent to funnels API for time conversion code path
+    funnel_viz_type?: FunnelVizType // parameter sent to funnels API for time conversion code path
     funnel_from_step?: number // used in time to convert: initial step index to compute time to convert
     funnel_to_step?: number // used in time to convert: ending step index to compute time to convert
     funnel_step_breakdown?: string | number[] | number | null // used in steps breakdown: persons modal
@@ -911,7 +911,6 @@ export interface FilterType {
     funnel_window_interval?: number | undefined // length of conversion window
     funnel_order_type?: StepOrderValue
     exclusions?: FunnelStepRangeEntityFilter[] // used in funnel exclusion filters
-    hiddenLegendKeys?: Record<string, boolean | undefined> // used to toggle visibility of breakdowns with legend
     exclude_events?: string[] // Paths Exclusion type
     step_limit?: number // Paths Step Limit
     path_start_key?: string // Paths People Start Key
@@ -930,6 +929,7 @@ export interface FilterType {
     aggregation_group_type_index?: number | undefined // Groups aggregation
     funnel_advanced?: boolean // used to toggle advanced options on or off
     show_legend?: boolean // used to show/hide legend next to insights graph
+    hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
 }
 
 export interface RecordingEventsFilters {
@@ -1368,6 +1368,8 @@ export interface PersonProperty {
 export interface GroupType {
     group_type: string
     group_type_index: number
+    name_singular?: string | null
+    name_plural?: string | null
 }
 
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>

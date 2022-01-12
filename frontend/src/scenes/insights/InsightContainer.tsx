@@ -68,7 +68,11 @@ export function InsightContainer(
         if (activeView !== loadedView || isLoading) {
             return (
                 <>
-                    <div style={{ minHeight: 'min(calc(90vh - 16rem), 36rem)' }} />
+                    {
+                        filters.display !== ACTIONS_TABLE && (
+                            <div className="trends-insights-container" />
+                        ) /* Tables don't need this padding, but graphs do for sizing */
+                    }
                     <Loading />
                 </>
             )
@@ -135,6 +139,7 @@ export function InsightContainer(
             return (
                 <BindLogic logic={trendsLogic} props={insightProps}>
                     <InsightsTable
+                        isLegend
                         showTotalCount
                         filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
                         canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}

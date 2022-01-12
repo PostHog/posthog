@@ -5,7 +5,7 @@ import { getContext, useActions, useValues } from 'kea'
 import Chart from '@posthog/chart.js'
 import 'chartjs-adapter-dayjs'
 import PropTypes from 'prop-types'
-import { compactNumber, lightenDarkenColor } from '~/lib/utils'
+import { areObjectValuesEmpty, compactNumber, lightenDarkenColor } from '~/lib/utils'
 import { getBarColorFromStatus, getChartColors, getGraphColors } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
@@ -24,8 +24,8 @@ Chart.defaults.global.elements.line.tension = 0
 const noop = () => {}
 
 export function LEGACY_LineGraph({
-    datasets,
-    visibilityMap = null,
+    datasets: _datasets,
+    hiddenLegendKeys,
     labels,
     color,
     type,
@@ -42,6 +42,7 @@ export function LEGACY_LineGraph({
     isCompare = false,
     incompletenessOffsetFromEnd = -1, // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
 }) {
+    let datasets = _datasets
     const chartRef = useRef()
     const myLineChart = useRef()
     const annotationsRoot = useRef()
@@ -76,7 +77,7 @@ export function LEGACY_LineGraph({
 
     useEffect(() => {
         buildChart()
-    }, [datasets, color, visibilityMap])
+    }, [datasets, color, hiddenLegendKeys])
 
     // Hacky! - Chartjs doesn't internally call tooltip callback on mouseout from right border.
     // Let's manually remove tooltips when the chart is being hovered over. #5061
@@ -139,9 +140,11 @@ export function LEGACY_LineGraph({
         setTopExtent(boundaryTopExtent)
     }
 
-    function processDataset(dataset, index) {
-        const colorList = getChartColors(color || 'white', datasets.length, isCompare)
-        const mainColor = dataset?.status ? getBarColorFromStatus(dataset.status) : colorList[index % colorList.length]
+    function processDataset(dataset) {
+        const colorList = getChartColors(color || 'white', _datasets.length, isCompare)
+        const mainColor = dataset?.status
+            ? getBarColorFromStatus(dataset.status)
+            : colorList[(dataset.id ?? 0) % (_datasets?.length ?? 1)]
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
 
         // `horizontalBar` colors are set in `ActionsHorizontalBar.tsx` and overriden in spread of `dataset` below
@@ -169,6 +172,26 @@ export function LEGACY_LineGraph({
 
         if (typeof myLineChart.current !== 'undefined') {
             myLineChart.current.destroy()
+        }
+
+        // Hide intentionally hidden keys
+        if (!areObjectValuesEmpty(hiddenLegendKeys)) {
+            if (type === 'horizontalBar') {
+                // If series are nested (for ActionsHorizontalBar only), filter out the series by index
+                const filterFn = (_, i) => !hiddenLegendKeys?.[i]
+                datasets = datasets.map((_data) => {
+                    // Performs a filter transformation on properties that contain arrayed data
+                    return Object.fromEntries(
+                        Object.entries(_data).map(([key, val]) =>
+                            Array.isArray(val) && val.length === datasets?.[0]?.actions?.length
+                                ? [key, val?.filter(filterFn)]
+                                : [key, val]
+                        )
+                    )
+                })
+            } else {
+                datasets = datasets.filter((data) => !hiddenLegendKeys?.[data.id])
+            }
         }
 
         // if chart is line graph, make duplicate lines and overlay to show dotted lines
@@ -207,9 +230,6 @@ export function LEGACY_LineGraph({
                     return processDataset(datasetCopy, index)
                 }),
             ]
-            if (visibilityMap && Object.keys(visibilityMap).length > 0) {
-                datasets = datasets.filter((data) => visibilityMap[data.id])
-            }
         } else {
             datasets = datasets.map((dataset, index) => processDataset(dataset, index))
         }

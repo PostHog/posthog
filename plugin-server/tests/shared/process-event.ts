@@ -67,6 +67,7 @@ export async function createPerson(
         DateTime.utc(),
         properties,
         {},
+        {},
         team.id,
         null,
         false,
@@ -230,13 +231,13 @@ export const createProcessEventTests = (
             await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 1)
         }
 
-        await hub.db.updatePerson(p0, { created_at: DateTime.fromISO('2020-01-01T00:00:00Z') })
+        await hub.db.updatePersonDeprecated(p0, { created_at: DateTime.fromISO('2020-01-01T00:00:00Z') })
 
         const p1 = await createPerson(hub, team, ['person_1'], { $os: 'Chrome', $browser: 'Chrome' })
         if (database === 'clickhouse') {
             await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 2)
         }
-        await hub.db.updatePerson(p1, { created_at: DateTime.fromISO('2019-07-01T00:00:00Z') })
+        await hub.db.updatePersonDeprecated(p1, { created_at: DateTime.fromISO('2019-07-01T00:00:00Z') })
 
         await processEvent(
             'person_1',
@@ -263,8 +264,8 @@ export const createProcessEventTests = (
             // try to merge and see if we queue any messages
             jest.spyOn(hub!.db.kafkaProducer!, 'queueMessage')
 
-            jest.spyOn(hub!.db, 'updatePerson').mockImplementationOnce(() => {
-                throw new Error('updatePerson error')
+            jest.spyOn(hub!.db, 'updatePersonDeprecated').mockImplementationOnce(() => {
+                throw new Error('updatePersonDeprecated error')
             })
 
             await expect(async () => {
@@ -274,6 +275,7 @@ export const createProcessEventTests = (
                     otherPerson: person1,
                     otherPersonDistinctId: 'person_1',
                     totalMergeAttempts: 0,
+                    timestamp: DateTime.now(),
                 })
             }).rejects.toThrow()
 
@@ -286,6 +288,7 @@ export const createProcessEventTests = (
             otherPerson: person1,
             otherPersonDistinctId: 'person_1',
             totalMergeAttempts: 0,
+            timestamp: DateTime.now(),
         })
 
         if (database === 'clickhouse') {
@@ -311,10 +314,10 @@ export const createProcessEventTests = (
         // Based on gating only one function should be used
         const personUpdateFnSpy = includeNewPropertiesUpdatesTests
             ? updatePersonProperties
-            : jest.spyOn(hub.db, 'updatePerson')
+            : jest.spyOn(hub.db, 'updatePersonDeprecated')
         const personUpdateFnShouldntbeUsedSpy = !includeNewPropertiesUpdatesTests
             ? updatePersonProperties
-            : jest.spyOn(hub.db, 'updatePerson')
+            : jest.spyOn(hub.db, 'updatePersonDeprecated')
 
         await hub.db.postgresQuery(
             `UPDATE posthog_team
@@ -352,8 +355,8 @@ export const createProcessEventTests = (
                 },
             } as any as PluginEvent,
             team.id,
-            DateTime.now(),
-            DateTime.now(),
+            now,
+            now,
             new UUIDT().toString()
         )
 
@@ -361,6 +364,7 @@ export const createProcessEventTests = (
         let persons = await hub.db.fetchPersons()
         let events = await hub.db.fetchEvents()
         expect(persons[0].version).toEqual(0)
+        expect(persons[0].created_at).toEqual(now)
         let expectedProps = {
             $initial_browser: 'Chrome',
             $initial_browser_version: false,
@@ -377,6 +381,7 @@ export const createProcessEventTests = (
             const chPeople = await hub.db.fetchPersons(Database.ClickHouse)
             expect(chPeople.length).toEqual(1)
             expect(JSON.parse(chPeople[0].properties)).toEqual(expectedProps)
+            expect(chPeople[0].created_at).toEqual(now.toFormat('yyyy-MM-dd HH:mm:ss.000'))
         }
         expect(events[0].properties).toEqual({
             $ip: '127.0.0.1',
