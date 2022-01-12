@@ -575,6 +575,7 @@ export interface ClickHousePersonDistinctId2 {
 export interface Cohort {
     id: number
     name: string
+    description: string
     deleted: boolean
     groups: any[]
     team_id: Team['id']

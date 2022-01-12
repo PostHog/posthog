@@ -9,6 +9,7 @@ from rest_framework.response import Response
 
 from ee.clickhouse.queries.experiments.funnel_experiment_result import ClickhouseFunnelExperimentResult
 from ee.clickhouse.queries.experiments.trend_experiment_result import ClickhouseTrendExperimentResult
+from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import INSIGHT_TRENDS
@@ -95,14 +96,18 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "multivariate": {"variants": variants or default_variants},
         }
 
-        feature_flag = FeatureFlag.objects.create(
-            key=feature_flag_key,
-            name=f'Feature Flag for Experiment {validated_data["name"]}',
-            team=team,
-            created_by=request.user,
-            filters=filters,
-            active=False if is_draft else True,
+        feature_flag_serializer = FeatureFlagSerializer(
+            data={
+                "key": feature_flag_key,
+                "name": f'Feature Flag for Experiment {validated_data["name"]}',
+                "filters": filters,
+                "active": not is_draft,
+            },
+            context=self.context,
         )
+
+        feature_flag_serializer.is_valid(raise_exception=True)
+        feature_flag = feature_flag_serializer.save()
 
         experiment = Experiment.objects.create(team=team, feature_flag=feature_flag, **validated_data)
         return experiment
@@ -162,7 +167,7 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
         )
 
         result = experiment_class(
-            filter, self.team, experiment.feature_flag.key, experiment.start_date, experiment.end_date,
+            filter, self.team, experiment.feature_flag, experiment.start_date, experiment.end_date,
         ).get_results()  # type: ignore # TODO: Fix type once I introduce base class
 
         return Response(result)

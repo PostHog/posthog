@@ -39,7 +39,7 @@ const formatEvents = (events: EventType[], newEvents: EventType[]): EventsTableR
 
 export interface EventsTableLogicProps {
     fixedFilters?: FixedFilters
-    key?: string
+    key: string
     sceneUrl: string
     disableActions?: boolean
     fetchMonths?: number
@@ -71,6 +71,9 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
     },
     actions: {
+        setPollingActive: (pollingActive: boolean) => ({
+            pollingActive,
+        }),
         setProperties: (
             properties: AnyPropertyFilter[] | AnyPropertyFilter
         ): {
@@ -108,6 +111,12 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
 
     reducers: ({ props }) => ({
         sceneIsEventsPage: [props.sceneUrl ? props.sceneUrl === urls.events() : false, {}],
+        pollingIsActive: [
+            true,
+            {
+                setPollingActive: (_, { pollingActive }) => pollingActive,
+            },
+        ],
         properties: [
             [] as PropertyFilter[],
             {
@@ -261,8 +270,9 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         },
     }),
 
-    events: ({ values }) => ({
+    events: ({ values, actions }) => ({
         beforeUnmount: () => clearTimeout(values.pollTimeout || undefined),
+        afterMount: () => actions.fetchEvents(),
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -330,12 +340,25 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                     isNext: !!nextParams,
                 })
 
-                // uses window setTimeout because typegen had a hard time with NodeJS.Timeout
-                const timeout = window.setTimeout(actions.pollEvents, POLL_TIMEOUT)
-                actions.setPollTimeout(timeout)
+                if (!props.disableActions) {
+                    // uses window setTimeout because typegen had a hard time with NodeJS.Timeout
+                    const timeout = window.setTimeout(actions.pollEvents, POLL_TIMEOUT)
+                    actions.setPollTimeout(timeout)
+                }
             },
         ],
         pollEvents: async (_, breakpoint) => {
+            function setNextPoll(): void {
+                // uses window setTimeout because typegen had a hard time with NodeJS.Timeout
+                const timeout = window.setTimeout(actions.pollEvents, POLL_TIMEOUT)
+                actions.setPollTimeout(timeout)
+            }
+
+            // Poll events when they are ordered in ascending order based on timestamp
+            if (values.orderBy !== '-timestamp') {
+                return
+            }
+
             // Do not poll if the scene is in the background
             if (props.sceneUrl !== router.values.location.pathname) {
                 return
@@ -343,6 +366,12 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
 
             // Do not poll if polling is disabled
             if (props.disableActions) {
+                return
+            }
+
+            // if polling has been paused, check again after POLL_TIMEOUT milliseconds
+            if (!values.pollingIsActive) {
+                setNextPoll()
                 return
             }
 
@@ -382,9 +411,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 actions.pollEventsSuccess(apiResponse.results)
             }
 
-            // uses window setTimeout because typegen had a hard time with NodeJS.Timeout
-            const timeout = window.setTimeout(actions.pollEvents, POLL_TIMEOUT)
-            actions.setPollTimeout(timeout)
+            setNextPoll()
         },
         prependNewEvents: () => {
             if (values.newEvents.length) {

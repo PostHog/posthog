@@ -1,25 +1,37 @@
 import SaveOutlined from '@ant-design/icons/lib/icons/SaveOutlined'
-import { Alert, Button, Card, Col, Form, Input, InputNumber, Row, Select, Slider, Tag, Tooltip } from 'antd'
+import { Button, Card, Col, Form, Input, InputNumber, Progress, Row, Select, Slider, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import React from 'react'
+import React, { useState } from 'react'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { FunnelVizType, MultivariateFlagVariant, PropertyFilter } from '~/types'
+import {
+    ChartDisplayType,
+    FilterType,
+    FunnelVizType,
+    InsightType,
+    MultivariateFlagVariant,
+    PropertyFilter,
+} from '~/types'
 import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
-import { JSSnippet } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { IconJavascript, IconOpenInNew } from 'lib/components/icons'
 import { InfoCircleOutlined, CaretDownOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
+import PropertyFilterButton from 'lib/components/PropertyFilters/components/PropertyFilterButton'
+import { FunnelLayout } from 'lib/constants'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { Spinner } from 'lib/components/Spinner/Spinner'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { getSeriesColor } from 'scenes/funnels/funnelUtils'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -31,13 +43,16 @@ export function Experiment(): JSX.Element {
         newExperimentData,
         experimentId,
         experimentData,
-        experimentFunnelId,
+        experimentInsightId,
         minimumDetectableChange,
         recommendedSampleSize,
         expectedRunningTime,
         experimentResults,
         conversionRateForVariant,
+        countDataForVariant,
         editingExistingExperiment,
+        experimentInsightType,
+        experimentResultsLoading,
     } = useValues(experimentLogic)
     const {
         setNewExperimentData,
@@ -49,17 +64,27 @@ export function Experiment(): JSX.Element {
         addExperimentGroup,
         updateExperimentGroup,
         removeExperimentGroup,
+        setExperimentInsightType,
     } = useActions(experimentLogic)
 
     const [form] = Form.useForm()
 
+    const [currentVariant, setCurrentVariant] = useState('control')
+
     const { insightProps } = useValues(
         insightLogic({
-            dashboardItemId: experimentFunnelId,
+            dashboardItemId: experimentInsightId,
             syncWithUrl: false,
         })
     )
-    const { isStepsEmpty, filterSteps, filters, results, conversionMetrics } = useValues(funnelLogic(insightProps))
+    const {
+        isStepsEmpty,
+        filterSteps,
+        filters: funnelsFilters,
+        results,
+        conversionMetrics,
+    } = useValues(funnelLogic(insightProps))
+    const { filters: trendsFilters } = useValues(trendsLogic(insightProps))
 
     const conversionRate = conversionMetrics.totalRate * 100
     const entrants = results?.[0]?.count
@@ -150,7 +175,11 @@ export function Experiment(): JSX.Element {
                                                 <PropertyFilters
                                                     endpoint="person"
                                                     pageKey={'EditFunnel-property'}
-                                                    propertyFilters={filters.properties || []}
+                                                    propertyFilters={
+                                                        (experimentInsightType === InsightType.FUNNELS
+                                                            ? funnelsFilters.properties
+                                                            : trendsFilters.properties) || []
+                                                    }
                                                     onChange={(anyProperties) => {
                                                         setNewExperimentData({
                                                             filters: {
@@ -284,45 +313,107 @@ export function Experiment(): JSX.Element {
                                     <BindLogic logic={insightLogic} props={insightProps}>
                                         <Row style={{ width: '100%' }}>
                                             <Col span={8} style={{ paddingRight: 8 }}>
-                                                <div className="l3 mb">Goal metric</div>
-                                                <Row className="text-muted" style={{ marginBottom: '1rem' }}>
-                                                    Define the metric which you are trying to optimize. This is the most
-                                                    important part of your experiment.
-                                                </Row>
+                                                <div className="mb">
+                                                    <b>Goal type</b>
+                                                </div>
+                                                <Select
+                                                    style={{ display: 'flex' }}
+                                                    defaultValue={experimentInsightType}
+                                                    onChange={setExperimentInsightType}
+                                                    suffixIcon={<CaretDownOutlined />}
+                                                    dropdownMatchSelectWidth={false}
+                                                >
+                                                    <Select.Option value={InsightType.TRENDS}>
+                                                        <Col>
+                                                            <span>
+                                                                <b>Trend</b>
+                                                            </span>
+                                                            <div>
+                                                                Track how many participants complete a specific event or
+                                                                action
+                                                            </div>
+                                                        </Col>
+                                                    </Select.Option>
+                                                    <Select.Option value={InsightType.FUNNELS}>
+                                                        <Col>
+                                                            <span>
+                                                                <b>Funnel</b>
+                                                            </span>
+                                                            <div>Track conversion rates between events and actions</div>
+                                                        </Col>
+                                                    </Select.Option>
+                                                </Select>
+                                                <div className="mb mt">
+                                                    <b>Experiment goal</b>
+                                                </div>
                                                 <Row>
                                                     <Card
                                                         className="action-filters-bordered"
                                                         style={{ width: '100%', marginRight: 8 }}
                                                         bodyStyle={{ padding: 0 }}
                                                     >
-                                                        <ActionFilter
-                                                            filters={filters}
-                                                            setFilters={(actionFilters) => {
-                                                                setNewExperimentData({ filters: actionFilters })
-                                                                setFilters(actionFilters)
-                                                            }}
-                                                            typeKey={`EditFunnel-action`}
-                                                            hideMathSelector={true}
-                                                            hideDeleteBtn={filterSteps.length === 1}
-                                                            buttonCopy="Add funnel step"
-                                                            showSeriesIndicator={!isStepsEmpty}
-                                                            seriesIndicatorType="numeric"
-                                                            fullWidth
-                                                            sortable
-                                                            showNestedArrow={true}
-                                                            propertiesTaxonomicGroupTypes={[
-                                                                TaxonomicFilterGroupType.EventProperties,
-                                                                TaxonomicFilterGroupType.PersonProperties,
-                                                                TaxonomicFilterGroupType.Cohorts,
-                                                                TaxonomicFilterGroupType.Elements,
-                                                            ]}
-                                                            rowClassName="action-filters-bordered"
-                                                        />
+                                                        {experimentInsightType === InsightType.FUNNELS && (
+                                                            <ActionFilter
+                                                                filters={funnelsFilters}
+                                                                setFilters={(payload) => {
+                                                                    setNewExperimentData({ filters: payload })
+                                                                    setFilters(payload)
+                                                                }}
+                                                                typeKey={`EditFunnel-action`}
+                                                                hideMathSelector={true}
+                                                                hideDeleteBtn={filterSteps.length === 1}
+                                                                buttonCopy="Add funnel step"
+                                                                showSeriesIndicator={!isStepsEmpty}
+                                                                seriesIndicatorType="numeric"
+                                                                fullWidth
+                                                                sortable
+                                                                showNestedArrow={true}
+                                                                propertiesTaxonomicGroupTypes={[
+                                                                    TaxonomicFilterGroupType.EventProperties,
+                                                                    TaxonomicFilterGroupType.PersonProperties,
+                                                                    TaxonomicFilterGroupType.Cohorts,
+                                                                    TaxonomicFilterGroupType.Elements,
+                                                                ]}
+                                                                rowClassName="action-filters-bordered"
+                                                            />
+                                                        )}
+                                                        {experimentInsightType === InsightType.TRENDS && (
+                                                            <ActionFilter
+                                                                horizontalUI
+                                                                filters={trendsFilters}
+                                                                setFilters={(payload: Partial<FilterType>) => {
+                                                                    setNewExperimentData({ filters: payload })
+                                                                    setFilters(payload)
+                                                                }}
+                                                                typeKey={`experiment-trends`}
+                                                                buttonCopy="Add graph series"
+                                                                showSeriesIndicator
+                                                                singleFilter={true}
+                                                                hideFilter={false}
+                                                                hideMathSelector={true}
+                                                                propertiesTaxonomicGroupTypes={[
+                                                                    TaxonomicFilterGroupType.EventProperties,
+                                                                    TaxonomicFilterGroupType.PersonProperties,
+                                                                    TaxonomicFilterGroupType.Cohorts,
+                                                                    TaxonomicFilterGroupType.Elements,
+                                                                ]}
+                                                                customRowPrefix={
+                                                                    trendsFilters.insight === InsightType.LIFECYCLE ? (
+                                                                        <>
+                                                                            Showing <b>Unique users</b> who did
+                                                                        </>
+                                                                    ) : undefined
+                                                                }
+                                                            />
+                                                        )}
                                                     </Card>
                                                 </Row>
                                             </Col>
                                             <Col span={16}>
-                                                <InsightContainer disableTable={true} />
+                                                <InsightContainer
+                                                    disableHeader={experimentInsightType === InsightType.TRENDS}
+                                                    disableTable={true}
+                                                />
                                             </Col>
                                         </Row>
                                     </BindLogic>
@@ -419,15 +510,29 @@ export function Experiment(): JSX.Element {
                     </Form>
                 </>
             ) : experimentData ? (
-                <div className="confirmation">
+                <div className="view-experiment">
                     <Row className="draft-header">
-                        <Row justify="space-between" align="middle" className="full-width">
-                            <Row>
-                                <PageHeader style={{ margin: 0, paddingRight: 8 }} title={`${experimentData?.name}`} />
-                                <Tag style={{ alignSelf: 'center' }} color={statusColors[status()]}>
-                                    <b className="uppercase">{status()}</b>
-                                </Tag>
-                            </Row>
+                        <Row justify="space-between" align="middle" className="full-width pb">
+                            <Col>
+                                <Row>
+                                    <PageHeader
+                                        style={{ margin: 0, paddingRight: 8 }}
+                                        title={`${experimentData?.name}`}
+                                    />
+                                    <CopyToClipboardInline iconStyle={{ color: 'var(--text-muted-alt)' }}>
+                                        <span className="text-muted">{experimentData.feature_flag_key}</span>
+                                    </CopyToClipboardInline>
+                                    <Tag
+                                        style={{ alignSelf: 'center', marginLeft: '1rem' }}
+                                        color={statusColors[status()]}
+                                    >
+                                        <b className="uppercase">{status()}</b>
+                                    </Tag>
+                                </Row>
+                                <span className="description">
+                                    {experimentData.description || 'There is no description for this experiment.'}
+                                </span>
+                            </Col>
                             {experimentData && !experimentData.start_date && (
                                 <div>
                                     <Button className="mr-05" onClick={() => editExperiment()}>
@@ -446,141 +551,218 @@ export function Experiment(): JSX.Element {
                         </Row>
                         {experimentData.description && <Row>Description: {experimentData.description}</Row>}
                     </Row>
-                    <Row>
-                        <Col span={10}>
-                            <div className="mb-05">
-                                <span>Feature flag key:</span> <b>{experimentData.feature_flag_key}</b>
-                            </div>
-                            <div className="mb-05">
-                                Variants:{' '}
-                                {experimentData.parameters?.feature_flag_variants?.map(
-                                    (variant: MultivariateFlagVariant, idx: number) => (
-                                        <li key={idx}>{variant.key}</li>
-                                    )
-                                )}
-                            </div>
-                            <div className="mb-05">The following users will participate in the experiment</div>
-                            <ul>
-                                {experimentData.filters?.properties?.length ? (
-                                    experimentData.filters.properties.map((property: PropertyFilter, idx: number) => (
-                                        <li key={idx}>
-                                            Users with {property.key} {property.operator}{' '}
-                                            {Array.isArray(property.value)
-                                                ? property.value.map((val) => `${val}, `)
-                                                : property.value}
-                                        </li>
-                                    ))
-                                ) : (
-                                    <li key={'all users'}>All users</li>
-                                )}
-                            </ul>
-                            <Row>Experiment parameters:</Row>
-                            <Row>
-                                <ul>
-                                    <li>
-                                        Recommended running time: ~{experimentData.parameters?.recommended_running_time}{' '}
-                                        days
-                                    </li>
-                                    <li>
-                                        Recommended sample size: ~{experimentData.parameters?.recommended_sample_size}{' '}
-                                        people
-                                    </li>
+                    <Row className="mb">
+                        <Col span={10} style={{ paddingRight: '1rem' }}>
+                            <Col>
+                                <div className="card-secondary">Participants</div>
+                                <div>
+                                    {!!experimentData.filters.properties?.length ? (
+                                        <div>
+                                            {experimentData.filters.properties.map((item) => {
+                                                return (
+                                                    <PropertyFilterButton
+                                                        key={item.key}
+                                                        item={item}
+                                                        greyBadges={true}
+                                                    />
+                                                )
+                                            })}
+                                        </div>
+                                    ) : (
+                                        '100% of users'
+                                    )}
+                                </div>
+                            </Col>
+                            <Col>
+                                <div className="card-secondary mt">Recommended running time</div>
+                                <span>
+                                    ~{experimentData.parameters?.recommended_running_time}{' '}
+                                    <span className="text-muted">days</span>
+                                </span>
+                            </Col>
+                            <Col>
+                                <div className="card-secondary mt">Recommended sample size</div>
+                                <span>
+                                    ~{experimentData.parameters?.recommended_sample_size}{' '}
+                                    <span className="text-muted">persons</span>
+                                </span>
+                            </Col>
+                            <Col>
+                                <div className="card-secondary mt">Variants</div>
+                                <ul className="variants-list">
+                                    {experimentData.parameters?.feature_flag_variants?.map(
+                                        (variant: MultivariateFlagVariant, idx: number) => (
+                                            <li key={idx}>{variant.key}</li>
+                                        )
+                                    )}
                                 </ul>
+                            </Col>
+                            <Row>
+                                <Col className="mr">
+                                    <div className="card-secondary mt">Start date</div>
+                                    {experimentData.start_date ? (
+                                        <span>{dayjs(experimentData.start_date).format('D MMM YYYY')}</span>
+                                    ) : (
+                                        <span className="description">Not started yet</span>
+                                    )}
+                                </Col>
+                                {experimentData.end_date && (
+                                    <Col className="ml">
+                                        <div className="card-secondary mt">Completed date</div>
+                                        <span>{dayjs(experimentData.end_date).format('D MMM YYYY')}</span>
+                                    </Col>
+                                )}
                             </Row>
                         </Col>
                         <Col span={14}>
-                            <div className="text-default">
-                                <Row align="middle">
-                                    <b>How to run this experiment in your code</b>
-                                    <div className="ml-05">
-                                        <CodeLanguageSelect />
-                                    </div>
-                                </Row>
-                                <JSSnippet
-                                    variants={['control', 'test']}
-                                    flagKey={newExperimentData?.feature_flag_key || ''}
-                                />
-                                <a
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    href="https://posthog.com/docs/user-guides/feature-flags"
-                                >
-                                    <Row align="middle">
-                                        Learn more about feature flags
-                                        <IconOpenInNew className="ml-05" />
-                                    </Row>
-                                </a>
+                            <div style={{ borderBottom: '1px solid (--border)' }}>
+                                <b>Test that your code works properly for each variant</b>
                             </div>
-                            <div className="mt">
-                                Test that your code works properly for each variant:{' '}
-                                <a
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    href="https://posthog.com/docs/user-guides/feature-flags#develop-locally"
-                                >
-                                    {' '}
-                                    Follow this guide{' '}
-                                </a>
+                            <Row justify="space-between">
                                 <div>
-                                    For your Feature Flag, the override code looks like:
-                                    {['control', 'test'].map((variant) => (
-                                        <div key={variant}>
-                                            {' '}
-                                            {variant}:
-                                            <CodeSnippet language={Language.JavaScript}>
-                                                {`posthog.feature_flags.override({'${experimentData.feature_flag_key}': '${variant}'})`}
-                                            </CodeSnippet>
-                                        </div>
-                                    ))}
+                                    Feature flag override for{' '}
+                                    <Select
+                                        onChange={setCurrentVariant}
+                                        defaultValue={'control'}
+                                        suffixIcon={<CaretDownOutlined />}
+                                    >
+                                        {experimentData.parameters.feature_flag_variants?.map(
+                                            (variant: MultivariateFlagVariant, idx: number) => (
+                                                <Select.Option key={idx} value={variant.key}>
+                                                    {variant.key}
+                                                </Select.Option>
+                                            )
+                                        )}
+                                    </Select>
                                 </div>
-                            </div>
-                            <div>Warning: Remember to not change this code until the experiment ends</div>
+                                <div>
+                                    Language <CodeLanguageSelect />
+                                </div>
+                            </Row>
+                            <CodeSnippet language={Language.JavaScript}>
+                                {`posthog.feature_flags.override({'${experimentData.feature_flag_key}': '${currentVariant}'})`}
+                            </CodeSnippet>
+                            <CodeSnippet language={Language.JavaScript} wrap>
+                                {`if (posthog.getFeatureFlag('${
+                                    experimentData.feature_flag_key ?? ''
+                                }') === '${currentVariant}') {
+    // where '${currentVariant}' is the variant, run your code here
+}`}
+                            </CodeSnippet>
+                            <a
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                href="https://posthog.com/docs/user-guides/feature-flags"
+                            >
+                                <Row align="middle">
+                                    Experiment implementation guide
+                                    <IconOpenInNew className="ml-05" />
+                                </Row>
+                            </a>
                         </Col>
                     </Row>
-                    {experimentData.start_date && (
-                        <div className="experiment-result">
-                            {experimentData.end_date && <Alert type="info" message="This experiment has ended" />}
-                            <div>Experiment start date: {dayjs(experimentData.start_date).format('D MMM YYYY')}</div>
-
-                            {experimentResults && (
-                                <BindLogic
-                                    logic={insightLogic}
-                                    props={{
-                                        dashboardItemId: experimentResults.itemID,
-                                        filters: {
-                                            ...experimentResults.filters,
-                                            insight: 'FUNNELS',
+                    <div className="experiment-result">
+                        {experimentResults ? (
+                            <Row justify="space-around">
+                                {experimentData.parameters.feature_flag_variants.map(
+                                    (variant: MultivariateFlagVariant, idx: number) => (
+                                        <Col key={idx}>
+                                            <div style={{ fontSize: 16 }}>
+                                                <b>{capitalizeFirstLetter(variant.key)}</b>
+                                            </div>
+                                            {experimentInsightType === InsightType.FUNNELS
+                                                ? 'Conversion rate: '
+                                                : 'Count: '}
+                                            <b>
+                                                {experimentInsightType === InsightType.FUNNELS
+                                                    ? `${conversionRateForVariant(variant.key)}%`
+                                                    : countDataForVariant(variant.key)}
+                                            </b>
+                                            {experimentInsightType === InsightType.FUNNELS && (
+                                                <>
+                                                    <Progress
+                                                        percent={Number(conversionRateForVariant(variant.key))}
+                                                        size="small"
+                                                        showInfo={false}
+                                                        strokeColor={getSeriesColor(idx + 1)}
+                                                    />
+                                                    <div>
+                                                        Probability that this variant has higher conversion than other
+                                                        variants:{' '}
+                                                        <b>
+                                                            {(experimentResults.probability[variant.key] * 100).toFixed(
+                                                                1
+                                                            )}
+                                                            %
+                                                        </b>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </Col>
+                                    )
+                                )}
+                            </Row>
+                        ) : experimentResultsLoading ? (
+                            <div className="text-center">
+                                <Spinner />
+                            </div>
+                        ) : (
+                            <span style={{ fontWeight: 500 }}>
+                                There are no results for this experiment yet.{' '}
+                                {!experimentData.start_date && 'Launch this experiment to start it!'}
+                            </span>
+                        )}
+                        {experimentResults ? (
+                            <BindLogic
+                                logic={insightLogic}
+                                props={{
+                                    dashboardItemId: experimentResults.itemID,
+                                    filters: {
+                                        ...experimentResults.filters,
+                                        insight: experimentInsightType,
+                                        display: experimentData.filters.display,
+                                        ...(experimentInsightType === InsightType.FUNNELS && {
+                                            layout: FunnelLayout.vertical,
                                             funnel_viz_type: FunnelVizType.Steps,
-                                            display: 'FunnelViz',
-                                        },
-                                        cachedResults: experimentResults.funnel,
-                                        syncWithUrl: false,
-                                        doNotLoad: true,
-                                    }}
-                                >
-                                    <div>
-                                        <PageHeader title="Results" />
-                                        <div>
-                                            Probability that test has higher conversion than control:{' '}
-                                            <b>{(experimentResults?.probability * 100).toFixed(1)}%</b>
-                                        </div>
-                                        {experimentResults.funnel.length === 0 && (
-                                            <div className="l4">There were no events related to this experiment.</div>
-                                        )}
-
-                                        <div>
-                                            Test variant conversion rate: <b>{conversionRateForVariant('test')}</b>
-                                        </div>
-                                        <div>
-                                            Control variant conversion rate:{' '}
-                                            <b>{conversionRateForVariant('control')}</b>
-                                        </div>
-                                        <InsightContainer disableTable={true} />
-                                    </div>
-                                </BindLogic>
-                            )}
-                        </div>
-                    )}
+                                        }),
+                                        ...(experimentInsightType === InsightType.TRENDS && {
+                                            display: ChartDisplayType.ActionsLineGraphCumulative,
+                                        }),
+                                    },
+                                    cachedResults: experimentResults.insight,
+                                    syncWithUrl: false,
+                                    doNotLoad: true,
+                                }}
+                            >
+                                <div className="mt">
+                                    <InsightContainer
+                                        disableHeader={experimentInsightType === InsightType.TRENDS}
+                                        disableTable={experimentInsightType === InsightType.FUNNELS}
+                                    />
+                                </div>
+                            </BindLogic>
+                        ) : (
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                    marginTop: 16,
+                                    background: '#FAFAF9',
+                                    border: '1px solid var(--border)',
+                                    width: '100%',
+                                    minHeight: 320,
+                                    fontSize: 24,
+                                }}
+                            >
+                                {experimentResultsLoading ? (
+                                    <Spinner />
+                                ) : (
+                                    <b>There are no results for this experiment yet.</b>
+                                )}
+                            </div>
+                        )}
+                    </div>
                 </div>
             ) : (
                 <div>Loading Data...</div>

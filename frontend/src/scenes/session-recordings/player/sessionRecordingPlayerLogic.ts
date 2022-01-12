@@ -192,6 +192,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
             actions.seek(values.currentPlayerPosition)
         },
         setSkipInactivitySetting: ({ skipInactivitySetting }) => {
+            eventUsageLogic.actions.reportRecordingPlayerSkipInactivityToggled(skipInactivitySetting)
             if (!values.currentSegment?.isActive && skipInactivitySetting) {
                 actions.setSkippingInactivity(true)
             } else {
@@ -293,7 +294,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
         startScrub: () => {
             actions.stopAnimation()
         },
-        setSpeed: () => {
+        setSpeed: ({ speed }) => {
+            eventUsageLogic.actions.reportRecordingPlayerSpeedChanged(speed)
             actions.syncPlayerSpeed()
         },
         seek: async ({ playerPosition, forcePlay }, breakpoint) => {

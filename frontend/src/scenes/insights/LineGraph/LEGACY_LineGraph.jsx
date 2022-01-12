@@ -5,7 +5,7 @@ import { getContext, useActions, useValues } from 'kea'
 import Chart from '@posthog/chart.js'
 import 'chartjs-adapter-dayjs'
 import PropTypes from 'prop-types'
-import { compactNumber, lightenDarkenColor } from '~/lib/utils'
+import { areObjectValuesEmpty, compactNumber, lightenDarkenColor } from '~/lib/utils'
 import { getBarColorFromStatus, getChartColors, getGraphColors } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
@@ -14,9 +14,6 @@ import './LineGraph.scss'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { LEGACY_InsightTooltip } from '../InsightTooltip/LEGACY_InsightTooltip'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
 //--Chart Style Options--//
 Chart.defaults.global.legend.display = false
@@ -27,8 +24,8 @@ Chart.defaults.global.elements.line.tension = 0
 const noop = () => {}
 
 export function LEGACY_LineGraph({
-    datasets,
-    visibilityMap = null,
+    datasets: _datasets,
+    hiddenLegendKeys,
     labels,
     color,
     type,
@@ -45,6 +42,7 @@ export function LEGACY_LineGraph({
     isCompare = false,
     incompletenessOffsetFromEnd = -1, // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
 }) {
+    let datasets = _datasets
     const chartRef = useRef()
     const myLineChart = useRef()
     const annotationsRoot = useRef()
@@ -63,7 +61,6 @@ export function LEGACY_LineGraph({
     const { annotationsList, annotationsLoading } = !inSharedMode
         ? useValues(annotationsLogic({ insightId }))
         : { annotationsList: [], annotationsLoading: false }
-    const { featureFlags } = useValues(featureFlagLogic)
     const [leftExtent, setLeftExtent] = useState(0)
     const [boundaryInterval, setBoundaryInterval] = useState(0)
     const [topExtent, setTopExtent] = useState(0)
@@ -80,13 +77,13 @@ export function LEGACY_LineGraph({
 
     useEffect(() => {
         buildChart()
-    }, [datasets, color, visibilityMap])
+    }, [datasets, color, hiddenLegendKeys])
 
     // Hacky! - Chartjs doesn't internally call tooltip callback on mouseout from right border.
     // Let's manually remove tooltips when the chart is being hovered over. #5061
     useEffect(() => {
         const removeTooltip = () => {
-            const tooltipEl = document.getElementById('ph-graph-tooltip')
+            const tooltipEl = document.getElementById('legacy-ph-graph-tooltip')
 
             if (tooltipEl && !tooltipVisible) {
                 tooltipEl.style.opacity = 0
@@ -143,9 +140,11 @@ export function LEGACY_LineGraph({
         setTopExtent(boundaryTopExtent)
     }
 
-    function processDataset(dataset, index) {
-        const colorList = getChartColors(color || 'white', datasets.length, isCompare)
-        const mainColor = dataset?.status ? getBarColorFromStatus(dataset.status) : colorList[index % colorList.length]
+    function processDataset(dataset) {
+        const colorList = getChartColors(color || 'white', _datasets.length, isCompare)
+        const mainColor = dataset?.status
+            ? getBarColorFromStatus(dataset.status)
+            : colorList[(dataset.id ?? 0) % (_datasets?.length ?? 1)]
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
 
         // `horizontalBar` colors are set in `ActionsHorizontalBar.tsx` and overriden in spread of `dataset` below
@@ -175,6 +174,26 @@ export function LEGACY_LineGraph({
             myLineChart.current.destroy()
         }
 
+        // Hide intentionally hidden keys
+        if (!areObjectValuesEmpty(hiddenLegendKeys)) {
+            if (type === 'horizontalBar') {
+                // If series are nested (for ActionsHorizontalBar only), filter out the series by index
+                const filterFn = (_, i) => !hiddenLegendKeys?.[i]
+                datasets = datasets.map((_data) => {
+                    // Performs a filter transformation on properties that contain arrayed data
+                    return Object.fromEntries(
+                        Object.entries(_data).map(([key, val]) =>
+                            Array.isArray(val) && val.length === datasets?.[0]?.actions?.length
+                                ? [key, val?.filter(filterFn)]
+                                : [key, val]
+                        )
+                    )
+                })
+            } else {
+                datasets = datasets.filter((data) => !hiddenLegendKeys?.[data.id])
+            }
+        }
+
         // if chart is line graph, make duplicate lines and overlay to show dotted lines
         const isLineGraph = type === 'line'
         if (isLineGraph) {
@@ -201,16 +220,16 @@ export function LEGACY_LineGraph({
 
                     // Nullify dates that don't have dotted line
                     const sliceFrom = incompletenessOffsetFromEnd - 1 || (datasetCopy.data?.length ?? 0)
-                    datasetCopy.data = (datasetCopy.data?.slice(0, sliceFrom).map(() => null) ?? []).concat(
-                        datasetCopy.data?.slice(sliceFrom) ?? []
-                    )
+                    datasetCopy.data =
+                        datasetCopy.data?.length === 1 && !isInProgress
+                            ? []
+                            : (datasetCopy.data?.slice(0, sliceFrom).map(() => null) ?? []).concat(
+                                  datasetCopy.data?.slice(sliceFrom) ?? []
+                              )
 
                     return processDataset(datasetCopy, index)
                 }),
             ]
-            if (visibilityMap && Object.keys(visibilityMap).length > 0) {
-                datasets = datasets.filter((data) => visibilityMap[data.id])
-            }
         } else {
             datasets = datasets.map((dataset, index) => processDataset(dataset, index))
         }
@@ -279,17 +298,18 @@ export function LEGACY_LineGraph({
                                     : entityData.breakdown_value
                             }
                             seriesStatus={entityData.status}
+                            pillMidEllipsis={entityData?.filter?.breakdown === '$current_url'}
                         />
                     )
                 },
             },
             custom: function (tooltipModel) {
-                let tooltipEl = document.getElementById('ph-graph-tooltip')
+                let tooltipEl = document.getElementById('legacy-ph-graph-tooltip')
                 // Create element on first render
                 if (!tooltipEl) {
                     tooltipEl = document.createElement('div')
-                    tooltipEl.id = 'ph-graph-tooltip'
-                    tooltipEl.classList.add('ph-graph-tooltip')
+                    tooltipEl.id = 'legacy-ph-graph-tooltip'
+                    tooltipEl.classList.add('legacy-ph-graph-tooltip')
                     document.body.appendChild(tooltipEl)
                 }
                 if (tooltipModel.opacity === 0) {
@@ -325,26 +345,15 @@ export function LEGACY_LineGraph({
 
                     ReactDOM.render(
                         <Provider store={getContext().store}>
-                            {featureFlags[FEATURE_FLAGS.NEW_INSIGHT_TOOLTIPS] ? (
-                                <InsightTooltip
-                                    referenceDate={referenceDate}
-                                    altTitle={altTitle}
-                                    seriesData={seriesData}
-                                    useAltTitle={tooltipPreferAltTitle}
-                                    hideHeader={type === 'horizontalBar'}
-                                    hideInspectActorsSection={!(onClick && showPersonsModal)}
-                                />
-                            ) : (
-                                <LEGACY_InsightTooltip
-                                    altTitle={altTitle}
-                                    referenceDate={referenceDate}
-                                    interval={interval}
-                                    bodyLines={seriesData}
-                                    inspectPersonsLabel={onClick && showPersonsModal}
-                                    preferAltTitle={tooltipPreferAltTitle}
-                                    hideHeader={type === 'horizontalBar'}
-                                />
-                            )}
+                            <LEGACY_InsightTooltip
+                                altTitle={altTitle}
+                                referenceDate={referenceDate}
+                                interval={interval}
+                                bodyLines={seriesData}
+                                inspectPersonsLabel={onClick && showPersonsModal}
+                                preferAltTitle={tooltipPreferAltTitle}
+                                hideHeader={type === 'horizontalBar'}
+                            />
                         </Provider>,
                         tooltipEl
                     )
@@ -490,7 +499,17 @@ export function LEGACY_LineGraph({
                 ],
                 yAxes: [
                     {
-                        ticks: { fontColor: colors.axisLabel },
+                        ticks: {
+                            fontColor: colors.axisLabel,
+                            callback: function _renderYLabel(_, i) {
+                                const labelDescriptors = [
+                                    datasets?.[0]?.actions?.[i]?.custom_name ?? datasets?.[0]?.actions?.[i]?.name, // action name
+                                    datasets?.[0]?.breakdownValues?.[i], // breakdown value
+                                    datasets?.[0]?.compareLabels?.[i], // compare value
+                                ].filter((l) => !!l)
+                                return labelDescriptors.join(' - ')
+                            },
+                        },
                     },
                 ],
             }
