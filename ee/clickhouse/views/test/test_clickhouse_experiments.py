@@ -232,7 +232,6 @@ class TestExperimentCRUD(APIBaseTest):
         id = response.json()["id"]
         end_date = "2021-12-10T00:00"
 
-
     def test_creating_invalid_multivariate_experiment_no_control(self):
         ff_key = "a-b-test"
         response = self.client.post(
