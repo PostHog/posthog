@@ -101,11 +101,11 @@ describe('eventsTableLogic', () => {
             logic: eventsTableLogic,
             props: {
                 key: 'test-key',
-                sceneUrl: urls.events(),
+                sceneUrl: urls.LEGACY_events(),
             },
             onLogic: (l) => (logic = l),
             beforeLogic: () => {
-                router.actions.push(urls.events())
+                router.actions.push(urls.LEGACY_events())
             },
         })
 
@@ -239,7 +239,7 @@ describe('eventsTableLogic', () => {
 
             it('can check if scene is loaded when it is', async () => {
                 await expectLogic(logic, () => {
-                    router.actions.push(urls.events())
+                    router.actions.push(urls.LEGACY_events())
                 }).toMatchValues({ sceneIsEventsPage: true })
             })
 
@@ -439,7 +439,7 @@ describe('eventsTableLogic', () => {
 
         it('reads properties from the URL', async () => {
             const propertyFilter = makePropertyFilter()
-            router.actions.push(urls.events(), { properties: [propertyFilter] })
+            router.actions.push(urls.LEGACY_events(), { properties: [propertyFilter] })
             await expectLogic(logic, () => {}).toMatchValues({ properties: [propertyFilter] })
         })
 

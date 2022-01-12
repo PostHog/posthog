@@ -144,7 +144,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         closeRecordingModal: () => true,
     }),
     connect: {
-        values: [groupsModel, ['groupTypes'], featureFlagLogic, ['featureFlags']],
+        values: [groupsModel, ['groupTypes', 'aggregationLabel'], featureFlagLogic, ['featureFlags']],
         actions: [eventUsageLogic, ['reportCohortCreatedFromPersonsModal']],
     },
     reducers: () => ({
@@ -241,12 +241,12 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         ],
         isGroupType: [(s) => [s.people], (people) => people?.people?.[0] && isGroupType(people.people[0])],
         actorLabel: [
-            (s) => [s.people, s.isGroupType, s.groupTypes],
-            (result, _isGroupType, groupTypes) => {
+            (s) => [s.people, s.isGroupType, s.groupTypes, s.aggregationLabel],
+            (result, _isGroupType, groupTypes, aggregationLabel) => {
                 if (_isGroupType) {
                     return result?.action?.math_group_type_index != undefined &&
                         groupTypes.length > result?.action.math_group_type_index
-                        ? `${groupTypes[result?.action.math_group_type_index].group_type}(s)`
+                        ? aggregationLabel(result?.action.math_group_type_index).plural
                         : ''
                 } else {
                     return pluralize(result?.count || 0, 'person', undefined, false)

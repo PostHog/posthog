@@ -2,14 +2,14 @@ import React from 'react'
 import { ActionEdit } from './ActionEdit'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
-import { EventsTable } from 'scenes/events'
+import { eventsTableLogic } from 'scenes/LEGACY_events/eventsTableLogic'
+import { EventsTable } from 'scenes/LEGACY_events'
 import { urls } from 'scenes/urls'
 import { ActionType } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
-import { actionLogic, ActionLogicProps } from 'scenes/actions/actionLogic'
+import { actionLogic, ActionLogicProps } from 'scenes/LEGACY_actions/actionLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 
 export const scene: SceneExport = {
@@ -25,7 +25,7 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
     const { fetchEvents } = useActions(
         eventsTableLogic({
             fixedFilters,
-            sceneUrl: id ? urls.action(id) : urls.actions(),
+            sceneUrl: id ? urls.LEGACY_action(id) : urls.LEGACY_actions(),
             key: 'Action',
             disableActions: true,
         })
@@ -41,7 +41,7 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
                     action={action}
                     onSave={(savedAction) => {
                         if (!id) {
-                            push(urls.action(savedAction.id))
+                            push(urls.LEGACY_action(savedAction.id))
                         }
                         loadAction()
                     }}
@@ -88,7 +88,7 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
                             <EventsTable
                                 fixedFilters={fixedFilters}
                                 disableActions
-                                sceneUrl={urls.action(id)}
+                                sceneUrl={urls.LEGACY_action(id)}
                                 fetchMonths={3}
                                 pageKey="Action"
                             />

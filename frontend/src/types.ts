@@ -499,7 +499,6 @@ export interface MatchedRecording {
 }
 
 interface CommonActorType {
-    type: 'group' | 'person'
     id?: string | number
     properties: Record<string, any>
     created_at?: string
@@ -507,6 +506,7 @@ interface CommonActorType {
 }
 
 export interface PersonActorType extends CommonActorType {
+    type: 'person'
     uuid?: string
     name?: string
     distinct_ids: string[]
@@ -514,6 +514,7 @@ export interface PersonActorType extends CommonActorType {
 }
 
 export interface GroupActorType extends CommonActorType {
+    type: 'group'
     group_key: string
     group_type_index: number
 }
@@ -1364,6 +1365,8 @@ export interface PersonProperty {
 export interface GroupType {
     group_type: string
     group_type_index: number
+    name_singular?: string | null
+    name_plural?: string | null
 }
 
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>
@@ -1394,20 +1397,6 @@ export interface ExperimentResults {
     itemID: string
     noData?: boolean
 }
-
-interface RelatedPerson {
-    type: 'person'
-    id: string
-    person: Pick<PersonType, 'distinct_ids' | 'properties'>
-}
-
-interface RelatedGroup {
-    type: 'group'
-    group_type_index: number
-    id: string
-}
-
-export type RelatedActor = RelatedPerson | RelatedGroup
 
 export interface SelectOption {
     value: string

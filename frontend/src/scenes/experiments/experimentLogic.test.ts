@@ -42,6 +42,17 @@ describe('experimentLogic', () => {
     })
 
     describe('selector values', () => {
+        it('given a sample size and conversion rate, calculates correct mde', async () => {
+            expect(logic.values.mdeGivenSampleSizeAndConversionRate(1000, 20)).toBeCloseTo(5.059)
+            expect(logic.values.mdeGivenSampleSizeAndConversionRate(100, 20)).toBeCloseTo(16)
+
+            expect(logic.values.mdeGivenSampleSizeAndConversionRate(1000, 50)).toBeCloseTo(6.324)
+            expect(logic.values.mdeGivenSampleSizeAndConversionRate(100, 50)).toBeCloseTo(20)
+
+            expect(logic.values.mdeGivenSampleSizeAndConversionRate(1000, 0)).toBeCloseTo(0)
+            expect(logic.values.mdeGivenSampleSizeAndConversionRate(100, 0)).toBeCloseTo(0)
+        })
+
         it('given an mde, calculates correct sample size', async () => {
             logic.actions.setNewExperimentData({ parameters: { minimum_detectable_effect: 10 } })
 
@@ -49,11 +60,23 @@ describe('experimentLogic', () => {
                 minimumDetectableChange: 10,
             })
 
-            expect(logic.values.recommendedSampleSize(20)).toEqual(512)
+            expect(logic.values.minimumSampleSizePerVariant(20)).toEqual(256)
 
-            expect(logic.values.recommendedSampleSize(40)).toEqual(768)
+            expect(logic.values.minimumSampleSizePerVariant(40)).toEqual(384)
 
-            expect(logic.values.recommendedSampleSize(0)).toEqual(0)
+            expect(logic.values.minimumSampleSizePerVariant(0)).toEqual(0)
+        })
+
+        it('given count data and exposure, calculates correct mde', async () => {
+            expect(logic.values.mdeGivenCountData(5000)).toEqual(201)
+            expect(logic.values.mdeGivenCountData(500)).toEqual(64)
+
+            expect(logic.values.mdeGivenCountData(1000000)).toEqual(2829)
+            expect(logic.values.mdeGivenCountData(10000)).toEqual(283)
+            expect(logic.values.mdeGivenCountData(1000)).toEqual(90)
+            expect(logic.values.mdeGivenCountData(100)).toEqual(29)
+            expect(logic.values.mdeGivenCountData(10)).toEqual(9)
+            expect(logic.values.mdeGivenCountData(1)).toEqual(3)
         })
 
         it('given sample size and entrants, calculates correct running time', async () => {
@@ -65,6 +88,18 @@ describe('experimentLogic', () => {
 
             // 0 entrants over 14 days, so infinite running time
             expect(logic.values.expectedRunningTime(0, 1000)).toEqual(Infinity)
+        })
+
+        it('given control count data, calculates correct running time', async () => {
+            // 1000 count over 14 days
+            expect(logic.values.recommendedExposureForCountData(1000)).toEqual(91.8)
+
+            // 10,000 entrants over 14 days
+            // 10x entrants, so 1/10th running time
+            expect(logic.values.recommendedExposureForCountData(10000)).toEqual(9.2)
+
+            // 0 entrants over 14 days, so infinite running time
+            expect(logic.values.recommendedExposureForCountData(0)).toEqual(Infinity)
         })
     })
 })
