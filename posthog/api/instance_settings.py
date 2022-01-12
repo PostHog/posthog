@@ -32,9 +32,9 @@ class InstanceSetting(object):
             setattr(self, field, kwargs.get(field, None))
 
 
-def get_instance_setting(key: str, setting_config: Optional[Dict] = None) -> InstanceSetting:
+def get_instance_setting(key: str, setting_config: Dict = {}) -> InstanceSetting:
 
-    if not setting_config:
+    if setting_config == {}:
         for _key, setting_config in settings.CONFIG.items():
             if _key == key:
                 break
@@ -73,7 +73,7 @@ class InstanceSettingsViewset(
     serializer_class = InstanceSettingsSerializer
     lookup_field = "key"
 
-    def get_queryset(self) -> List[InstanceSetting]:
+    def get_queryset(self):
         output = []
         for key, setting_config in settings.CONFIG.items():
             output.append(get_instance_setting(key, setting_config))
