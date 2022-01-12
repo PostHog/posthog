@@ -1368,6 +1368,8 @@ export interface PersonProperty {
 export interface GroupType {
     group_type: string
     group_type_index: number
+    name_singular?: string | null
+    name_plural?: string | null
 }
 
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>

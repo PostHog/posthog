@@ -18,7 +18,7 @@ interface Props {
 
 export function RelatedGroups({ groupTypeIndex, id }: Props): JSX.Element {
     const { relatedActors, relatedActorsLoading } = useValues(relatedGroupsLogic({ groupTypeIndex, id }))
-    const { groupTypes } = useValues(groupsModel)
+    const { aggregationLabel } = useValues(groupsModel)
 
     if (relatedActorsLoading) {
         return <Skeleton paragraph={{ rows: 2 }} active />
@@ -30,7 +30,7 @@ export function RelatedGroups({ groupTypeIndex, id }: Props): JSX.Element {
             key: 'type',
             render: function RenderCount(_, actor: RelatedActor) {
                 if (actor.type === 'group') {
-                    return <>{capitalizeFirstLetter(groupTypes[actor.group_type_index]?.group_type ?? '')}</>
+                    return <>{capitalizeFirstLetter(aggregationLabel(actor.group_type_index).singular)}</>
                 } else {
                     return (
                         <>
