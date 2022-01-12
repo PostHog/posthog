@@ -11,7 +11,7 @@ import { EyeOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { Tooltip } from 'lib/components/Tooltip'
 import { useActions, useValues } from 'kea'
-import { apmLogic } from 'scenes/APM/apmLogic'
+import { apmLogic } from 'scenes/apm/apmLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
