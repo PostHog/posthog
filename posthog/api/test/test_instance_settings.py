@@ -1,4 +1,6 @@
-from posthog.settings import SETTINGS_ALLOWING_API_OVERRIDE
+from rest_framework import status
+
+from posthog.settings import CONSTANCE_CONFIG, SETTINGS_ALLOWING_API_OVERRIDE
 from posthog.test.base import APIBaseTest
 
 
@@ -10,14 +12,26 @@ class TestInstanceSettings(APIBaseTest):
 
     def test_list_instance_settings(self):
 
-        response = self.client.get(f"/api/instance_settings/").json()
+        response = self.client.get(f"/api/instance_settings/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        json_response = response.json()
 
-        self.assertEqual(len(response.items()), len(SETTINGS_ALLOWING_API_OVERRIDE))
+        self.assertEqual(json_response["count"], len(CONSTANCE_CONFIG))
 
-        for setting_name in SETTINGS_ALLOWING_API_OVERRIDE:
-            self.assertTrue(setting_name in response)
-            self.assertTrue("value" in response[setting_name])
-            self.assertTrue("description" in response[setting_name])
+        # Check an example attribute
+        self.assertEqual(json_response["results"][0]["key"], "MATERIALIZED_COLUMNS_ENABLED")
+        self.assertEqual(json_response["results"][0]["value"], True)
+        self.assertEqual(
+            json_response["results"][0]["description"],
+            "Whether materialized columns should be created or used at query time",
+        )
+        self.assertEqual(json_response["results"][0]["value_type"], "bool")
+        self.assertEqual(json_response["results"][0]["editable"], False)
+
+        # Check an editable attribute
+        for item in json_response["results"]:
+            if item["key"] == "AUTO_START_ASYNC_MIGRATIONS":
+                self.assertEqual(item["editable"], True)
 
     def test_update_setting(self):
         response = self.client.get(f"/api/instance_settings/").json()

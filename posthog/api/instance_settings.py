@@ -1,7 +1,8 @@
-from typing import Any
+import re
+from typing import Any, List, Union
 
 from constance import config, settings
-from rest_framework import request, response, viewsets
+from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
 
 from posthog.permissions import StaffUser
@@ -19,15 +20,43 @@ def cast_str_to_desired_type(str_value: str, target_type: type) -> Any:
     return str_value
 
 
-class InstanceSettingsViewset(viewsets.ViewSet):
-    permission_classes = [StaffUser]
+class InstanceSettings(object):
+    key: str = ""
+    value: Union[str, bool, int, None] = None
+    value_type: str = ""
+    description: str = ""
+    editable: bool = False
 
-    def list(self, request: request.Request) -> response.Response:
-        res = {}
+    def __init__(self, **kwargs):
+        for field in ("key", "value", "value_type", "description", "editable"):
+            setattr(self, field, kwargs.get(field, None))
+
+
+class InstanceSettingsSerializer(serializers.Serializer):
+    key = serializers.CharField()
+    value = serializers.JSONField()  # value can be bool, int, or str
+    value_type = serializers.CharField(read_only=True)
+    description = serializers.CharField(read_only=True)
+    editable = serializers.BooleanField()
+
+
+class InstanceSettingsViewset(viewsets.GenericViewSet, mixins.ListModelMixin):
+    permission_classes = [StaffUser]
+    serializer_class = InstanceSettingsSerializer
+
+    def get_queryset(self) -> List[InstanceSettings]:
+        output = []
         for key, setting_config in settings.CONFIG.items():
-            if key in SETTINGS_ALLOWING_API_OVERRIDE:
-                res[key] = {"value": getattr(config, key), "description": setting_config[1]}
-        return response.Response(res)
+            output.append(
+                InstanceSettings(
+                    key=key,
+                    value=getattr(config, key),
+                    value_type=re.sub(r"<class '(\w+)'>", r"\1", str(setting_config[2])),
+                    description=setting_config[1],
+                    editable=key in SETTINGS_ALLOWING_API_OVERRIDE,
+                )
+            )
+        return output
 
     # Used to capture internal metrics shown on dashboards
     @action(methods=["POST"], detail=False)
