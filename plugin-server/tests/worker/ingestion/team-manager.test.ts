@@ -6,7 +6,7 @@ import { Hub, PropertyType } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { posthog } from '../../../src/utils/posthog'
 import { UUIDT } from '../../../src/utils/utils'
-import { TeamManager } from '../../../src/worker/ingestion/team-manager'
+import { dateTimePropertyTypeFormatPatterns, TeamManager } from '../../../src/worker/ingestion/team-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/posthog', () => ({
@@ -402,206 +402,136 @@ DO UPDATE SET property_type=$5, property_type_format=$6 where posthog_propertyde
                 )
             })
 
-            it('identifies a date type with format YYYY-MM-DD', async () => {
-                await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
-                    aDate: '2021-12-31',
-                })
+            // there are several cases that can be identified as timestamps
+            // and each might match with time or timestamp in the property key
+            // but won't match if neither is in it
+            const unixTimestampTestCases = [
+                {
+                    propertyKey: 'unix timestamp with fractional seconds as a number',
+                    date: 1234567890.123,
+                    expectedPropertyTypeFormat: 'unix_timestamp',
+                    expectedPropertyType: PropertyType.DateTime,
+                },
+                {
+                    propertyKey: 'unix timestamp with five decimal places of fractional seconds as a number',
+                    date: 1234567890.12345,
+                    expectedPropertyTypeFormat: 'unix_timestamp',
+                    expectedPropertyType: PropertyType.DateTime,
+                },
+                {
+                    propertyKey: 'unix timestamp as a number',
+                    date: 1234567890,
+                    expectedPropertyTypeFormat: 'unix_timestamp',
+                    expectedPropertyType: PropertyType.DateTime,
+                },
+                {
+                    propertyKey: 'unix timestamp with fractional seconds as a string',
+                    date: '1234567890.123',
+                    expectedPropertyTypeFormat: 'unix_timestamp',
+                    expectedPropertyType: PropertyType.DateTime,
+                },
+                {
+                    propertyKey: 'unix timestamp with five decimal places of fractional seconds as a string',
+                    date: '1234567890.12345',
+                    expectedPropertyTypeFormat: 'unix_timestamp',
+                    expectedPropertyType: PropertyType.DateTime,
+                },
+                {
+                    propertyKey: 'unix timestamp as a string',
+                    date: '1234567890',
+                    expectedPropertyTypeFormat: 'unix_timestamp',
+                    expectedPropertyType: PropertyType.DateTime,
+                },
+            ].flatMap((testcase) => {
+                const toEdit = testcase
 
-                expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('aDate')
+                const toMatchWithJustTimeInName = {
+                    ...toEdit,
+                    propertyKey: testcase.propertyKey.replace('timestamp', 'time'),
+                }
 
-                expectMockQueryCallToMatch(
-                    {
-                        tag: 'insertPropertyDefinition',
-                        query: insertPropertyDefinitionQuery,
-                        params: [expect.any(String), 'aDate', false, teamId, PropertyType.DateTime, 'YYYY-MM-DD'],
-                    },
-                    postgresQuery
-                )
+                const toNotMatch = {
+                    ...toEdit,
+                    propertyKey: toEdit.propertyKey.replace('timestamp', 'string'),
+                    expectedPropertyType: typeof toEdit.date === 'string' ? PropertyType.String : PropertyType.Numeric,
+                    expectedPropertyTypeFormat: null,
+                }
+
+                return [testcase, toMatchWithJustTimeInName, toNotMatch]
             })
 
-            it('identifies a date type with format YYYY-MM-DD hh:mm:ss', async () => {
-                await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
-                    aDate: '2021-12-31 23:59:59',
+            unixTimestampTestCases.forEach((testcase) => {
+                it(`with key ${testcase.propertyKey} matches ${testcase.date} as ${testcase.expectedPropertyTypeFormat}`, async () => {
+                    const properties: Record<string, string | number> = {}
+                    properties[testcase.propertyKey] = testcase.date
+                    await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', properties)
+
+                    expectMockQueryCallToMatch(
+                        {
+                            tag: 'insertPropertyDefinition',
+                            query: insertPropertyDefinitionQuery,
+                            params: [
+                                expect.any(String),
+                                testcase.propertyKey,
+                                typeof testcase.date === 'number',
+                                teamId,
+                                testcase.expectedPropertyType,
+                                testcase.expectedPropertyTypeFormat,
+                            ],
+                        },
+                        postgresQuery
+                    )
                 })
-
-                expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('aDate')
-
-                expectMockQueryCallToMatch(
-                    {
-                        tag: 'insertPropertyDefinition',
-                        query: insertPropertyDefinitionQuery,
-                        params: [
-                            expect.any(String),
-                            'aDate',
-                            false,
-                            teamId,
-                            PropertyType.DateTime,
-                            'YYYY-MM-DD hh:mm:ss',
-                        ],
-                    },
-                    postgresQuery
-                )
             })
 
-            it('identifies as a date type a string of a ten digit timestamp', async () => {
-                await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
-                    someTimestamp: '0123456789',
-                })
+            // most datetimes can be identified by replacing the date parts with numbers
+            // RFC 822 formatted dates as it has a short name for the month instead of a two-digit number
+            const dateTimeFormatTestCases: {
+                propertyKey: string
+                date: string
+                patternDescription: string
+            }[] = Object.keys(dateTimePropertyTypeFormatPatterns).map((patternDescription: string) => {
+                if (patternDescription === 'rfc_822') {
+                    return {
+                        propertyKey: 'an_rfc_822_format_date',
+                        date: 'Wed, 02 Oct 2002 15:00:00 +0200',
+                        patternDescription,
+                    }
+                } else {
+                    const date = patternDescription
+                        .replace('YYYY', '2021')
+                        .replace('MM', '04')
+                        .replace('DD', '01')
+                        .replace('hh', '13')
+                        .replace('mm', '01')
+                        .replace('ss', '01')
 
-                expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('someTimestamp')
-
-                expectMockQueryCallToMatch(
-                    {
-                        tag: 'insertPropertyDefinition',
-                        query: insertPropertyDefinitionQuery,
-                        params: [
-                            expect.any(String),
-                            'someTimestamp',
-                            false,
-                            teamId,
-                            PropertyType.DateTime,
-                            'unix_timestamp',
-                        ],
-                    },
-                    postgresQuery
-                )
+                    return { propertyKey: patternDescription, date, patternDescription }
+                }
             })
 
-            it('identifies as a date type a string with a ten digit timestamp and 3 decimal places', async () => {
-                await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
-                    someTimestamp: '0123456789.012',
+            dateTimeFormatTestCases.forEach((testcase) => {
+                it(`matches ${testcase.date} as ${testcase.patternDescription}`, async () => {
+                    const properties: Record<string, string> = {}
+                    properties[testcase.propertyKey] = testcase.date
+                    await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', properties)
+
+                    expectMockQueryCallToMatch(
+                        {
+                            tag: 'insertPropertyDefinition',
+                            query: insertPropertyDefinitionQuery,
+                            params: [
+                                expect.any(String),
+                                testcase.propertyKey,
+                                false,
+                                teamId,
+                                PropertyType.DateTime,
+                                testcase.patternDescription,
+                            ],
+                        },
+                        postgresQuery
+                    )
                 })
-
-                expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('someTimestamp')
-
-                expectMockQueryCallToMatch(
-                    {
-                        tag: 'insertPropertyDefinition',
-                        query: insertPropertyDefinitionQuery,
-                        params: [
-                            expect.any(String),
-                            'someTimestamp',
-                            false,
-                            teamId,
-                            PropertyType.DateTime,
-                            'unix_timestamp',
-                        ],
-                    },
-                    postgresQuery
-                )
-            })
-
-            it('identifies as a date type a string of a thirteen digit timestamp', async () => {
-                await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
-                    someTimestamp: '0123456789012',
-                })
-
-                expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('someTimestamp')
-
-                expectMockQueryCallToMatch(
-                    {
-                        tag: 'insertPropertyDefinition',
-                        query: insertPropertyDefinitionQuery,
-                        params: [
-                            expect.any(String),
-                            'someTimestamp',
-                            false,
-                            teamId,
-                            PropertyType.DateTime,
-                            'unix_timestamp',
-                        ],
-                    },
-                    postgresQuery
-                )
-            })
-
-            it('does not identify as a timestamp date type a if the property key does not suggest it is a timestamp', async () => {
-                await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
-                    aLongNumberString: '0123456789',
-                })
-
-                expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('aLongNumberString')
-
-                expectMockQueryCallToMatch(
-                    {
-                        tag: 'insertPropertyDefinition',
-                        query: insertPropertyDefinitionQuery,
-                        params: [expect.any(String), 'aLongNumberString', false, teamId, 'String', null],
-                    },
-                    postgresQuery
-                )
-            })
-
-            it('does identify as a unix_timestamp if the property key includes time', async () => {
-                await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
-                    aProductSpecificTime: '0123456789',
-                })
-
-                expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('aProductSpecificTime')
-
-                expectMockQueryCallToMatch(
-                    {
-                        tag: 'insertPropertyDefinition',
-                        query: insertPropertyDefinitionQuery,
-                        params: [
-                            expect.any(String),
-                            'aProductSpecificTime',
-                            false,
-                            teamId,
-                            PropertyType.DateTime,
-                            'unix_timestamp',
-                        ],
-                    },
-                    postgresQuery
-                )
-            })
-
-            it('does identify as a unix_timestamp if the property is a number', async () => {
-                await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
-                    aProductSpecificTime: 1234567890,
-                })
-
-                expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('aProductSpecificTime')
-
-                expectMockQueryCallToMatch(
-                    {
-                        tag: 'insertPropertyDefinition',
-                        query: insertPropertyDefinitionQuery,
-                        params: [
-                            expect.any(String),
-                            'aProductSpecificTime',
-                            true,
-                            2,
-                            PropertyType.DateTime,
-                            'unix_timestamp',
-                        ],
-                    },
-                    postgresQuery
-                )
-            })
-
-            it('does identify as a unix_timestamp with fractional seconds if the property is a number', async () => {
-                await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
-                    aProductSpecificTime: 1234567890.123,
-                })
-
-                expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('aProductSpecificTime')
-
-                expectMockQueryCallToMatch(
-                    {
-                        tag: 'insertPropertyDefinition',
-                        query: insertPropertyDefinitionQuery,
-                        params: [
-                            expect.any(String),
-                            'aProductSpecificTime',
-                            true,
-                            teamId,
-                            PropertyType.DateTime,
-                            'unix_timestamp',
-                        ],
-                    },
-                    postgresQuery
-                )
             })
 
             it('does identify type if the property was previously saved with no type', async () => {

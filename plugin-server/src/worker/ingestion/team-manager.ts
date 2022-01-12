@@ -4,7 +4,15 @@ import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 
 import { ONE_HOUR } from '../../config/constants'
-import { PluginsServerConfig, PropertyType, PropertyTypeFormat, Team, TeamId } from '../../types'
+import {
+    DateTimePropertyTypeFormat,
+    PluginsServerConfig,
+    PropertyType,
+    PropertyTypeFormat,
+    Team,
+    TeamId,
+    UnixTimestampPropertyTypeFormat,
+} from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
 import { posthog } from '../../utils/posthog'
@@ -12,6 +20,22 @@ import { status } from '../../utils/status'
 import { getByAge, UUIDT } from '../../utils/utils'
 
 type TeamCache<T> = Map<TeamId, [T, number]>
+
+export const unixTimestampPropertyTypeFormatPatterns: Record<UnixTimestampPropertyTypeFormat, RegExp> = {
+    unix_timestamp: /^\d{10}(\.\d*)?$/,
+    unix_timestamp_milliseconds: /^\d{13}$/,
+}
+
+export const dateTimePropertyTypeFormatPatterns: Record<DateTimePropertyTypeFormat, RegExp> = {
+    'YYYY-MM-DD': /^\d{4}-\d{2}-\d{2}$/,
+    'YYYY-MM-DDThh:mm:ssZ': /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/,
+    'YYYY-MM-DD hh:mm:ss': /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/,
+    'DD-MM-YYYY hh:mm:ss': /^\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2}$/,
+    'DD/MM/YYYY hh:mm:ss': /^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}$/,
+    'YYYY/MM/DD hh:mm:ss': /^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}$/,
+    rfc_822:
+        /^((mon|tue|wed|thu|fri|sat|sun), )?\d{2} (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec) \d{4} \d{2}:\d{2}:\d{2}( [+|-]\d{4})?$/i,
+}
 
 function detectPropertyDefinitionTypes(value: unknown, key: string) {
     let propertyType: PropertyType | null = null
@@ -52,13 +76,16 @@ function detectPropertyDefinitionTypes(value: unknown, key: string) {
      * 1641478347
      */
     const detectUnixTimestamps = () => {
-        if (
-            (key.toLowerCase().includes('timestamp') || key.toLowerCase().includes('time')) &&
-            String(value).match(/^(\d{10}|\d{13})(\.\d*)?$/)
-        ) {
-            propertyType = PropertyType.DateTime
-            propertyTypeFormat = 'unix_timestamp'
-        }
+        Object.entries(unixTimestampPropertyTypeFormatPatterns).find(([dateTimeFormat, pattern]) => {
+            if (
+                (key.toLowerCase().includes('timestamp') || key.toLowerCase().includes('time')) &&
+                String(value).match(pattern)
+            ) {
+                propertyType = PropertyType.DateTime
+                propertyTypeFormat = dateTimeFormat as PropertyTypeFormat
+                return true
+            }
+        })
     }
 
     if (typeof value === 'number') {
@@ -67,21 +94,10 @@ function detectPropertyDefinitionTypes(value: unknown, key: string) {
         detectUnixTimestamps()
     }
 
-    const dateTimePatterns = {
-        'YYYY-MM-DD': /^\d{4}-\d{2}-\d{2}$/,
-        'YYYY-MM-DDThh:mm:ssZ': /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/,
-        'YYYY-MM-DD hh:mm:ss': /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/,
-        'DD-MM-YYYY hh:mm:ss': /^\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2}$/,
-        'DD/MM/YYYY hh:mm:ss': /^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}$/,
-        'YYYY/MM/DD hh:mm:ss': /^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}$/,
-        rfc_822:
-            /^((mon|tue|wed|thu|fri|sat|sun), )?\d{2} (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec) \d{4} \d{2}:\d{2}:\d{2}( [+|-]\d{4})?$/i,
-    }
-
     if (typeof value === 'string') {
         propertyType = PropertyType.String
 
-        Object.entries(dateTimePatterns).find(([dateTimeFormat, pattern]) => {
+        Object.entries(dateTimePropertyTypeFormatPatterns).find(([dateTimeFormat, pattern]) => {
             if (value.match(pattern)) {
                 propertyType = PropertyType.DateTime
                 propertyTypeFormat = dateTimeFormat as PropertyTypeFormat

@@ -757,8 +757,16 @@ export interface EventDefinitionType {
     created_at: string // DateTime
 }
 
-type DateTimePropertyTypeFormat = 'unix_timestamp' | 'YYYY-MM-DD hh:mm:ss' | 'YYYY-MM-DD'
-export type PropertyTypeFormat = DateTimePropertyTypeFormat
+export type UnixTimestampPropertyTypeFormat = 'unix_timestamp' | 'unix_timestamp_milliseconds'
+export type DateTimePropertyTypeFormat =
+    | 'YYYY-MM-DD'
+    | 'YYYY-MM-DDThh:mm:ssZ'
+    | 'YYYY-MM-DD hh:mm:ss'
+    | 'DD-MM-YYYY hh:mm:ss'
+    | 'DD/MM/YYYY hh:mm:ss'
+    | 'YYYY/MM/DD hh:mm:ss'
+    | 'rfc_822'
+export type PropertyTypeFormat = DateTimePropertyTypeFormat | UnixTimestampPropertyTypeFormat
 
 export enum PropertyType {
     DateTime = 'DateTime',
