@@ -33,6 +33,7 @@ export const dateTimePropertyTypeFormatPatterns: Record<DateTimePropertyTypeForm
     'DD-MM-YYYY hh:mm:ss': /^\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2}$/,
     'DD/MM/YYYY hh:mm:ss': /^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}$/,
     'YYYY/MM/DD hh:mm:ss': /^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}$/,
+    // see https://datatracker.ietf.org/doc/html/rfc2822#section-3.3
     rfc_822:
         /^((mon|tue|wed|thu|fri|sat|sun), )?\d{2} (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec) \d{4} \d{2}:\d{2}:\d{2}( [+|-]\d{4})?$/i,
 }
