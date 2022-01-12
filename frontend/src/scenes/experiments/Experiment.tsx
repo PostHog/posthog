@@ -527,7 +527,6 @@ export function Experiment(): JSX.Element {
                                 </Button>
                             )}
                         </Row>
-                        {experimentData.description && <Row>Description: {experimentData.description}</Row>}
                     </Row>
                     <Row className="mb">
                         <Col span={10} style={{ paddingRight: '1rem' }}>
@@ -644,7 +643,7 @@ export function Experiment(): JSX.Element {
                     </Row>
                     <div className="experiment-result">
                         {experimentResults ? (
-                            <Row justify="space-around">
+                            <Row justify="space-around" style={{ flexFlow: 'nowrap' }}>
                                 {experimentData.parameters.feature_flag_variants.map(
                                     (variant: MultivariateFlagVariant, idx: number) => (
                                         <Col key={idx}>
