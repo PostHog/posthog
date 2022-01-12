@@ -109,7 +109,15 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
     connect: (props: InsightLogicProps) => ({
         values: [
             insightLogic(props),
-            ['filters', 'insight', 'insightLoading', 'insightMode', 'isViewedOnDashboard', 'hiddenLegendKeys'],
+            [
+                'filters',
+                'insight',
+                'insightLoading',
+                'insightMode',
+                'isViewedOnDashboard',
+                'hiddenLegendKeys',
+                'syncWithUrl',
+            ],
             teamLogic,
             ['currentTeamId', 'currentTeam'],
             personPropertiesModel,
@@ -1174,7 +1182,14 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             }
 
             // load correlation table after funnel. Maybe parallel?
-            if (values.correlationAnalysisAvailable && insight.filters?.funnel_viz_type === FunnelVizType.Steps) {
+            if (
+                values.correlationAnalysisAvailable &&
+                insight.filters?.funnel_viz_type === FunnelVizType.Steps &&
+                values.steps?.length > 1 &&
+                values.syncWithUrl
+            ) {
+                // syncWithUrl implies correlations are loaded only on insight view page
+                // and not in Experiments or dashboards
                 actions.loadCorrelations()
                 actions.setPropertyNames(values.allProperties) // select all properties by default
             }
@@ -1183,7 +1198,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.EXPERIMENT_CORRELATION_DISCOVERY] === 'test') {
                 toast(CorrelationToast(), {
                     toastId: 'correlation', // id prevents duplicates
-                    className: 'correlation-toast',
                     onClick: () => {
                         window.scrollBy({ left: 0, top: window.innerHeight, behavior: 'smooth' })
                     },
