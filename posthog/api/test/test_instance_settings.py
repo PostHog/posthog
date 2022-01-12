@@ -1,6 +1,8 @@
+from constance import config
 from rest_framework import status
 
-from posthog.settings import CONSTANCE_CONFIG, SETTINGS_ALLOWING_API_OVERRIDE
+from posthog.api.instance_settings import get_instance_setting
+from posthog.settings import CONSTANCE_CONFIG
 from posthog.test.base import APIBaseTest
 
 
@@ -33,25 +35,51 @@ class TestInstanceSettings(APIBaseTest):
             if item["key"] == "AUTO_START_ASYNC_MIGRATIONS":
                 self.assertEqual(item["editable"], True)
 
+    def test_can_retrieve_setting(self):
+
+        response = self.client.get(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        json_response = response.json()
+
+        self.assertEqual(json_response["key"], "AUTO_START_ASYNC_MIGRATIONS")
+        self.assertEqual(json_response["value"], False)
+        self.assertEqual(
+            json_response["description"],
+            "Whether the earliest unapplied async migration should be triggered automatically on server startup",
+        )
+        self.assertEqual(json_response["value_type"], "bool")
+        self.assertEqual(json_response["editable"], True)
+
     def test_update_setting(self):
-        response = self.client.get(f"/api/instance_settings/").json()
+        response = self.client.get(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["value"], False)
 
-        self.assertEqual(response["ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK"]["value"], False)
+        response = self.client.patch(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS", {"value": True})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["value"], True)
 
-        response = self.client.post(
-            f"/api/instance_settings/update_setting",
-            data={"key": "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK", "value": "true"},
-        ).json()
+        self.assertEqual(get_instance_setting("AUTO_START_ASYNC_MIGRATIONS").value, True)
+        self.assertEqual(getattr(config, "AUTO_START_ASYNC_MIGRATIONS"), True)
 
-        response = self.client.get(f"/api/instance_settings/").json()
-        self.assertEqual(response["ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK"]["value"], True)
-
-        from constance import config
-
-        self.assertEqual(getattr(config, "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK"), True)
-
-        response = self.client.post(
-            f"/api/instance_settings/update_setting",
-            data={"key": "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT", "value": "48343943943"},
-        ).json()
+    def test_update_integer_setting(self):
+        response = self.client.patch(
+            f"/api/instance_settings/ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT", {"value": 48343943943},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["value"], 48343943943)
         self.assertEqual(getattr(config, "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT"), 48343943943)
+
+    def test_cant_update_setting_that_is_not_overridable(self):
+        response = self.client.patch(f"/api/instance_settings/MATERIALIZED_COLUMNS_ENABLED", {"value": False},)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "no_api_override",
+                "detail": "This setting cannot be updated from the API.",
+                "attr": None,
+            },
+        )
+        self.assertEqual(getattr(config, "MATERIALIZED_COLUMNS_ENABLED"), True)
