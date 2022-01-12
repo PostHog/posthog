@@ -82,7 +82,7 @@ export function FeatureFlag(): JSX.Element {
         setFeatureFlag,
         setAggregationGroupTypeIndex,
     } = useActions(featureFlagLogic)
-    const { showGroupsOptions } = useValues(groupsModel)
+    const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
     const { hasAvailableFeature, upgradeLink } = useValues(userLogic)
 
     // whether the key for an existing flag is being changed
@@ -519,7 +519,7 @@ export function FeatureFlag(): JSX.Element {
                                             key={groupType.group_type_index}
                                             value={groupType.group_type_index}
                                         >
-                                            {capitalizeFirstLetter(groupType.group_type)}(s)
+                                            {capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural)}
                                         </Select.Option>
                                     ))}
                                     {matchByGroupsIntroductionOption}
