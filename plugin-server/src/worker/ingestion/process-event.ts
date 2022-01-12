@@ -121,12 +121,12 @@ export class EventsProcessor {
 
             const personUuid = new UUIDT().toString()
 
-            const ts = this.handleTimestamp(data, now, sentAt)
+            const timestampExtracted = this.handleTimestamp(data, now)
             const timeout1 = timeoutGuard('Still running "handleIdentifyOrAlias". Timeout warning after 30 sec!', {
                 eventUuid,
             })
             try {
-                await this.handleIdentifyOrAlias(data['event'], properties, distinctId, teamId, ts)
+                await this.handleIdentifyOrAlias(data['event'], properties, distinctId, teamId, timestampExtracted)
             } catch (e) {
                 console.error('handleIdentifyOrAlias failed', e, data)
             } finally {
@@ -145,7 +145,7 @@ export class EventsProcessor {
                         distinctId,
                         properties['$session_id'],
                         properties['$window_id'],
-                        ts,
+                        timestampExtracted,
                         properties['$snapshot_data'],
                         personUuid
                     )
@@ -167,7 +167,7 @@ export class EventsProcessor {
                         data['event'],
                         distinctId,
                         properties,
-                        ts
+                        timestampExtracted
                     )
                     this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
                         team_id: teamId.toString(),
@@ -187,21 +187,10 @@ export class EventsProcessor {
         return result
     }
 
-    public handleTimestamp(data: PluginEvent, now: DateTime, sentAt: DateTime | null): DateTime {
-        if (data['timestamp']) {
-            if (sentAt) {
-                // sent_at - timestamp == now - x
-                // x = now + (timestamp - sent_at)
-                try {
-                    // timestamp and sent_at must both be in the same format: either both with or both without timezones
-                    // otherwise we can't get a diff to add to now
-                    return now.plus(parseDate(data['timestamp']).diff(sentAt))
-                } catch (error) {
-                    status.error('⚠️', 'Error when handling timestamp:', error)
-                    Sentry.captureException(error, { extra: { data, now, sentAt } })
-                }
-            }
-            return parseDate(data['timestamp'])
+    public handleTimestamp(data: PluginEvent, now: DateTime): DateTime {
+        const customTimestamp = data.timestamp || data.properties?.$timestamp
+        if (customTimestamp) {
+            return parseDate(customTimestamp)
         }
         if (data['offset']) {
             return now.minus(Duration.fromMillis(data['offset']))

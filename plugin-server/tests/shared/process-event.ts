@@ -770,10 +770,6 @@ export const createProcessEventTests = (
         const tomorrow = rightNow.plus({ days: 1, hours: 2 }).setZone('UTC+4')
         const tomorrowSentAt = rightNow.plus({ days: 1, hours: 2, minutes: 10 }).setZone('UTC+4')
 
-        // TODO: not sure if this is correct?
-        // tomorrow = tomorrow.replace(tzinfo=None)
-        // tomorrow_sent_at = tomorrow_sent_at.replace(tzinfo=None)
-
         await processEvent(
             'movie played',
             '',
