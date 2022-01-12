@@ -2,14 +2,13 @@ import React from 'react'
 import { Modal, Button } from 'antd'
 import { useValues, useActions } from 'kea'
 import { ExclamationCircleOutlined, PlusOutlined } from '@ant-design/icons'
-import { humanFriendlyDetailedTime } from 'lib/utils'
 import { OrganizationInviteType } from '~/types'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { inviteLogic } from './inviteLogic'
 import { EmailUnavailableMessage } from './InviteModal'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
-import { createdByColumn } from 'lib/components/LemonTable/columnUtils'
+import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconClose } from 'lib/components/icons'
@@ -39,14 +38,14 @@ function makeActionsComponent(
                     invite.is_expired
                         ? deleteInvite(invite)
                         : Modal.confirm({
-                              title: `Do you want to cancel inviting ${invite.target_email}?`,
+                              title: `Do you want to cancel the invite for ${invite.target_email}?`,
                               icon: <ExclamationCircleOutlined />,
-                              okText: 'Yes, cancel the invite',
+                              okText: 'Yes, cancel invite',
                               okType: 'danger',
                               onOk() {
                                   deleteInvite(invite)
                               },
-                              cancelText: 'No, keep the invite',
+                              cancelText: 'No, keep invite',
                           })
                 }}
             />
@@ -70,22 +69,19 @@ export function Invites(): JSX.Element {
                             name={invite.first_name}
                             email={invite.target_email}
                             size="md"
-                            style={{ marginRight: 4 }}
+                            style={{ marginRight: 8 }}
                         />
                         {invite.target_email}
+                        {invite.first_name ? ` (${invite.first_name})` : ''}
                     </div>
                 ) : (
                     <i>no one</i>
                 )
             },
-        },
-        {
-            title: 'Created At',
-            dataIndex: 'created_at',
-            key: 'created_at',
-            render: (_, { created_at }) => humanFriendlyDetailedTime(created_at),
+            width: '20%',
         },
         createdByColumn() as LemonTableColumn<OrganizationInviteType, keyof OrganizationInviteType | undefined>,
+        createdAtColumn() as LemonTableColumn<OrganizationInviteType, keyof OrganizationInviteType | undefined>,
         {
             title: 'Invite Link',
             dataIndex: 'id',
