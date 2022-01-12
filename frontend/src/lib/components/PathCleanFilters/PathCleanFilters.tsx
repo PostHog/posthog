@@ -1,5 +1,5 @@
 import React, { CSSProperties } from 'react'
-import '../../../scenes/actions/Actions.scss'
+import '../../../scenes/LEGACY_actions/Actions.scss'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Placement } from '@popperjs/core'

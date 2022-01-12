@@ -1,6 +1,11 @@
 import { BuiltLogic } from 'kea'
-import { eventsTableLogicType } from 'scenes/events/eventsTableLogicType'
-import { ApiError, eventsTableLogic, EventsTableLogicProps, OnFetchEventsSuccess } from 'scenes/events/eventsTableLogic'
+import { eventsTableLogicType } from 'scenes/LEGACY_events/eventsTableLogicType'
+import {
+    ApiError,
+    eventsTableLogic,
+    EventsTableLogicProps,
+    OnFetchEventsSuccess,
+} from 'scenes/LEGACY_events/eventsTableLogic'
 import { MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'

@@ -201,7 +201,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                 {errorActionId && (
                     <p className="text-danger">
                         Action with this name already exists.{' '}
-                        <a href={urls.action(errorActionId)}>Click here to edit.</a>
+                        <a href={urls.LEGACY_action(errorActionId)}>Click here to edit.</a>
                     </p>
                 )}
                 <div className="float-right">
