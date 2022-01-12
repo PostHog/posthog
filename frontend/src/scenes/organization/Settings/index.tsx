@@ -165,6 +165,7 @@ export function OrganizationSettings(): JSX.Element {
                     </>
                 )}
                 <Invites />
+                <Divider />
                 {user && <Members user={user} />}
                 <Divider />
                 <RestrictedArea Component={EmailPreferences} minimumAccessLevel={OrganizationMembershipLevel.Admin} />

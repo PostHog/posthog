@@ -1,14 +1,15 @@
 import React, { useState } from 'react'
-import { Table, Modal, Button } from 'antd'
+import { Modal, Button } from 'antd'
 import { useValues, useActions } from 'kea'
 import { DeleteOutlined, ExclamationCircleOutlined, PlusOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import { OrganizationInviteType, UserBasicType } from '~/types'
+import { OrganizationInviteType } from '~/types'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { ColumnsType } from 'antd/lib/table'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { inviteLogic } from './inviteLogic'
 import { InviteModal } from './InviteModal'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
+import { createdByColumn } from 'lib/components/LemonTable/columnUtils'
 
 function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.Element {
     const url = new URL(`/signup/${id}`, document.baseURI).href
@@ -50,44 +51,42 @@ export function Invites(): JSX.Element {
     const { deleteInvite } = useActions(inviteLogic)
     const [invitingModal, setInvitingModal] = useState(false)
 
-    const columns: ColumnsType<OrganizationInviteType> = [
+    const columns: LemonTableColumns<OrganizationInviteType> = [
         {
+            title: 'Invitee',
             dataIndex: 'target_email',
             key: 'target_email',
-            render: function ProfilePictureRender(_, invite) {
-                return <ProfilePicture name={invite.first_name} email={invite.target_email} />
-            },
-            width: 32,
-        },
-        {
-            title: 'Target Email',
-            dataIndex: 'target_email',
-            key: 'target_email',
-            render: function TargetEmail(target_email: string | null): JSX.Element | string {
-                return target_email ?? <i>none</i>
+            render: function TargetEmail(_, invite): JSX.Element | string {
+                return invite.target_email ? (
+                    <div className="flex-center">
+                        <ProfilePicture
+                            name={invite.first_name}
+                            email={invite.target_email}
+                            size="md"
+                            style={{ marginRight: 4 }}
+                        />
+                        {invite.target_email}
+                    </div>
+                ) : (
+                    <i>no one</i>
+                )
             },
         },
         {
             title: 'Created At',
             dataIndex: 'created_at',
             key: 'created_at',
-            render: (created_at: string) => humanFriendlyDetailedTime(created_at),
+            render: (_, { created_at }) => humanFriendlyDetailedTime(created_at),
         },
-        {
-            title: 'Created By',
-            dataIndex: 'created_by',
-            key: 'created_by',
-            render: (createdBy?: UserBasicType) => (createdBy ? `${createdBy.first_name} (${createdBy.email})` : '–'),
-        },
+        createdByColumn() as LemonTableColumn<OrganizationInviteType, keyof OrganizationInviteType | undefined>,
         {
             title: 'Invite Link',
             dataIndex: 'id',
             key: 'link',
-            render: (id, invite) => InviteLinkComponent(id as string, invite),
+            render: (_, invite) => InviteLinkComponent(invite.id, invite),
         },
         {
             title: '',
-            dataIndex: 'actions',
             key: 'actions',
             render: makeActionsComponent(deleteInvite),
         },
@@ -101,23 +100,18 @@ export function Invites(): JSX.Element {
                     Invite team member
                 </Button>
             </h2>
-            <Table
+            <LemonTable
                 dataSource={invites}
                 columns={columns}
                 rowKey="id"
-                pagination={false}
                 loading={invitesLoading}
                 style={{ marginTop: '1rem' }}
                 data-attr="invites-table"
-                locale={{
-                    emptyText: function InvitesCTA() {
-                        return (
-                            <span className="text-muted-alt">
-                                There are no outstanding invitations. You can invite another team member above.
-                            </span>
-                        )
-                    },
-                }}
+                emptyState={
+                    <div className="text-muted-alt text-center">
+                        There are no outstanding invitations. You can invite another team member above.
+                    </div>
+                }
             />
             <InviteModal visible={invitingModal} onClose={() => setInvitingModal(false)} />
         </div>
