@@ -334,6 +334,23 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         filter = Filter(data={"properties": [{"key": "test_prop", "value": 2.3, "operator": "lt"}],})
         self.assertEqual(len(self._run_query(filter)), 3)
 
+    def test_or_parse_prop_clauses(self):
+        _create_event(
+            event="$pageview", team=self.team, distinct_id="whatever", properties={"browser": "Chrome"},
+        )
+        _create_event(
+            event="$pageview", team=self.team, distinct_id="whatever", properties={"browser": "Safari"},
+        )
+        filter = Filter(
+            data={
+                "properties": [
+                    [{"key": "browser", "value": "Chrome", "type": "event"}],
+                    [{"key": "browser", "value": "Safari", "type": "event"}],
+                ]
+            }
+        )
+        self.assertEqual(len(self._run_query(filter)), 2)
+
 
 class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
     CLASS_DATA_LEVEL_SETUP = False

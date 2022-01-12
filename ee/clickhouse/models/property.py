@@ -8,6 +8,7 @@ from typing import (
     Literal,
     Optional,
     Tuple,
+    Union,
     cast,
 )
 
@@ -45,7 +46,7 @@ from posthog.utils import is_valid_regex, relative_date_parse
 
 
 def parse_prop_clauses(
-    filters: List[Property],
+    filters: Union[List[Property], List[List[Property]]],
     prepend: str = "global",
     table_name: str = "",
     allow_denormalized_props: bool = True,
@@ -58,6 +59,24 @@ def parse_prop_clauses(
     params: Dict[str, Any] = {}
     if table_name != "":
         table_name += "."
+
+    if isinstance(filters, List[List[Property]]):
+        or_groups = []
+        or_params = {}
+        for idx, filter_group in enumerate(filters):
+            clause, params = parse_prop_clauses(
+                filter_group,
+                prepend + "_idx",
+                table_name,
+                allow_denormalized_props,
+                has_person_id_joined,
+                person_properties_mode,
+                person_id_joined_alias,
+                group_properties_joined,
+            )
+            or_groups.append(f"({clause})")
+            or_params.update(params)
+        return " OR ".join(or_groups), or_params
 
     for idx, prop in enumerate(filters):
         if prop.type == "cohort":

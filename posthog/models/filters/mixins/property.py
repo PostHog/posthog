@@ -1,5 +1,5 @@
 import json
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Union
 
 from rest_framework.exceptions import ValidationError
 
@@ -11,7 +11,7 @@ from posthog.models.property import Property
 
 class PropertyMixin(BaseParamMixin):
     @cached_property
-    def properties(self) -> List[Property]:
+    def properties(self) -> Union[List[Property], List[List[Property]]]:
         _props = self._data.get(PROPERTIES)
 
         if isinstance(_props, str):
@@ -24,12 +24,14 @@ class PropertyMixin(BaseParamMixin):
 
         return self._parse_properties(loaded_props)
 
-    def _parse_properties(self, properties: Optional[Any]) -> List[Property]:
+    def _parse_properties(self, properties: Optional[Any]) -> Union[List[Property], List[List[Property]]]:
         if isinstance(properties, list):
             _properties = []
             for prop_params in properties:
                 if isinstance(prop_params, Property):
                     _properties.append(prop_params)
+                elif isinstance(prop_params, list):
+                    _properties.append(self._parse_properties(prop_params))
                 else:
                     try:
                         new_prop = Property(**prop_params)
