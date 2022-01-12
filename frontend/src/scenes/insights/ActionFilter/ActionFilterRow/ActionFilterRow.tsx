@@ -393,7 +393,7 @@ export function ActionFilterRow({
                         )}
                         {(horizontalUI || fullWidth) && !hideFilter && <Col>{propertyFiltersButton}</Col>}
                         {(horizontalUI || fullWidth) && !hideRename && <Col>{renameRowButton}</Col>}
-                        {(horizontalUI || fullWidth) && !hideFilter && <Col>{duplicateRowButton}</Col>}
+                        {(horizontalUI || fullWidth) && !hideFilter && !singleFilter && <Col>{duplicateRowButton}</Col>}
                         {!hideDeleteBtn && !horizontalUI && !singleFilter && (
                             <Col className="column-delete-btn">{deleteButton}</Col>
                         )}
