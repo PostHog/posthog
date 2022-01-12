@@ -33,7 +33,7 @@ export const groupsAccessLogic = kea<groupsAccessLogicType<GroupsAccessStatus>>(
         // Used to toggle various introduction views related to groups
         groupsAccessStatus: [
             (s) => [s.groupsEnabled, s.currentTeam, s.preflight],
-            (canBeEnabled, isEnabled, currentTeam, preflight): GroupsAccessStatus => {
+            (isEnabled, currentTeam, preflight): GroupsAccessStatus => {
                 const hasGroups = currentTeam?.has_group_types
                 if (!canBeEnabled || preflight?.instance_preferences?.disable_paid_fs) {
                     return GroupsAccessStatus.Hidden
