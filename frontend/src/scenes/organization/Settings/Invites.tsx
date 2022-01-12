@@ -119,11 +119,7 @@ export function Invites(): JSX.Element {
                 loading={invitesLoading}
                 style={{ marginTop: '1rem' }}
                 data-attr="invites-table"
-                emptyState={
-                    <div className="text-muted-alt text-center">
-                        There are no outstanding invitations. You can invite another team member above.
-                    </div>
-                }
+                emptyState="There are no outstanding invitations. You can invite another team member above."
             />
             <InviteModal visible={invitingModal} onClose={() => setInvitingModal(false)} />
         </div>
