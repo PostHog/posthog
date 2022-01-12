@@ -1579,3 +1579,11 @@ export enum CompareLabelType {
     Current = 'current',
     Previous = 'previous',
 }
+
+export interface InstanceSetting {
+    key: string
+    value: boolean | string | number
+    value_type: 'bool' | 'str' | 'int'
+    description?: string
+    editable: boolean
+}
