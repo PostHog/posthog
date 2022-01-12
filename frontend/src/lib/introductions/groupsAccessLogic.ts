@@ -35,7 +35,7 @@ export const groupsAccessLogic = kea<groupsAccessLogicType<GroupsAccessStatus>>(
             (s) => [s.groupsEnabled, s.currentTeam, s.preflight],
             (isEnabled, currentTeam, preflight): GroupsAccessStatus => {
                 const hasGroups = currentTeam?.has_group_types
-                if (!canBeEnabled || preflight?.instance_preferences?.disable_paid_fs) {
+                if (preflight?.instance_preferences?.disable_paid_fs) {
                     return GroupsAccessStatus.Hidden
                 } else if (isEnabled && hasGroups) {
                     return GroupsAccessStatus.AlreadyUsing
