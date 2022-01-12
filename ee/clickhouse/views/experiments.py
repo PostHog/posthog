@@ -113,8 +113,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
         expected_keys = set(["name", "description", "start_date", "end_date", "filters", "parameters"])
         given_keys = set(validated_data.keys())
         extra_keys = given_keys - expected_keys
-
-        if feature_flag.key == validated_data["get_feature_flag_key"]:
+        if "get_feature_flag_key" in validated_data and feature_flag.key == validated_data["get_feature_flag_key"]:
             extra_keys.remove("get_feature_flag_key")
 
         if extra_keys:

@@ -132,12 +132,12 @@ class TestExperimentCRUD(APIBaseTest):
                 "end_date": None,
                 "feature_flag_key": ff_key,
                 "parameters": None,
-                "filters": {},
+                "filters": {"events": []},
             },
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Feature Flag key already exists. Please select a unique key")
+        self.assertEqual(response.json()["detail"], "There is already a feature flag with this key.")
 
     def test_draft_experiment_doesnt_have_FF_active(self):
         # Draft experiment
@@ -232,17 +232,6 @@ class TestExperimentCRUD(APIBaseTest):
         id = response.json()["id"]
         end_date = "2021-12-10T00:00"
 
-        # Now try updating FF
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{id}",
-            {
-                "description": "Bazinga",
-                "parameters": {"feature_flag_variants": [{"key": "control", "name": "X", "rollout_percentage": 100}]},
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Can't update keys: parameters on Experiment")
 
     def test_creating_invalid_multivariate_experiment_no_control(self):
         ff_key = "a-b-test"
