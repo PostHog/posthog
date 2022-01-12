@@ -1,11 +1,12 @@
 import { kea } from 'kea'
-import { bulkInviteLogicType } from './bulkInviteLogicType'
 import { OrganizationInviteType } from '~/types'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { invitesLogic } from './invitesLogic'
+import { inviteLogicType } from './inviteLogicType'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { successToast } from 'lib/utils'
 
 /** State of a single invite row (with input data) in bulk invite creation. */
 interface InviteRowState {
@@ -16,8 +17,8 @@ interface InviteRowState {
 
 const EMPTY_INVITE: InviteRowState = { target_email: '', first_name: '', isValid: true }
 
-export const bulkInviteLogic = kea<bulkInviteLogicType<InviteRowState>>({
-    path: ['scenes', 'organization', 'Settings', 'bulkInviteLogic'],
+export const inviteLogic = kea<inviteLogicType<InviteRowState>>({
+    path: ['scenes', 'organization', 'Settings', 'inviteLogic'],
     actions: {
         updateInviteAtIndex: (payload, index: number) => ({ payload, index }),
         deleteInviteAtIndex: (index: number) => ({ index }),
@@ -25,8 +26,8 @@ export const bulkInviteLogic = kea<bulkInviteLogicType<InviteRowState>>({
         resetInviteRows: true,
     },
     reducers: {
-        invites: [
-            [EMPTY_INVITE],
+        invitesToSend: [
+            [EMPTY_INVITE] as InviteRowState[],
             {
                 updateInviteAtIndex: (state, { payload, index }) => {
                     const newState = [...state]
@@ -45,14 +46,14 @@ export const bulkInviteLogic = kea<bulkInviteLogicType<InviteRowState>>({
     },
     selectors: {
         canSubmit: [
-            (selectors) => [selectors.invites],
+            (selectors) => [selectors.invitesToSend],
             (invites: InviteRowState[]) =>
                 invites.filter(({ target_email }) => !!target_email).length > 0 &&
                 invites.filter(({ isValid }) => !isValid).length == 0,
         ],
     },
     loaders: ({ values }) => ({
-        invitedTeamMembers: [
+        _invitedTeamMembers: [
             [] as OrganizationInviteType[],
             {
                 inviteTeamMembers: async () => {
@@ -61,7 +62,7 @@ export const bulkInviteLogic = kea<bulkInviteLogicType<InviteRowState>>({
                     }
 
                     const payload: Pick<OrganizationInviteType, 'target_email' | 'first_name'>[] =
-                        values.invites.filter((invite) => invite.target_email)
+                        values.invitesToSend.filter((invite) => invite.target_email)
                     eventUsageLogic.actions.reportBulkInviteAttempted(
                         payload.length,
                         payload.filter((invite) => !!invite.first_name).length
@@ -71,13 +72,25 @@ export const bulkInviteLogic = kea<bulkInviteLogicType<InviteRowState>>({
                 },
             },
         ],
+        invites: {
+            __default: [] as OrganizationInviteType[],
+            loadInvites: async () => {
+                return (await api.get('api/organizations/@current/invites/')).results
+            },
+            deleteInvite: async (invite: OrganizationInviteType) => {
+                await api.delete(`api/organizations/@current/invites/${invite.id}/`)
+                preflightLogic.actions.loadPreflight() // Make sure licensed_users_available is updated
+                successToast('Invite revoked successfully', `Invite for ${invite.target_email} has been revoked.`)
+                return values.invites.filter((thisInvite) => thisInvite.id !== invite.id)
+            },
+        },
     }),
     listeners: ({ values, actions }) => ({
         inviteTeamMembersSuccess: (): void => {
-            const inviteCount = values.invitedTeamMembers.length
+            const inviteCount = values._invitedTeamMembers.length
             toast.success(`Invited ${inviteCount} new team member${inviteCount === 1 ? '' : 's'}`)
             organizationLogic.actions.loadCurrentOrganization()
-            invitesLogic.actions.loadInvites()
+            actions.loadInvites()
             actions.resetInviteRows()
         },
     }),

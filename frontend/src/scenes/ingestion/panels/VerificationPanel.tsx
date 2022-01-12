@@ -5,7 +5,6 @@ import { CardContainer } from 'scenes/ingestion/CardContainer'
 import { Button, Row, Space, Popconfirm, Dropdown, Menu, Typography } from 'antd'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 import { DownOutlined, SlackSquareOutlined, ReadOutlined } from '@ant-design/icons'
-import { CreateInviteModalWithButton } from 'scenes/organization/Settings/CreateInviteModal'
 import { teamLogic } from 'scenes/teamLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 
@@ -30,22 +29,18 @@ export function VerificationPanel(): JSX.Element {
             const menu = (
                 <Menu selectable>
                     <Menu.Item key="0" data-attr="ingestion-help-item-docs">
-                        <a
-                            href="https://posthog.com/docs/integrate/ingest-live-data"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                        >
+                        <a href="https://posthog.com/docs/integrate/ingest-live-data" target="_blank">
                             <Button type="link">
                                 <ReadOutlined />
-                                Read the docs
+                                Read the ingestion docs
                             </Button>
                         </a>
                     </Menu.Item>
                     <Menu.Item key="1" data-attr="ingestion-help-item-invite">
-                        <CreateInviteModalWithButton type="link" />
+                        {/* <CreateInviteModalWithButton type="link" /> */}
                     </Menu.Item>
                     <Menu.Item key="2" data-attr="ingestion-help-item-slack">
-                        <a href="https://posthog.com/slack?s=app" target="_blank" rel="noopener noreferrer">
+                        <a href="https://posthog.com/slack?s=app" target="_blank">
                             <Button type="link">
                                 <SlackSquareOutlined />
                                 Ask us in Slack

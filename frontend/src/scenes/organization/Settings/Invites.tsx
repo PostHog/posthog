@@ -1,14 +1,14 @@
-import React from 'react'
-import { Table, Modal } from 'antd'
+import React, { useState } from 'react'
+import { Table, Modal, Button } from 'antd'
 import { useValues, useActions } from 'kea'
-import { invitesLogic } from './invitesLogic'
-import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
+import { DeleteOutlined, ExclamationCircleOutlined, PlusOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { OrganizationInviteType, UserBasicType } from '~/types'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { CreateInviteModalWithButton } from './CreateInviteModal'
 import { ColumnsType } from 'antd/lib/table'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { inviteLogic } from './inviteLogic'
+import { InviteModal } from './InviteModal'
 
 function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.Element {
     const url = new URL(`/signup/${id}`, document.baseURI).href
@@ -46,8 +46,9 @@ function makeActionsComponent(
     }
 }
 export function Invites(): JSX.Element {
-    const { invites, invitesLoading } = useValues(invitesLogic)
-    const { deleteInvite } = useActions(invitesLogic)
+    const { invites, invitesLoading } = useValues(inviteLogic)
+    const { deleteInvite } = useActions(inviteLogic)
+    const [invitingModal, setInvitingModal] = useState(false)
 
     const columns: ColumnsType<OrganizationInviteType> = [
         {
@@ -95,8 +96,10 @@ export function Invites(): JSX.Element {
     return (
         <div>
             <h2 className="subtitle" style={{ justifyContent: 'space-between' }}>
-                Pending Invites
-                {!!invites.length && <CreateInviteModalWithButton />}
+                Team invites
+                <Button type="primary" icon={<PlusOutlined />} onClick={() => setInvitingModal(true)}>
+                    Invite team member
+                </Button>
             </h2>
             <Table
                 dataSource={invites}
@@ -107,11 +110,16 @@ export function Invites(): JSX.Element {
                 style={{ marginTop: '1rem' }}
                 data-attr="invites-table"
                 locale={{
-                    emptyText: function InvitesTableCTA() {
-                        return <CreateInviteModalWithButton />
+                    emptyText: function InvitesCTA() {
+                        return (
+                            <span className="text-muted-alt">
+                                There are no outstanding invitations. You can invite another team member above.
+                            </span>
+                        )
                     },
                 }}
             />
+            <InviteModal visible={invitingModal} onClose={() => setInvitingModal(false)} />
         </div>
     )
 }
