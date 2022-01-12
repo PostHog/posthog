@@ -13,23 +13,15 @@ import { Link } from '../../../lib/components/Link'
 import { IconMenu, IconMenuOpen } from '../../../lib/components/icons'
 import { CreateProjectModal } from '../../../scenes/project/CreateProjectModal'
 import './TopBar.scss'
+import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 
 export function TopBar(): JSX.Element {
-    const {
-        isSideBarShown,
-        bareNav,
-        mobileLayout,
-        isInviteModalShown,
-        isCreateOrganizationModalShown,
-        isCreateProjectModalShown,
-    } = useValues(navigationLogic)
-    const {
-        toggleSideBarBase,
-        toggleSideBarMobile,
-        hideInviteModal,
-        hideCreateOrganizationModal,
-        hideCreateProjectModal,
-    } = useActions(navigationLogic)
+    const { isSideBarShown, bareNav, mobileLayout, isCreateOrganizationModalShown, isCreateProjectModalShown } =
+        useValues(navigationLogic)
+    const { toggleSideBarBase, toggleSideBarMobile, hideCreateOrganizationModal, hideCreateProjectModal } =
+        useActions(navigationLogic)
+    const { isInviteModalShown } = useValues(inviteLogic)
+    const { hideInviteModal } = useActions(inviteLogic)
 
     return (
         <>

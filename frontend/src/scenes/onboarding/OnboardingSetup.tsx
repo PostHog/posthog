@@ -18,12 +18,12 @@ import { onboardingSetupLogic } from './onboardingSetupLogic'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { Link } from 'lib/components/Link'
 import { IconOpenInNew } from 'lib/components/icons'
-import { InviteModal } from 'scenes/organization/Settings/InviteModal'
 import { LinkButton } from 'lib/components/LinkButton'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 
 const { Panel } = Collapse
 
@@ -123,13 +123,13 @@ export function OnboardingSetup(): JSX.Element {
         projectModalShown,
         stepVerification,
         currentSection,
-        inviteTeamModalShown,
         teamInviteAvailable,
         progressPercentage,
         slackCalled,
     } = useValues(onboardingSetupLogic)
-    const { switchToNonDemoProject, setProjectModalShown, setInviteTeamModalShown, completeOnboarding, callSlack } =
+    const { switchToNonDemoProject, setProjectModalShown, completeOnboarding, callSlack } =
         useActions(onboardingSetupLogic)
+    const { showInviteModal } = useActions(inviteLogic)
 
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -265,7 +265,7 @@ export function OnboardingSetup(): JSX.Element {
                                         title="Invite your team members"
                                         icon={<UsergroupAddOutlined />}
                                         identifier="invite-team"
-                                        handleClick={() => setInviteTeamModalShown(true)}
+                                        handleClick={showInviteModal}
                                         caption="Spread the knowledge, share insights with everyone in your team."
                                         customActionElement={
                                             <Button type="primary" icon={<PlusOutlined />}>
@@ -310,7 +310,6 @@ export function OnboardingSetup(): JSX.Element {
                             </div>
                         }
                     />
-                    <InviteModal visible={inviteTeamModalShown} onClose={() => setInviteTeamModalShown(false)} />
                 </>
             ) : (
                 <div className="already-completed">

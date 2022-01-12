@@ -22,6 +22,8 @@ const EMPTY_INVITE: InviteRowState = { target_email: '', first_name: '', isValid
 export const inviteLogic = kea<inviteLogicType<InviteRowState>>({
     path: ['scenes', 'organization', 'Settings', 'inviteLogic'],
     actions: {
+        showInviteModal: true,
+        hideInviteModal: true,
         updateInviteAtIndex: (payload, index: number) => ({ payload, index }),
         deleteInviteAtIndex: (index: number) => ({ index }),
         appendInviteRow: true,
@@ -31,6 +33,14 @@ export const inviteLogic = kea<inviteLogicType<InviteRowState>>({
         values: [preflightLogic, ['preflight']],
     },
     reducers: {
+        isInviteModalShown: [
+            false,
+            {
+                showInviteModal: () => true,
+                hideInviteModal: () => false,
+                inviteTeamMembersSuccess: () => false,
+            },
+        ],
         invitesToSend: [
             [EMPTY_INVITE] as InviteRowState[],
             {
@@ -46,6 +56,7 @@ export const inviteLogic = kea<inviteLogicType<InviteRowState>>({
                 },
                 appendInviteRow: (state) => [...state, EMPTY_INVITE],
                 resetInviteRows: () => [EMPTY_INVITE],
+                inviteTeamMembersSuccess: () => [EMPTY_INVITE],
             },
         ],
     },
@@ -58,7 +69,7 @@ export const inviteLogic = kea<inviteLogicType<InviteRowState>>({
         ],
     },
     loaders: ({ values }) => ({
-        _invitedTeamMembers: [
+        invitedTeamMembersInternal: [
             [] as OrganizationInviteType[],
             {
                 inviteTeamMembers: async () => {
@@ -77,26 +88,27 @@ export const inviteLogic = kea<inviteLogicType<InviteRowState>>({
                 },
             },
         ],
-        invites: {
-            __default: [] as OrganizationInviteType[],
-            loadInvites: async () => {
-                return (await api.get('api/organizations/@current/invites/')).results
+        invites: [
+            [] as OrganizationInviteType[],
+            {
+                loadInvites: async () => {
+                    return (await api.get('api/organizations/@current/invites/')).results
+                },
+                deleteInvite: async (invite: OrganizationInviteType) => {
+                    await api.delete(`api/organizations/@current/invites/${invite.id}/`)
+                    preflightLogic.actions.loadPreflight() // Make sure licensed_users_available is updated
+                    successToast('Invite revoked successfully', `Invite for ${invite.target_email} has been revoked.`)
+                    return values.invites.filter((thisInvite) => thisInvite.id !== invite.id)
+                },
             },
-            deleteInvite: async (invite: OrganizationInviteType) => {
-                await api.delete(`api/organizations/@current/invites/${invite.id}/`)
-                preflightLogic.actions.loadPreflight() // Make sure licensed_users_available is updated
-                successToast('Invite revoked successfully', `Invite for ${invite.target_email} has been revoked.`)
-                return values.invites.filter((thisInvite) => thisInvite.id !== invite.id)
-            },
-        },
+        ],
     }),
     listeners: ({ values, actions }) => ({
         inviteTeamMembersSuccess: (): void => {
-            const inviteCount = values._invitedTeamMembers.length
+            const inviteCount = values.invitedTeamMembersInternal.length
             toast.success(`Invited ${inviteCount} new team member${inviteCount === 1 ? '' : 's'}`)
             organizationLogic.actions.loadCurrentOrganization()
             actions.loadInvites()
-            actions.resetInviteRows()
             if (
                 router.values.location.pathname !== urls.organizationSettings() &&
                 !values.preflight?.email_service_available

@@ -7,7 +7,6 @@ import { OrganizationInviteType } from '~/types'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { inviteLogic } from './inviteLogic'
-import { InviteModal } from './InviteModal'
 import { EmailUnavailableMessage } from './InviteModal'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { createdByColumn } from 'lib/components/LemonTable/columnUtils'
@@ -50,9 +49,8 @@ function makeActionsComponent(
 }
 export function Invites(): JSX.Element {
     const { invites, invitesLoading } = useValues(inviteLogic)
-    const { deleteInvite } = useActions(inviteLogic)
+    const { deleteInvite, showInviteModal } = useActions(inviteLogic)
     const { preflight } = useValues(preflightLogic)
-    const [invitingModal, setInvitingModal] = useState(false)
 
     const columns: LemonTableColumns<OrganizationInviteType> = [
         {
@@ -99,7 +97,7 @@ export function Invites(): JSX.Element {
         <div>
             <h2 id="invites" className="subtitle" style={{ justifyContent: 'space-between' }}>
                 Team invites
-                <Button type="primary" icon={<PlusOutlined />} onClick={() => setInvitingModal(true)}>
+                <Button type="primary" icon={<PlusOutlined />} onClick={showInviteModal}>
                     Invite team member
                 </Button>
             </h2>
@@ -113,7 +111,6 @@ export function Invites(): JSX.Element {
                 data-attr="invites-table"
                 emptyState="There are no outstanding invitations. You can invite another team member above."
             />
-            <InviteModal visible={invitingModal} onClose={() => setInvitingModal(false)} />
         </div>
     )
 }

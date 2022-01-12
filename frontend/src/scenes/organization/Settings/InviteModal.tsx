@@ -1,7 +1,7 @@
 import { Alert, Button, Col, Input, Row } from 'antd'
 import Modal from 'antd/lib/modal/Modal'
 import { useActions, useValues } from 'kea'
-import React, { useEffect } from 'react'
+import React from 'react'
 import { userLogic } from 'scenes/userLogic'
 import { PlusOutlined, CloseOutlined } from '@ant-design/icons'
 import { red } from '@ant-design/colors'
@@ -22,9 +22,10 @@ export function EmailUnavailableMessage(): JSX.Element {
     return (
         <InfoMessage style={{ marginTop: 16 }}>
             <>
-                This PostHog instance hasn't been{' '}
+                This PostHog instance isn't{' '}
                 <a href="https://posthog.com/docs/self-host/configure/email" target="_blank" rel="noopener">
-                    configured&nbsp;to&nbsp;send&nbsp;emails <IconOpenInNew />
+                    configured&nbsp;to&nbsp;send&nbsp;emails&nbsp;
+                    <IconOpenInNew />
                 </a>
                 .<br />
                 Remember to <u>share the invite link</u> with each team member you invite.
@@ -88,19 +89,8 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
 export function InviteModal({ visible, onClose }: { visible: boolean; onClose: () => void }): JSX.Element {
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
-    const {
-        invitesToSend,
-        canSubmit,
-        _invitedTeamMembersLoading: loading,
-        _invitedTeamMembers,
-    } = useValues(inviteLogic)
+    const { invitesToSend, canSubmit, invitedTeamMembersInternalLoading: loading } = useValues(inviteLogic)
     const { appendInviteRow, resetInviteRows, inviteTeamMembers } = useActions(inviteLogic)
-
-    useEffect(() => {
-        if (_invitedTeamMembers.length) {
-            onClose()
-        }
-    }, [_invitedTeamMembers])
 
     const areInvitesCreatable = invitesToSend.length + 1 < MAX_INVITES_AT_ONCE
     const areInvitesDeletable = invitesToSend.length > 1

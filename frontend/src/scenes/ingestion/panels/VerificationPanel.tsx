@@ -7,7 +7,7 @@ import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 import { DownOutlined, SlackSquareOutlined, ReadOutlined, UserAddOutlined } from '@ant-design/icons'
 import { teamLogic } from 'scenes/teamLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
-import { InviteModal } from 'scenes/organization/Settings/InviteModal'
+import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 
 const { Text } = Typography
 
@@ -18,7 +18,7 @@ export function VerificationPanel(): JSX.Element {
     const { index, totalSteps } = useValues(ingestionLogic)
     const [isPopConfirmShowing, setPopConfirmShowing] = useState(false)
     const [isHelpMenuShowing, setHelpMenuShowing] = useState(false)
-    const [isInviteModalShowing, setInviteModalShowing] = useState(false)
+    const { showInviteModal } = useActions(inviteLogic)
 
     useInterval(() => {
         if (!currentTeam?.ingested_event && !isPopConfirmShowing && !isHelpMenuShowing) {
@@ -39,7 +39,7 @@ export function VerificationPanel(): JSX.Element {
                         </a>
                     </Menu.Item>
                     <Menu.Item key="1" data-attr="ingestion-help-item-invite">
-                        <Button type="link" onClick={() => setInviteModalShowing(true)}>
+                        <Button type="link" onClick={showInviteModal}>
                             <UserAddOutlined />
                             Invite team member
                         </Button>
@@ -142,7 +142,6 @@ export function VerificationPanel(): JSX.Element {
                     </Button>
                 </>
             )}
-            <InviteModal visible={isInviteModalShowing} onClose={() => setInviteModalShowing(false)} />
         </CardContainer>
     )
 }
