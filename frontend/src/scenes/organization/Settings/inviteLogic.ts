@@ -7,6 +7,8 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { inviteLogicType } from './inviteLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { successToast } from 'lib/utils'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 /** State of a single invite row (with input data) in bulk invite creation. */
 interface InviteRowState {
@@ -24,6 +26,9 @@ export const inviteLogic = kea<inviteLogicType<InviteRowState>>({
         deleteInviteAtIndex: (index: number) => ({ index }),
         appendInviteRow: true,
         resetInviteRows: true,
+    },
+    connect: {
+        values: [preflightLogic, ['preflight']],
     },
     reducers: {
         invitesToSend: [
@@ -92,6 +97,13 @@ export const inviteLogic = kea<inviteLogicType<InviteRowState>>({
             organizationLogic.actions.loadCurrentOrganization()
             actions.loadInvites()
             actions.resetInviteRows()
+            if (
+                router.values.location.pathname !== urls.organizationSettings() &&
+                !values.preflight?.email_service_available
+            ) {
+                // If email service is not available, take user to org settings page to copy invite(s) link(s)
+                router.actions.push(`${urls.organizationSettings()}#invites`)
+            }
         },
     }),
     events: ({ actions }) => ({

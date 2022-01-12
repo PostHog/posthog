@@ -97,7 +97,7 @@ export function Invites(): JSX.Element {
 
     return (
         <div>
-            <h2 className="subtitle" style={{ justifyContent: 'space-between' }}>
+            <h2 id="invites" className="subtitle" style={{ justifyContent: 'space-between' }}>
                 Team invites
                 <Button type="primary" icon={<PlusOutlined />} onClick={() => setInvitingModal(true)}>
                     Invite team member
