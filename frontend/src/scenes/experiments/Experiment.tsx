@@ -646,7 +646,7 @@ export function Experiment(): JSX.Element {
                             <Row justify="space-around" style={{ flexFlow: 'nowrap' }}>
                                 {experimentData.parameters.feature_flag_variants.map(
                                     (variant: MultivariateFlagVariant, idx: number) => (
-                                        <Col key={idx}>
+                                        <Col key={idx} className="pr">
                                             <div style={{ fontSize: 16 }}>
                                                 <b>{capitalizeFirstLetter(variant.key)}</b>
                                             </div>
