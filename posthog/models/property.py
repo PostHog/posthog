@@ -42,12 +42,23 @@ NEGATED_OPERATORS = ["is_not", "not_icontains", "not_regex", "is_not_set"]
 CLICKHOUSE_ONLY_PROPERTY_TYPES = ["static-cohort", "precalculated-cohort"]
 
 UNIX_TIMESTAMP = "unix_timestamp"
-KNOWN_PROPERTY_FORMATS = Literal["unix_timestamp"]
+UNIX_TIMESTAMP_MILLISECONDS = "unix_timestamp_milliseconds"
+KNOWN_PROPERTY_FORMATS = Literal[
+    "unix_timestamp",
+    "unix_timestamp_milliseconds",
+    "rfc_822",
+    "YYYY-MM-DDThh:mm:ssZ",
+    "YYYY-MM-DD hh:mm:ss",
+    "DD-MM-YYYY hh:mm:ss",
+    "YYYY/MM/DD hh:mm:ss",
+    "DD/MM/YYYY hh:mm:ss",
+    "YYYY-MM-DD",
+]
 
 
 @dataclasses.dataclass(frozen=True)
 class PropertyDefinition:
-    dataType: Literal["DateTime"]
+    dataType: Literal["DateTime", "String", "Numeric", "Boolean"]
     format: Optional[KNOWN_PROPERTY_FORMATS]
 
     def to_dict(self):
