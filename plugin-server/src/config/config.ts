@@ -73,7 +73,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         JOB_QUEUE_S3_PREFIX: '',
         CRASH_IF_NO_PERSISTENT_JOB_QUEUE: false,
         STALENESS_RESTART_SECONDS: 0,
-        HEALTHCHECK_MAX_STALE_SECONDS: 30 * 60, // 30 minutes
+        HEALTHCHECK_MAX_STALE_SECONDS: 2 * 60 * 60, // 2 hours
         CAPTURE_INTERNAL_METRICS: false,
         PISCINA_USE_ATOMICS: true,
         PISCINA_ATOMICS_TIMEOUT: 5000,
