@@ -202,18 +202,16 @@ export class TeamManager {
                 status.info('Inserting new event definition with last_seen_at')
                 this.eventLastSeenCache.set(cacheKey, cacheTime)
                 await this.db.postgresQuery(
-                    `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, last_seen_at, created_at)` +
-                        ` VALUES ($1, $2, NULL, NULL, $3, $4, NOW())` +
-                        ` ON CONFLICT ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq` +
-                        ` DO UPDATE SET last_seen_at=$4`,
+                    `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, last_seen_at, created_at)
+                     VALUES ($1, $2, NULL, NULL, $3, $4, NOW()) ON CONFLICT
+                     ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET last_seen_at=$4`,
                     [new UUIDT().toString(), event, team.id, DateTime.now()],
                     'insertEventDefinition'
                 )
             } else {
                 await this.db.postgresQuery(
-                    `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, created_at)` +
-                        ` VALUES ($1, $2, NULL, NULL, $3, NOW())` +
-                        ` ON CONFLICT DO NOTHING`,
+                    `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, created_at)
+                     VALUES ($1, $2, NULL, NULL, $3, NOW()) ON CONFLICT DO NOTHING`,
                     [new UUIDT().toString(), event, team.id],
                     'insertEventDefinition'
                 )
@@ -225,7 +223,7 @@ export class TeamManager {
                 if ((this.eventLastSeenCache.get(cacheKey) ?? 0) < cacheTime) {
                     this.eventLastSeenCache.set(cacheKey, cacheTime)
                     await this.db.postgresQuery(
-                        `UPDATE posthog_eventdefinition SET last_seen_at=$1 WHERE team_id=$2 and name=$3`,
+                        `UPDATE posthog_eventdefinition SET last_seen_at=$1 WHERE team_id=$2 AND name=$3`,
                         [DateTime.now(), team.id, event],
                         'updateEventLastSeenAt'
                     )
@@ -268,7 +266,7 @@ INSERT INTO posthog_propertydefinition
 (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format)
 VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6)
 ON CONFLICT ON CONSTRAINT posthog_propertydefinition_team_id_name_e21599fc_uniq
-DO UPDATE SET property_type=$5, property_type_format=$6 where posthog_propertydefinition.property_type is null`,
+DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertydefinition.property_type IS NULL`,
                     [new UUIDT().toString(), key, isNumerical, team.id, propertyType, propertyTypeFormat],
                     'insertPropertyDefinition'
                 )
@@ -324,7 +322,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 where posthog_propertyde
         let propertyDefinitionsCache = this.propertyDefinitionsCache.get(teamId)
         if (!propertyDefinitionsCache) {
             const eventProperties = await this.db.postgresQuery(
-                'SELECT name FROM posthog_propertydefinition WHERE team_id = $1 and property_type is not null',
+                'SELECT name FROM posthog_propertydefinition WHERE team_id = $1 AND property_type IS NOT NULL',
                 [teamId],
                 'fetchPropertyDefinitions'
             )
@@ -348,7 +346,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 where posthog_propertyde
                 // All-in-all, not the end of the world, but a slight nuisance.
 
                 const eventProperties = await this.db.postgresQuery(
-                    'SELECT property FROM posthog_eventproperty WHERE team_id = $1 and event = $2',
+                    'SELECT property FROM posthog_eventproperty WHERE team_id = $1 AND event = $2',
                     [teamId, event],
                     'fetchEventProperties'
                 )
