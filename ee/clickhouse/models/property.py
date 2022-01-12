@@ -54,6 +54,7 @@ def parse_prop_clauses(
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_SUBQUERY,
     person_id_joined_alias: str = "person_id",
     group_properties_joined: bool = True,
+    include_and=True,
 ) -> Tuple[str, Dict]:
     final = []
     params: Dict[str, Any] = {}
@@ -73,6 +74,7 @@ def parse_prop_clauses(
                 person_properties_mode,
                 person_id_joined_alias,
                 group_properties_joined,
+                include_and=False,
             )
             or_groups.append(f"({clause})")
             or_params.update(params)
@@ -171,7 +173,7 @@ def parse_prop_clauses(
                 )
                 final.append(f"{table_name}distinct_id IN ({subquery})")
             params.update(filter_params)
-    return " AND ".join(final), params
+    return f"{'AND' if include_and else ''}{' AND '.join(final)}", params
 
 
 def prop_filter_json_extract(
