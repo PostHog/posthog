@@ -67,18 +67,27 @@ function detectPropertyDefinitionTypes(value: unknown, key: string) {
         detectUnixTimestamps()
     }
 
+    const dateTimePatterns = {
+        'YYYY-MM-DD': /^\d{4}-\d{2}-\d{2}$/,
+        'YYYY-MM-DDThh:mm:ssZ': /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/,
+        'YYYY-MM-DD hh:mm:ss': /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/,
+        'DD-MM-YYYY hh:mm:ss': /^\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2}$/,
+        'DD/MM/YYYY hh:mm:ss': /^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}$/,
+        'YYYY/MM/DD hh:mm:ss': /^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}$/,
+        rfc_822:
+            /^((mon|tue|wed|thu|fri|sat|sun), )?\d{2} (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec) \d{4} \d{2}:\d{2}:\d{2}( [+|-]\d{4})?$/i,
+    }
+
     if (typeof value === 'string') {
         propertyType = PropertyType.String
 
-        if (value.match(/^\d{4}-\d{2}-\d{2}$/)) {
-            propertyType = PropertyType.DateTime
-            propertyTypeFormat = 'YYYY-MM-DD'
-        }
-
-        if (value.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)) {
-            propertyType = PropertyType.DateTime
-            propertyTypeFormat = 'YYYY-MM-DD hh:mm:ss'
-        }
+        Object.entries(dateTimePatterns).find(([dateTimeFormat, pattern]) => {
+            if (value.match(pattern)) {
+                propertyType = PropertyType.DateTime
+                propertyTypeFormat = dateTimeFormat as PropertyTypeFormat
+                return true
+            }
+        })
 
         detectUnixTimestamps()
     }
