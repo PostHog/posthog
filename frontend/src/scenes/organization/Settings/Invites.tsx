@@ -1,7 +1,7 @@
 import React from 'react'
 import { Modal, Button } from 'antd'
 import { useValues, useActions } from 'kea'
-import { DeleteOutlined, ExclamationCircleOutlined, PlusOutlined } from '@ant-design/icons'
+import { ExclamationCircleOutlined, PlusOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { OrganizationInviteType } from '~/types'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -11,6 +11,8 @@ import { EmailUnavailableMessage } from './InviteModal'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { LemonButton } from 'lib/components/LemonButton'
+import { IconClose } from 'lib/components/icons'
 
 function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.Element {
     const url = new URL(`/signup/${id}`, document.baseURI).href
@@ -28,19 +30,23 @@ function makeActionsComponent(
 ): (_: any, invite: any) => JSX.Element {
     return function ActionsComponent(_, invite: OrganizationInviteType): JSX.Element {
         return (
-            <DeleteOutlined
-                className="text-danger"
+            <LemonButton
+                title="Cancel the invite"
+                compact
+                icon={<IconClose />}
+                status="danger"
                 onClick={() => {
                     invite.is_expired
                         ? deleteInvite(invite)
                         : Modal.confirm({
-                              title: `Delete invite for ${invite.target_email}?`,
+                              title: `Do you want to cancel inviting ${invite.target_email}?`,
                               icon: <ExclamationCircleOutlined />,
-                              okText: 'Delete',
+                              okText: 'Yes, cancel the invite',
                               okType: 'danger',
                               onOk() {
                                   deleteInvite(invite)
                               },
+                              cancelText: 'No, keep the invite',
                           })
                 }}
             />
