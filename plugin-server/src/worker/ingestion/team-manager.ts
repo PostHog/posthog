@@ -28,7 +28,7 @@ export const unixTimestampPropertyTypeFormatPatterns: Record<UnixTimestampProper
 
 export const dateTimePropertyTypeFormatPatterns: Record<DateTimePropertyTypeFormat, RegExp> = {
     'YYYY-MM-DD': /^\d{4}-\d{2}-\d{2}$/,
-    'YYYY-MM-DDThh:mm:ssZ': /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/,
+    'YYYY-MM-DDThh:mm:ssZ': /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/,
     'YYYY-MM-DD hh:mm:ss': /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/,
     'DD-MM-YYYY hh:mm:ss': /^\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2}$/,
     'DD/MM/YYYY hh:mm:ss': /^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}$/,

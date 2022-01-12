@@ -490,7 +490,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 where posthog_propertyde
                 propertyKey: string
                 date: string
                 patternDescription: string
-            }[] = Object.keys(dateTimePropertyTypeFormatPatterns).map((patternDescription: string) => {
+            }[] = Object.keys(dateTimePropertyTypeFormatPatterns).flatMap((patternDescription: string) => {
                 if (patternDescription === 'rfc_822') {
                     return {
                         propertyKey: 'an_rfc_822_format_date',
@@ -506,7 +506,15 @@ DO UPDATE SET property_type=$5, property_type_format=$6 where posthog_propertyde
                         .replace('mm', '01')
                         .replace('ss', '01')
 
-                    return { propertyKey: patternDescription, date, patternDescription }
+                    //iso timestamps can have fractional parts of seconds
+                    if (date.includes('T')) {
+                        return [
+                            { propertyKey: patternDescription, date, patternDescription },
+                            { propertyKey: patternDescription, date: date.replace('Z', '.243Z'), patternDescription },
+                        ]
+                    } else {
+                        return { propertyKey: patternDescription, date, patternDescription }
+                    }
                 }
             })
 
