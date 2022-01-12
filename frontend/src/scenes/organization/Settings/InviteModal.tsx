@@ -9,6 +9,7 @@ import './InviteModal.scss'
 import { isEmail, pluralize } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { inviteLogic } from './inviteLogic'
+import { InfoMessage } from 'lib/components/InfoMessage/InfoMessage'
 
 /** Shuffled placeholder names */
 const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fill('John'), 'Sonic'].sort(
@@ -148,17 +149,13 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                 </div>
             )}
             {!preflight?.email_service_available && (
-                <Alert
-                    type="warning"
-                    style={{ marginTop: 16 }}
-                    message={
-                        <>
-                            Sending emails is not enabled in your PostHog instance.
-                            <br />
-                            Remember to <b>share the invite link</b> with each team member you want to invite.
-                        </>
-                    }
-                />
+                <InfoMessage style={{ marginTop: 16 }}>
+                    <div>
+                        Sending emails is not enabled in your PostHog instance. Remember to{' '}
+                        <b style={{ fontWeight: 800 }}>share the invite link</b> with each team member you want to
+                        invite.
+                    </div>
+                </InfoMessage>
             )}
         </Modal>
     )
