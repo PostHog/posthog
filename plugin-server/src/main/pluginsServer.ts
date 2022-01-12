@@ -21,8 +21,6 @@ import { startSchedule } from './services/schedule'
 
 const { version } = require('../../package.json')
 
-const HTTP_SERVER_PORT = 5000
-
 // TODO: refactor this into a class, removing the need for many different Servers
 export type ServerInstance = {
     hub: Hub
@@ -248,10 +246,7 @@ export async function startPluginsServer(
 
         if (!(determineNodeEnv() === NodeEnv.Test)) {
             // start http server used for the healthcheck
-            const httpServer = createHttpServer(hub, serverConfig)
-            httpServer.listen(HTTP_SERVER_PORT, () => {
-                status.info('🩺', `Status server listening on port ${HTTP_SERVER_PORT}`)
-            })
+            httpServer = createHttpServer(hub, serverConfig)
         }
 
         status.info('🚀', 'All systems go')

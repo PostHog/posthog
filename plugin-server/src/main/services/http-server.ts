@@ -1,10 +1,11 @@
 import { createServer, IncomingMessage, Server, ServerResponse } from 'http'
 
 import { healthcheck } from '../../healthcheck'
+import { status } from '../../utils/status'
 import { stalenessCheck } from '../../utils/utils'
 import { Hub, PluginsServerConfig } from './../../types'
 
-const PORT = 5000
+const HTTP_SERVER_PORT = 5000
 
 export function createHttpServer(hub: Hub | undefined, serverConfig: PluginsServerConfig): Server {
     const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
@@ -25,6 +26,10 @@ export function createHttpServer(hub: Hub | undefined, serverConfig: PluginsServ
                 res.end(JSON.stringify(responseBody))
             }
         }
+    })
+
+    server.listen(HTTP_SERVER_PORT, () => {
+        status.info('🩺', `Status server listening on port ${HTTP_SERVER_PORT}`)
     })
 
     return server
