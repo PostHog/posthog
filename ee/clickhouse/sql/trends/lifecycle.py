@@ -1,123 +1,61 @@
 _LIFECYCLE_EVENTS_QUERY = """
-    WITH 
-        %(interval)s AS selected_period,
-        INTERVAL {interval} AS interval_type,
-        toDateTime(%(date_from)s) AS selected_date_from,
-        toDateTime(%(date_to)s) AS selected_date_to,
+SELECT
+    person_id,
 
-        -- NOTE: we need to cast to `DateTime` otherwise for some intervals
-        -- we end up with `Date`, which when compared against `e.timestamp`, which
-        -- is a `DateTime`, we get incorrect comparison results due to an issue 
-        -- with tables indexed by `DateTime`.
-        -- See https://github.com/ClickHouse/ClickHouse/issues/5131 for details
-        toDateTime(dateTrunc(selected_period, selected_date_from)) AS selected_interval_from,
-        toDateTime(dateTrunc(selected_period, selected_date_to)) AS selected_interval_to,
+    /*
+        We want to put the status of each period onto it's own line, so we
+        can easily aggregate over them. With the inner query we end up with a structure like:
 
-        -- To ensure that we get the right status for the first period in the date range
-        -- we need to include the period prior to check if there was activity within it.
-        selected_interval_from - INTERVAL {interval} AS previous_interval_from,
+        person_id  |  period_of_activity  | status_of_activity  | dormant_status_of_period_after_activity
 
-        -- TODO: bound these events within the range, and UNION ALL `person.created_by` 
-        --       as the period of activity. This won't be as accurate in terms of lifecycle 
-        --       for the specifically requested event, but will be a much smaller query.
-        unbounded_filtered_events AS ({event_query}),
+        However, we want to have something of the format:
 
-        bounded_person_activity_by_period AS (
-            SELECT DISTINCT
-                person_id,
-                dateTrunc(selected_period, events.timestamp) start_of_period
+        person_id  | period_of_activity          |  status_of_activity
+        person_id  | period_just_after_activity  |  dormant_status_of_period_after_activity
 
-            FROM unbounded_filtered_events events
-
-            WHERE events.timestamp <= selected_interval_to + interval_type
-                AND events.timestamp >= previous_interval_from
+        such that we can simply aggregate over person_id, period.
+    */
+    arrayJoin(
+        arrayZip(
+            [period, period + INTERVAL 1 {interval_expr}],
+            [initial_status, if(next_is_active, '', 'dormant')]
         )
-
-    -- Pull out the values from the `period_status_pairs` ready for aggregation. We 
-    -- don't need to do this, we could update the aggregation query, but it does 
-    -- improve the clarity of what the results structure is
-    SELECT 
-        person_id, 
-        period_status_pairs.1 AS start_of_period,
-        period_status_pairs.2 AS status
-
+    ) AS period_status_pairs,
+    period_status_pairs.1 as start_of_period,
+    period_status_pairs.2 as status
+FROM (
+    SELECT
+        person_id,
+        period,
+        created_at,
+        if(
+            dateTrunc(%(interval)s, created_at) = period,
+            'new',
+            if(
+                previous_activity + INTERVAL 1 {interval_expr} = period,
+                'returning',
+                'resurrecting'
+            )
+        ) AS initial_status,
+        period + INTERVAL 1 {interval_expr} = following_activity AS next_is_active,
+        previous_activity,
+        following_activity
     FROM (
-        SELECT 
-            person_id, 
-
-            /* 
-               We want to put the status of each period onto it's own line, so we 
-               can easily aggregate over them. With the inner query we end up with a structure like:
-               
-                person_id  |  period_of_activity  | status_of_activity  | dormant_status_of_period_after_activity
-                
-               However, we want to have something of the format:
-
-                person_id  | period_of_activity          |  status_of_activity
-                person_id  | period_just_after_activity  |  dormant_status_of_period_after_activity
-
-               such that we can simply aggregate over person_id, period.
-            */
-            arrayJoin(
-                arrayZip(
-                    [start_of_period, start_of_period + interval_type],
-                    [activity_status, if(next_is_active, '', 'dormant')]
-                )
-            ) AS period_status_pairs
-
-        FROM (
-            /*
-                Get periods of person activity, and classify them as 'new', 'returning' or 'resurrecting', 
-                plus we get the period just after the `activity` period and check to see if it should be 
-                classified as 'dormant'
-
-                NOTE: we could handle 'new', 'returning' or 'resurrecting', and 'dormant' as separate 
-                    queries, which might be more sensible, but means we will need to perform one more
-                    JOIN on the person_distinct_id table on the right, which means loading into RAM,
-                    which means it will considerable increase query time.
-            */
-            SELECT 
-                activity.person_id as person_id,
-                activity.start_of_period as start_of_period,
-                if(
-                    previous_activity.person_id = '00000000-0000-0000-0000-000000000000',
-                    'new',
-                    if(
-                        dateDiff(
-                            selected_period, 
-                            previous_activity.timestamp, 
-                            activity.start_of_period
-                        ) > 1,
-                        'resurrecting',
-                        'returning'
-                    )
-                ) as activity_status,
-
-                -- If next_period.person_id isn't null value, then it next_period must be active
-                next_period.person_id != '00000000-0000-0000-0000-000000000000' AS next_is_active
-
-            FROM bounded_person_activity_by_period activity
-
-                -- Get activity just before the requested `activity` period, needed so we 
-                -- can label the activity period either 'new', 'returning' or 'resurrecting'
-                ASOF LEFT JOIN unbounded_filtered_events previous_activity
-                    ON previous_activity.person_id = activity.person_id 
-                        AND activity.start_of_period > previous_activity.timestamp
-
-                -- Get the period immediately after the `activity` period. If that period has no
-                -- activity, then it must be 'dormant'
-                LEFT JOIN bounded_person_activity_by_period next_period
-                ON activity.person_id = next_period.person_id 
-                    AND next_period.start_of_period = activity.start_of_period + interval_type
-
-        )
-
-        WHERE period_status_pairs.2 != ''
+        SELECT
+            person_id,
+            any(period) OVER (PARTITION BY person_id ORDER BY period ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) as previous_activity,
+            period,
+            any(period) OVER (PARTITION BY person_id ORDER BY period ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING) as following_activity,
+            created_at
+        FROM ({events_query})
     )
+)
+WHERE period_status_pairs.2 != ''
+SETTINGS allow_experimental_window_functions = 1
 """
 
 LIFECYCLE_SQL = f"""
-WITH 
+WITH
     %(interval)s AS selected_period,
 
     -- enumerate all requested periods, so we can zero fill as needed.
@@ -125,31 +63,29 @@ WITH
     -- for instance, month intervals which do not have a fixed number of seconds.
     periods AS (
         SELECT dateSub(
-            {{interval_keyword}}, 
-            number, 
+            {{interval_expr}},
+            number,
             dateTrunc(selected_period, toDateTime(%(date_to)s))
         ) AS start_of_period
         FROM numbers(
             dateDiff(
-                %(interval)s, 
+                %(interval)s,
                 dateTrunc(%(interval)s, toDateTime(%(date_from)s)),
-                dateTrunc(%(interval)s, toDateTime(%(date_to)s) + INTERVAL {{interval}})
+                dateTrunc(%(interval)s, toDateTime(%(date_to)s) + INTERVAL 1 {{interval_expr}})
             )
         )
     )
-
-SELECT 
-    groupArray(start_of_period) as date, 
-    groupArray(counts) as data, 
-    status 
-    
+SELECT
+    groupArray(start_of_period) as date,
+    groupArray(counts) as data,
+    status
 FROM (
     SELECT if(
-            status = 'dormant', 
-            toInt64(SUM(counts)) * toInt16(-1), 
+            status = 'dormant',
+            toInt64(SUM(counts)) * toInt16(-1),
             toInt64(SUM(counts))
-        ) as counts, 
-        start_of_period, 
+        ) as counts,
+        start_of_period,
         status
 
     FROM (

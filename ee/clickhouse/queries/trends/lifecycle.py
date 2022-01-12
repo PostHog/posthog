@@ -2,54 +2,42 @@ from datetime import datetime
 from typing import Callable, Dict, List, Tuple
 
 from django.db.models.query import Prefetch
-from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.models.person import get_persons_by_uuids
+from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
-from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
+from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.trends.util import parse_response
 from ee.clickhouse.queries.util import get_earliest_timestamp, parse_timestamps
 from ee.clickhouse.sql.trends.lifecycle import LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.queries.lifecycle import LifecycleTrend
+
+# Lifecycle takes an event/action, time range, interval and for every period, splits the users who did the action into 4:
+#
+# 1. NEW - Users who did the action during interval and were also created during that period
+# 2. RESURRECTING - Users who did the action during this interval, but not one prior
+# 3. RETURNING - Users who did the action during this interval and prior one
+# 4. DORMANT - Users who did not do the action during this period or the previous
+#
+# To do this, we need for every period (+1 prior to the first one), list of person_ids who did the event/action during that period
+# and their creation dates
+#
+# During processing, we then pair each (person_id, period, created_at) with the same person_id and previous period and compare the results
 
 
 class ClickhouseLifecycle(LifecycleTrend):
-    def get_interval(self, interval: str) -> Tuple[str, str]:
-        if interval == "hour":
-            return "1 HOUR", "HOUR"
-        elif interval == "day":
-            return "1 DAY", "DAY"
-        elif interval == "week":
-            return "1 WEEK", "WEEK"
-        elif interval == "month":
-            return "1 MONTH", "MONTH"
-        else:
-            raise ValidationError("{interval} not supported")
-
     def _format_lifecycle_query(self, entity: Entity, filter: Filter, team_id: int) -> Tuple[str, Dict, Callable]:
-        date_from = filter.date_from
-
-        if not date_from:
-            date_from = get_earliest_timestamp(team_id)
-
-        interval = filter.interval
-        interval_string, interval_unit = self.get_interval(interval)
-        _, _, date_params = parse_timestamps(filter=filter, team_id=team_id)
-
-        event_query, event_params = LifecycleEventQuery(team_id=team_id, entity=entity, filter=filter).get_query()
+        event_query, event_params = LifecycleEventQuery(team_id=team_id, filter=filter).get_query()
 
         return (
-            LIFECYCLE_SQL.format(
-                interval=interval_string,
-                interval_keyword=interval_unit,
-                event_query=event_query,
-                GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
-            ),
-            {"team_id": team_id, "interval": filter.interval, **event_params, **date_params,},
+            LIFECYCLE_SQL.format(events_query=event_query, interval_expr=filter.interval),
+            {"team_id": team_id, **event_params,},
             self._parse_result(filter, entity),
         )
 
@@ -113,22 +101,63 @@ class ClickhouseLifecycle(LifecycleTrend):
         return PersonSerializer(people, many=True).data
 
 
-class LifecycleEventQuery(TrendsEventQuery):
+class LifecycleEventQuery(ClickhouseEventQuery):
+    _filter: Filter
+
+    def get_query(self):
+        date_query, date_params = self._get_date_filter()
+        self.params.update(date_params)
+
+        prop_query, prop_params = self._get_props(self._filter.properties)
+        self.params.update(prop_params)
+
+        person_query, person_params = self._get_person_query()
+        self.params.update(person_params)
+
+        groups_query, groups_params = self._get_groups_query()
+        self.params.update(groups_params)
+
+        entity_params, entity_format_params = get_entity_filtering_params(
+            self._filter.entities[0], self._team_id, table_name=self.EVENT_TABLE_ALIAS
+        )
+        self.params.update(entity_params)
+
+        return (
+            f"""
+            SELECT DISTINCT
+                person_id,
+                toDateTime(dateTrunc(%(interval)s, events.timestamp)) AS period,
+                person.created_at AS created_at
+            FROM events AS {self.EVENT_TABLE_ALIAS}
+            {self._get_distinct_id_query()}
+            {person_query}
+            {groups_query}
+            WHERE team_id = %(team_id)s
+            {entity_format_params["entity_query"]}
+            {date_query}
+            {prop_query}
+        """,
+            self.params,
+        )
+
+    @cached_property
+    def _person_query(self):
+        return ClickhousePersonQuery(self._filter, self._team_id, self._column_optimizer, extra_fields=["created_at"],)
+
     def _get_date_filter(self):
-        """
-        To be able to check if an event is the first of it's kind by user, we
-        need to query over all of time, not just in the requested timerange.
+        _, _, date_params = parse_timestamps(filter=self._filter, team_id=self._team_id)
+        params = {**date_params, "interval": self._filter.interval}
+        # :TRICKY: We fetch all data even for the period before the graph starts up until the end of the last period
+        return (
+            f"""
+            AND timestamp >= toDateTime(dateTrunc(%(interval)s, toDateTime(%(date_from)s))) - INTERVAL 1 {self._filter.interval}
+            AND timestamp < toDateTime(dateTrunc(%(interval)s, toDateTime(%(date_to)s))) + INTERVAL 1 {self._filter.interval}
+        """,
+            params,
+        )
 
-        NOTE: to be fast when using this query as a subquery in a JOIN on the
-        right hand side with a self join, I'm relying on some optimization
-        happening, otherwise this is going to cause potentially very large joins.
-        """
-        return "", {}
-
-    def _determine_should_join_distinct_ids(self) -> None:
-        """
-        To be able to associate events with the previous or next event by the
-        same user, we need to pull in the associated person_id, so we always
-        join on distinct_ids to ensure we have this available
-        """
+    def _determine_should_join_distinct_ids(self):
         self._should_join_distinct_ids = True
+
+    def _determine_should_join_persons(self) -> None:
+        self._should_join_persons = True
