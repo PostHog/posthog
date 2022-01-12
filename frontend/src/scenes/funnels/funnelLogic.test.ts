@@ -912,11 +912,6 @@ describe('funnelLogic', () => {
     })
 
     describe('is modal active', () => {
-        it('modal is inactive when clickhouse is not enabled', async () => {
-            await expectLogic().toDispatchActions(preflightLogic, ['loadPreflight']).toMatchValues(logic, {
-                isModalActive: false,
-            })
-        })
         it('modal is inactive when viewed on dashboard', async () => {
             await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
             await router.actions.push(urls.dashboard('1'))
