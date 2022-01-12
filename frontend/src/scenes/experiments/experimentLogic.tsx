@@ -356,22 +356,69 @@ export const experimentLogic = kea<experimentLogicType>({
                 },
             ],
         ],
+        variants: [
+            (s) => [s.newExperimentData, s.experimentData],
+            (newExperimentData, experimentData): MultivariateFlagVariant[] => {
+                return (
+                    newExperimentData?.parameters?.feature_flag_variants ||
+                    experimentData?.parameters?.feature_flag_variants ||
+                    []
+                )
+            },
+        ],
         minimumDetectableChange: [
             (s) => [s.newExperimentData],
             (newExperimentData): number => {
                 return newExperimentData?.parameters?.minimum_detectable_effect || 5
             },
         ],
-        recommendedSampleSize: [
+        minimumSampleSizePerVariant: [
             (s) => [s.minimumDetectableChange],
             (mde) => (conversionRate: number) => {
-                // Using the rule of thumb: 16 * sigma^2 / (mde^2)
+                // Using the rule of thumb: sampleSize = 16 * sigma^2 / (mde^2)
                 // refer https://en.wikipedia.org/wiki/Sample_size_determination with default beta and alpha
                 // The results are same as: https://www.evanmiller.org/ab-testing/sample-size.html
                 // and also: https://marketing.dynamicyield.com/ab-test-duration-calculator/
-                // this is per variant, so we need to multiply by 2
-                return 2 * Math.ceil((1600 * conversionRate * (1 - conversionRate / 100)) / (mde * mde))
+                return Math.ceil((1600 * conversionRate * (1 - conversionRate / 100)) / (mde * mde))
             },
+        ],
+        mdeGivenSampleSizeAndConversionRate: [
+            () => [],
+            () =>
+                (sampleSize: number, conversionRate: number): number => {
+                    return Math.sqrt((1600 * conversionRate * (1 - conversionRate / 100)) / sampleSize)
+                },
+        ],
+        mdeGivenCountData: [
+            () => [],
+            () =>
+                (controlCountData: number): number => {
+                    // ref http://www.columbia.edu/~cjd11/charles_dimaggio/DIRE/styled-4/code-12/
+                    // 4*sqrt(lambda*)
+
+                    // background rates:
+                    // roughly matches significance for https://www.evanmiller.org/ab-testing/poisson-means.html
+                    return Math.ceil(2 * Math.sqrt(2) * Math.sqrt(controlCountData))
+                },
+        ],
+        recommendedExposureForCountData: [
+            () => [],
+            () =>
+                (baseCountData: number): number => {
+                    // assume a 5% mde, target count data is 5% of base count data
+                    // http://www.columbia.edu/~cjd11/charles_dimaggio/DIRE/styled-4/code-12/
+                    const minCountData = baseCountData * 0.05
+                    const lambda1 = baseCountData
+                    const lambda2 = minCountData + baseCountData
+
+                    // This is exposure in units of days
+                    return parseFloat(
+                        (
+                            4 /
+                            Math.pow(Math.sqrt(lambda1 / DEFAULT_DURATION) - Math.sqrt(lambda2 / DEFAULT_DURATION), 2)
+                        ).toFixed(1)
+                    )
+                },
         ],
         expectedRunningTime: [
             () => [],

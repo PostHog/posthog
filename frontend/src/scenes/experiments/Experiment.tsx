@@ -1,5 +1,5 @@
 import SaveOutlined from '@ant-design/icons/lib/icons/SaveOutlined'
-import { Button, Card, Col, Form, Input, InputNumber, Progress, Row, Select, Slider, Tag, Tooltip } from 'antd'
+import { Button, Card, Col, Form, Input, InputNumber, Progress, Row, Select, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -22,7 +22,7 @@ import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { IconJavascript, IconOpenInNew } from 'lib/components/icons'
-import { InfoCircleOutlined, CaretDownOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons'
+import { CaretDownOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
@@ -44,8 +44,9 @@ export function Experiment(): JSX.Element {
         experimentId,
         experimentData,
         experimentInsightId,
-        minimumDetectableChange,
-        recommendedSampleSize,
+        minimumSampleSizePerVariant,
+        recommendedExposureForCountData,
+        variants,
         expectedRunningTime,
         experimentResults,
         conversionRateForVariant,
@@ -84,12 +85,16 @@ export function Experiment(): JSX.Element {
         results,
         conversionMetrics,
     } = useValues(funnelLogic(insightProps))
-    const { filters: trendsFilters } = useValues(trendsLogic(insightProps))
+    const { filters: trendsFilters, results: trendResults } = useValues(trendsLogic(insightProps))
 
     const conversionRate = conversionMetrics.totalRate * 100
+    const sampleSizePerVariant = minimumSampleSizePerVariant(conversionRate)
+    const sampleSize = sampleSizePerVariant * variants.length
+    const trendCount = trendResults[0]?.count
     const entrants = results?.[0]?.count
-    const sampleSize = recommendedSampleSize(conversionRate)
     const runningTime = expectedRunningTime(entrants, sampleSize)
+    const exposure = recommendedExposureForCountData(trendCount)
+
     const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
     const status = (): string => {
         if (!experimentData?.start_date) {
@@ -122,7 +127,7 @@ export function Experiment(): JSX.Element {
                             feature_flag_key: newExperimentData?.feature_flag_key,
                             description: newExperimentData?.description,
                         }}
-                        onFinish={() => createExperiment(true, runningTime, sampleSize)}
+                        onFinish={() => createExperiment(true, exposure, sampleSize)}
                         scrollToFirstError
                     >
                         <div>
@@ -389,7 +394,6 @@ export function Experiment(): JSX.Element {
                                                                 buttonCopy="Add graph series"
                                                                 showSeriesIndicator
                                                                 singleFilter={true}
-                                                                hideFilter={false}
                                                                 hideMathSelector={true}
                                                                 propertiesTaxonomicGroupTypes={[
                                                                     TaxonomicFilterGroupType.EventProperties,
@@ -442,65 +446,39 @@ export function Experiment(): JSX.Element {
                                     </Col>
                                 </Row>
                                 <Row className="preview-row">
-                                    <Col span={12}>
-                                        <div className="card-secondary">Target Participant Count</div>
-                                        <div className="pb">
-                                            <span className="l4">~{sampleSize}</span> persons
-                                        </div>
-                                        <div className="card-secondary">Baseline Conversion Rate</div>
-                                        <div className="l4">{conversionRate.toFixed(1)}%</div>
-                                    </Col>
-                                    <Col span={12}>
-                                        <div className="card-secondary">Target duration</div>
-                                        <div>
-                                            <span className="l4">~{runningTime}</span> days
-                                        </div>
-                                    </Col>
-                                </Row>
-                                <Row className="preview-row">
-                                    <Col>
-                                        <div className="l4">
-                                            Conversion goal threshold
-                                            <Tooltip
-                                                title={`The minimum % change in conversion rate you care about. 
-                                                This means you don't care about variants whose
-                                                conversion rate is between these two percentages.`}
-                                            >
-                                                <InfoCircleOutlined style={{ marginLeft: 4 }} />
-                                            </Tooltip>
-                                        </div>
-                                        <div className="pb text-small text-muted">
-                                            Apply a threshold to broaden the acceptable range of conversion rates for
-                                            this experiment. The acceptable range will be the baseline conversion goal
-                                            +/- the goal threshold.
-                                        </div>
-                                        <div>
-                                            <span className="l4 pr">Threshold value</span>
-                                            <Slider
-                                                min={1}
-                                                max={20}
-                                                defaultValue={5}
-                                                tipFormatter={(value) => `${value}%`}
-                                                onChange={(value) =>
-                                                    setNewExperimentData({
-                                                        parameters: { minimum_detectable_effect: value },
-                                                    })
-                                                }
-                                                marks={{ 5: `5%`, 10: `10%` }}
-                                            />
-                                        </div>
-                                    </Col>
-                                </Row>
-                                <Row>
-                                    <Col>
-                                        <div className="card-secondary mb-05">Conversion goal range</div>
-                                        <div>
-                                            <b>
-                                                {Math.max(0, conversionRate - minimumDetectableChange).toFixed()}% -{' '}
-                                                {Math.min(100, conversionRate + minimumDetectableChange).toFixed()}%
-                                            </b>
-                                        </div>
-                                    </Col>
+                                    {experimentInsightType === InsightType.TRENDS ? (
+                                        <>
+                                            <Col span={12}>
+                                                <div className="card-secondary">Baseline Count</div>
+                                                <div className="l4">{trendCount}</div>
+                                            </Col>
+                                            <Col span={12}>
+                                                <div className="card-secondary">Recommended Duration</div>
+                                                <div>
+                                                    <span className="l4">~{exposure}</span> days
+                                                </div>
+                                            </Col>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Col span={8}>
+                                                <div className="card-secondary">Baseline Conversion Rate</div>
+                                                <div className="l4">{conversionRate.toFixed(1)}%</div>
+                                            </Col>
+                                            <Col span={8}>
+                                                <div className="card-secondary">Recommended Sample Size</div>
+                                                <div className="pb">
+                                                    <span className="l4">~{sampleSizePerVariant}</span> persons
+                                                </div>
+                                            </Col>
+                                            <Col span={8}>
+                                                <div className="card-secondary">Expected Duration</div>
+                                                <div>
+                                                    <span className="l4">~{runningTime}</span> days
+                                                </div>
+                                            </Col>
+                                        </>
+                                    )}
                                 </Row>
                             </Card>
                         </div>
@@ -573,20 +551,23 @@ export function Experiment(): JSX.Element {
                                     )}
                                 </div>
                             </Col>
-                            <Col>
-                                <div className="card-secondary mt">Recommended running time</div>
-                                <span>
-                                    ~{experimentData.parameters?.recommended_running_time}{' '}
-                                    <span className="text-muted">days</span>
-                                </span>
-                            </Col>
-                            <Col>
-                                <div className="card-secondary mt">Recommended sample size</div>
-                                <span>
-                                    ~{experimentData.parameters?.recommended_sample_size}{' '}
-                                    <span className="text-muted">persons</span>
-                                </span>
-                            </Col>
+                            {experimentInsightType === InsightType.TRENDS ? (
+                                <Col>
+                                    <div className="card-secondary mt">Recommended running time</div>
+                                    <span>
+                                        ~{experimentData.parameters?.recommended_running_time}{' '}
+                                        <span className="text-muted">days</span>
+                                    </span>
+                                </Col>
+                            ) : (
+                                <Col>
+                                    <div className="card-secondary mt">Recommended sample size</div>
+                                    <span>
+                                        ~{experimentData.parameters?.recommended_sample_size}{' '}
+                                        <span className="text-muted">persons</span>
+                                    </span>
+                                </Col>
+                            )}
                             <Col>
                                 <div className="card-secondary mt">Variants</div>
                                 <ul className="variants-list">
