@@ -10,6 +10,14 @@ type APIMockReturnType = {
     >
 }
 
+enum APIMethod {
+    Create = 'create',
+    Get = 'get',
+    Update = 'update',
+    Delete = 'delete',
+}
+const apiMethods = [APIMethod.Create, APIMethod.Get, APIMethod.Update, APIMethod.Delete]
+
 type APIRoute = {
     pathname: string
     search: string
@@ -18,7 +26,7 @@ type APIRoute = {
     hashParams: Record<string, any>
     url: string
     data?: Record<string, any>
-    method: string
+    method: APIMethod
 }
 
 export const MOCK_TEAM_ID: TeamType['id'] = 997
@@ -44,7 +52,7 @@ export const mockAPI = (
     availableFeatures: AvailableFeature[] = []
 ): void => {
     beforeEach(async () => {
-        for (const method of ['get', 'update', 'create', 'delete']) {
+        for (const method of apiMethods) {
             api[method as keyof typeof api].mockImplementation(async (url: string, data?: Record<string, any>) => {
                 const urlParams = { ...combineUrl(url), data, method }
                 return (await urlCallback?.(urlParams)) ?? defaultAPIMocks(urlParams, availableFeatures)
