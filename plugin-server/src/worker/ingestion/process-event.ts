@@ -121,7 +121,7 @@ export class EventsProcessor {
 
             const personUuid = new UUIDT().toString()
 
-            const timestampExtracted = this.handleTimestamp(data, now)
+            const timestampExtracted = this.handleTimestamp(data, now, sentAt)
             const timeout1 = timeoutGuard('Still running "handleIdentifyOrAlias". Timeout warning after 30 sec!', {
                 eventUuid,
             })
@@ -187,9 +187,21 @@ export class EventsProcessor {
         return result
     }
 
-    public handleTimestamp(data: PluginEvent, now: DateTime): DateTime {
+    public handleTimestamp(data: PluginEvent, now: DateTime, sentAt: DateTime | null): DateTime {
         const customTimestamp = data.timestamp || data.properties?.$timestamp
         if (customTimestamp) {
+            if (sentAt) {
+                // sent_at - timestamp == now - x
+                // x = now + (timestamp - sent_at)
+                try {
+                    // timestamp and sent_at must both be in the same format: either both with or both without timezones
+                    // otherwise we can't get a diff to add to now
+                    return now.plus(parseDate(customTimestamp).diff(sentAt))
+                } catch (error) {
+                    status.error('⚠️', 'Error when handling timestamp:', error)
+                    Sentry.captureException(error, { extra: { data, now, sentAt } })
+                }
+            }
             return parseDate(customTimestamp)
         }
         if (data['offset']) {
