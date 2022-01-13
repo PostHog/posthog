@@ -42,9 +42,18 @@ class AsyncMigrationOperation:
         self.rollback_fn = rollback_fn
 
     @classmethod
-    def simple_op(cls, sql, rollback, database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE):
+    def simple_op(
+        cls,
+        sql,
+        rollback,
+        database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE,
+        resumable=False,
+        timeout_seconds: int = 60,
+    ):
         return cls(
-            fn=cls.get_db_op(database=database, sql=sql), rollback_fn=cls.get_db_op(database=database, sql=rollback),
+            fn=cls.get_db_op(database=database, sql=sql, timeout_seconds=timeout_seconds),
+            rollback_fn=cls.get_db_op(database=database, sql=rollback, timeout_seconds=timeout_seconds),
+            resumable=resumable,
         )
 
     @classmethod

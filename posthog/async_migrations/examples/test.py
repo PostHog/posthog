@@ -43,7 +43,7 @@ class Migration(AsyncMigrationDefinition):
             rollback="TRUNCATE TABLE test_async_migration",
         ),
         AsyncMigrationOperation(fn=sec.side_effect, rollback_fn=sec.side_effect_rollback,),
-        AsyncMigrationOperation.simple_op(database=AnalyticsDBMS.POSTGRES, sql="SELECT pg_sleep(1)"),
+        AsyncMigrationOperation.simple_op(database=AnalyticsDBMS.POSTGRES, sql="SELECT pg_sleep(1)", resumable=True),
         AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.POSTGRES,
             sql="UPDATE test_async_migration SET value='c' WHERE key='a'",

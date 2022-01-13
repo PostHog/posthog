@@ -46,7 +46,7 @@ class Migration(AsyncMigrationDefinition):
     ]
 
     operations = [
-        AsyncMigrationOperation(
+        AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"""
             CREATE TABLE IF NOT EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER} AS {EVENTS_TABLE_NAME}
@@ -58,7 +58,7 @@ class Migration(AsyncMigrationDefinition):
             rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
             resumable=True,
         ),
-        AsyncMigrationOperation(
+        AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"""
             INSERT INTO {TEMPORARY_TABLE_NAME}
@@ -70,14 +70,16 @@ class Migration(AsyncMigrationDefinition):
             resumable=True,
             timeout_seconds=7 * 24 * 60 * 60,  # one week
         ),
-        AsyncMigrationOperation(
+        AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
             rollback=f"ATTACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
-            side_effect=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
-            side_effect_rollback=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
         ),
         AsyncMigrationOperation(
+            fn=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
+            rollback_fn=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
+        ),
+        AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"""
             INSERT INTO {TEMPORARY_TABLE_NAME}
@@ -88,7 +90,7 @@ class Migration(AsyncMigrationDefinition):
             resumable=True,
             timeout_seconds=3 * 24 * 60 * 60,  # three days
         ),
-        AsyncMigrationOperation(
+        AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"""
                 RENAME TABLE
@@ -113,8 +115,10 @@ class Migration(AsyncMigrationDefinition):
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"ATTACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
             rollback=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
-            side_effect=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
-            side_effect_rollback=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
+        ),
+        AsyncMigrationOperation(
+            fn=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
+            rollback_fn=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
         ),
     ]
 
