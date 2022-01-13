@@ -196,18 +196,7 @@ class ClickhousePersonViewSet(PersonViewSet):
                 funnel_filter_data = json.loads(funnel_filter_data)
             funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data}, team=self.team)
 
-        extra_event_fields: List[ColumnName] = []
-        extra_event_properties: List[PropertyName] = []
-        if filter.include_recordings:
-            extra_event_fields = ["uuid"]
-            extra_event_properties = ["$session_id", "$window_id"]
-        people, serialized_actors = ClickhousePathsActors(
-            filter,
-            self.team,
-            funnel_filter=funnel_filter,
-            extra_event_fields=extra_event_fields,
-            extra_event_properties=extra_event_properties,
-        ).get_actors()
+        people, serialized_actors = ClickhousePathsActors(filter, self.team, funnel_filter=funnel_filter,).get_actors()
         _should_paginate = should_paginate(people, filter.limit)
 
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None

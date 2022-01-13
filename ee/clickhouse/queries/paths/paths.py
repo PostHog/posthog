@@ -38,14 +38,7 @@ class ClickhousePaths:
     _extra_event_fields: List[ColumnName]
     _extra_event_properties: List[PropertyName]
 
-    def __init__(
-        self,
-        filter: PathFilter,
-        team: Team,
-        funnel_filter: Optional[Filter] = None,
-        extra_event_properties: List[PropertyName] = [],
-        extra_event_fields: List[ColumnName] = [],
-    ) -> None:
+    def __init__(self, filter: PathFilter, team: Team, funnel_filter: Optional[Filter] = None,) -> None:
         self._filter = filter
         self._team = team
         self.params = {
@@ -56,8 +49,12 @@ class ClickhousePaths:
             "regex_groupings": None,
         }
         self._funnel_filter = funnel_filter
-        self._extra_event_fields = extra_event_fields
-        self._extra_event_properties = extra_event_properties
+
+        self._extra_event_fields: List[ColumnName] = []
+        self._extra_event_properties: List[PropertyName] = []
+        if self._filter.include_recordings:
+            self._extra_event_fields = ["uuid", "timestamp"]
+            self._extra_event_properties = ["$session_id", "$window_id"]
 
         if self._filter.include_all_custom_events and self._filter.custom_events:
             raise ValidationError("Cannot include all custom events and specific custom events in the same query")
