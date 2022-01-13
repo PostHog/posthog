@@ -98,8 +98,13 @@ export function Invites(): JSX.Element {
     return (
         <div>
             <h2 id="invites" className="subtitle" style={{ justifyContent: 'space-between' }}>
-                Team invites
-                <Button type="primary" icon={<PlusOutlined />} onClick={showInviteModal}>
+                Pending Invites
+                <Button
+                    type="primary"
+                    icon={<PlusOutlined />}
+                    onClick={showInviteModal}
+                    data-attr="invite-teammate-button"
+                >
                     Invite team member
                 </Button>
             </h2>
