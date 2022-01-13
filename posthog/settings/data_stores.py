@@ -100,7 +100,7 @@ if CLICKHOUSE_SECURE:
 CLICKHOUSE_HTTP_URL = f"{_clickhouse_http_protocol}{CLICKHOUSE_HOST}:{_clickhouse_http_port}/"
 
 # Kafka configs
-KAFKA_URL = os.getenv("KAFKA_URL", "kafka://kafka")
+KAFKA_URL = os.getenv("KAFKA_URL", "kafka://kafka:9092")
 KAFKA_HOSTS_LIST = [urlparse(host).netloc for host in KAFKA_URL.split(",")]
 KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
 KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bool)
