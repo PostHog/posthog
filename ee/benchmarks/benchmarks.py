@@ -121,6 +121,36 @@ class QuerySuite:
         ClickhouseTrends().run(filter, self.team)
 
     @benchmark_clickhouse
+    def track_trends_event_property_breakdown(self):
+        filter = Filter(data={"events": [{"id": "$pageview"}], "breakdown": "$host", **DATE_RANGE,})
+
+        with no_materialized_columns():
+            ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_trends_event_property_breakdown_materialized(self):
+        filter = Filter(data={"events": [{"id": "$pageview"}], "breakdown": "$host", **DATE_RANGE,})
+
+        ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_trends_person_property_breakdown(self):
+        filter = Filter(
+            data={"events": [{"id": "$pageview"}], "breakdown": "$browser", "breakdown_type": "person", **DATE_RANGE,}
+        )
+
+        with no_materialized_columns():
+            ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_trends_person_property_breakdown_materialized(self):
+        filter = Filter(
+            data={"events": [{"id": "$pageview"}], "breakdown": "$browser", "breakdown_type": "person", **DATE_RANGE,}
+        )
+
+        ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
     def track_trends_dau(self):
         filter = Filter(data={"events": [{"id": "$pageview", "math": "dau"}], **DATE_RANGE,})
         ClickhouseTrends().run(filter, self.team)
