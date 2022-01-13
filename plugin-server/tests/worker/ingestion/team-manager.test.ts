@@ -541,53 +541,6 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                     )
                 })
             })
-
-            it('does identify type if the property was previously saved with no type', async () => {
-                await teamManager.db.postgresQuery(
-                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6)',
-                    [new UUIDT().toString(), 'a_timestamp', false, teamId, null, null],
-                    'testTag'
-                )
-
-                await teamManager.updateEventNamesAndProperties(teamId, 'a_test_event', {
-                    a_timestamp: 1234567890,
-                })
-
-                const results = await teamManager.db.postgresQuery(
-                    `
-                    SELECT property_type, property_type_format from posthog_propertydefinition
-                    where name=$1
-                `,
-                    ['a_timestamp'],
-                    'queryForProperty'
-                )
-                expect(results.rows[0]).toEqual({ property_type: 'DateTime', property_type_format: 'unix_timestamp' })
-            })
-
-            it('does not replace property type if the property was previously saved with a different type', async () => {
-                await teamManager.db.postgresQuery(
-                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6)',
-                    [new UUIDT().toString(), 'a_prop_with_type', false, teamId, PropertyType.DateTime, 'YYYY-MM-DD'],
-                    'testTag'
-                )
-
-                await teamManager.updateEventNamesAndProperties(teamId, 'a_test_event', {
-                    a_prop_with_type: 1234567890,
-                })
-
-                const results = await teamManager.db.postgresQuery(
-                    `
-                    SELECT property_type, property_type_format from posthog_propertydefinition
-                    where name=$1
-                `,
-                    ['a_prop_with_type'],
-                    'queryForProperty'
-                )
-                expect(results.rows[0]).toEqual({
-                    property_type: PropertyType.DateTime,
-                    property_type_format: 'YYYY-MM-DD',
-                })
-            })
         })
     })
 })

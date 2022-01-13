@@ -322,7 +322,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
         let propertyDefinitionsCache = this.propertyDefinitionsCache.get(teamId)
         if (!propertyDefinitionsCache) {
             const eventProperties = await this.db.postgresQuery(
-                'SELECT name FROM posthog_propertydefinition WHERE team_id = $1 AND property_type IS NOT NULL',
+                'SELECT name FROM posthog_propertydefinition WHERE team_id = $1',
                 [teamId],
                 'fetchPropertyDefinitions'
             )
