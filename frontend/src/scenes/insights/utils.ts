@@ -7,7 +7,7 @@ import api from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
 
 export const getDisplayNameFromEntityFilter = (
-    filter: EntityFilter | ActionFilter | null,
+    filter: EntityFilter | ActionFilter | null | Record<string, any>,
     isCustom = true
 ): string | null => {
     // Make sure names aren't blank strings
