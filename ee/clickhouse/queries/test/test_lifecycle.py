@@ -1,6 +1,8 @@
 from datetime import datetime
 from uuid import uuid4
 
+from freezegun.api import freeze_time
+
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
@@ -40,8 +42,12 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(Clickh
         create_group(self.team.pk, group_type_index=0, group_key="in", properties={"key": "value"})
         create_group(self.team.pk, group_type_index=0, group_key="out", properties={"key": "othervalue"})
 
-        Person.objects.create(distinct_ids=["person1"], team_id=self.team.pk)
-        Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk)
+        with freeze_time("2020-01-11T12:00:00Z"):
+            Person.objects.create(distinct_ids=["person1"], team_id=self.team.pk)
+
+        with freeze_time("2020-01-09T12:00:00Z"):
+            Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk)
+
         journeys_for(
             {
                 "person1": [
@@ -70,13 +76,12 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(Clickh
             self.team,
         )
 
-        self.assertEqual(sorted(res["status"] for res in result), ["dormant", "new", "resurrecting", "returning"])
-        for res in result:
-            if res["status"] == "dormant":
-                self.assertEqual(res["data"], [0, -1, 0, 0, -1, 0, 0, 0])
-            elif res["status"] == "returning":
-                self.assertEqual(res["data"], [0, 0, 0, 0, 0, 0, 0, 0])
-            elif res["status"] == "resurrecting":
-                self.assertEqual(res["data"], [1, 0, 0, 1, 0, 0, 0, 0])
-            elif res["status"] == "new":
-                self.assertEqual(res["data"], [0, 0, 0, 0, 0, 0, 0, 0])
+        self.assertLifecycleResults(
+            result,
+            [
+                {"status": "dormant", "data": [0, -1, 0, 0, -1, 0, 0, 0]},
+                {"status": "new", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "resurrecting", "data": [1, 0, 0, 1, 0, 0, 0, 0]},
+                {"status": "returning", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+            ],
+        )

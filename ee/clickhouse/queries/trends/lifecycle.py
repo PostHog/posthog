@@ -23,7 +23,7 @@ from posthog.queries.lifecycle import LifecycleTrend
 # 1. NEW - Users who did the action during interval and were also created during that period
 # 2. RESURRECTING - Users who did the action during this interval, but not one prior
 # 3. RETURNING - Users who did the action during this interval and prior one
-# 4. DORMANT - Users who did not do the action during this period or the previous
+# 4. DORMANT - Users who did not do the action during this period but did an action the previous period
 #
 # To do this, we need for every period (+1 prior to the first one), list of person_ids who did the event/action during that period
 # and their creation dates
