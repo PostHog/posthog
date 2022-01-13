@@ -192,23 +192,5 @@ describe('experimentLogic', () => {
 
             expect(logic.values.mdeGivenSampleSizeAndConversionRate(200, 50)).toBeCloseTo(14.142)
         })
-
-        it('calculates correct significance levels for experiments', async () => {
-            // setup experiment results
-            logic.actions.setNewExperimentData({ parameters: { minimum_detectable_effect: 10 } })
-
-            await expectLogic(logic).toMatchValues({
-                minimumDetectableChange: 10,
-            })
-            // 1000 count over 14 days
-            expect(logic.values.recommendedExposureForCountData(1000)).toEqual(91.8)
-
-            // 10,000 entrants over 14 days
-            // 10x entrants, so 1/10th running time
-            expect(logic.values.recommendedExposureForCountData(10000)).toEqual(9.2)
-
-            // 0 entrants over 14 days, so infinite running time
-            expect(logic.values.recommendedExposureForCountData(0)).toEqual(Infinity)
-        })
     })
 })

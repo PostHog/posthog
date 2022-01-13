@@ -540,9 +540,9 @@ export function Experiment(): JSX.Element {
                         <Col span={10} style={{ paddingRight: '1rem' }}>
                             {showWarning &&
                                 experimentResults &&
-                                ((experimentInsightType == InsightType.TRENDS && !areCountResultsSignificant) ||
+                                ((experimentInsightType == InsightType.TRENDS && areCountResultsSignificant) ||
                                     (experimentInsightType == InsightType.FUNNELS &&
-                                        !areConversionResultsSignificant)) && (
+                                        areConversionResultsSignificant)) && (
                                     <Row className="significant-results">
                                         <Col span={19} style={{ color: '#497342' }}>
                                             Experiment results are significant. You can end your experiment now or let
