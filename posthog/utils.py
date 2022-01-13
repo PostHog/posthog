@@ -598,6 +598,8 @@ def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]
 def get_instance_realm() -> str:
     """
     Returns the realm for the current instance. `cloud` or 'demo' or `hosted-clickhouse`.
+    
+    Historically this would also have returned `hosted` for hosted postgresql based installations
     """
     if settings.MULTI_TENANCY:
         return "cloud"
