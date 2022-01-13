@@ -17,7 +17,7 @@ from posthog.celery import app
 # 1. spawning a thread within the worker
 # 2. suggesting users scale celery when running async migrations
 # 3. ...
-@app.task(ignore_result=False, max_retries=0)
+@app.task(track_started=True, ignore_result=False, max_retries=0)
 def run_async_migration(migration_name: str, fresh_start: bool = True) -> None:
     if fresh_start:
         start_async_migration(migration_name)
