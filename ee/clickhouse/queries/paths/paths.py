@@ -104,6 +104,8 @@ class ClickhousePaths:
 
         return funnel_cte + path_query
 
+    # Returns the set of clauses used to select the uuid, session_id and window_id for the events in the query
+    # These values are used to identify the recordings shown in the person modal
     def get_recording_event_clauses(self) -> RecordingEventClauses:
         if self._filter.include_recordings:
             return RecordingEventClauses(
