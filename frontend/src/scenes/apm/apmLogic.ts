@@ -15,6 +15,7 @@ const eventApiProps: Partial<FilterType> = {
 interface EventPerformanceMeasure {
     start: number
     end: number
+    color: string
 }
 
 interface PointInTimeMarker {
@@ -31,17 +32,18 @@ export interface EventPerformanceData {
 }
 
 function expandOptimisedEntries(entries: [string[], any[]]): Record<string, any> {
-    if (!entries) {
+    try {
+        const keys = entries[0]
+        return entries[1].map((entry) => {
+            return entry.reduce((acc: Record<string, any>, entryValue: any, index: number) => {
+                acc[keys[index]] = entryValue
+                return acc
+            }, {})
+        })
+    } catch (e) {
+        console.error({ e, entries }, 'could not decompress performance entries')
         return {}
     }
-
-    const keys = entries[0]
-    return entries[1].map((entry) => {
-        return entry.reduce((acc: Record<string, any>, entryValue: any, index: number) => {
-            acc[keys[index]] = entryValue
-            return acc
-        }, {})
-    })
 }
 
 function decompress(
@@ -54,23 +56,49 @@ function decompress(
     }
 }
 
+const colors = getChartColors('green')
+function colorForEntry(entryType: string): string {
+    switch (entryType) {
+        case 'domComplete':
+            return colors[0]
+        case 'domInteractive':
+            return colors[2]
+        case 'pageLoaded':
+            return colors[3]
+        case 'firstContentfulPaint':
+            return colors[4]
+        case 'css':
+            return colors[6]
+        case 'xmlhttprequest':
+            return colors[7]
+        case 'fetch':
+            return colors[8]
+        case 'other':
+            return colors[9]
+        case 'script':
+            return colors[10]
+        case 'link':
+            return colors[11]
+        default:
+            return colors[13]
+    }
+}
+
 function forWaterfallDisplay(pageViewEvent: EventType): EventPerformanceData {
     const perfData = decompress(JSON.parse(pageViewEvent.properties.$performance_raw))
     const navTiming: PerformanceNavigationTiming = perfData.navigation[0]
     let maxTime = 0
 
-    const colors = getChartColors('blue', 5)
-
     const pointsInTime = {}
     if (navTiming.domComplete) {
-        pointsInTime['domComplete'] = { time: navTiming.domComplete, color: colors[0] }
+        pointsInTime['domComplete'] = { time: navTiming.domComplete, color: colorForEntry('domComplete') }
     }
     if (navTiming.domInteractive) {
-        pointsInTime['domInteractive'] = { time: navTiming.domInteractive, color: colors[1] }
+        pointsInTime['domInteractive'] = { time: navTiming.domInteractive, color: colorForEntry('domInteractive') }
     }
 
     if (navTiming.duration) {
-        pointsInTime['pageLoaded'] = { time: navTiming.duration, color: colors[2] }
+        pointsInTime['pageLoaded'] = { time: navTiming.duration, color: colorForEntry('pageLoaded') }
         maxTime = navTiming.duration > maxTime ? navTiming.duration : maxTime
     }
 
@@ -79,34 +107,54 @@ function forWaterfallDisplay(pageViewEvent: EventType): EventPerformanceData {
         (p: PerformanceEntry) => p.name === 'first-contentful-paint'
     )
     if (fcp) {
-        pointsInTime['firstContentfulPaint'] = { time: fcp.startTime, color: colors[3] }
+        pointsInTime['firstContentfulPaint'] = { time: fcp.startTime, color: colorForEntry('firstContentfulPaint') }
         maxTime = fcp.startTime > maxTime ? fcp.startTime : maxTime
     }
 
     const durations: Record<string, EventPerformanceMeasure> = {}
     if (navTiming.domainLookupEnd && navTiming.domainLookupStart) {
-        durations['dns lookup'] = { start: navTiming.domainLookupStart, end: navTiming.domainLookupEnd }
+        durations['dns lookup'] = {
+            start: navTiming.domainLookupStart,
+            end: navTiming.domainLookupEnd,
+            color: colorForEntry(navTiming.initiatorType),
+        }
         maxTime = navTiming.domainLookupEnd > maxTime ? navTiming.domainLookupEnd : maxTime
     }
 
     if (navTiming.connectEnd && navTiming.connectStart) {
-        durations['connection time'] = { start: navTiming.connectStart, end: navTiming.connectEnd }
+        durations['connection time'] = {
+            start: navTiming.connectStart,
+            end: navTiming.connectEnd,
+            color: colorForEntry(navTiming.initiatorType),
+        }
         maxTime = navTiming.connectEnd > maxTime ? navTiming.connectEnd : maxTime
     }
 
     if (navTiming.connectEnd && navTiming.secureConnectionStart) {
-        durations['tls time'] = { start: navTiming.secureConnectionStart, end: navTiming.connectEnd }
+        durations['tls time'] = {
+            start: navTiming.secureConnectionStart,
+            end: navTiming.connectEnd,
+            color: colorForEntry(navTiming.initiatorType),
+        }
         maxTime = navTiming.connectEnd > maxTime ? navTiming.connectEnd : maxTime
     }
 
     if (navTiming.responseStart && navTiming.requestStart) {
-        durations['waiting for first byte (TTFB)'] = { start: navTiming.requestStart, end: navTiming.responseStart }
+        durations['waiting for first byte (TTFB)'] = {
+            start: navTiming.requestStart,
+            end: navTiming.responseStart,
+            color: colorForEntry(navTiming.initiatorType),
+        }
         maxTime = navTiming.responseStart > maxTime ? navTiming.responseStart : maxTime
     }
 
     perfData.resource.forEach((resource: PerformanceResourceTiming) => {
         const resourceURL = new URL(resource.name)
-        durations[resourceURL.pathname] = { start: resource.startTime, end: resource.responseEnd }
+        durations[resourceURL.pathname] = {
+            start: resource.startTime,
+            end: resource.responseEnd,
+            color: colorForEntry(resource.initiatorType),
+        }
         maxTime = resource.responseEnd > maxTime ? resource.responseEnd : maxTime
     })
 

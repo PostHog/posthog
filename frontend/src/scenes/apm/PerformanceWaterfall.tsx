@@ -19,13 +19,14 @@ interface PerfBlockProps {
     start: number
     end: number
     max: number | undefined
+    color?: string
 }
 
-function PerfBlock({ start, end, max }: PerfBlockProps): JSX.Element {
+function PerfBlock({ start, end, max, color }: PerfBlockProps): JSX.Element {
     if (max) {
         const left = (start / max) * 100
         const right = 100 - (end / max) * 100
-        const blockSides = { left: `${left}%`, right: `${right}%` }
+        const blockSides = { left: `${left}%`, right: `${right}%`, backgroundColor: color }
         const textPosition = { left: `${100 - right + 1}%`, right: `${right}%` }
         return (
             <>
@@ -112,11 +113,19 @@ function WaterfallChart(): JSX.Element {
                                     color={'var(--border-light)'}
                                 />
                             ))}
-                            {Object.entries(eventToDisplay.durations).map(([marker, times]) => (
-                                <Row key={marker} className={'marker-row'}>
-                                    <PerfBlock start={times.start} end={times.end} max={eventToDisplay?.maxTime} />
-                                </Row>
-                            ))}
+                            {Object.entries(eventToDisplay.durations).map(([marker, measure]) => {
+                                console.log(measure.color, marker)
+                                return (
+                                    <Row key={marker} className={'marker-row'}>
+                                        <PerfBlock
+                                            start={measure.start}
+                                            end={measure.end}
+                                            max={eventToDisplay?.maxTime}
+                                            color={measure.color}
+                                        />
+                                    </Row>
+                                )
+                            })}
                         </Col>
                     </Row>
                 </div>
