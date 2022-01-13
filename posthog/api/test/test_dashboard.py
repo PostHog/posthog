@@ -192,14 +192,13 @@ class TestDashboard(APIBaseTest):
                 team=self.team,
                 last_refresh=now(),
             )
-            item_sessions: Insight = Insight.objects.create(
+            item_trends: Insight = Insight.objects.create(
                 dashboard=dashboard,
                 filters=Filter(
                     data={
                         "display": "ActionsLineGraph",
                         "events": [{"id": "$pageview", "type": "events", "order": 0, "properties": []}],
                         "filters": [],
-                        "insight": "SESSIONS",
                         "interval": "day",
                         "pagination": {},
                         "session": "avg",
@@ -220,13 +219,13 @@ class TestDashboard(APIBaseTest):
             self.assertEqual(response_data["items"][0]["result"][0]["count"], 0)
 
             item_default.refresh_from_db()
-            item_sessions.refresh_from_db()
+            item_trends.refresh_from_db()
 
             self.assertEqual(parser.isoparse(response_data["items"][0]["last_refresh"]), item_default.last_refresh)
-            self.assertEqual(parser.isoparse(response_data["items"][1]["last_refresh"]), item_sessions.last_refresh)
+            self.assertEqual(parser.isoparse(response_data["items"][1]["last_refresh"]), item_trends.last_refresh)
 
             self.assertAlmostEqual(item_default.last_refresh, now(), delta=timezone.timedelta(seconds=5))
-            self.assertAlmostEqual(item_sessions.last_refresh, now(), delta=timezone.timedelta(seconds=5))
+            self.assertAlmostEqual(item_trends.last_refresh, now(), delta=timezone.timedelta(seconds=5))
 
     def test_dashboard_endpoints(self):
         # create
