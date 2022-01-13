@@ -1,6 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
-import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
+import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { urls } from 'scenes/urls'
 import { initKeaTestLogic } from '~/test/init'
 import { InsightType } from '~/types'
@@ -11,8 +11,7 @@ jest.mock('lib/api')
 describe('experimentLogic', () => {
     let logic: ReturnType<typeof experimentLogic.build>
 
-    mockAPI(async (url) => {
-        const { pathname } = url
+    mockAPI(async ({ pathname }) => {
         if (pathname === `api/projects/${MOCK_TEAM_ID}/insights`) {
             return { short_id: 'a5qqECqP', filters: { insight: InsightType.FUNNELS } }
         } else if (pathname === `api/projects/${MOCK_TEAM_ID}/experiments`) {
@@ -23,7 +22,6 @@ describe('experimentLogic', () => {
                 results: [{ id: 1, name: 'Test Exp', description: 'bla' }],
             }
         }
-        return defaultAPIMocks(url)
     })
 
     initKeaTestLogic({

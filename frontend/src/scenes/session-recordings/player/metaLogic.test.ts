@@ -1,5 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
-import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
+import { mockAPI } from 'lib/api.mock'
 import { initKeaTestLogic } from '~/test/init'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -11,9 +11,7 @@ jest.mock('lib/api')
 describe('metaLogic', () => {
     let logic: ReturnType<typeof metaLogic.build>
 
-    mockAPI(async (url) => {
-        return defaultAPIMocks(url)
-    })
+    mockAPI()
 
     initKeaTestLogic({
         logic: metaLogic,

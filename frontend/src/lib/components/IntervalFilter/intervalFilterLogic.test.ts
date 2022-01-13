@@ -2,7 +2,7 @@ import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightShortId } from '~/types'
-import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
+import { mockAPI } from 'lib/api.mock'
 import { intervalFilterLogic } from 'lib/components/IntervalFilter/intervalFilterLogic'
 
 jest.mock('lib/api')
@@ -11,9 +11,7 @@ describe('intervalFilterLogic', () => {
     let logic: ReturnType<typeof intervalFilterLogic.build>
     const props = { dashboardItemId: 'test' as InsightShortId }
 
-    mockAPI(async (url) => {
-        return defaultAPIMocks(url)
-    })
+    mockAPI()
 
     beforeEach(() => {
         initKeaTests()

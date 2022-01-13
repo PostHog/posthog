@@ -1,5 +1,5 @@
 import { parseMetadataResponse, sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
-import { api, defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
+import { api, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
@@ -22,15 +22,14 @@ const EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT = `api/projects/${MOCK_TEAM_ID}/e
 describe('sessionRecordingLogic', () => {
     let logic: ReturnType<typeof sessionRecordingLogic.build>
 
-    mockAPI(async (url) => {
-        if (!!url.pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
+    mockAPI(async ({ pathname }) => {
+        if (!!pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
             return { result: recordingSnapshotsJson }
-        } else if (url.pathname.startsWith(EVENTS_SESSION_RECORDING_META_ENDPOINT)) {
+        } else if (pathname.startsWith(EVENTS_SESSION_RECORDING_META_ENDPOINT)) {
             return { result: recordingMetaJson }
-        } else if (url.pathname.startsWith(EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT)) {
+        } else if (pathname.startsWith(EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT)) {
             return { results: recordingEventsJson }
         }
-        return defaultAPIMocks(url)
     })
 
     initKeaTestLogic({

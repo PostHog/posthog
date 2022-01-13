@@ -1,6 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
-import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
+import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { urls } from 'scenes/urls'
 import { initKeaTestLogic } from '~/test/init'
 import { groupsListLogic } from './groupsListLogic'
@@ -10,12 +10,10 @@ jest.mock('lib/api')
 describe('groupsListLogic', () => {
     let logic: ReturnType<typeof groupsListLogic.build>
 
-    mockAPI(async (url) => {
-        const { pathname } = url
+    mockAPI(async ({ pathname }) => {
         if (`api/projects/${MOCK_TEAM_ID}/groups/?group_type_index=0` === pathname) {
             return { result: ['result from api'], next: null, previous: null }
         }
-        return defaultAPIMocks(url)
     })
 
     initKeaTestLogic({
