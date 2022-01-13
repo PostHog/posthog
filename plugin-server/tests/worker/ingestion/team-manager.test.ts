@@ -2,7 +2,7 @@ import { DateTime, Settings } from 'luxon'
 import { mocked } from 'ts-jest/utils'
 
 import { defaultConfig } from '../../../src/config/config'
-import { Hub, PropertyType } from '../../../src/types'
+import { DateTimePropertyTypeFormat, Hub, PropertyType, UnixTimestampPropertyTypeFormat } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { posthog } from '../../../src/utils/posthog'
 import { UUIDT } from '../../../src/utils/utils'
@@ -415,31 +415,43 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                 {
                     propertyKey: 'unix timestamp with five decimal places of fractional seconds as a number',
                     date: 1234567890.12345,
-                    expectedPropertyTypeFormat: 'unix_timestamp',
+                    expectedPropertyTypeFormat: UnixTimestampPropertyTypeFormat.UNIX_TIMESTAMP,
                     expectedPropertyType: PropertyType.DateTime,
                 },
                 {
                     propertyKey: 'unix timestamp as a number',
                     date: 1234567890,
-                    expectedPropertyTypeFormat: 'unix_timestamp',
+                    expectedPropertyTypeFormat: UnixTimestampPropertyTypeFormat.UNIX_TIMESTAMP,
                     expectedPropertyType: PropertyType.DateTime,
                 },
                 {
                     propertyKey: 'unix timestamp with fractional seconds as a string',
                     date: '1234567890.123',
-                    expectedPropertyTypeFormat: 'unix_timestamp',
+                    expectedPropertyTypeFormat: UnixTimestampPropertyTypeFormat.UNIX_TIMESTAMP,
                     expectedPropertyType: PropertyType.DateTime,
                 },
                 {
                     propertyKey: 'unix timestamp with five decimal places of fractional seconds as a string',
                     date: '1234567890.12345',
-                    expectedPropertyTypeFormat: 'unix_timestamp',
+                    expectedPropertyTypeFormat: UnixTimestampPropertyTypeFormat.UNIX_TIMESTAMP,
                     expectedPropertyType: PropertyType.DateTime,
                 },
                 {
                     propertyKey: 'unix timestamp as a string',
                     date: '1234567890',
-                    expectedPropertyTypeFormat: 'unix_timestamp',
+                    expectedPropertyTypeFormat: UnixTimestampPropertyTypeFormat.UNIX_TIMESTAMP,
+                    expectedPropertyType: PropertyType.DateTime,
+                },
+                {
+                    propertyKey: 'unix timestamp in milliseconds as a number',
+                    date: 1234567890123,
+                    expectedPropertyTypeFormat: UnixTimestampPropertyTypeFormat.UNIX_TIMESTAMP_MILLISECONDS,
+                    expectedPropertyType: PropertyType.DateTime,
+                },
+                {
+                    propertyKey: 'unix timestamp in milliseconds as a string',
+                    date: '1234567890123',
+                    expectedPropertyTypeFormat: UnixTimestampPropertyTypeFormat.UNIX_TIMESTAMP_MILLISECONDS,
                     expectedPropertyType: PropertyType.DateTime,
                 },
             ].flatMap((testcase) => {
@@ -490,7 +502,9 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                 propertyKey: string
                 date: string
                 patternDescription: string
-            }[] = Object.keys(dateTimePropertyTypeFormatPatterns).flatMap((patternDescription: string) => {
+            }[] = Object.keys(dateTimePropertyTypeFormatPatterns).flatMap((patternEnum: string) => {
+                const patternDescription: string =
+                    DateTimePropertyTypeFormat[patternEnum as keyof typeof DateTimePropertyTypeFormat]
                 if (patternDescription === 'rfc_822') {
                     return {
                         propertyKey: 'an_rfc_822_format_date',

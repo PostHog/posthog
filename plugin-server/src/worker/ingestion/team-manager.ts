@@ -21,20 +21,20 @@ import { getByAge, UUIDT } from '../../utils/utils'
 
 type TeamCache<T> = Map<TeamId, [T, number]>
 
-export const unixTimestampPropertyTypeFormatPatterns: Record<UnixTimestampPropertyTypeFormat, RegExp> = {
-    unix_timestamp: /^\d{10}(\.\d*)?$/,
-    unix_timestamp_milliseconds: /^\d{13}$/,
+export const unixTimestampPropertyTypeFormatPatterns: Record<keyof typeof UnixTimestampPropertyTypeFormat, RegExp> = {
+    UNIX_TIMESTAMP: /^\d{10}(\.\d*)?$/,
+    UNIX_TIMESTAMP_MILLISECONDS: /^\d{13}$/,
 }
 
-export const dateTimePropertyTypeFormatPatterns: Record<DateTimePropertyTypeFormat, RegExp> = {
-    'YYYY-MM-DD': /^\d{4}-\d{2}-\d{2}$/,
-    'YYYY-MM-DDThh:mm:ssZ': /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/,
-    'YYYY-MM-DD hh:mm:ss': /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/,
-    'DD-MM-YYYY hh:mm:ss': /^\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2}$/,
-    'DD/MM/YYYY hh:mm:ss': /^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}$/,
-    'YYYY/MM/DD hh:mm:ss': /^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}$/,
+export const dateTimePropertyTypeFormatPatterns: Record<keyof typeof DateTimePropertyTypeFormat, RegExp> = {
+    DATE: /^\d{4}-\d{2}-\d{2}$/,
+    ISO8601_DATE: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/,
+    FULL_DATE: /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/,
+    FULL_DATE_INCREASING: /^\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2}$/,
+    WITH_SLASHES: /^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}$/,
+    WITH_SLASHES_INCREASING: /^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}$/,
     // see https://datatracker.ietf.org/doc/html/rfc2822#section-3.3
-    rfc_822:
+    RFC_822:
         /^((mon|tue|wed|thu|fri|sat|sun), )?\d{2} (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec) \d{4} \d{2}:\d{2}:\d{2}( [+|-]\d{4})?$/i,
 }
 
@@ -83,7 +83,8 @@ function detectPropertyDefinitionTypes(value: unknown, key: string) {
                 String(value).match(pattern)
             ) {
                 propertyType = PropertyType.DateTime
-                propertyTypeFormat = dateTimeFormat as PropertyTypeFormat
+                propertyTypeFormat =
+                    UnixTimestampPropertyTypeFormat[dateTimeFormat as keyof typeof UnixTimestampPropertyTypeFormat]
                 return true
             }
         })
@@ -101,7 +102,8 @@ function detectPropertyDefinitionTypes(value: unknown, key: string) {
         Object.entries(dateTimePropertyTypeFormatPatterns).find(([dateTimeFormat, pattern]) => {
             if (value.match(pattern)) {
                 propertyType = PropertyType.DateTime
-                propertyTypeFormat = dateTimeFormat as PropertyTypeFormat
+                propertyTypeFormat =
+                    DateTimePropertyTypeFormat[dateTimeFormat as keyof typeof DateTimePropertyTypeFormat]
                 return true
             }
         })
