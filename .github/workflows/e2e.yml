@@ -120,10 +120,9 @@ jobs:
                   yarn build
             - name: Boot PostHog
               run: |
-                  python manage.py collectstatic --noinput &
-                  ./bin/migrate &
-                  wait
+                  python manage.py collectstatic --noinput
                   bin/check_kafka_clickhouse_up
+                  ./bin/migrate
                   python manage.py setup_dev
                   mkdir -p /tmp/logs
                   ./bin/docker-worker &> /tmp/logs/worker.txt &
