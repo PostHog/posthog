@@ -27,11 +27,9 @@ from posthog.helpers.multi_property_breakdown import protect_old_clients_from_mu
 from posthog.models import Event, Filter, Insight, Team
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
-from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries import paths, retention, stickiness, trends
-from posthog.queries.sessions.sessions import Sessions
 from posthog.tasks.update_cache import update_dashboard_item_cache
 from posthog.utils import generate_cache_key, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
@@ -217,7 +215,6 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # ******************************************
     # Calculated Insight Endpoints
     # /projects/:id/insights/trend
-    # /projects/:id/insights/session
     # /projects/:id/insights/funnel
     # /projects/:id/insights/retention
     # /projects/:id/insights/path
@@ -255,22 +252,6 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         self._refresh_dashboard(request=request)
 
-        return {"result": result}
-
-    # ******************************************
-    # /projects/:id/insights/session
-    #
-    # params:
-    # - session: (string: avg, dist) specifies session type
-    # - **shared filter types
-    # ******************************************
-    @action(methods=["GET"], detail=False)
-    def session(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        return Response(self.calculate_session(request))
-
-    @cached_function
-    def calculate_session(self, request: request.Request) -> Dict[str, Any]:
-        result = Sessions().run(filter=SessionsFilter(request=request, team=self.team), team=self.team)
         return {"result": result}
 
     # ******************************************
