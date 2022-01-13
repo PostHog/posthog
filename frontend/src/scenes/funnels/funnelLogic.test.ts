@@ -24,13 +24,14 @@ import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
+import { mockInsight } from '~/test/mocks'
 
 jest.mock('lib/api')
 jest.mock('posthog-js')
 
 const Insight123 = '123' as InsightShortId
 
-const funnelResult = [
+const funnelResults = [
     {
         action_id: '$pageview',
         count: 19,
@@ -82,12 +83,12 @@ describe('funnelLogic', () => {
                 return {
                     is_cached: true,
                     last_refresh: '2021-09-16T13:41:41.297295Z',
-                    result: funnelResult,
+                    result: funnelResults,
                     type: 'Funnel',
                 }
             } else if (String(searchParams.short_id) === Insight123) {
                 return {
-                    results: [funnelResult],
+                    results: funnelResults,
                 }
             } else if (
                 pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/correlation` &&
@@ -200,7 +201,7 @@ describe('funnelLogic', () => {
                     },
                 }
             } else if (pathname.startsWith(`api/projects/${MOCK_TEAM_ID}/insights`)) {
-                return { results: [], next: null }
+                return mockInsight
             } else if (pathname === `api/person/properties`) {
                 return [
                     { name: 'some property', count: 20 },
