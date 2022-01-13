@@ -1,6 +1,4 @@
 import {
-    ACTION_TYPE,
-    EVENT_TYPE,
     OrganizationMembershipLevel,
     PluginsAccessLevel,
     ShownAsValue,
@@ -422,30 +420,6 @@ export interface SessionRecordingsResponse {
     results: SessionRecordingType[]
     has_next: boolean
 }
-
-interface RecordingNotViewedFilter extends BasePropertyFilter {
-    type: 'recording'
-    key: 'unseen'
-}
-
-export type RecordingPropertyFilter = RecordingDurationFilter | RecordingNotViewedFilter
-
-export interface ActionTypePropertyFilter extends BasePropertyFilter {
-    type: typeof ACTION_TYPE
-    properties?: Array<EventPropertyFilter>
-}
-
-export interface EventTypePropertyFilter extends BasePropertyFilter {
-    type: typeof EVENT_TYPE
-    properties?: Array<EventPropertyFilter>
-}
-
-export type SessionsPropertyFilter =
-    | PersonPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | ActionTypePropertyFilter
-    | EventTypePropertyFilter
 
 export type EntityType = 'actions' | 'events' | 'new_entity'
 
@@ -1359,6 +1333,8 @@ export interface PropertyDefinition {
     updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
     is_event_property?: boolean // Indicates whether this property has been seen for a particular set of events (when `eventNames` query string is sent); calculated at query time, not stored in the db
+    property_type?: 'DateTime' | 'String' | 'Numeric' | 'Boolean'
+    property_type_format?: 'unix_timestamp' | 'YYYY-MM-DD hh:mm:ss' | 'YYYY-MM-DD'
 }
 
 export interface PersonProperty {

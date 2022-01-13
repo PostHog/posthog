@@ -54,13 +54,15 @@ export function Experiment(): JSX.Element {
         editingExistingExperiment,
         experimentInsightType,
         experimentResultsLoading,
+        areCountResultsSignificant,
+        areConversionResultsSignificant,
     } = useValues(experimentLogic)
     const {
         setNewExperimentData,
         createExperiment,
         launchExperiment,
         setFilters,
-        editExperiment,
+        setEditExperiment,
         endExperiment,
         addExperimentGroup,
         updateExperimentGroup,
@@ -71,6 +73,7 @@ export function Experiment(): JSX.Element {
     const [form] = Form.useForm()
 
     const [currentVariant, setCurrentVariant] = useState('control')
+    const [showWarning, setShowWarning] = useState(true)
 
     const { insightProps } = useValues(
         insightLogic({
@@ -151,13 +154,15 @@ export function Experiment(): JSX.Element {
                                         ]}
                                         help={
                                             <span className="text-small text-muted">
-                                                Enter a new and unique name for the feature flag key to be associated
-                                                with this experiment.
+                                                {editingExistingExperiment
+                                                    ? ''
+                                                    : 'Enter a new and unique name for the feature flag key to be associated with this experiment.'}
                                             </span>
                                         }
                                     >
                                         <Input
                                             data-attr="experiment-feature-flag-key"
+                                            disabled={editingExistingExperiment}
                                             placeholder="examples: new-landing-page-experiment, betaFeatureExperiment, ab_test_1_experiment"
                                         />
                                     </Form.Item>
@@ -497,7 +502,10 @@ export function Experiment(): JSX.Element {
                                         style={{ margin: 0, paddingRight: 8 }}
                                         title={`${experimentData?.name}`}
                                     />
-                                    <CopyToClipboardInline iconStyle={{ color: 'var(--text-muted-alt)' }}>
+                                    <CopyToClipboardInline
+                                        explicitValue={experimentData.feature_flag_key}
+                                        iconStyle={{ color: 'var(--text-muted-alt)' }}
+                                    >
                                         <span className="text-muted">{experimentData.feature_flag_key}</span>
                                     </CopyToClipboardInline>
                                     <Tag
@@ -513,7 +521,7 @@ export function Experiment(): JSX.Element {
                             </Col>
                             {experimentData && !experimentData.start_date && (
                                 <div>
-                                    <Button className="mr-05" onClick={() => editExperiment()}>
+                                    <Button className="mr-05" onClick={() => setEditExperiment(true)}>
                                         Edit
                                     </Button>
                                     <Button type="primary" onClick={() => launchExperiment()}>
@@ -530,6 +538,23 @@ export function Experiment(): JSX.Element {
                     </Row>
                     <Row className="mb">
                         <Col span={10} style={{ paddingRight: '1rem' }}>
+                            {showWarning &&
+                                experimentResults &&
+                                ((experimentInsightType == InsightType.TRENDS && areCountResultsSignificant) ||
+                                    (experimentInsightType == InsightType.FUNNELS &&
+                                        areConversionResultsSignificant)) && (
+                                    <Row className="significant-results">
+                                        <Col span={19} style={{ color: '#497342' }}>
+                                            Experiment results are significant. You can end your experiment now or let
+                                            it run until completion.
+                                        </Col>
+                                        <Col span={5}>
+                                            <Button style={{ color: '#497342' }} onClick={() => setShowWarning(false)}>
+                                                Dismiss
+                                            </Button>
+                                        </Col>
+                                    </Row>
+                                )}
                             <Col>
                                 <div className="card-secondary">Participants</div>
                                 <div>

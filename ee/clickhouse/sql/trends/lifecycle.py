@@ -1,184 +1,99 @@
 _LIFECYCLE_EVENTS_QUERY = """
-WITH person_activity_including_previous_period AS (
-    SELECT DISTINCT 
-        person_id, 
-        {trunc_func}(events.timestamp) start_of_period 
+SELECT
+    person_id,
 
-    FROM events
-        JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi 
-            ON events.distinct_id = pdi.distinct_id
+    /*
+        We want to put the status of each period onto it's own line, so we
+        can easily aggregate over them. With the inner query we end up with a structure like:
 
-    WHERE team_id = %(team_id)s AND {event_query} {filters}
+        person_id  |  period_of_activity  | status_of_activity  | dormant_status_of_period_after_activity
 
-    GROUP BY 
-        person_id, 
-        start_of_period
-        
-    HAVING 
-        start_of_period <= toDateTime(%(date_to)s) 
-        AND start_of_period >= toDateTime(%(prev_date_from)s)
+        However, we want to have something of the format:
 
-), person_activity_as_array AS (
-    SELECT DISTINCT 
-        person_id, 
-        groupArray({trunc_func}(events.timestamp)) start_of_period 
+        person_id  | period_of_activity          |  status_of_activity
+        person_id  | period_just_after_activity  |  dormant_status_of_period_after_activity
 
-    FROM events
-        JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi 
-            ON events.distinct_id = pdi.distinct_id
-
-    WHERE 
-        team_id = %(team_id)s 
-        AND {event_query} {filters}
-        AND toDateTime(events.timestamp) <= toDateTime(%(date_to)s) 
-        AND {trunc_func}(events.timestamp) >= toDateTime(%(date_from)s)
-        
-    GROUP BY person_id
-), periods AS (
-    SELECT 
-        {trunc_func}(toDateTime(%(date_to)s) - number * %(seconds_in_interval)s) AS start_of_period 
-        
-    FROM numbers(%(num_intervals)s)
-)
-
-SELECT 
-    activity_pairs.person_id AS person_id,
-    activity_pairs.initial_period AS initial_period,
-    activity_pairs.next_period AS next_period, 
-    if(
-        initial_period = toDateTime('0000-00-00 00:00:00'), 
-        'dormant', 
-        if(
-            next_period = initial_period + INTERVAL {interval}, 
-            'returning', 
-            if(
-                next_period > earliest + INTERVAL {interval}, 
-                'resurrecting', 
-                'new'
-            )
+        such that we can simply aggregate over person_id, period.
+    */
+    arrayJoin(
+        arrayZip(
+            [period, period + INTERVAL 1 {interval_expr}],
+            [initial_status, if(next_is_active, '', 'dormant')]
         )
-    ) as status
-
+    ) AS period_status_pairs,
+    period_status_pairs.1 as start_of_period,
+    period_status_pairs.2 as status
 FROM (
-    /*
-         Get person period activity paired with the next adjacent period activity
-    */
-    SELECT 
-        person_id, 
-        initial_period, 
-        min(next_period) as next_period 
-
-    FROM (
-        SELECT 
-            person_id, 
-            base.start_of_period as initial_period, 
-            subsequent.start_of_period as next_period
-
-        FROM person_activity_including_previous_period base
-            JOIN person_activity_including_previous_period subsequent 
-                ON base.person_id = subsequent.person_id
-
-        WHERE subsequent.start_of_period > base.start_of_period
-    )
-
-    GROUP BY 
-        person_id, 
-        initial_period
-
-    UNION ALL
-
-    /* 
-        Get the first active period for each user within the extended range 
-        i.e. including the previous period
-        
-        NOTE: initial_period and next_period are the same
-    */ 
     SELECT
-        base.person_id, 
-        min(base.start_of_period) as initial_period, 
-        min(base.start_of_period) as next_period 
-        
-    FROM person_activity_including_previous_period base
-    GROUP BY person_id
-
-    UNION ALL
-
-    /*
-        Get activity status rows for all dormant periods and all persons
-    */
-    SELECT 
-        person_id, 
-        initial_period, 
-        next_period 
-
+        person_id,
+        period,
+        created_at,
+        if(
+            dateTrunc(%(interval)s, created_at) = period,
+            'new',
+            if(
+                previous_activity + INTERVAL 1 {interval_expr} = period,
+                'returning',
+                'resurrecting'
+            )
+        ) AS initial_status,
+        period + INTERVAL 1 {interval_expr} = following_activity AS next_is_active,
+        previous_activity,
+        following_activity
     FROM (
-        SELECT 
-            person_activity.person_id AS person_id, 
-
-            -- Use datetime null value as marker that this refers to dormant
-            toDateTime('0000-00-00 00:00:00') as initial_period, 
-            periods.start_of_period as next_period
-
-        FROM person_activity_as_array as person_activity
-            CROSS JOIN periods
-
-        WHERE has(person_activity.start_of_period, periods.start_of_period) = 0
-
-        ORDER BY 
-            person_id, 
-            periods.start_of_period ASC
-    ) 
-    
-    WHERE
-        -- exclude first period of dormant
-        ( 
-            (empty(toString(neighbor(person_id, -1))) 
-            OR neighbor(person_id, -1) != person_id
-        ) 
-        AND next_period != {trunc_func}(toDateTime(%(date_from)s) + INTERVAL {interval} - INTERVAL {sub_interval}))
-        OR (
-            (neighbor(person_id, -1) = person_id) 
-            AND neighbor(next_period, -1) < next_period - INTERVAL {interval}
-        )
-) activity_pairs
-
-    -- Get the earliest event for each person
-    JOIN (
-        SELECT DISTINCT 
-            person_id, 
-            {trunc_func}(min(events.timestamp)) earliest 
-
-        FROM events
-
-            JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi 
-                ON events.distinct_id = pdi.distinct_id
-
-        WHERE team_id = %(team_id)s AND {event_query} {filters}
-        GROUP BY person_id
-    ) earliest ON activity_pairs.person_id = earliest.person_id
-
+        SELECT
+            person_id,
+            any(period) OVER (PARTITION BY person_id ORDER BY period ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) as previous_activity,
+            period,
+            any(period) OVER (PARTITION BY person_id ORDER BY period ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING) as following_activity,
+            created_at
+        FROM ({events_query})
+    )
+)
+WHERE period_status_pairs.2 != ''
+SETTINGS allow_experimental_window_functions = 1
 """
 
 LIFECYCLE_SQL = f"""
-SELECT groupArray(start_of_period) as date, groupArray(counts) as data, status FROM (
-    SELECT if(status = 'dormant', toInt64(SUM(counts)) * toInt16(-1), toInt64(SUM(counts))) as counts, start_of_period, status
+WITH
+    %(interval)s AS selected_period,
+
+    -- enumerate all requested periods, so we can zero fill as needed.
+    -- NOTE: we use dateSub interval rather than seconds, which means we can handle,
+    -- for instance, month intervals which do not have a fixed number of seconds.
+    periods AS (
+        SELECT dateSub(
+            {{interval_expr}},
+            number,
+            dateTrunc(selected_period, toDateTime(%(date_to)s))
+        ) AS start_of_period
+        FROM numbers(
+            dateDiff(
+                %(interval)s,
+                dateTrunc(%(interval)s, toDateTime(%(date_from)s)),
+                dateTrunc(%(interval)s, toDateTime(%(date_to)s) + INTERVAL 1 {{interval_expr}})
+            )
+        )
+    )
+SELECT
+    groupArray(start_of_period) as date,
+    groupArray(counts) as data,
+    status
+FROM (
+    SELECT if(
+            status = 'dormant',
+            toInt64(SUM(counts)) * toInt16(-1),
+            toInt64(SUM(counts))
+        ) as counts,
+        start_of_period,
+        status
+
     FROM (
-        SELECT ticks.start_of_period as start_of_period, toUInt16(0) AS counts, status
+        SELECT periods.start_of_period as start_of_period, toUInt16(0) AS counts, status
 
-        FROM (
-            -- Generates all the intervals/ticks in the date range
-            -- NOTE: we build this range by including successive intervals back from the
-            --       upper bound, then including the lower bound in the query also.
+        FROM periods
 
-            SELECT
-                {{trunc_func}}(
-                    toDateTime(%(date_to)s) - number * %(seconds_in_interval)s
-                ) as start_of_period
-            FROM numbers(%(num_intervals)s)
-            UNION ALL
-            SELECT {{trunc_func}}(toDateTime(%(date_from)s)) as start_of_period
-        ) as ticks
-
+        -- Zero fill for each status
         CROSS JOIN (
             SELECT status
             FROM (
@@ -189,10 +104,10 @@ SELECT groupArray(start_of_period) as date, groupArray(counts) as data, status F
 
         UNION ALL
 
-        SELECT next_period, count(DISTINCT person_id) counts, status
+        SELECT start_of_period, count(DISTINCT person_id) counts, status
         FROM ({_LIFECYCLE_EVENTS_QUERY})
-        WHERE next_period <= toDateTime(%(date_to)s) AND next_period >= toDateTime(%(date_from)s)
-        GROUP BY next_period, status
+        WHERE start_of_period <= toDateTime(%(date_to)s) AND start_of_period >= toDateTime(%(date_from)s)
+        GROUP BY start_of_period, status
     )
     GROUP BY start_of_period, status
     ORDER BY start_of_period ASC
@@ -204,6 +119,6 @@ LIFECYCLE_PEOPLE_SQL = f"""
 SELECT person_id
 FROM ({_LIFECYCLE_EVENTS_QUERY}) e
 WHERE status = %(status)s
-AND {{trunc_func}}(toDateTime(%(target_date)s)) = next_period
+AND dateTrunc(%(interval)s, toDateTime(%(target_date)s)) = start_of_period
 LIMIT %(limit)s OFFSET %(offset)s
 """
