@@ -375,7 +375,7 @@ export const keyMapping: KeyMappingInterface = {
             description: 'UTM term tag (first-touch).',
             examples: ['free goodies'],
         },
-        $performance_pageLoaded: {
+        $performance_page_loaded: {
             label: 'Page Loaded',
             description: "The time taken until the browser's page load event in milliseconds.",
         },

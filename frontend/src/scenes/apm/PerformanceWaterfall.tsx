@@ -167,7 +167,7 @@ function EventsWithPerformanceTable(): JSX.Element {
         {
             title: 'Page Load Time',
             render: function RenderPageLoad(_: any, pageViewEvent: EventType) {
-                const duration = pageViewEvent.properties['$performance_pageLoaded']
+                const duration = pageViewEvent.properties['$performance_page_loaded']
                 return <span>{Math.round(duration)}ms</span>
             },
         },

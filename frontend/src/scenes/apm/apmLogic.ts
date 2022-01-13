@@ -7,7 +7,7 @@ import { getChartColors } from 'lib/colors'
 
 const eventApiProps: Partial<FilterType> = {
     properties: [
-        { key: '$performance_pageLoaded', value: '0', operator: PropertyOperator.GreaterThan, type: 'event' },
+        { key: '$performance_page_loaded', value: '0', operator: PropertyOperator.GreaterThan, type: 'event' },
         { key: '$performance_raw', value: 'is_set', operator: PropertyOperator.IsSet, type: 'event' },
     ],
 }
