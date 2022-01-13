@@ -49,10 +49,10 @@ export const experimentLogic = kea<experimentLogicType>({
         updateExperimentGroup: (variant: MultivariateFlagVariant, idx: number) => ({ variant, idx }),
         removeExperimentGroup: (idx: number) => ({ idx }),
         setExperimentInsightType: (insightType: InsightType) => ({ insightType }),
+        setEditExperiment: (editing: boolean) => ({ editing }),
         resetNewExperiment: true,
         launchExperiment: true,
         endExperiment: true,
-        editExperiment: true,
         addExperimentGroup: true,
     },
     reducers: {
@@ -154,8 +154,7 @@ export const experimentLogic = kea<experimentLogicType>({
         editingExistingExperiment: [
             false,
             {
-                editExperiment: () => true,
-                createExperiment: () => false,
+                setEditExperiment: (_, { editing }) => editing,
             },
         ],
     },
@@ -177,6 +176,10 @@ export const experimentLogic = kea<experimentLogicType>({
                             ...(!draft && { start_date: dayjs() }),
                         }
                     )
+                    if (response?.id) {
+                        router.actions.push(urls.experiment(response.id))
+                        return
+                    }
                 } else {
                     response = await api.create(`api/projects/${values.currentTeamId}/experiments`, {
                         ...values.newExperimentData,
@@ -268,6 +271,8 @@ export const experimentLogic = kea<experimentLogicType>({
                 // loading a draft mode experiment
                 actions.setNewExperimentData({ ...experimentData })
                 actions.createNewExperimentInsight(experimentData?.filters)
+            } else {
+                actions.loadExperimentResults()
             }
         },
         launchExperiment: async () => {
@@ -487,12 +492,14 @@ export const experimentLogic = kea<experimentLogicType>({
                     actions.createNewExperimentInsight()
                     actions.resetNewExperiment()
                 }
+
+                actions.setEditExperiment(false)
+
                 if (parsedId !== values.experimentId) {
                     actions.setExperimentId(parsedId)
                 }
                 if (parsedId !== 'new') {
                     actions.loadExperiment()
-                    actions.loadExperimentResults()
                 }
             }
         },

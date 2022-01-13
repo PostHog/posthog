@@ -67,14 +67,14 @@ describe('funnelLogic', () => {
                         action_id: '$pageview',
                         count: 7,
                         name: '$pageview',
-                        order: 0,
+                        order: 1,
                         type: 'events',
                     },
                     {
                         action_id: '$pageview',
                         count: 4,
                         name: '$pageview',
-                        order: 0,
+                        order: 2,
                         type: 'events',
                     },
                 ],
@@ -567,6 +567,12 @@ describe('funnelLogic', () => {
         })
     })
     describe('funnel correlation properties', () => {
+        const props = { dashboardItemId: Insight123, syncWithUrl: true }
+        initKeaTestLogic({
+            logic: funnelLogic,
+            props,
+            onLogic: (l) => (logic = l),
+        })
         // NOTE: we need to, in some of these tests, explicitly push the
         // teamLogic to update the currentTeam, and also explicitly mount the
         // userLogic.
@@ -609,13 +615,20 @@ describe('funnelLogic', () => {
         })
 
         it('are updated when results are loaded, when steps visualisation set', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadResultsSuccess({
-                    filters: { insight: InsightType.FUNNELS, funnel_viz_type: FunnelVizType.Steps },
-                })
-            })
-                .toFinishListeners()
+            const filters = {
+                insight: InsightType.FUNNELS,
+                funnel_viz_type: FunnelVizType.Steps,
+            }
+            await router.actions.push(urls.insightEdit(Insight123, filters))
+
+            await expectLogic(logic)
+                .toFinishAllListeners()
                 .toMatchValues({
+                    steps: [
+                        { action_id: '$pageview', count: 19, name: '$pageview', order: 0, type: 'events' },
+                        { action_id: '$pageview', count: 7, name: '$pageview', order: 1, type: 'events' },
+                        { action_id: '$pageview', count: 4, name: '$pageview', order: 2, type: 'events' },
+                    ],
                     propertyCorrelations: {
                         events: [
                             {
@@ -635,6 +648,26 @@ describe('funnelLogic', () => {
                                 result_type: FunnelCorrelationResultsType.Properties,
                             },
                         ],
+                    },
+                })
+        })
+
+        it('are not updated when results are loaded, when steps visualisation set, with one funnel step', async () => {
+            // url unset, so syncWithUrl is false
+            await expectLogic(logic, () => {
+                logic.actions.loadResultsSuccess({
+                    filters: { insight: InsightType.FUNNELS, funnel_viz_type: FunnelVizType.Steps },
+                    result: [{ action_id: 'some event', order: 0 }],
+                })
+            })
+                .toFinishListeners()
+                .toMatchValues({
+                    steps: [{ action_id: 'some event', order: 0 }],
+                    propertyCorrelations: {
+                        events: [],
+                    },
+                    correlations: {
+                        events: [],
                     },
                 })
         })
@@ -762,11 +795,13 @@ describe('funnelLogic', () => {
                     },
                 })
 
-            await expectLogic(logic, () => {
-                logic.actions.loadResultsSuccess({
-                    filters: { insight: InsightType.FUNNELS, funnel_viz_type: FunnelVizType.Steps },
-                })
-            })
+            const filters = {
+                insight: InsightType.FUNNELS,
+                funnel_viz_type: FunnelVizType.Steps,
+            }
+            await router.actions.push(urls.insightEdit(Insight123, filters))
+
+            await expectLogic(logic)
                 .toFinishAllListeners()
                 .toMatchValues({
                     correlationValues: [
@@ -821,6 +856,12 @@ describe('funnelLogic', () => {
             })
             // FF set after mount, so groupPropertiesModel is empty. Hence, force reload these values.
             groupPropertiesModel.actions.loadAllGroupProperties()
+
+            const filters = {
+                insight: InsightType.FUNNELS,
+                funnel_viz_type: FunnelVizType.Steps,
+            }
+            await router.actions.push(urls.insightEdit(Insight123, filters))
 
             await expectLogic(logic, () => logic.actions.setFilters({ aggregation_group_type_index: 0 }))
                 .toFinishAllListeners()

@@ -243,7 +243,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             return [{"name": value["event"]} for value in event_names]
 
         if request.GET.get("value"):
-            where = " AND properties ->> %s LIKE %s"
+            where = " AND properties ->> %s ILIKE %s"
             params.append(key)
             params.append("%{}%".format(request.GET["value"]))
         else:
