@@ -113,7 +113,6 @@ export function cleanFilters(
             ...(filters.funnel_viz_type
                 ? { funnel_viz_type: filters.funnel_viz_type }
                 : { funnel_viz_type: FunnelVizType.Steps }),
-            ...(filters.funnel_step ? { funnel_to_step: filters.funnel_step } : {}),
             ...(filters.entrance_period_start ? { entrance_period_start: filters.entrance_period_start } : {}),
             ...(filters.drop_off != undefined ? { drop_off: filters.drop_off } : {}),
             ...(filters.funnel_step_breakdown !== undefined

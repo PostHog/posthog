@@ -19,11 +19,9 @@ describe('trendsLogic', () => {
         if (pathname === `api/projects/${MOCK_TEAM_ID}/insights`) {
             return { results: [] }
         } else if (
-            [
-                `api/projects/${MOCK_TEAM_ID}/insights/123`,
-                `api/projects/${MOCK_TEAM_ID}/insights/session/`,
-                `api/projects/${MOCK_TEAM_ID}/insights/trend/`,
-            ].includes(pathname)
+            [`api/projects/${MOCK_TEAM_ID}/insights/123`, `api/projects/${MOCK_TEAM_ID}/insights/trend/`].includes(
+                pathname
+            )
         ) {
             return { result: ['result from api'] }
         }

@@ -30,8 +30,8 @@ class FunnelCorrelationActors(ActorBaseQuery):
             self._filter = self._filter.with_data({FUNNEL_CORRELATION_PERSON_LIMIT: 100})
 
     @cached_property
-    def is_aggregating_by_groups(self) -> bool:
-        return self._filter.aggregation_group_type_index is not None
+    def aggregation_group_type_index(self):
+        return self._filter.aggregation_group_type_index
 
     def actor_query(self, limit_actors: Optional[bool] = True):
         if self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
@@ -60,8 +60,8 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
         super().__init__(team, filter)
 
     @cached_property
-    def is_aggregating_by_groups(self) -> bool:
-        return self._filter.aggregation_group_type_index is not None
+    def aggregation_group_type_index(self):
+        return self._filter.aggregation_group_type_index
 
     def actor_query(self, limit_actors: Optional[bool] = True):
 
@@ -123,8 +123,8 @@ class _FunnelPropertyCorrelationActors(ActorBaseQuery):
         super().__init__(team, filter)
 
     @cached_property
-    def is_aggregating_by_groups(self) -> bool:
-        return self._filter.aggregation_group_type_index is not None
+    def aggregation_group_type_index(self):
+        return self._filter.aggregation_group_type_index
 
     def actor_query(self, limit_actors: Optional[bool] = True, extra_fields: Optional[List[str]] = None):
         if not self._filter.correlation_property_values:

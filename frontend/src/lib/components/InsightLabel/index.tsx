@@ -50,7 +50,7 @@ interface MathTagProps {
 
 function MathTag({ math, mathProperty, mathGroupTypeIndex }: MathTagProps): JSX.Element {
     const { mathDefinitions } = useValues(mathsLogic)
-    const { groupTypes } = useValues(groupsModel)
+    const { aggregationLabel } = useValues(groupsModel)
 
     if (!math || math === 'total') {
         return <Tag>Total</Tag>
@@ -59,8 +59,7 @@ function MathTag({ math, mathProperty, mathGroupTypeIndex }: MathTagProps): JSX.
         return <Tag>Unique</Tag>
     }
     if (math === 'unique_group' && mathGroupTypeIndex != undefined) {
-        const groupType = groupTypes[mathGroupTypeIndex]
-        return <Tag>Unique {groupType?.group_type || ''}(s)</Tag>
+        return <Tag>Unique {aggregationLabel(mathGroupTypeIndex).plural}</Tag>
     }
     if (math && ['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(math || '')) {
         return (
