@@ -9,7 +9,7 @@ describe('Invite Signup', () => {
         cy.get('h2').contains('Pending Invites').should('exist')
 
         // Test invite creation flow
-        cy.get('[data-attr=invites-table] [data-attr=invite-teammate-button]').click()
+        cy.get('[data-attr=invite-teammate-button]').click()
         cy.get('[data-attr=invite-email-input]').type('charlie@posthog.com').should('have.value', 'charlie@posthog.com')
         cy.get('[data-attr=invite-team-member-submit]').click()
         cy.get('[data-attr=invites-table] tbody td').should('contain', 'charlie@posthog.com')
