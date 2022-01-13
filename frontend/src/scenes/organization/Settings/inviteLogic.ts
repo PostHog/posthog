@@ -32,13 +32,14 @@ export const inviteLogic = kea<inviteLogicType<InviteRowState>>({
     connect: {
         values: [preflightLogic, ['preflight']],
     },
-    reducers: {
+    reducers: () => ({
         isInviteModalShown: [
             false,
             {
                 showInviteModal: () => true,
                 hideInviteModal: () => false,
                 inviteTeamMembersSuccess: () => false,
+                [router.actionTypes.locationChanged]: () => false,
             },
         ],
         invitesToSend: [
@@ -59,7 +60,7 @@ export const inviteLogic = kea<inviteLogicType<InviteRowState>>({
                 inviteTeamMembersSuccess: () => [EMPTY_INVITE],
             },
         ],
-    },
+    }),
     selectors: {
         canSubmit: [
             (selectors) => [selectors.invitesToSend],
