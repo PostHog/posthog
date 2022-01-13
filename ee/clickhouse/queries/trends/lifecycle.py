@@ -136,7 +136,7 @@ class LifecycleEventQuery(ClickhouseEventQuery):
             params,
         )
 
-    def _determine_should_join_distinct_ids(self):
+    def _determine_should_join_distinct_ids(self) -> None:
         self._should_join_distinct_ids = True
 
     def _determine_should_join_persons(self) -> None:
