@@ -11,7 +11,11 @@ describe('personsLogic', () => {
     let logic: ReturnType<typeof personsLogic.build>
 
     mockAPI(async ({ pathname, searchParams }) => {
-        if (`api/person/` === pathname && searchParams == { properties: [{ key: 'email', operator: 'is_set' }] }) {
+        if (
+            `api/person/` === pathname &&
+            (JSON.stringify(searchParams) == '{}' ||
+                JSON.stringify(searchParams) == JSON.stringify({ properties: [{ key: 'email', operator: 'is_set' }] }))
+        ) {
             return { result: ['result from api'] }
         } else if (`api/person/` === pathname && ['abc', 'xyz'].includes(searchParams['distinct_id'])) {
             return { results: ['person from api'] }
