@@ -21,10 +21,6 @@ type APIRoute = {
     method: string
 }
 
-interface APIMockOptions {
-    availableFeatures: AvailableFeature[]
-}
-
 export const MOCK_TEAM_ID: TeamType['id'] = 997
 export const MOCK_ORGANIZATION_ID: OrganizationType['id'] = 'ABCD'
 
@@ -44,13 +40,14 @@ export const MOCK_DEFAULT_ORGANIZATION: Partial<OrganizationType> = {
 
 export const mockAPI = (
     urlCallback?: (url: APIRoute) => any,
-    apiCallback?: (apiCallPath: string, args: any[]) => void
+    apiCallback?: (apiCallPath: string, args: any[]) => void,
+    availableFeatures: AvailableFeature[] = []
 ): void => {
     beforeEach(async () => {
         for (const method of ['get', 'update', 'create', 'delete']) {
             api[method as keyof typeof api].mockImplementation(async (url: string, data?: Record<string, any>) => {
                 const urlParams = { ...combineUrl(url), data, method }
-                return (await urlCallback?.(urlParams)) ?? defaultAPIMocks(urlParams)
+                return (await urlCallback?.(urlParams)) ?? defaultAPIMocks(urlParams, availableFeatures)
             })
         }
 
@@ -69,11 +66,8 @@ export const mockAPI = (
     })
 }
 
-export function defaultAPIMocks(
-    { pathname, searchParams }: APIRoute,
-    { availableFeatures }: Partial<APIMockOptions> = {}
-): any {
-    const organization = { ...MOCK_DEFAULT_ORGANIZATION, available_features: availableFeatures || [] }
+export function defaultAPIMocks({ pathname, searchParams }: APIRoute, availableFeatures: AvailableFeature[] = []): any {
+    const organization = { ...MOCK_DEFAULT_ORGANIZATION, available_features: availableFeatures }
     if (pathname === '_preflight/') {
         return { is_clickhouse_enabled: true }
     } else if (pathname === 'api/users/@me/') {
