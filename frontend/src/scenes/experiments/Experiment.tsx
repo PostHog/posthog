@@ -12,6 +12,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import {
     ChartDisplayType,
+    Experiment,
     FilterType,
     FunnelVizType,
     InsightType,
@@ -33,6 +34,7 @@ import { Spinner } from 'lib/components/Spinner/Spinner'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { getSeriesColor } from 'scenes/funnels/funnelUtils'
 import { getChartColors } from 'lib/colors'
+import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -429,64 +431,14 @@ export function Experiment(): JSX.Element {
                                     </BindLogic>
                                 </Row>
                             </div>
-                            <Card className="experiment-preview">
-                                <Row className="preview-row">
-                                    <Col>
-                                        <div className="card-secondary">Preview</div>
-                                        <div>
-                                            <span className="mr-05">
-                                                <b>{newExperimentData?.name}</b>
-                                            </span>
-                                            {newExperimentData?.feature_flag_key && (
-                                                <CopyToClipboardInline
-                                                    explicitValue={newExperimentData.feature_flag_key}
-                                                    iconStyle={{ color: 'var(--text-muted-alt)' }}
-                                                    description="feature flag key"
-                                                >
-                                                    <span className="text-muted">
-                                                        {newExperimentData.feature_flag_key}
-                                                    </span>
-                                                </CopyToClipboardInline>
-                                            )}
-                                        </div>
-                                    </Col>
-                                </Row>
-                                <Row className="preview-row">
-                                    {experimentInsightType === InsightType.TRENDS ? (
-                                        <>
-                                            <Col span={12}>
-                                                <div className="card-secondary">Baseline Count</div>
-                                                <div className="l4">{trendCount}</div>
-                                            </Col>
-                                            <Col span={12}>
-                                                <div className="card-secondary">Recommended Duration</div>
-                                                <div>
-                                                    <span className="l4">~{exposure}</span> days
-                                                </div>
-                                            </Col>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Col span={8}>
-                                                <div className="card-secondary">Baseline Conversion Rate</div>
-                                                <div className="l4">{conversionRate.toFixed(1)}%</div>
-                                            </Col>
-                                            <Col span={8}>
-                                                <div className="card-secondary">Recommended Sample Size</div>
-                                                <div className="pb">
-                                                    <span className="l4">~{sampleSizePerVariant}</span> persons
-                                                </div>
-                                            </Col>
-                                            <Col span={8}>
-                                                <div className="card-secondary">Expected Duration</div>
-                                                <div>
-                                                    <span className="l4">~{runningTime}</span> days
-                                                </div>
-                                            </Col>
-                                        </>
-                                    )}
-                                </Row>
-                            </Card>
+                            <ExperimentPreview
+                                experiment={newExperimentData}
+                                trendCount={trendCount}
+                                exposure={exposure}
+                                sampleSizePerVariant={sampleSizePerVariant}
+                                runningTime={runningTime}
+                                conversionRate={conversionRate}
+                            />
                         </div>
                         <Button icon={<SaveOutlined />} className="float-right" type="primary" htmlType="submit">
                             Save
@@ -537,6 +489,14 @@ export function Experiment(): JSX.Element {
                             )}
                         </Row>
                     </Row>
+                    <ExperimentPreview
+                        experiment={experimentData}
+                        trendCount={trendCount}
+                        exposure={exposure}
+                        sampleSizePerVariant={sampleSizePerVariant}
+                        runningTime={runningTime}
+                        conversionRate={conversionRate}
+                    />
                     <Row className="mb">
                         <Col span={10} style={{ paddingRight: '1rem' }}>
                             {showWarning &&
@@ -669,41 +629,46 @@ export function Experiment(): JSX.Element {
                     </Row>
                     <div className="experiment-result">
                         {experimentResults ? (
-                            <Row justify="space-around" style={{ flexFlow: 'nowrap' }}>
-                                {experimentData.parameters.feature_flag_variants.map(
-                                    (variant: MultivariateFlagVariant, idx: number) => (
-                                        <Col key={idx} className="pr">
-                                            <div style={{ fontSize: 16 }}>
-                                                <b>{capitalizeFirstLetter(variant.key)}</b>
-                                            </div>
-                                            {experimentInsightType === InsightType.FUNNELS
-                                                ? 'Conversion rate: '
-                                                : 'Count: '}
-                                            <b>
+                            <>
+                                <Row justify="space-around" style={{ flexFlow: 'nowrap' }}>
+                                    {experimentData.parameters.feature_flag_variants.map(
+                                        (variant: MultivariateFlagVariant, idx: number) => (
+                                            <Col key={idx} className="pr">
+                                                <div style={{ fontSize: 16 }}>
+                                                    <b>{capitalizeFirstLetter(variant.key)}</b>
+                                                </div>
                                                 {experimentInsightType === InsightType.FUNNELS
-                                                    ? `${conversionRateForVariant(variant.key)}%`
-                                                    : countDataForVariant(variant.key)}
-                                            </b>
-                                            <Progress
-                                                percent={Number(
-                                                    (experimentResults.probability[variant.key] * 100).toFixed(1)
-                                                )}
-                                                size="small"
-                                                showInfo={false}
-                                                strokeColor={
-                                                    experimentInsightType === InsightType.FUNNELS
-                                                        ? getSeriesColor(idx + 1)
-                                                        : getChartColors('white')[idx]
-                                                }
-                                            />
-                                            <div>
-                                                Probability that this variant has higher conversion than other variants:{' '}
-                                                <b>{(experimentResults.probability[variant.key] * 100).toFixed(1)}%</b>
-                                            </div>
-                                        </Col>
-                                    )
-                                )}
-                            </Row>
+                                                    ? 'Conversion rate: '
+                                                    : 'Count: '}
+                                                <b>
+                                                    {experimentInsightType === InsightType.FUNNELS
+                                                        ? `${conversionRateForVariant(variant.key)}%`
+                                                        : countDataForVariant(variant.key)}
+                                                </b>
+                                                <Progress
+                                                    percent={Number(
+                                                        (experimentResults.probability[variant.key] * 100).toFixed(1)
+                                                    )}
+                                                    size="small"
+                                                    showInfo={false}
+                                                    strokeColor={
+                                                        experimentInsightType === InsightType.FUNNELS
+                                                            ? getSeriesColor(idx + 1)
+                                                            : getChartColors('white')[idx]
+                                                    }
+                                                />
+                                                <div>
+                                                    Probability that this variant has higher conversion than other
+                                                    variants:{' '}
+                                                    <b>
+                                                        {(experimentResults.probability[variant.key] * 100).toFixed(1)}%
+                                                    </b>
+                                                </div>
+                                            </Col>
+                                        )
+                                    )}
+                                </Row>
+                            </>
                         ) : experimentResultsLoading ? (
                             <div className="text-center">
                                 <Spinner />
@@ -782,5 +747,104 @@ export function CodeLanguageSelect(): JSX.Element {
                 </Row>
             </Select.Option>
         </Select>
+    )
+}
+
+interface ExperimentPreviewProps {
+    experiment: Partial<Experiment> | null
+    trendCount: number
+    exposure: number
+    conversionRate: number
+    runningTime: number
+    sampleSizePerVariant: number
+}
+
+export function ExperimentPreview({
+    experiment,
+    trendCount,
+    exposure,
+    conversionRate,
+    runningTime,
+    sampleSizePerVariant,
+}: ExperimentPreviewProps): JSX.Element {
+    const { experimentInsightType, experimentData } = useValues(experimentLogic)
+
+    return (
+        <Card className="experiment-preview">
+            <Row className="experiment-preview-row">
+                <Col>
+                    <div className="card-secondary mb-05">Preview</div>
+                    <div>
+                        <span className="mr-05">
+                            <b>{experiment?.name}</b>
+                        </span>
+                        {experiment?.feature_flag_key && (
+                            <CopyToClipboardInline
+                                explicitValue={experiment.feature_flag_key}
+                                iconStyle={{ color: 'var(--text-muted-alt)' }}
+                                description="feature flag key"
+                            >
+                                <span className="text-muted">{experiment.feature_flag_key}</span>
+                            </CopyToClipboardInline>
+                        )}
+                    </div>
+                </Col>
+            </Row>
+            <Row className="experiment-preview-row">
+                {experimentInsightType === InsightType.TRENDS ? (
+                    <>
+                        <Col span={12}>
+                            <div className="card-secondary">Baseline Count</div>
+                            <div className="l4">{trendCount}</div>
+                        </Col>
+                        <Col span={12}>
+                            <div className="card-secondary">Recommended Duration</div>
+                            <div>
+                                <span className="l4">~{exposure}</span> days
+                            </div>
+                        </Col>
+                    </>
+                ) : (
+                    <>
+                        <Col span={8}>
+                            <div className="card-secondary">Baseline Conversion Rate</div>
+                            <div className="l4">{conversionRate.toFixed(1)}%</div>
+                        </Col>
+                        <Col span={8}>
+                            <div className="card-secondary">Recommended Sample Size</div>
+                            <div className="pb">
+                                <span className="l4">~{sampleSizePerVariant}</span> persons
+                            </div>
+                        </Col>
+                        <Col span={8}>
+                            <div className="card-secondary">Expected Duration</div>
+                            <div>
+                                <span className="l4">~{runningTime}</span> days
+                            </div>
+                        </Col>
+                    </>
+                )}
+            </Row>
+            {experimentInsightType === InsightType.FUNNELS && experimentData && (
+                <Row className="experiment-preview-row">
+                    <Col>
+                        <div className="card-secondary mb-05">Conversion goal</div>
+                        {experiment?.filters?.events?.map((event, idx) => (
+                            <Col key={idx} className="mb-05">
+                                <Row style={{ marginBottom: 4 }}>
+                                    <div className="preview-conversion-goal-num">{idx + 1}</div>
+                                    <b>
+                                        <EntityFilterInfo filter={event} />
+                                    </b>
+                                </Row>
+                                {event.properties?.map((prop: PropertyFilter) => (
+                                    <PropertyFilterButton key={prop.key} item={prop} greyBadges={true} />
+                                ))}
+                            </Col>
+                        ))}
+                    </Col>
+                </Row>
+            )}
+        </Card>
     )
 }
