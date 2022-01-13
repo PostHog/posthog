@@ -35,7 +35,6 @@ export interface TooltipConfig {
     colCutoff?: number
     renderSeries?: (value: React.ReactNode, seriesDatum: SeriesDatum, idx: number) => React.ReactNode
     showHeader?: boolean
-    showTotalCount?: boolean // not enabled when entities are itemized by column
 }
 
 export interface InsightTooltipProps extends TooltipConfig {

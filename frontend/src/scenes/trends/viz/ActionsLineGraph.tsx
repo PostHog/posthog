@@ -49,7 +49,6 @@ export function ActionsLineGraph({
                           renderSeries: (_, datum) => {
                               return capitalizeFirstLetter(datum.label?.split(' - ')?.[1] ?? datum.label ?? 'None')
                           },
-                          showTotalCount: true,
                       }
                     : undefined
             }

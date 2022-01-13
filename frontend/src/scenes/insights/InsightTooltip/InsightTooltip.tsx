@@ -14,7 +14,6 @@ import {
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { IconHandClick } from 'lib/components/icons'
-import { sum } from 'lib/utils'
 
 function ClickToInspectActors({ isTruncated }: { isTruncated: boolean }): JSX.Element {
     return (
@@ -48,7 +47,6 @@ export function InsightTooltip({
     rowCutoff = ROW_CUTOFF,
     colCutoff = COL_CUTOFF,
     showHeader = true,
-    showTotalCount = false,
 }: InsightTooltipProps): JSX.Element {
     // If multiple entities exist (i.e., pageview + autocapture) and there is a breakdown/compare/multi-group happening, itemize entities as columns to save vertical space..
     // If only a single entity exists, itemize entity counts as rows.
@@ -125,20 +123,7 @@ export function InsightTooltip({
         }
 
         // Itemize tooltip entities as rows
-        const dataSource = showTotalCount
-            ? [
-                  ...seriesData,
-                  {
-                      id: seriesData?.length,
-                      dataIndex: -1,
-                      datasetIndex: -1,
-                      count: sum(seriesData.map((d) => d.count ?? 0)),
-                      color: '#D9D9D9',
-                      label: 'Total',
-                      filter: {},
-                  },
-              ]
-            : seriesData
+        const dataSource = [...seriesData]
         const columns: LemonTableColumns<SeriesDatum> = []
         const isTruncated = dataSource?.length > rowCutoff
 
