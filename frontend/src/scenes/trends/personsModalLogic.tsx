@@ -129,8 +129,8 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         setSearchTerm: (term: string) => ({ term }),
         setCohortModalVisible: (visible: boolean) => ({ visible }),
         loadPeople: (peopleParams: PersonsModalParams) => ({ peopleParams }),
-        setUrl: (props: LoadPeopleFromUrlProps) => props,
-        loadPeopleFromUrl: (props: LoadPeopleFromUrlProps) => props,
+        setUrl: (props: LoadPeopleFromUrlProps) => ({ props }),
+        loadPeopleFromUrl: (props: LoadPeopleFromUrlProps) => ({ props }),
         switchToDataPoint: (seriesId: number) => ({ seriesId }), // Changes data point shown on PersonModal
         loadMorePeople: true,
         hidePeople: true,
@@ -186,7 +186,10 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     crossDataset,
                     seriesId,
                 }),
-                loadPeopleFromUrl: (_, { label, date_from = '', action, breakdown_value, crossDataset, seriesId }) => ({
+                loadPeopleFromUrl: (
+                    _,
+                    { props: { label, date_from = '', action, breakdown_value, crossDataset, seriesId } }
+                ) => ({
                     people: [],
                     count: 0,
                     day: date_from,
@@ -232,8 +235,8 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             // peopleParams when loaded from URL
             null as LoadPeopleFromUrlProps | null,
             {
-                loadPeopleFromUrl: (_, props) => props,
-                setUrl: (_, props) => props,
+                loadPeopleFromUrl: (_, { props }) => props,
+                setUrl: (_, { props }) => props,
             },
         ],
     }),
@@ -374,17 +377,19 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
 
                 return peopleResult
             },
-            loadPeopleFromUrl: async ({
-                url,
-                funnelStep,
-                breakdown_value = '',
-                date_from = '',
-                action,
-                label,
-                pathsDropoff,
-                crossDataset,
-                seriesId,
-            }) => {
+            loadPeopleFromUrl: async ({ props }) => {
+                const {
+                    url,
+                    funnelStep,
+                    breakdown_value = '',
+                    date_from = '',
+                    action,
+                    label,
+                    pathsDropoff,
+                    crossDataset,
+                    seriesId,
+                } = props
+
                 if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_TRENDS_PERSON_MODAL]) {
                     // A bit hacky (doesn't account for hash params),
                     // but it works and only needed while we have this feature flag

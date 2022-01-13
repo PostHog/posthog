@@ -94,7 +94,13 @@ export function PersonsModal({
     )
 
     const isDownloadCsvAvailable: boolean = view === InsightType.TRENDS && showModalActions && !!people?.action
-    const isSaveAsCohortAvailable = clickhouseFeaturesEnabled && showModalActions
+    const isSaveAsCohortAvailable =
+        clickhouseFeaturesEnabled &&
+        (view === InsightType.TRENDS ||
+            view === InsightType.STICKINESS ||
+            view === InsightType.FUNNELS ||
+            view == InsightType.PATHS) &&
+        showModalActions
 
     const colorList = getChartColors('white', people?.crossDataset?.length)
     const showCountedByTag = !!people?.crossDataset?.find(({ action }) => action?.math && action.math !== 'total')
