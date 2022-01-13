@@ -1,6 +1,6 @@
 name: Sync PostHog FOSS
 
-# TODO: Don't sync until the proper ee code relocation is done
+# TODO: Don't sync until the ee code relocation is done
 # on:
 #     push:
 #         branches:

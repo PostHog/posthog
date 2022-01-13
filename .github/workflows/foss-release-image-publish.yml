@@ -3,7 +3,7 @@
 
 name: Docker FOSS release image
 
-# TODO: Don't sync until the proper ee code relocation is done
+# TODO: Don't sync until ee code relocation is done
 # on:
 #     push:
 #         tags:
