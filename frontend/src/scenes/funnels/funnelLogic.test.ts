@@ -30,17 +30,41 @@ jest.mock('posthog-js')
 
 const Insight123 = '123' as InsightShortId
 
+const funnelResult = [
+    {
+        action_id: '$pageview',
+        count: 19,
+        name: '$pageview',
+        order: 0,
+        type: 'events',
+    },
+    {
+        action_id: '$pageview',
+        count: 7,
+        name: '$pageview',
+        order: 0,
+        type: 'events',
+    },
+    {
+        action_id: '$pageview',
+        count: 4,
+        name: '$pageview',
+        order: 0,
+        type: 'events',
+    },
+]
+
 describe('funnelLogic', () => {
     let logic: ReturnType<typeof funnelLogic.build>
     let correlationConfig: TeamType['correlation_config'] = {}
 
     mockAPI(
-        async (url) => {
-            if (['api/projects/@current', `api/projects/${MOCK_TEAM_ID}`].includes(url.pathname)) {
-                if (url.method === 'update') {
+        async ({ pathname, method, data, searchParams }) => {
+            if (['api/projects/@current', `api/projects/${MOCK_TEAM_ID}`].includes(pathname)) {
+                if (method === 'update') {
                     correlationConfig = {
                         ...correlationConfig,
-                        excluded_person_property_names: url.data?.correlation_config?.excluded_person_property_names,
+                        excluded_person_property_names: data?.correlation_config?.excluded_person_property_names,
                     }
                 }
 
@@ -48,45 +72,29 @@ describe('funnelLogic', () => {
                     ...MOCK_DEFAULT_TEAM,
                     correlation_config: correlationConfig,
                 }
-            } else if (url.pathname === '/some/people/url') {
+            } else if (pathname === `api/projects/${MOCK_TEAM_ID}/insights/trend/`) {
+                return { results: ['trends result from api'] }
+            } else if (pathname === '/some/people/url') {
                 return {
                     results: [{ people: [] }],
                 }
-            } else if (url.pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/`) {
+            } else if (pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/`) {
                 return {
                     is_cached: true,
                     last_refresh: '2021-09-16T13:41:41.297295Z',
-                    result: [
-                        {
-                            action_id: '$pageview',
-                            count: 19,
-                            name: '$pageview',
-                            order: 0,
-                            type: 'events',
-                        },
-                        {
-                            action_id: '$pageview',
-                            count: 7,
-                            name: '$pageview',
-                            order: 0,
-                            type: 'events',
-                        },
-                        {
-                            action_id: '$pageview',
-                            count: 4,
-                            name: '$pageview',
-                            order: 0,
-                            type: 'events',
-                        },
-                    ],
+                    result: funnelResult,
                     type: 'Funnel',
                 }
+            } else if (String(searchParams.short_id) === Insight123) {
+                return {
+                    results: [funnelResult],
+                }
             } else if (
-                url.pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/correlation` &&
-                url.data?.funnel_correlation_type === 'properties'
+                pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/correlation` &&
+                data?.funnel_correlation_type === 'properties'
             ) {
-                const excludePropertyFromProjectNames = url.data?.funnel_correlation_exclude_names || []
-                const includePropertyNames = url.data?.funnel_correlation_names || []
+                const excludePropertyFromProjectNames = data?.funnel_correlation_exclude_names || []
+                const includePropertyNames = data?.funnel_correlation_names || []
                 return {
                     is_cached: true,
                     last_refresh: '2021-09-16T13:41:41.297295Z',
@@ -119,8 +127,8 @@ describe('funnelLogic', () => {
                     type: 'Funnel',
                 }
             } else if (
-                url.pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/correlation` &&
-                url.data?.funnel_correlation_type === 'events'
+                pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/correlation` &&
+                data?.funnel_correlation_type === 'events'
             ) {
                 return {
                     is_cached: true,
@@ -146,11 +154,11 @@ describe('funnelLogic', () => {
                     type: 'Funnel',
                 }
             } else if (
-                url.pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/correlation` &&
-                url.data?.funnel_correlation_type === 'event_with_properties'
+                pathname === `api/projects/${MOCK_TEAM_ID}/insights/funnel/correlation` &&
+                data?.funnel_correlation_type === 'event_with_properties'
             ) {
-                const targetEvent = url.data?.funnel_correlation_event_names[0]
-                const excludedProperties = url.data?.funnel_correlation_event_exclude_property_names
+                const targetEvent = data?.funnel_correlation_event_names[0]
+                const excludedProperties = data?.funnel_correlation_event_exclude_property_names
                 return {
                     result: {
                         events: [
@@ -191,15 +199,15 @@ describe('funnelLogic', () => {
                         is_cached: false,
                     },
                 }
-            } else if (url.pathname.startsWith(`api/projects/${MOCK_TEAM_ID}/insights`)) {
+            } else if (pathname.startsWith(`api/projects/${MOCK_TEAM_ID}/insights`)) {
                 return { results: [], next: null }
-            } else if (url.pathname === `api/person/properties`) {
+            } else if (pathname === `api/person/properties`) {
                 return [
                     { name: 'some property', count: 20 },
                     { name: 'another property', count: 10 },
                     { name: 'third property', count: 5 },
                 ]
-            } else if (url.pathname === `api/projects/${MOCK_TEAM_ID}/groups/property_definitions`) {
+            } else if (pathname === `api/projects/${MOCK_TEAM_ID}/groups/property_definitions`) {
                 return {
                     '0': [
                         { name: 'industry', count: 2 },
@@ -207,7 +215,7 @@ describe('funnelLogic', () => {
                     ],
                     '1': [{ name: 'name', count: 1 }],
                 }
-            } else if (url.pathname === `api/person/funnel/`) {
+            } else if (pathname === `api/person/funnel/`) {
                 return { results: [], next: null }
             }
         },

@@ -14,9 +14,9 @@ const Insight123 = '123' as InsightShortId
 describe('trendsLogic', () => {
     let logic: BuiltLogic<trendsLogicType>
 
-    mockAPI(async ({ pathname }) => {
-        if (pathname === `api/projects/${MOCK_TEAM_ID}/insights`) {
-            return { results: [] }
+    mockAPI(async ({ pathname, searchParams }) => {
+        if (pathname === `api/projects/${MOCK_TEAM_ID}/insights` || String(searchParams.short_id) === Insight123) {
+            return { results: ['result from api'] }
         } else if (
             [
                 `api/projects/${MOCK_TEAM_ID}/insights/123`,

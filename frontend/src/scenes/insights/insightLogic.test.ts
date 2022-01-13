@@ -10,6 +10,7 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 import * as Sentry from '@sentry/browser'
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 
 jest.mock('lib/api')
 jest.mock('@sentry/browser')
@@ -263,6 +264,9 @@ describe('insightLogic', () => {
         })
 
         describe('props with filters, no cached results, error from API', () => {
+            beforeEach(silenceKeaLoadersErrors)
+            afterEach(resumeKeaLoadersErrors)
+
             it('makes a query to load the results', async () => {
                 logic = insightLogic({
                     dashboardItemId: Insight42,
@@ -368,6 +372,9 @@ describe('insightLogic', () => {
         })
 
         describe('props with no filters, no cached results, API throws', () => {
+            beforeEach(silenceKeaLoadersErrors)
+            afterEach(resumeKeaLoadersErrors)
+
             it('makes a query to load the results', async () => {
                 logic = insightLogic({
                     dashboardItemId: Insight500, // 500 --> result: throws
