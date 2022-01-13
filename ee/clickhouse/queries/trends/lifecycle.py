@@ -37,7 +37,7 @@ class ClickhouseLifecycle(LifecycleTrend):
 
         return (
             LIFECYCLE_SQL.format(events_query=event_query, interval_expr=filter.interval),
-            {"team_id": team_id, **event_params,},
+            event_params,
             self._parse_result(filter, entity),
         )
 
@@ -63,30 +63,12 @@ class ClickhouseLifecycle(LifecycleTrend):
         request: Request,
         limit: int = 100,
     ):
-        entity = filter.entities[0]
-        date_from = filter.date_from
-
-        if not date_from:
-            date_from = get_earliest_timestamp(team_id)
-
-        interval = filter.interval
-        interval_string, interval_unit = self.get_interval(interval)
-        _, _, date_params = parse_timestamps(filter=filter, team_id=team_id)
-
-        event_query, event_params = LifecycleEventQuery(team_id=team_id, entity=entity, filter=filter).get_query()
+        event_query, event_params = LifecycleEventQuery(team_id=team_id, filter=filter).get_query()
 
         result = sync_execute(
-            LIFECYCLE_PEOPLE_SQL.format(
-                interval=interval_string,
-                interval_keyword=interval_unit,
-                event_query=event_query,
-                GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
-            ),
+            LIFECYCLE_PEOPLE_SQL.format(events_query=event_query, interval_expr=filter.interval),
             {
-                "team_id": team_id,
-                "interval": filter.interval,
                 **event_params,
-                **date_params,
                 "status": lifecycle_type,
                 "target_date": target_date,
                 "offset": filter.offset,

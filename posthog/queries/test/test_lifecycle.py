@@ -284,12 +284,13 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
             self.assertEqual(len(dormant_result), 1)
 
         def test_lifecycle_trend_people_paginated(self):
-            for i in range(150):
-                person_id = "person{}".format(i)
-                person_factory(team_id=self.team.pk, distinct_ids=[person_id])
-                event_factory(
-                    team=self.team, event="$pageview", distinct_id=person_id, timestamp="2020-01-15T12:00:00Z",
-                )
+            with freeze_time("2020-01-15T12:00:00Z"):
+                for i in range(150):
+                    person_id = "person{}".format(i)
+                    person_factory(team_id=self.team.pk, distinct_ids=[person_id])
+                    event_factory(
+                        team=self.team, event="$pageview", distinct_id=person_id, timestamp="2020-01-15T12:00:00Z",
+                    )
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
             result = self.client.get(
                 "/api/person/lifecycle",
