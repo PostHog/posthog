@@ -26,10 +26,6 @@ class ClickhousePathsActors(ClickhousePaths, ActorBaseQuery):  # type: ignore
         other path item between start and end key.
     """
 
-    @cached_property
-    def is_aggregating_by_groups(self) -> bool:
-        return False
-
     def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
         paths_per_person_query = self.get_paths_per_person_query()
         person_path_filter = self.get_person_path_filter()

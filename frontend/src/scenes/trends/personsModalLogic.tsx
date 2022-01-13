@@ -3,7 +3,7 @@ import { Link } from 'lib/components/Link'
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
-import { errorToast, isGroupType, pluralize, toParams } from 'lib/utils'
+import { errorToast, fromParamsGivenUrl, isGroupType, pluralize, toParams } from 'lib/utils'
 import {
     ActionFilter,
     FilterType,
@@ -133,7 +133,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         switchToDataPoint: (seriesId: number) => ({ seriesId }), // Changes data point shown on PersonModal
         loadMorePeople: true,
         hidePeople: true,
-        saveCohortWithFilters: (cohortName: string, filters: Partial<FilterType>) => ({ cohortName, filters }),
+        saveCohortWithUrl: (cohortName: string) => ({ cohortName }),
         setPersonsModalFilters: (searchTerm: string, people: TrendActors, filters: Partial<FilterType>) => ({
             searchTerm,
             people,
@@ -145,7 +145,8 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         closeRecordingModal: () => true,
     }),
     connect: {
-        values: [groupsModel, ['groupTypes'], featureFlagLogic, ['featureFlags']],
+        values: [groupsModel, ['groupTypes', 'aggregationLabel'], featureFlagLogic, ['featureFlags']],
+        actions: [eventUsageLogic, ['reportCohortCreatedFromPersonsModal']],
     },
     reducers: () => ({
         sessionRecordingId: [
@@ -245,12 +246,12 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         ],
         isGroupType: [(s) => [s.people], (people) => people?.people?.[0] && isGroupType(people.people[0])],
         actorLabel: [
-            (s) => [s.people, s.isGroupType, s.groupTypes],
-            (result, _isGroupType, groupTypes) => {
+            (s) => [s.people, s.isGroupType, s.groupTypes, s.aggregationLabel],
+            (result, _isGroupType, groupTypes, aggregationLabel) => {
                 if (_isGroupType) {
                     return result?.action?.math_group_type_index != undefined &&
                         groupTypes.length > result?.action.math_group_type_index
-                        ? `${groupTypes[result?.action.math_group_type_index].group_type}(s)`
+                        ? aggregationLabel(result?.action.math_group_type_index).plural
                         : ''
                 } else {
                     return pluralize(result?.count || 0, 'person', undefined, false)
@@ -433,18 +434,15 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         },
     }),
     listeners: ({ actions, values }) => ({
-        saveCohortWithFilters: async ({ cohortName, filters }) => {
-            if (values.people) {
-                const { label, action, day, breakdown_value } = values.people
-                const filterParams = parsePeopleParams(
-                    { label, action, date_from: day, date_to: day, breakdown_value },
-                    filters
-                )
+        saveCohortWithUrl: async ({ cohortName }) => {
+            if (values.people && values.peopleUrlParams?.url) {
                 const cohortParams = {
                     is_static: true,
                     name: cohortName,
                 }
-                const cohort = await api.create('api/cohort' + (filterParams ? '?' + filterParams : ''), cohortParams)
+
+                const qs = values.peopleUrlParams.url.split('?').pop() || ''
+                const cohort = await api.create('api/cohort?' + qs, cohortParams)
                 cohortsModel.actions.cohortCreated(cohort)
                 toast.success(
                     <div data-attr="success-toast">
@@ -457,6 +455,9 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                         toastId: `cohort-saved-${cohort.id}`,
                     }
                 )
+
+                const filters = fromParamsGivenUrl('?' + qs) // this function expects the question mark to be included
+                actions.reportCohortCreatedFromPersonsModal(filters)
             } else {
                 errorToast(undefined, "We couldn't create your cohort:")
             }

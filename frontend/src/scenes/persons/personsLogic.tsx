@@ -1,3 +1,4 @@
+import React from 'react'
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
@@ -136,7 +137,15 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
     },
     listeners: ({ actions, values }) => ({
         deletePersonSuccess: () => {
-            toast('Person deleted successfully')
+            // The deleted person's distinct IDs won't be usable until the person disappears from PersonManager's LRU.
+            // This can take up to an hour. Until then, the plugin server won't know to regenerate the person.
+            toast.success(
+                <>
+                    Person deleted.
+                    <br />
+                    Their ID(s) will be usable again in an hour or so.
+                </>
+            )
             actions.loadPersons()
             router.actions.push(urls.persons())
         },

@@ -31,11 +31,10 @@ export const scene: SceneExport = {
 }
 
 export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Element {
-    useMountedLogic(insightCommandLogic)
-
     const logic = insightLogic({ dashboardItemId: shortId, syncWithUrl: true })
-    const { insightProps, activeView, filters, insight, insightMode, filtersChanged, savedFilters, tagLoading } =
+    const { insightProps, activeView, insight, insightMode, filtersChanged, savedFilters, tagLoading } =
         useValues(logic)
+    useMountedLogic(insightCommandLogic(insightProps))
     const {
         setActiveView,
         setInsightMode,
@@ -49,11 +48,10 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
     const { hasAvailableFeature } = useValues(userLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
-    const { saveCohortWithFilters, setCohortModalVisible } = useActions(personsModalLogic)
+    const { saveCohortWithUrl, setCohortModalVisible } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { reportInsightsTabReset } = useActions(eventUsageLogic)
 
-    const { reportCohortCreatedFromPersonsModal } = useActions(eventUsageLogic)
     const verticalLayout = activeView === InsightType.FUNNELS && !featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] // Whether to display the control tab on the side instead of on top
 
     const handleHotkeyNavigation = (view: InsightType, hotkey: HotKeys): void => {
@@ -204,9 +202,8 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
             <SaveCohortModal
                 visible={cohortModalVisible}
                 onOk={(title: string) => {
-                    saveCohortWithFilters(title, filters)
+                    saveCohortWithUrl(title)
                     setCohortModalVisible(false)
-                    reportCohortCreatedFromPersonsModal(filters)
                 }}
                 onCancel={() => setCohortModalVisible(false)}
             />

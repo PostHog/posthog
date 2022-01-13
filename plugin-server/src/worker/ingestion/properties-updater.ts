@@ -49,25 +49,15 @@ export async function updatePersonProperties(
             person.properties_last_operation || {},
             timestamp
         )
-        if (propertiesUpdate.updated) {
-            const updateResult: QueryResult = await db.postgresQuery(
-                `UPDATE posthog_person SET
-                    properties = $1,
-                    properties_last_updated_at = $2,
-                    properties_last_operation = $3,
-                    version = COALESCE(version, 0)::numeric + 1
-                WHERE id = $4
-                RETURNING version`,
-                [
-                    JSON.stringify(propertiesUpdate.properties),
-                    JSON.stringify(propertiesUpdate.properties_last_updated_at),
-                    JSON.stringify(propertiesUpdate.properties_last_operation),
-                    person.id,
-                ],
-                'updatePersonProperties',
-                client
+        if (propertiesUpdate.updated || timestamp < person.created_at) {
+            person.version = await db.updatePerson(
+                client,
+                person.id,
+                DateTime.min(timestamp, person.created_at),
+                propertiesUpdate.properties,
+                propertiesUpdate.properties_last_updated_at,
+                propertiesUpdate.properties_last_operation
             )
-            person.version = Number(updateResult.rows[0].version)
         }
         return [propertiesUpdate, person]
     })
@@ -98,7 +88,7 @@ export async function upsertGroup(
             const group: Group | undefined = await db.fetchGroup(teamId, groupTypeIndex, groupKey, client, {
                 forUpdate: true,
             })
-            const createdAt = group?.created_at || timestamp
+            const createdAt = DateTime.min(group?.created_at || DateTime.now(), timestamp)
             const version = (group?.version || 0) + 1
 
             const propertiesUpdate = calculateUpdate(
@@ -115,19 +105,32 @@ export async function upsertGroup(
             }
 
             if (propertiesUpdate.updated) {
-                // :TRICKY: insertGroup will raise a RaceConditionError if group was inserted in-between fetch and this
-                const upsertMethod = group ? 'updateGroup' : 'insertGroup'
-                await db[upsertMethod](
-                    teamId,
-                    groupTypeIndex,
-                    groupKey,
-                    propertiesUpdate.properties,
-                    createdAt,
-                    propertiesUpdate.properties_last_updated_at,
-                    propertiesUpdate.properties_last_operation,
-                    version,
-                    client
-                )
+                if (group) {
+                    await db.updateGroup(
+                        teamId,
+                        groupTypeIndex,
+                        groupKey,
+                        propertiesUpdate.properties,
+                        createdAt,
+                        propertiesUpdate.properties_last_updated_at,
+                        propertiesUpdate.properties_last_operation,
+                        version,
+                        client
+                    )
+                } else {
+                    // :TRICKY: insertGroup will raise a RaceConditionError if group was inserted in-between fetch and this
+                    await db.insertGroup(
+                        teamId,
+                        groupTypeIndex,
+                        groupKey,
+                        propertiesUpdate.properties,
+                        createdAt,
+                        propertiesUpdate.properties_last_updated_at,
+                        propertiesUpdate.properties_last_operation,
+                        version,
+                        client
+                    )
+                }
             }
 
             return [propertiesUpdate, createdAt, version]

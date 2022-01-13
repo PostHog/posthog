@@ -1,21 +1,24 @@
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { insightDateFilterLogic } from 'scenes/insights/InsightDateFilter/insightDateFilterLogic'
 import { urls } from 'scenes/urls'
-import { InsightShortId } from '~/types'
+import { InsightLogicProps, InsightShortId } from '~/types'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 describe('the insightDateFilterLogic', () => {
     let logic: ReturnType<typeof insightDateFilterLogic.build>
 
-    initKeaTestLogic({
-        logic: insightDateFilterLogic,
-        props: {},
-        onLogic: (l) => (logic = l),
+    beforeEach(() => {
+        const insightProps: InsightLogicProps = { dashboardItemId: '12345' as InsightShortId, syncWithUrl: true }
+        initKeaTests()
+        insightLogic(insightProps).mount()
+        logic = insightDateFilterLogic(insightProps)
+        logic.mount()
     })
 
     it('defaults to no dates', () => {
-        expectLogic(logic).toMatchValues({ dates: { dateFrom: undefined, dateTo: undefined } })
+        expectLogic(logic).toMatchValues({ dates: { dateFrom: null, dateTo: null } })
     })
 
     it('reads "date from" and "date to" from URL when editing', () => {

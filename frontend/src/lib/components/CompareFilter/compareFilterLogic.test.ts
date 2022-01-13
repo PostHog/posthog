@@ -1,17 +1,20 @@
 import { compareFilterLogic } from 'lib/components/CompareFilter/compareFilterLogic'
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { expectLogic } from 'kea-test-utils'
-import { InsightShortId, InsightType } from '~/types'
+import { InsightLogicProps, InsightShortId, InsightType } from '~/types'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 describe('compareFilterLogic', () => {
     let logic: ReturnType<typeof compareFilterLogic.build>
 
-    initKeaTestLogic({
-        logic: compareFilterLogic,
-        props: {},
-        onLogic: (l) => (logic = l),
+    beforeEach(() => {
+        initKeaTests()
+        const logicProps: InsightLogicProps = { dashboardItemId: '1' as InsightShortId, syncWithUrl: true }
+        insightLogic(logicProps).mount()
+        logic = compareFilterLogic(logicProps)
+        logic.mount()
     })
 
     describe('keeps compare updated to router', () => {
@@ -24,31 +27,22 @@ describe('compareFilterLogic', () => {
         })
         it('initial compare value', async () => {
             router.actions.push(urls.insightView('1' as InsightShortId, { compare: true }))
-            await expectLogic(router)
-                .toDispatchActions(['push', 'locationChanged'])
-                .toDispatchActions([logic.actionCreators.setCompare(true)])
-                .toMatchValues(logic, {
-                    compare: true,
-                    disabled: false,
-                })
+            await expectLogic(logic).toMatchValues({
+                compare: true,
+                disabled: false,
+            })
         })
         it('disable for lifecycle insight', async () => {
             router.actions.push(urls.insightView('1' as InsightShortId, { insight: InsightType.LIFECYCLE }))
-            await expectLogic(router)
-                .toDispatchActions(['push', 'locationChanged'])
-                .toDispatchActions([logic.actionCreators.setDisabled(true)])
-                .toMatchValues(logic, {
-                    disabled: true,
-                })
+            await expectLogic(logic).toMatchValues({
+                disabled: true,
+            })
         })
         it('disable for `all time` date filter', async () => {
             router.actions.push(urls.insightView('1' as InsightShortId, { date_from: 'all' }))
-            await expectLogic(router)
-                .toDispatchActions(['push', 'locationChanged'])
-                .toDispatchActions([logic.actionCreators.setDisabled(true)])
-                .toMatchValues(logic, {
-                    disabled: true,
-                })
+            await expectLogic(logic).toMatchValues({
+                disabled: true,
+            })
         })
     })
 })

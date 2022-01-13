@@ -110,7 +110,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
     },
 
     reducers: ({ props }) => ({
-        sceneIsEventsPage: [props.sceneUrl ? props.sceneUrl === urls.events() : false, {}],
+        sceneIsEventsPage: [props.sceneUrl ? props.sceneUrl === urls.LEGACY_events() : false, {}],
         pollingIsActive: [
             true,
             {

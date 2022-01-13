@@ -206,9 +206,6 @@ class ClickhousePersonViewSet(PersonViewSet):
     def destroy(self, request: Request, pk=None, **kwargs):  # type: ignore
         try:
             person = Person.objects.get(team=self.team, pk=pk)
-
-            events = Event.objects.filter(team=self.team, distinct_id__in=person.distinct_ids)
-            events.delete()
             delete_person(
                 person.uuid, person.properties, person.is_identified, delete_events=True, team_id=self.team.pk
             )

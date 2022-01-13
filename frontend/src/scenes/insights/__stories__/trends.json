@@ -1251,11 +1251,6 @@
                         }
                     ],
                     "toggledLifecycles": ["new", "resurrecting", "returning", "dormant"],
-                    "visibilityMap": {
-                        "0": true,
-                        "1": true,
-                        "2": true
-                    },
                     "breakdownValuesLoading": false
                 }
             }

@@ -78,9 +78,13 @@ class ActorBaseQuery:
         raise NotImplementedError()
 
     @cached_property
-    def is_aggregating_by_groups(self) -> bool:
+    def aggregation_group_type_index(self) -> Optional[int]:
         """Override in child class with insight specific logic to determine group aggregation"""
-        return False
+        return None
+
+    @property
+    def is_aggregating_by_groups(self) -> bool:
+        return self.aggregation_group_type_index is not None
 
     def get_actors(
         self,
@@ -98,8 +102,7 @@ class ActorBaseQuery:
     def query_for_session_ids_with_recordings(self, session_ids: Set[str]) -> Set[str]:
         """ Filters a list of session_ids to those that actually have recordings """
         query = """
-        SELECT 
-            distinct session_id
+        SELECT DISTINCT session_id
         FROM session_recording_events
         WHERE
             team_id = %(team_id)s
@@ -156,47 +159,57 @@ class ActorBaseQuery:
         actor_ids = [row[0] for row in raw_result]
 
         if self.is_aggregating_by_groups:
-            actors, serialized_actors = self._get_groups(actor_ids)
+            actors, serialized_actors = get_groups(
+                self._team.pk, cast(int, self.aggregation_group_type_index), actor_ids
+            )
         else:
-            actors, serialized_actors = self._get_people(actor_ids)
+            actors, serialized_actors = get_people(self._team.pk, actor_ids)
 
         return actors, serialized_actors
 
-    def _get_groups(self, group_ids) -> Tuple[QuerySet[Group], List[SerializedGroup]]:
-        """ Get groups from raw SQL results in data model and dict formats """
-        groups: QuerySet[Group] = Group.objects.filter(team_id=self._team.pk, group_key__in=group_ids)
-        return groups, self._serialize_groups(groups)
 
-    def _get_people(self, people_ids) -> Tuple[QuerySet[Person], List[SerializedPerson]]:
-        """ Get people from raw SQL results in data model and dict formats """
-        persons: QuerySet[Person] = Person.objects.filter(team_id=self._team.pk, uuid__in=people_ids)
-        return persons, self._serialize_people(persons)
+def get_groups(
+    team_id: int, group_type_index: int, group_ids: List[Any]
+) -> Tuple[QuerySet[Group], List[SerializedGroup]]:
+    """ Get groups from raw SQL results in data model and dict formats """
+    groups: QuerySet[Group] = Group.objects.filter(
+        team_id=team_id, group_type_index=group_type_index, group_key__in=group_ids
+    )
+    return groups, serialize_groups(groups)
 
-    def _serialize_people(self, data: QuerySet[Person]) -> List[SerializedPerson]:
-        from posthog.api.person import get_person_name
 
-        return [
-            SerializedPerson(
-                type="person",
-                id=person.uuid,
-                created_at=person.created_at,
-                properties=person.properties,
-                is_identified=person.is_identified,
-                name=get_person_name(person),
-                distinct_ids=person.distinct_ids,
-            )
-            for person in data
-        ]
+def get_people(team_id: int, people_ids: List[Any]) -> Tuple[QuerySet[Person], List[SerializedPerson]]:
+    """ Get people from raw SQL results in data model and dict formats """
+    persons: QuerySet[Person] = Person.objects.filter(team_id=team_id, uuid__in=people_ids)
+    return persons, serialize_people(persons)
 
-    def _serialize_groups(self, data: QuerySet[Group]) -> List[SerializedGroup]:
-        return [
-            SerializedGroup(
-                id=group.group_key,
-                type="group",
-                group_type_index=group.group_type_index,
-                group_key=group.group_key,
-                created_at=group.created_at,
-                properties=group.group_properties,
-            )
-            for group in data
-        ]
+
+def serialize_people(data: QuerySet[Person]) -> List[SerializedPerson]:
+    from posthog.api.person import get_person_name
+
+    return [
+        SerializedPerson(
+            type="person",
+            id=person.uuid,
+            created_at=person.created_at,
+            properties=person.properties,
+            is_identified=person.is_identified,
+            name=get_person_name(person),
+            distinct_ids=person.distinct_ids,
+        )
+        for person in data
+    ]
+
+
+def serialize_groups(data: QuerySet[Group]) -> List[SerializedGroup]:
+    return [
+        SerializedGroup(
+            id=group.group_key,
+            type="group",
+            group_type_index=group.group_type_index,
+            group_key=group.group_key,
+            created_at=group.created_at,
+            properties=group.group_properties,
+        )
+        for group in data
+    ]

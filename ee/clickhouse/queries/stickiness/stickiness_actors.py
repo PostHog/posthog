@@ -16,8 +16,10 @@ class ClickhouseStickinessActors(ActorBaseQuery):
         super().__init__(team, filter, entity, **kwargs)
 
     @cached_property
-    def is_aggregating_by_groups(self) -> bool:
-        return self.entity.math == "unique_group"
+    def aggregation_group_type_index(self):
+        if self.entity.math == "unique_group":
+            return self.entity.math_group_type_index
+        return None
 
     def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
         events_query, event_params = StickinessEventsQuery(

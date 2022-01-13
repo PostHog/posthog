@@ -26,7 +26,7 @@ export function apiValueToMathType(math: string | undefined, groupTypeIndex: num
 export const mathsLogic = kea<mathsLogicType>({
     path: ['scenes', 'trends', 'mathsLogic'],
     connect: {
-        values: [groupsModel, ['groupTypes']],
+        values: [groupsModel, ['groupTypes', 'aggregationLabel']],
     },
     selectors: {
         eventMathEntries: [
@@ -211,22 +211,22 @@ export const mathsLogic = kea<mathsLogicType>({
             }),
         ],
         groupsMathDefinitions: [
-            (s) => [s.groupTypes],
-            (groupTypes) =>
+            (s) => [s.groupTypes, s.aggregationLabel],
+            (groupTypes, aggregationLabel) =>
                 Object.fromEntries(
                     groupTypes.map((groupType) => [
                         apiValueToMathType('unique_group', groupType.group_type_index),
                         {
-                            name: `Unique ${groupType.group_type}(s)`,
+                            name: `Unique ${aggregationLabel(groupType.group_type_index).plural}`,
                             description: (
                                 <>
-                                    Number of unique {groupType.group_type}(s) who performed the event in the specified
-                                    period.
+                                    Number of unique {aggregationLabel(groupType.group_type_index).plural} who performed
+                                    the event in the specified period.
                                     <br />
                                     <br />
                                     <i>
-                                        Example: If a single {groupType.group_type} performs an event 3 times in the
-                                        given period, it counts only as 1.
+                                        Example: If a single ${aggregationLabel(groupType.group_type_index).singular}
+                                        performs an event 3 times in the given period, it counts only as 1.
                                     </i>
                                 </>
                             ),

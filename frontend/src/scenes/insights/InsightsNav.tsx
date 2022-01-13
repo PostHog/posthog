@@ -26,7 +26,7 @@ interface Tab {
 }
 
 export function InsightsNav(): JSX.Element {
-    const { activeView, insightProps, createInsightUrl } = useValues(insightLogic)
+    const { activeView, createInsightUrl } = useValues(insightLogic)
     const { setActiveView } = useActions(insightLogic)
     const funnelTab = useRef<HTMLSpanElement>(null)
 
@@ -76,7 +76,6 @@ export function InsightsNav(): JSX.Element {
     return (
         <>
             <FunnelsCue
-                props={insightProps}
                 tooltipPosition={
                     // 1.5x because it's 2 tabs (trends & funnels) + margin between tabs
                     funnelTab?.current ? funnelTab.current.getBoundingClientRect().width * 1.5 + 16 : undefined
