@@ -6,12 +6,14 @@ from typing import Dict, List, Literal, Optional, Tuple, Union, cast
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelActors
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
 from ee.clickhouse.sql.paths.path import PATH_ARRAY_QUERY
 from posthog.constants import FUNNEL_PATH_BETWEEN_STEPS, LIMIT, PATH_EDGE_LIMIT
 from posthog.models import Filter, Team
 from posthog.models.filters.path_filter import PathFilter
+from posthog.models.property import PropertyName
 
 EVENT_IN_SESSION_LIMIT_DEFAULT = 5
 SESSION_TIME_THRESHOLD_DEFAULT = 1800000  # milliseconds to 30 minutes
@@ -19,21 +21,31 @@ EDGE_LIMIT_DEFAULT = 50
 
 
 @dataclasses.dataclass
-class RecordingEventClauses:
-    path_event_select_statements_for_recordings: str
-    event_in_session_index_select_statements_for_recordings: str
-    limited_path_timings_parameters_for_recordings: str
-    path_time_tuple_select_clause_for_recordings: str
-    paths_tuple_array_zip_parameters_for_recordings: str
-    group_array_select_clause_for_recordings: str
+class ExtraEventClauses:
+    final_select_statements: str
+    joined_path_tuple_select_statements: str
+    array_filter_select_statements: str
+    limited_path_tuple_elements: str
+    path_time_tuple_select_statements: str
+    paths_tuple_elements: str
+    group_array_select_statements: str
 
 
 class ClickhousePaths:
     _filter: PathFilter
     _funnel_filter: Optional[Filter]
     _team: Team
+    _extra_event_fields: List[ColumnName]
+    _extra_event_properties: List[PropertyName]
 
-    def __init__(self, filter: PathFilter, team: Team, funnel_filter: Optional[Filter] = None) -> None:
+    def __init__(
+        self,
+        filter: PathFilter,
+        team: Team,
+        funnel_filter: Optional[Filter] = None,
+        extra_event_properties: List[PropertyName] = [],
+        extra_event_fields: List[ColumnName] = [],
+    ) -> None:
         self._filter = filter
         self._team = team
         self.params = {
@@ -44,6 +56,8 @@ class ClickhousePaths:
             "regex_groupings": None,
         }
         self._funnel_filter = funnel_filter
+        self._extra_event_fields = extra_event_fields
+        self._extra_event_properties = extra_event_properties
 
         if self._filter.include_all_custom_events and self._filter.custom_events:
             raise ValidationError("Cannot include all custom events and specific custom events in the same query")
@@ -104,48 +118,61 @@ class ClickhousePaths:
 
         return funnel_cte + path_query
 
+    @property
+    def extra_event_fields_and_properties(self):
+        return self._extra_event_fields + self._extra_event_properties
+
     # Returns the set of clauses used to select the uuid, session_id and window_id for the events in the query
     # These values are used to identify the recordings shown in the person modal
-    def get_recording_event_clauses(self) -> RecordingEventClauses:
-        if self._filter.include_recordings:
-            return RecordingEventClauses(
-                path_event_select_statements_for_recordings="""
-                    final_uuid as uuid,
-                    final_session_id as session_id,
-                    final_window_id as window_id,
-                """,
-                event_in_session_index_select_statements_for_recordings="""
-                    , joined_path_tuple.4 as final_uuid
-                    , joined_path_tuple.5 as final_session_id
-                    , joined_path_tuple.6 as final_window_id
-                    , arrayFilter((x,y)->y, uuid, mapping) as uuids
-                    , arrayFilter((x,y)->y, session_id, mapping) as session_ids
-                    , arrayFilter((x,y)->y, window_id, mapping) as window_ids
-                """,
-                limited_path_timings_parameters_for_recordings=", limited_uuids, limited_session_ids, limited_window_ids",
-                path_time_tuple_select_clause_for_recordings="""
-                    , path_time_tuple.4 as uuid
-                    , path_time_tuple.5 as session_id
-                    , path_time_tuple.6 as window_id
-                """,
-                paths_tuple_array_zip_parameters_for_recordings=", uuids, session_ids, window_ids",
-                group_array_select_clause_for_recordings="""
-                    groupArray(uuid) as uuids,
-                    groupArray(session_id) as session_ids,
-                    groupArray(window_id) as window_ids,
-                """,
-            )
-        return RecordingEventClauses(
-            path_event_select_statements_for_recordings="",
-            event_in_session_index_select_statements_for_recordings="",
-            limited_path_timings_parameters_for_recordings="",
-            path_time_tuple_select_clause_for_recordings="",
-            paths_tuple_array_zip_parameters_for_recordings="",
-            group_array_select_clause_for_recordings="",
+    def get_extra_event_clauses(self) -> ExtraEventClauses:
+        final_select_statements = " ".join(
+            [f"final_{field} as {field}," for field in self.extra_event_fields_and_properties]
+        )
+        joined_path_tuple_select_statements = " ".join(
+            [
+                # +4 because clickhouse tuples are indexed from 1 and there are already 3 elements in the tuple
+                f", joined_path_tuple.{index+4} as final_{field}"
+                for index, field in enumerate(self.extra_event_fields_and_properties)
+            ]
+        )
+        array_filter_select_statements = " ".join(
+            [
+                f", arrayFilter((x,y)->y, {field}, mapping) as {field}s"
+                for field in self.extra_event_fields_and_properties
+            ]
+        )
+        limited_path_tuple_elements = " ".join(
+            [f", limited_{field}s" for field in self.extra_event_fields_and_properties]
+        )
+        path_time_tuple_select_statements = " ".join(
+            [
+                # +4 because clickhouse tuples are indexed from 1 and there are already 3 elements in the tuple
+                f", path_time_tuple.{index+4} as {field}"
+                for index, field in enumerate(self.extra_event_fields_and_properties)
+            ]
+        )
+        paths_tuple_elements = " ".join([f", {field}s" for field in self.extra_event_fields_and_properties])
+        group_array_select_statements = " ".join(
+            [f"groupArray({field}) as {field}s," for field in self.extra_event_fields_and_properties]
+        )
+
+        return ExtraEventClauses(
+            final_select_statements=final_select_statements,
+            joined_path_tuple_select_statements=joined_path_tuple_select_statements,
+            array_filter_select_statements=array_filter_select_statements,
+            limited_path_tuple_elements=limited_path_tuple_elements,
+            path_time_tuple_select_statements=path_time_tuple_select_statements,
+            paths_tuple_elements=paths_tuple_elements,
+            group_array_select_statements=group_array_select_statements,
         )
 
     def get_paths_per_person_query(self) -> str:
-        path_event_query, params = PathEventQuery(filter=self._filter, team_id=self._team.pk).get_query()
+        path_event_query, params = PathEventQuery(
+            filter=self._filter,
+            team_id=self._team.pk,
+            extra_fields=self._extra_event_fields,
+            extra_event_properties=self._extra_event_properties,
+        ).get_query()
         self.params.update(params)
 
         boundary_event_filter = self.get_target_point_filter()
@@ -154,19 +181,20 @@ class ClickhousePaths:
 
         session_threshold_clause = self.get_session_threshold_clause()
 
-        recording_event_clauses = self.get_recording_event_clauses()
+        extra_event_clauses = self.get_extra_event_clauses()
 
         return PATH_ARRAY_QUERY.format(
             path_event_query=path_event_query,
             boundary_event_filter=boundary_event_filter,
             target_clause=target_clause,
             session_threshold_clause=session_threshold_clause,
-            path_event_select_statements_for_recordings=recording_event_clauses.path_event_select_statements_for_recordings,
-            event_in_session_index_select_statements_for_recordings=recording_event_clauses.event_in_session_index_select_statements_for_recordings,
-            limited_path_timings_parameters_for_recordings=recording_event_clauses.limited_path_timings_parameters_for_recordings,
-            path_time_tuple_select_clause_for_recordings=recording_event_clauses.path_time_tuple_select_clause_for_recordings,
-            paths_tuple_array_zip_parameters_for_recordings=recording_event_clauses.paths_tuple_array_zip_parameters_for_recordings,
-            group_array_select_clause_for_recordings=recording_event_clauses.group_array_select_clause_for_recordings,
+            extra_final_select_statements=extra_event_clauses.final_select_statements,
+            extra_joined_path_tuple_select_statements=extra_event_clauses.joined_path_tuple_select_statements,
+            extra_array_filter_select_statements=extra_event_clauses.array_filter_select_statements,
+            extra_limited_path_tuple_elements=extra_event_clauses.limited_path_tuple_elements,
+            extra_path_time_tuple_select_statements=extra_event_clauses.path_time_tuple_select_statements,
+            extra_paths_tuple_elements=extra_event_clauses.paths_tuple_elements,
+            extra_group_array_select_statements=extra_event_clauses.group_array_select_statements,
         )
 
     def should_query_funnel(self) -> bool:
@@ -279,33 +307,24 @@ class ClickhousePaths:
             , if(length(filtered_timings) > %(event_in_session_limit)s, arrayConcat(arraySlice(filtered_timings, 1, intDiv(%(event_in_session_limit)s, 2)), [filtered_timings[1+intDiv(%(event_in_session_limit)s, 2)]], arraySlice(filtered_timings, (-1)*intDiv(%(event_in_session_limit)s, 2), intDiv(%(event_in_session_limit)s, 2))), filtered_timings) AS limited_timings
             """
 
-            if self._filter.include_recordings:
-                clause += f"""
-                , if(start_target_index > 0, arraySlice(uuids, start_target_index), uuids) as start_filtered_uuids
-                , if(start_target_index > 0, arraySlice(session_ids, start_target_index), session_ids) as start_filtered_session_ids
-                , if(start_target_index > 0, arraySlice(window_ids, start_target_index), window_ids) as start_filtered_window_ids
-
-                , if(end_target_index > 0, arrayResize(start_filtered_uuids, end_target_index), start_filtered_uuids) as filtered_uuids
-                , if(end_target_index > 0, arrayResize(start_filtered_session_ids, end_target_index), start_filtered_session_ids) as filtered_session_ids
-                , if(end_target_index > 0, arrayResize(start_filtered_window_ids, end_target_index), start_filtered_window_ids) as filtered_window_ids
-
-                , if(length(filtered_uuids) > %(event_in_session_limit)s, arrayConcat(arraySlice(filtered_uuids, 1, intDiv(%(event_in_session_limit)s, 2)), [filtered_uuids[1+intDiv(%(event_in_session_limit)s, 2)]], arraySlice(filtered_uuids, (-1)*intDiv(%(event_in_session_limit)s, 2), intDiv(%(event_in_session_limit)s, 2))), filtered_uuids) AS limited_uuids
-                , if(length(filtered_session_ids) > %(event_in_session_limit)s, arrayConcat(arraySlice(filtered_session_ids, 1, intDiv(%(event_in_session_limit)s, 2)), [filtered_session_ids[1+intDiv(%(event_in_session_limit)s, 2)]], arraySlice(filtered_session_ids, (-1)*intDiv(%(event_in_session_limit)s, 2), intDiv(%(event_in_session_limit)s, 2))), filtered_session_ids) AS limited_session_ids
-                , if(length(filtered_window_ids) > %(event_in_session_limit)s, arrayConcat(arraySlice(filtered_window_ids, 1, intDiv(%(event_in_session_limit)s, 2)), [filtered_window_ids[1+intDiv(%(event_in_session_limit)s, 2)]], arraySlice(filtered_window_ids, (-1)*intDiv(%(event_in_session_limit)s, 2), intDiv(%(event_in_session_limit)s, 2))), filtered_window_ids) AS limited_window_ids
-                """
+            # Add target clause for extra fields
+            clause += " ".join(
+                [
+                    f"""
+                        , if(start_target_index > 0, arraySlice({field}s, start_target_index), {field}s) as start_filtered_{field}s
+                        , if(end_target_index > 0, arrayResize(start_filtered_{field}s, end_target_index), start_filtered_{field}s) as filtered_{field}s
+                        , if(length(filtered_{field}s) > %(event_in_session_limit)s, arrayConcat(arraySlice(filtered_{field}s, 1, intDiv(%(event_in_session_limit)s, 2)), [filtered_{field}s[1+intDiv(%(event_in_session_limit)s, 2)]], arraySlice(filtered_{field}s, (-1)*intDiv(%(event_in_session_limit)s, 2), intDiv(%(event_in_session_limit)s, 2))), filtered_{field}s) AS limited_{field}s
+                    """
+                    for field in self.extra_event_fields_and_properties
+                ]
+            )
 
             return (
                 clause,
                 params,
             )
         else:
-            (
-                path_limiting_clause,
-                time_limiting_clause,
-                uuid_limiting_clause,
-                session_id_limiting_clause,
-                window_id_limiting_clause,
-            ) = self.get_filtered_path_ordering()
+            filtered_path_ordering_clause = self.get_filtered_path_ordering()
             compacting_function = self.get_array_compacting_function()
             params.update({"target_point": self._filter.end_point or self._filter.start_point})
 
@@ -313,19 +332,20 @@ class ClickhousePaths:
             , indexOf(compact_path, %(target_point)s) as target_index
             , if(target_index > 0, {compacting_function}(compact_path, target_index), compact_path) as filtered_path
             , if(target_index > 0, {compacting_function}(timings, target_index), timings) as filtered_timings
-            , {path_limiting_clause} as limited_path
-            , {time_limiting_clause} as limited_timings
+            , {filtered_path_ordering_clause[0]} as limited_path
+            , {filtered_path_ordering_clause[1]} as limited_timings
             """
 
-            if self._filter.include_recordings:
-                clause += f"""
-                , if(target_index > 0, {compacting_function}(uuids, target_index), uuids) as filtered_uuids
-                , if(target_index > 0, {compacting_function}(session_ids, target_index), session_ids) as filtered_session_ids
-                , if(target_index > 0, {compacting_function}(window_ids, target_index), window_ids) as filtered_window_ids
-                , {uuid_limiting_clause} as limited_uuids
-                , {session_id_limiting_clause} as limited_session_ids
-                , {window_id_limiting_clause} as limited_window_ids
-                """
+            # Add target clause for extra fields
+            clause += " ".join(
+                [
+                    f"""
+                        , if(target_index > 0, {compacting_function}({field}s, target_index), {field}s) as filtered_{field}s
+                        , {filtered_path_ordering_clause[index+2]} as limited_{field}s
+                    """
+                    for index, field in enumerate(self.extra_event_fields_and_properties)
+                ]
+            )
 
             return (
                 clause,
@@ -339,13 +359,8 @@ class ClickhousePaths:
             return "arraySlice"
 
     def get_filtered_path_ordering(self) -> Tuple[str, ...]:
-
-        fields_to_include = [
-            "filtered_path",
-            "filtered_timings",
-            "filtered_uuids",
-            "filtered_session_ids",
-            "filtered_window_ids",
+        fields_to_include = ["filtered_path", "filtered_timings"] + [
+            f"filtered_{field}s" for field in self.extra_event_fields_and_properties
         ]
 
         if self._filter.end_point:

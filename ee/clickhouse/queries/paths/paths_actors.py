@@ -3,7 +3,6 @@ from typing import Dict, Optional, Tuple, cast
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from ee.clickhouse.queries.paths.paths import ClickhousePaths
 from posthog.models.filters.filter import Filter
-from posthog.models.filters.mixins.utils import cached_property
 
 
 class ClickhousePathsActors(ClickhousePaths, ActorBaseQuery):  # type: ignore
@@ -39,7 +38,7 @@ class ClickhousePathsActors(ClickhousePaths, ActorBaseQuery):  # type: ignore
         if self._filter.include_recordings:
             select_statement = """
                 person_id AS actor_id
-                , groupUniqArray(10)((uuid, conversion_time, session_id, window_id)) as matching_events
+                , groupUniqArray(10)((uuid, conversion_time, $session_id, $window_id)) as matching_events
             """
             group_statement = "GROUP BY person_id"
 
