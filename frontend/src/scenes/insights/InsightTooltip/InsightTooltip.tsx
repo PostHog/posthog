@@ -34,9 +34,9 @@ export function InsightTooltip({
     date,
     seriesData = [],
     altTitle,
-    renderSeries = (value: React.ReactNode, _: SeriesDatum, idx: number) => (
+    renderSeries = (value: React.ReactNode, datum: SeriesDatum) => (
         <>
-            <SeriesLetter className="mr-025" hasBreakdown={false} seriesIndex={idx} />
+            <SeriesLetter className="mr-025" hasBreakdown={false} seriesIndex={datum?.action?.order ?? datum.id} />
             {value}
         </>
     ),
@@ -88,6 +88,7 @@ export function InsightTooltip({
                                     action={seriesColumn.action}
                                     fallbackName={seriesColumn.label}
                                     hideBreakdown
+                                    showSingleName
                                     hideCompare
                                     hideIcon
                                     allowWrap
@@ -146,6 +147,7 @@ export function InsightTooltip({
                         action={datum.action}
                         fallbackName={datum.label}
                         hideBreakdown
+                        showSingleName
                         hideCompare
                         hideIcon
                         allowWrap

@@ -38,10 +38,13 @@ export const lineGraphLogic = kea<lineGraphLogicType>({
                             }
                         })
                         ?.sort((a, b) => {
-                            if (a.action?.order === undefined || b.action?.order === undefined) {
-                                return -1
-                            }
-                            return a.action.order - b.action.order
+                            // Sort by descending order and fallback on order of filter
+                            return (
+                                b.count - a.count ||
+                                (a.action?.order === undefined || b.action?.order === undefined
+                                    ? -1
+                                    : a.action.order - b.action.order)
+                            )
                         })
                         ?.filter(filterFn)
                         ?.map((s, id) => ({
