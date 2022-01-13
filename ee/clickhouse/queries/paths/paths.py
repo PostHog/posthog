@@ -267,8 +267,8 @@ class ClickhousePaths:
 
         if self._filter.end_point and self._filter.start_point:
             params.update({"target_point": self._filter.end_point, "secondary_target_point": self._filter.start_point})
-            return (
-                """
+
+            clause = f"""
             , indexOf(compact_path, %(secondary_target_point)s) as start_target_index
             , if(start_target_index > 0, arraySlice(compact_path, start_target_index), compact_path) as start_filtered_path
             , if(start_target_index > 0, arraySlice(timings, start_target_index), timings) as start_filtered_timings
@@ -277,7 +277,25 @@ class ClickhousePaths:
             , if(end_target_index > 0, arrayResize(start_filtered_timings, end_target_index), start_filtered_timings) as filtered_timings
             , if(length(filtered_path) > %(event_in_session_limit)s, arrayConcat(arraySlice(filtered_path, 1, intDiv(%(event_in_session_limit)s,2)), ['...'], arraySlice(filtered_path, (-1)*intDiv(%(event_in_session_limit)s, 2), intDiv(%(event_in_session_limit)s, 2))), filtered_path) AS limited_path
             , if(length(filtered_timings) > %(event_in_session_limit)s, arrayConcat(arraySlice(filtered_timings, 1, intDiv(%(event_in_session_limit)s, 2)), [filtered_timings[1+intDiv(%(event_in_session_limit)s, 2)]], arraySlice(filtered_timings, (-1)*intDiv(%(event_in_session_limit)s, 2), intDiv(%(event_in_session_limit)s, 2))), filtered_timings) AS limited_timings
-            """,
+            """
+
+            if self._filter.include_recordings:
+                clause += f"""
+                , if(start_target_index > 0, arraySlice(uuids, start_target_index), uuids) as start_filtered_uuids
+                , if(start_target_index > 0, arraySlice(session_ids, start_target_index), session_ids) as start_filtered_session_ids
+                , if(start_target_index > 0, arraySlice(window_ids, start_target_index), window_ids) as start_filtered_window_ids
+
+                , if(end_target_index > 0, arrayResize(start_filtered_uuids, end_target_index), start_filtered_uuids) as filtered_uuids
+                , if(end_target_index > 0, arrayResize(start_filtered_session_ids, end_target_index), start_filtered_session_ids) as filtered_session_ids
+                , if(end_target_index > 0, arrayResize(start_filtered_window_ids, end_target_index), start_filtered_window_ids) as filtered_window_ids
+
+                , if(length(filtered_uuids) > %(event_in_session_limit)s, arrayConcat(arraySlice(filtered_uuids, 1, intDiv(%(event_in_session_limit)s, 2)), [filtered_uuids[1+intDiv(%(event_in_session_limit)s, 2)]], arraySlice(filtered_uuids, (-1)*intDiv(%(event_in_session_limit)s, 2), intDiv(%(event_in_session_limit)s, 2))), filtered_uuids) AS limited_uuids
+                , if(length(filtered_session_ids) > %(event_in_session_limit)s, arrayConcat(arraySlice(filtered_session_ids, 1, intDiv(%(event_in_session_limit)s, 2)), [filtered_session_ids[1+intDiv(%(event_in_session_limit)s, 2)]], arraySlice(filtered_session_ids, (-1)*intDiv(%(event_in_session_limit)s, 2), intDiv(%(event_in_session_limit)s, 2))), filtered_session_ids) AS limited_session_ids
+                , if(length(filtered_window_ids) > %(event_in_session_limit)s, arrayConcat(arraySlice(filtered_window_ids, 1, intDiv(%(event_in_session_limit)s, 2)), [filtered_window_ids[1+intDiv(%(event_in_session_limit)s, 2)]], arraySlice(filtered_window_ids, (-1)*intDiv(%(event_in_session_limit)s, 2), intDiv(%(event_in_session_limit)s, 2))), filtered_window_ids) AS limited_window_ids
+                """
+
+            return (
+                clause,
                 params,
             )
         else:
