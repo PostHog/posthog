@@ -60,7 +60,7 @@ export function Experiment(): JSX.Element {
         createExperiment,
         launchExperiment,
         setFilters,
-        editExperiment,
+        setEditExperiment,
         endExperiment,
         addExperimentGroup,
         updateExperimentGroup,
@@ -515,7 +515,7 @@ export function Experiment(): JSX.Element {
                             </Col>
                             {experimentData && !experimentData.start_date && (
                                 <div>
-                                    <Button className="mr-05" onClick={() => editExperiment()}>
+                                    <Button className="mr-05" onClick={() => setEditExperiment(true)}>
                                         Edit
                                     </Button>
                                     <Button type="primary" onClick={() => launchExperiment()}>

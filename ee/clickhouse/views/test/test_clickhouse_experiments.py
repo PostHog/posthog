@@ -230,7 +230,25 @@ class TestExperimentCRUD(APIBaseTest):
         self.assertEqual(created_ff.filters["groups"][0]["properties"][0]["key"], "$geoip_country_name")
 
         id = response.json()["id"]
-        end_date = "2021-12-10T00:00"
+
+        # Now try updating FF
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}",
+            {
+                "description": "Bazinga",
+                "parameters": {"feature_flag_variants": [{"key": "control", "name": "X", "rollout_percentage": 100}]},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Can't update feature_flag_variants on Experiment")
+
+        # Now try updating other parameter keys
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}",
+            {"description": "Bazinga", "parameters": {"recommended_sample_size": 1500},},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["parameters"]["recommended_sample_size"], 1500)
 
     def test_creating_invalid_multivariate_experiment_no_control(self):
         ff_key = "a-b-test"
