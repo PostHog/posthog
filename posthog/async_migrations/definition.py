@@ -27,7 +27,7 @@ class AsyncMigrationOperation:
     def __init__(
         self,
         fn=lambda query_id: None,  # potentially we should rename to something other than query_id
-        rollback_fn=lambda query_id: None,  # Raise an exeception here if we don't want it to be possible to roll back
+        rollback_fn=lambda query_id: None,
         resumable=False,
     ):
         fn = fn
@@ -42,7 +42,13 @@ class AsyncMigrationOperation:
         self.rollback_fn = rollback_fn
 
     @classmethod
-    def get_db_op(sql="", database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE, timeout_seconds: int = 60):
+    def simple_op(cls, sql, rollback, database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE):
+        return cls(
+            fn=cls.get_db_op(database=database, sql=sql), rollback_fn=cls.get_db_op(database=database, sql=rollback),
+        )
+
+    @classmethod
+    def get_db_op(cls, sql="", database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE, timeout_seconds: int = 60):
         # timeout is currently CH only
         def run_db_op(query_id):
             if database == AnalyticsDBMS.CLICKHOUSE:

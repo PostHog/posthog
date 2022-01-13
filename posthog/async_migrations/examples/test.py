@@ -32,43 +32,24 @@ class Migration(AsyncMigrationDefinition):
     sec = SideEffects()
 
     operations = [
-        AsyncMigrationOperation(
-            fn=AsyncMigrationOperation.get_db_op(
-                database=AnalyticsDBMS.POSTGRES, sql="CREATE TABLE test_async_migration ( key VARCHAR, value VARCHAR )"
-            ),
-            rollback_fn=AsyncMigrationOperation.get_db_op(
-                database=AnalyticsDBMS.POSTGRES, sql="DROP TABLE test_async_migration"
-            ),
+        AsyncMigrationOperation.simple_op(
+            database=AnalyticsDBMS.POSTGRES,
+            sql="CREATE TABLE test_async_migration ( key VARCHAR, value VARCHAR )",
+            rollback="DROP TABLE test_async_migration",
         ),
-        AsyncMigrationOperation(
-            fn=AsyncMigrationOperation.get_db_op(
-                database=AnalyticsDBMS.POSTGRES, sql="INSERT INTO test_async_migration (key, value) VALUES ('a', 'b')"
-            ),
-            rollback_fn=AsyncMigrationOperation.get_db_op(
-                database=AnalyticsDBMS.POSTGRES, sql="TRUNCATE TABLE test_async_migration"
-            ),
+        AsyncMigrationOperation.simple_op(
+            database=AnalyticsDBMS.POSTGRES,
+            sql="INSERT INTO test_async_migration (key, value) VALUES ('a', 'b')",
+            rollback="TRUNCATE TABLE test_async_migration",
         ),
-        AsyncMigrationOperation(
-            fn=sec.side_effect,
-            rollback_fn=sec.side_effect_rollback,
+        AsyncMigrationOperation(fn=sec.side_effect, rollback_fn=sec.side_effect_rollback,),
+        AsyncMigrationOperation.simple_op(database=AnalyticsDBMS.POSTGRES, sql="SELECT pg_sleep(1)"),
+        AsyncMigrationOperation.simple_op(
+            database=AnalyticsDBMS.POSTGRES,
+            sql="UPDATE test_async_migration SET value='c' WHERE key='a'",
+            rollback="UPDATE test_async_migration SET value='b' WHERE key='a'",
         ),
-        AsyncMigrationOperation(
-            fn=AsyncMigrationOperation.get_db_op(database=AnalyticsDBMS.POSTGRES, sql="SELECT pg_sleep(1)"),
-            resumable=True,
-        ),
-        AsyncMigrationOperation(
-            fn=AsyncMigrationOperation.get_db_op(
-                database=AnalyticsDBMS.POSTGRES, sql="UPDATE test_async_migration SET value='c' WHERE key='a'"
-            ),
-            rollback_fn=AsyncMigrationOperation.get_db_op(
-                database=AnalyticsDBMS.POSTGRES, sql="UPDATE test_async_migration SET value='b' WHERE key='a'"
-            ),
-            resumable=True,  # why? because 'update where' queries can safely be re-run
-        ),
-        AsyncMigrationOperation(
-            fn=sec.side_effect,
-            rollback_fn=sec.side_effect_rollback,
-        ),
+        AsyncMigrationOperation(fn=sec.side_effect, rollback_fn=sec.side_effect_rollback,),
     ]
 
     def healthcheck(self):
