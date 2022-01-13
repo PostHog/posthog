@@ -53,8 +53,9 @@ def check_async_migration_health() -> None:
 
     active_task_ids = []
 
-    for _, tasks in active_tasks_per_node.items():
-        active_task_ids += [task["id"] for task in tasks]
+    if active_tasks_per_node:
+        for _, tasks in active_tasks_per_node.items():
+            active_task_ids += [task["id"] for task in tasks]
 
     # the worker crashed - this is how we find out and process the error
     if migration_instance.celery_task_id not in active_task_ids:

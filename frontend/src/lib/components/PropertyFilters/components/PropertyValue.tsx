@@ -207,7 +207,7 @@ export function PropertyValue({
                         }
                     }}
                 >
-                    {input && !displayOptions.some(({ name }) => input === toString(name)) && (
+                    {input && !displayOptions.some(({ name }) => input.toLowerCase() === toString(name).toLowerCase()) && (
                         <Select.Option key="specify-value" value={input} className="ph-no-capture">
                             Specify: {input}
                         </Select.Option>

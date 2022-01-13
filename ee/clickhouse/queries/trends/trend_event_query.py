@@ -9,6 +9,7 @@ from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trun
 from posthog.constants import MONTHLY_ACTIVE, WEEKLY_ACTIVE
 from posthog.models import Entity
 from posthog.models.filters.filter import Filter
+from posthog.models.filters.mixins.utils import cached_property
 
 
 class TrendsEventQuery(ClickhouseEventQuery):
@@ -18,13 +19,6 @@ class TrendsEventQuery(ClickhouseEventQuery):
     def __init__(self, entity: Entity, *args, **kwargs):
         self._entity = entity
         super().__init__(*args, **kwargs)
-        self._person_query = ClickhousePersonQuery(
-            self._filter,
-            self._team_id,
-            self._column_optimizer,
-            extra_fields=kwargs.get("extra_person_fields", []),
-            entity=entity,
-        )
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         _fields = (
@@ -122,3 +116,13 @@ class TrendsEventQuery(ClickhouseEventQuery):
         )
 
         return entity_format_params["entity_query"], entity_params
+
+    @cached_property
+    def _person_query(self):
+        return ClickhousePersonQuery(
+            self._filter,
+            self._team_id,
+            self._column_optimizer,
+            extra_fields=self._extra_person_fields,
+            entity=self._entity,
+        )
