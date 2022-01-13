@@ -9,10 +9,12 @@ import {
     invertDataSource,
     InvertedSeriesDatum,
     SeriesDatum,
+    getFormattedDate,
 } from './insightTooltipUtils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { IconHandClick } from 'lib/components/icons'
+import { sum } from 'lib/utils'
 
 function ClickToInspectActors({ isTruncated }: { isTruncated: boolean }): JSX.Element {
     return (
@@ -34,6 +36,7 @@ export function InsightTooltip({
     date,
     seriesData = [],
     altTitle,
+    altRightTitle,
     renderSeries = (value: React.ReactNode, _: SeriesDatum, idx: number) => (
         <>
             <SeriesLetter className="mr-025" hasBreakdown={false} seriesIndex={idx} />
@@ -45,6 +48,7 @@ export function InsightTooltip({
     rowCutoff = ROW_CUTOFF,
     colCutoff = COL_CUTOFF,
     showHeader = true,
+    showTotalCount = false,
 }: InsightTooltipProps): JSX.Element {
     // If multiple entities exist (i.e., pageview + autocapture) and there is a breakdown/compare/multi-group happening, itemize entities as columns to save vertical space..
     // If only a single entity exists, itemize entity counts as rows.
@@ -52,7 +56,9 @@ export function InsightTooltip({
     const itemizeEntitiesAsColumns =
         forceEntitiesAsColumns ||
         (seriesData?.length > 1 && (seriesData?.[0]?.breakdown_value || seriesData?.[0]?.compare_label))
-    const title = getTooltipTitle({ date, seriesData, altTitle: altTitle })
+    const title =
+        getTooltipTitle(seriesData, altTitle, date) ?? getFormattedDate(date, seriesData?.[0]?.filter?.interval)
+    const rightTitle = getTooltipTitle(seriesData, altRightTitle, date) ?? null
 
     const renderTable = (): JSX.Element => {
         if (itemizeEntitiesAsColumns) {
@@ -81,20 +87,21 @@ export function InsightTooltip({
                         key: `series-column-data-${colIdx}`,
                         align: 'right',
                         title:
-                            !altTitle &&
-                            renderSeries(
-                                <InsightLabel
-                                    className="series-column-header"
-                                    action={seriesColumn.action}
-                                    fallbackName={seriesColumn.label}
-                                    hideBreakdown
-                                    hideCompare
-                                    hideIcon
-                                    allowWrap
-                                />,
-                                seriesColumn,
-                                colIdx
-                            ),
+                            (colIdx === 0 ? rightTitle : undefined) ||
+                            (!altTitle &&
+                                renderSeries(
+                                    <InsightLabel
+                                        className="series-column-header"
+                                        action={seriesColumn.action}
+                                        fallbackName={seriesColumn.label}
+                                        hideBreakdown
+                                        hideCompare
+                                        hideIcon
+                                        allowWrap
+                                    />,
+                                    seriesColumn,
+                                    colIdx
+                                )),
                         render: function renderSeriesColumnData(_, datum) {
                             return <div className="series-data-cell">{datum.seriesData?.[colIdx]?.count ?? 0}</div>
                         },
@@ -118,7 +125,20 @@ export function InsightTooltip({
         }
 
         // Itemize tooltip entities as rows
-        const dataSource = seriesData
+        const dataSource = showTotalCount
+            ? [
+                  ...seriesData,
+                  {
+                      id: seriesData?.length,
+                      dataIndex: -1,
+                      datasetIndex: -1,
+                      count: sum(seriesData.map((d) => d.count ?? 0)),
+                      color: '#D9D9D9',
+                      label: 'Total',
+                      filter: {},
+                  },
+              ]
+            : seriesData
         const columns: LemonTableColumns<SeriesDatum> = []
         const isTruncated = dataSource?.length > rowCutoff
 
@@ -160,6 +180,7 @@ export function InsightTooltip({
             key: 'counts',
             className: 'datum-counts-column',
             width: 50,
+            title: <span style={{ whiteSpace: 'nowrap' }}>{rightTitle ?? undefined}</span>,
             align: 'right',
             render: function renderDatum(_, datum) {
                 return <div className="series-data-cell">{datum.count ?? 0}</div>

@@ -7,7 +7,7 @@ import { ACTIONS_BAR_CHART } from 'lib/constants'
 import { ChartParams, GraphType, InsightType } from '~/types'
 import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { isMultiSeriesFormula } from 'lib/utils'
+import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
 
 export function ActionsLineGraph({
     dashboardItemId,
@@ -39,9 +39,20 @@ export function ActionsLineGraph({
             interval={filters.interval}
             showPersonsModal={showPersonsModal}
             tooltipPreferAltTitle={filters.insight === InsightType.STICKINESS}
-            tooltip={{
-                altTitle: filters.insight === InsightType.LIFECYCLE ? 'Users' : undefined,
-            }}
+            tooltip={
+                filters.insight === InsightType.LIFECYCLE
+                    ? {
+                          altTitle: 'Users',
+                          altRightTitle: (_, date) => {
+                              return date
+                          },
+                          renderSeries: (_, datum) => {
+                              return capitalizeFirstLetter(datum.label?.split(' - ')?.[1] ?? datum.label ?? 'None')
+                          },
+                          showTotalCount: true,
+                      }
+                    : undefined
+            }
             isCompare={!!filters.compare}
             isInProgress={filters.insight !== InsightType.STICKINESS && incompletenessOffsetFromEnd < 0}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
