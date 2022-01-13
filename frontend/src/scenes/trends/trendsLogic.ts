@@ -141,7 +141,7 @@ export const trendsLogic = kea<trendsLogicType>({
         loadPeople: ({ peopleParams: { action } }) => {
             actions.setTargetAction(action)
         },
-        loadPeopleFromUrl: ({ props: { action } }) => {
+        loadPeopleFromUrl: ({ action }) => {
             actions.setTargetAction(action)
         },
         setFilters: async ({ filters, mergeFilters }) => {
