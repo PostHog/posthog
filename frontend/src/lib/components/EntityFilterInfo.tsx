@@ -8,7 +8,7 @@ import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 interface EntityFilterInfoProps {
     filter: EntityFilter | ActionFilter | FunnelStepRangeEntityFilter
     allowWrap?: boolean
-    showSingleName?: boolean // If filter has custom name, only show custom name.
+    showSingleName?: boolean
 }
 
 function TextWrapper(props: TextProps): JSX.Element {
