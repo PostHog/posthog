@@ -236,7 +236,41 @@ class TestExperimentCRUD(APIBaseTest):
             f"/api/projects/{self.team.id}/experiments/{id}",
             {
                 "description": "Bazinga",
-                "parameters": {"feature_flag_variants": [{"key": "control", "name": "X", "rollout_percentage": 100}]},
+                "parameters": {"feature_flag_variants": [{"key": "control", "name": "X", "rollout_percentage": 33}]},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Can't update feature_flag_variants on Experiment")
+
+        # Now try changing FF rollout %s
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}",
+            {
+                "description": "Bazinga",
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control Group", "rollout_percentage": 34},
+                        {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
+                        {"key": "test_2", "name": "Test Variant", "rollout_percentage": 32},
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Can't update feature_flag_variants on Experiment")
+
+        # Now try changing FF keys
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}",
+            {
+                "description": "Bazinga",
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control Group", "rollout_percentage": 33},
+                        {"key": "test", "name": "Test Variant", "rollout_percentage": 33},
+                        {"key": "test2", "name": "Test Variant", "rollout_percentage": 34},
+                    ]
+                },
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

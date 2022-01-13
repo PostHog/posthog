@@ -121,6 +121,10 @@ class ExperimentSerializer(serializers.ModelSerializer):
             raise ValidationError(f"Can't update keys: {', '.join(sorted(extra_keys))} on Experiment")
 
         if "feature_flag_variants" in validated_data.get("parameters", {}):
+
+            if len(validated_data["parameters"]["feature_flag_variants"]) != len(feature_flag.variants):
+                raise ValidationError("Can't update feature_flag_variants on Experiment")
+
             for variant in validated_data["parameters"]["feature_flag_variants"]:
                 if (
                     len(
