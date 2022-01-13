@@ -2856,34 +2856,34 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         )
         _, serialized_actors = ClickhousePathsActors(filter, self.team).get_actors()
         self.assertEqual([p1.uuid, p2.uuid], [actor["id"] for actor in serialized_actors])
-        self.assertEqual(
+        matched_recordings = [actor["matched_recordings"] for actor in serialized_actors]
+
+        self.assertCountEqual(
             [
-                [
-                    {
-                        "session_id": "s3",
-                        "events": [
-                            {
-                                "uuid": UUID("41111111-1111-1111-1111-111111111111"),
-                                "timestamp": timezone.now() + timedelta(minutes=32),
-                                "window_id": "w3",
-                            },
-                        ],
-                    },
-                    {
-                        "session_id": "s1",
-                        "events": [
-                            {
-                                "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-                                "timestamp": timezone.now() + timedelta(minutes=1),
-                                "window_id": "w1",
-                            },
-                        ],
-                    },
-                ],
-                [],
+                {
+                    "session_id": "s3",
+                    "events": [
+                        {
+                            "uuid": UUID("41111111-1111-1111-1111-111111111111"),
+                            "timestamp": timezone.now() + timedelta(minutes=32),
+                            "window_id": "w3",
+                        },
+                    ],
+                },
+                {
+                    "session_id": "s1",
+                    "events": [
+                        {
+                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                            "timestamp": timezone.now() + timedelta(minutes=1),
+                            "window_id": "w1",
+                        },
+                    ],
+                },
             ],
-            [actor["matched_recordings"] for actor in serialized_actors],
+            matched_recordings[0],
         )
+        self.assertEqual([], matched_recordings[1])
 
     @snapshot_clickhouse_queries
     @test_with_materialized_columns(["$current_url", "$window_id", "$session_id"])
