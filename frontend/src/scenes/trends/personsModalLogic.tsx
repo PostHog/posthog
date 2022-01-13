@@ -379,7 +379,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             },
             loadPeopleFromUrl: async ({ props }) => {
                 const {
-                    url,
+                    url: urlProp,
                     funnelStep,
                     breakdown_value = '',
                     date_from = '',
@@ -389,6 +389,8 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     crossDataset,
                     seriesId,
                 } = props
+
+                let url = urlProp
 
                 if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_TRENDS_PERSON_MODAL]) {
                     // A bit hacky (doesn't account for hash params),
