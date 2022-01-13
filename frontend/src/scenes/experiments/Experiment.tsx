@@ -54,6 +54,8 @@ export function Experiment(): JSX.Element {
         editingExistingExperiment,
         experimentInsightType,
         experimentResultsLoading,
+        areCountResultsSignificant,
+        areConversionResultsSignificant,
     } = useValues(experimentLogic)
     const {
         setNewExperimentData,
@@ -71,6 +73,7 @@ export function Experiment(): JSX.Element {
     const [form] = Form.useForm()
 
     const [currentVariant, setCurrentVariant] = useState('control')
+    const [showWarning, setShowWarning] = useState(true)
 
     const { insightProps } = useValues(
         insightLogic({
@@ -535,6 +538,23 @@ export function Experiment(): JSX.Element {
                     </Row>
                     <Row className="mb">
                         <Col span={10} style={{ paddingRight: '1rem' }}>
+                            {showWarning &&
+                                experimentResults &&
+                                ((experimentInsightType == InsightType.TRENDS && !areCountResultsSignificant) ||
+                                    (experimentInsightType == InsightType.FUNNELS &&
+                                        !areConversionResultsSignificant)) && (
+                                    <Row className="significant-results">
+                                        <Col span={19} style={{ color: '#497342' }}>
+                                            Experiment results are significant. You can end your experiment now or let
+                                            it run until completion.
+                                        </Col>
+                                        <Col span={5}>
+                                            <Button style={{ color: '#497342' }} onClick={() => setShowWarning(false)}>
+                                                Dismiss
+                                            </Button>
+                                        </Col>
+                                    </Row>
+                                )}
                             <Col>
                                 <div className="card-secondary">Participants</div>
                                 <div>
