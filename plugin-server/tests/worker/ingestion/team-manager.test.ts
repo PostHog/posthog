@@ -176,17 +176,7 @@ describe('TeamManager()', () => {
                     id: expect.any(String),
                     is_numerical: false,
                     name: 'property_name',
-                    property_type: null,
-                    property_type_format: null,
-                    query_usage_30_day: null,
-                    team_id: 2,
-                    volume_30_day: null,
-                },
-                {
-                    id: expect.any(String),
-                    is_numerical: true,
-                    name: 'numeric_prop',
-                    property_type: null,
+                    property_type: 'String',
                     property_type_format: null,
                     query_usage_30_day: null,
                     team_id: 2,
@@ -196,7 +186,17 @@ describe('TeamManager()', () => {
                     id: expect.any(String),
                     is_numerical: true,
                     name: 'number',
-                    property_type: null,
+                    property_type: 'Numeric',
+                    property_type_format: null,
+                    query_usage_30_day: null,
+                    team_id: 2,
+                    volume_30_day: null,
+                },
+                {
+                    id: expect.any(String),
+                    is_numerical: true,
+                    name: 'numeric_prop',
+                    property_type: 'Numeric',
                     property_type_format: null,
                     query_usage_30_day: null,
                     team_id: 2,
@@ -225,7 +225,7 @@ describe('TeamManager()', () => {
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2015-04-05T04:04:14.000Z').getTime())
             await teamManager.updateEventNamesAndProperties(2, 'another_test_event', {})
             expect(postgresQuery).toHaveBeenCalledWith(
-                'UPDATE posthog_eventdefinition SET last_seen_at=$1 WHERE team_id=$2 and name=$3',
+                'UPDATE posthog_eventdefinition SET last_seen_at=$1 WHERE team_id=$2 AND name=$3',
                 [DateTime.now(), 2, 'another_test_event'],
                 'updateEventLastSeenAt'
             )
@@ -356,7 +356,9 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                     anObjectProperty: { anything: randomInteger() },
                 })
 
-                expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('anObjectProperty')
+                expect(teamManager.propertyDefinitionsCache.get(teamId)).toEqual(
+                    new Map([['anObjectProperty', 'set_to_null_on_type_detection']])
+                )
 
                 expectMockQueryCallToMatch(
                     {
@@ -373,7 +375,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                     some_number: randomInteger(),
                 })
 
-                expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('some_number')
+                expect(teamManager.propertyDefinitionsCache.get(teamId)).toEqual(new Map([['some_number', 'Numeric']]))
 
                 expectMockQueryCallToMatch(
                     {
@@ -390,7 +392,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                     some_string: randomString(),
                 })
 
-                expect(teamManager.propertyDefinitionsCache.get(teamId)).toContain('some_string')
+                expect(teamManager.propertyDefinitionsCache.get(teamId)).toEqual(new Map([['some_string', 'String']]))
 
                 expectMockQueryCallToMatch(
                     {
@@ -554,6 +556,68 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                         postgresQuery
                     )
                 })
+            })
+
+            it('does identify type if the property was previously saved with no type', async () => {
+                await teamManager.db.postgresQuery(
+                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6)',
+                    [new UUIDT().toString(), 'a_timestamp', false, teamId, null, null],
+                    'testTag'
+                )
+
+                await teamManager.updateEventNamesAndProperties(teamId, 'a_test_event', {
+                    a_timestamp: 1234567890,
+                })
+
+                const results = await teamManager.db.postgresQuery(
+                    `
+                    SELECT property_type, property_type_format from posthog_propertydefinition
+                    where name=$1
+                `,
+                    ['a_timestamp'],
+                    'queryForProperty'
+                )
+                expect(results.rows[0]).toEqual({ property_type: 'DateTime', property_type_format: 'unix_timestamp' })
+            })
+
+            it('does not replace property type if the property was previously saved with a different type', async () => {
+                await teamManager.db.postgresQuery(
+                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format) VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6)',
+                    [new UUIDT().toString(), 'a_prop_with_type', false, teamId, PropertyType.DateTime, 'YYYY-MM-DD'],
+                    'testTag'
+                )
+
+                await teamManager.updateEventNamesAndProperties(teamId, 'a_test_event', {
+                    a_prop_with_type: 1234567890,
+                })
+
+                const results = await teamManager.db.postgresQuery(
+                    `
+                    SELECT property_type, property_type_format from posthog_propertydefinition
+                    where name=$1
+                `,
+                    ['a_prop_with_type'],
+                    'queryForProperty'
+                )
+                expect(results.rows[0]).toEqual({
+                    property_type: PropertyType.DateTime,
+                    property_type_format: 'YYYY-MM-DD',
+                })
+            })
+
+            it('does not keep trying to set a property type when it cannot', async () => {
+                const properties = {
+                    a_prop_with_a_type_we_do_not_set: { a: 1234567890 },
+                }
+                await teamManager.updateEventNamesAndProperties(teamId, 'a_test_event', properties)
+
+                // 7 calls to DB to set up team manager and updateEventNamesAndProperties
+                expect(postgresQuery.mock.calls).toHaveLength(7)
+
+                await teamManager.updateEventNamesAndProperties(teamId, 'a_test_event', properties)
+
+                // no more calls to DB as everything is cached
+                expect(postgresQuery.mock.calls).toHaveLength(7)
             })
         })
     })

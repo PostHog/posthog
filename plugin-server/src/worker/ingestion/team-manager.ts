@@ -120,7 +120,7 @@ export class TeamManager {
     eventDefinitionsCache: Map<TeamId, Set<string>>
     eventPropertiesCache: LRU<string, Set<string>> // Map<JSON.stringify([TeamId, Event], Set<Property>>
     eventLastSeenCache: LRU<string, number> // key: JSON.stringify([team_id, event]); value: parseInt(YYYYMMDD)
-    propertyDefinitionsCache: Map<TeamId, Set<string>>
+    propertyDefinitionsCache: Map<TeamId, Map<string, string>>
     instanceSiteUrl: string
     experimentalLastSeenAtEnabled: boolean
     experimentalEventPropertyTrackerEnabled: boolean
@@ -258,7 +258,10 @@ export class TeamManager {
 
     private async syncPropertyDefinitions(properties: Properties, team: Team) {
         for (const [key, value] of Object.entries(properties)) {
-            if (!this.propertyDefinitionsCache.get(team.id)?.has(key)) {
+            if (
+                !this.propertyDefinitionsCache.get(team.id)?.has(key) ||
+                this.propertyDefinitionsCache.get(team.id)?.get(key) === 'not_set'
+            ) {
                 const isNumerical = typeof value === 'number'
                 const { propertyType, propertyTypeFormat } = detectPropertyDefinitionTypes(value, key)
 
@@ -272,7 +275,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                     [new UUIDT().toString(), key, isNumerical, team.id, propertyType, propertyTypeFormat],
                     'insertPropertyDefinition'
                 )
-                this.propertyDefinitionsCache.get(team.id)?.add(key)
+                this.propertyDefinitionsCache.get(team.id)?.set(key, propertyType || 'set_to_null_on_type_detection')
             }
         }
     }
@@ -321,15 +324,20 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
             this.eventDefinitionsCache.set(teamId, eventDefinitionsCache)
         }
 
-        let propertyDefinitionsCache = this.propertyDefinitionsCache.get(teamId)
-        if (!propertyDefinitionsCache) {
+        if (!this.propertyDefinitionsCache.has(teamId)) {
             const eventProperties = await this.db.postgresQuery(
-                'SELECT name FROM posthog_propertydefinition WHERE team_id = $1',
+                'SELECT name, property_type FROM posthog_propertydefinition WHERE team_id = $1',
                 [teamId],
                 'fetchPropertyDefinitions'
             )
-            propertyDefinitionsCache = new Set(eventProperties.rows.map((r) => r.name))
-            this.propertyDefinitionsCache.set(teamId, propertyDefinitionsCache)
+
+            this.propertyDefinitionsCache.set(
+                teamId,
+                eventProperties.rows.reduce((teamCache, row) => {
+                    teamCache[row.name] = row.property_type ?? 'not_set'
+                    return teamCache
+                }, new Map())
+            )
         }
 
         // Run only if the feature is enabled for this team
