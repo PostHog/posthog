@@ -30,8 +30,32 @@ export interface EventPerformanceData {
     gridMarkers: number[]
 }
 
+function expandOptimisedEntries(entries: [string[], any[]]): Record<string, any> {
+    if (!entries) {
+        return {}
+    }
+
+    const keys = entries[0]
+    return entries[1].map((entry) => {
+        return entry.reduce((acc: Record<string, any>, entryValue: any, index: number) => {
+            acc[keys[index]] = entryValue
+            return acc
+        }, {})
+    })
+}
+
+function decompress(
+    compressedRawPerformanceData: Record<'navigation' | 'paint' | 'resource', [string[], any[]]>
+): Record<string, any> {
+    return {
+        navigation: expandOptimisedEntries(compressedRawPerformanceData.navigation),
+        paint: expandOptimisedEntries(compressedRawPerformanceData.paint),
+        resource: expandOptimisedEntries(compressedRawPerformanceData.resource),
+    }
+}
+
 function forWaterfallDisplay(pageViewEvent: EventType): EventPerformanceData {
-    const perfData = JSON.parse(pageViewEvent.properties.$performance_raw)
+    const perfData = decompress(JSON.parse(pageViewEvent.properties.$performance_raw))
     const navTiming: PerformanceNavigationTiming = perfData.navigation[0]
     let maxTime = 0
 
