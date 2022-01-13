@@ -42,13 +42,29 @@ export const MOCK_DEFAULT_ORGANIZATION: Partial<OrganizationType> = {
     membership_level: OrganizationMembershipLevel.Admin,
 }
 
-export const mockAPI = (cb: (url: APIRoute) => any): void => {
+export const mockAPI = (
+    urlCallback?: (url: APIRoute) => any,
+    apiCallback?: (apiCallPath: string, args: any[]) => void
+): void => {
     beforeEach(async () => {
-        const methods = ['get', 'update', 'create', 'delete']
-        for (const method of methods) {
+        for (const method of ['get', 'update', 'create', 'delete']) {
             api[method as keyof typeof api].mockImplementation(async (url: string, data?: Record<string, any>) => {
-                return cb({ ...combineUrl(url), data, method })
+                const urlParams = { ...combineUrl(url), data, method }
+                return (await urlCallback?.(urlParams)) ?? defaultAPIMocks(urlParams)
             })
+        }
+
+        for (const chain of ['actions', 'cohorts', 'pluginLogs']) {
+            api[chain] = new Proxy(
+                {},
+                {
+                    get: function (_, property) {
+                        const path = [chain, property].join('.')
+                        return async (...args: any[]) =>
+                            (await apiCallback?.(path, args)) ?? defaultAPICallMocks(path, args)
+                    },
+                }
+            )
         }
     })
 }
@@ -84,5 +100,17 @@ export function defaultAPIMocks(
     ) {
         return { results: [], next: null }
     }
-    throw new Error(`Unmocked fetch to: ${pathname} with params: ${JSON.stringify(searchParams)}`)
+    throwLog(`Unmocked fetch to: ${pathname} with params: ${JSON.stringify(searchParams)}`)
+}
+
+export function defaultAPICallMocks(path: string, args: any[]): any {
+    if (['actions.list'].includes(path)) {
+        return { results: [], next: null }
+    }
+    throwLog(`Unmocked API call on: api.${path}() with args: ${JSON.stringify(args)}`)
+}
+
+function throwLog(string: string): void {
+    console.error(string)
+    throw new Error(string)
 }
