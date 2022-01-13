@@ -129,6 +129,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         setSearchTerm: (term: string) => ({ term }),
         setCohortModalVisible: (visible: boolean) => ({ visible }),
         loadPeople: (peopleParams: PersonsModalParams) => ({ peopleParams }),
+        setUrl: (props: LoadPeopleFromUrlProps) => ({ props }),
         loadPeopleFromUrl: (props: LoadPeopleFromUrlProps) => props,
         switchToDataPoint: (seriesId: number) => ({ seriesId }), // Changes data point shown on PersonModal
         loadMorePeople: true,
@@ -232,6 +233,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             null as LoadPeopleFromUrlProps | null,
             {
                 loadPeopleFromUrl: (_, props) => props,
+                setUrl: (_, { props }) => props,
             },
         ],
     }),
@@ -326,7 +328,22 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     actors = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
                 } else if (filters.insight === InsightType.PATHS) {
                     const cleanedParams = cleanFilters(filters)
+                    const pathParams = toParams(cleanedParams)
                     actors = await api.create(`api/person/path/?${searchTermParam}`, cleanedParams)
+
+                    // Manually populate URL data so that cohort creation can use this information
+                    const pathsParams = {
+                        url: `api/person/path/paths/?${pathParams}`,
+                        funnelStep,
+                        breakdown_value,
+                        label,
+                        date_from,
+                        action,
+                        pathsDropoff,
+                        crossDataset,
+                        seriesId,
+                    }
+                    actions.setUrl(pathsParams)
                 } else {
                     actors = await api.actions.getPeople(
                         { label, action, date_from, date_to, breakdown_value },
