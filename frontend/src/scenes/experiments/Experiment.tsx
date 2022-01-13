@@ -489,14 +489,6 @@ export function Experiment(): JSX.Element {
                             )}
                         </Row>
                     </Row>
-                    <ExperimentPreview
-                        experiment={experimentData}
-                        trendCount={trendCount}
-                        exposure={exposure}
-                        sampleSizePerVariant={sampleSizePerVariant}
-                        runningTime={runningTime}
-                        conversionRate={conversionRate}
-                    />
                     <Row className="mb">
                         <Col span={10} style={{ paddingRight: '1rem' }}>
                             {showWarning &&
@@ -536,7 +528,7 @@ export function Experiment(): JSX.Element {
                                     )}
                                 </div>
                             </Col>
-                            {experimentInsightType === InsightType.TRENDS ? (
+                            {/* {experimentInsightType === InsightType.TRENDS ? (
                                 <Col>
                                     <div className="card-secondary mt">Recommended running time</div>
                                     <span>
@@ -552,8 +544,8 @@ export function Experiment(): JSX.Element {
                                         <span className="text-muted">persons</span>
                                     </span>
                                 </Col>
-                            )}
-                            <Col>
+                            )} */}
+                            {/* <Col>
                                 <div className="card-secondary mt">Variants</div>
                                 <ul className="variants-list">
                                     {experimentData.parameters?.feature_flag_variants?.map(
@@ -578,9 +570,17 @@ export function Experiment(): JSX.Element {
                                         <span>{dayjs(experimentData.end_date).format('D MMM YYYY')}</span>
                                     </Col>
                                 )}
-                            </Row>
+                            </Row> */}
                         </Col>
                         <Col span={14}>
+                            <ExperimentPreview
+                                experiment={experimentData}
+                                trendCount={trendCount}
+                                exposure={exposure}
+                                sampleSizePerVariant={sampleSizePerVariant}
+                                runningTime={runningTime}
+                                conversionRate={conversionRate}
+                            />
                             <div style={{ borderBottom: '1px solid (--border)' }}>
                                 <b>Test that your code works properly for each variant</b>
                             </div>
@@ -824,6 +824,34 @@ export function ExperimentPreview({
                         </Col>
                     </>
                 )}
+                <Col>
+                    <Col>
+                        <div className="card-secondary mt">Experiment variants</div>
+                        <ul className="variants-list">
+                            {experiment?.parameters?.feature_flag_variants?.map(
+                                (variant: MultivariateFlagVariant, idx: number) => (
+                                    <li key={idx}>{variant.key}</li>
+                                )
+                            )}
+                        </ul>
+                    </Col>
+                    <Row>
+                        <Col className="mr">
+                            <div className="card-secondary mt">Start date</div>
+                            {experiment?.start_date ? (
+                                <span>{dayjs(experiment?.start_date).format('D MMM YYYY')}</span>
+                            ) : (
+                                <span className="description">Not started yet</span>
+                            )}
+                        </Col>
+                        {experiment?.end_date && (
+                            <Col className="ml">
+                                <div className="card-secondary mt">Completed date</div>
+                                <span>{dayjs(experiment?.end_date).format('D MMM YYYY')}</span>
+                            </Col>
+                        )}
+                    </Row>
+                </Col>
             </Row>
             {experimentInsightType === InsightType.FUNNELS && experimentData && (
                 <Row className="experiment-preview-row">
