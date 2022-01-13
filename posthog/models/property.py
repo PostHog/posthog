@@ -81,7 +81,8 @@ class Property:
         type: Optional[PropertyType] = None,
         # Only set for `type` == `group`
         group_type_index: Optional[int] = None,
-        property_definition: Optional[dict] = None,
+        property_type: Optional[Literal["DateTime"]] = None,
+        property_type_format: Optional[KNOWN_PROPERTY_FORMATS] = None,
         **kwargs,
     ) -> None:
         self.key = key
@@ -91,8 +92,8 @@ class Property:
         self.group_type_index = validate_group_type_index("group_type_index", group_type_index)
 
         self.property_definition = None
-        if property_definition is not None:
-            self.property_definition = PropertyDefinition(**property_definition)
+        if property_type is not None:
+            self.property_definition = PropertyDefinition(property_type, property_type_format)
 
     def __repr__(self):
         params_repr = ", ".join(f"{key}={repr(value)}" for key, value in self.to_dict().items())

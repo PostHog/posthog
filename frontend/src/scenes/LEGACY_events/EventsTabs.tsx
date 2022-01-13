@@ -7,15 +7,15 @@ import { eventsTabsLogicType } from './EventsTabsType'
 export enum EventsTab {
     Events = 'events',
     Actions = 'actions',
-    EventStats = 'stats',
-    EventPropertyStats = 'properties',
+    EventsStats = 'events_stats',
+    EventPropertiesStats = 'properties_stats',
 }
 
 const tabUrls: Record<EventsTab, string> = {
-    [EventsTab.EventPropertyStats]: urls.eventPropertyStats(),
-    [EventsTab.EventStats]: urls.eventStats(),
-    [EventsTab.Actions]: urls.actions(),
-    [EventsTab.Events]: urls.events(),
+    [EventsTab.Events]: urls.LEGACY_events(),
+    [EventsTab.EventPropertiesStats]: urls.LEGACY_eventPropertyStats(),
+    [EventsTab.EventsStats]: urls.LEGACY_eventStats(),
+    [EventsTab.Actions]: urls.LEGACY_actions(),
 }
 
 const eventsTabsLogic = kea<eventsTabsLogicType<EventsTab>>({
@@ -32,7 +32,7 @@ const eventsTabsLogic = kea<eventsTabsLogicType<EventsTab>>({
         ],
     },
     actionToUrl: () => ({
-        setTab: ({ tab }) => tabUrls[tab as EventsTab] || urls.events(),
+        setTab: ({ tab }) => tabUrls[tab as EventsTab] || urls.LEGACY_events(),
     }),
     urlToAction: ({ actions, values }) => {
         return Object.fromEntries(
@@ -52,10 +52,10 @@ export function EventsTabs({ tab }: { tab: EventsTab }): JSX.Element {
     const { setTab } = useActions(eventsTabsLogic)
     return (
         <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={(t) => setTab(t as EventsTab)}>
-            <Tabs.TabPane tab="Events" key="events" />
-            <Tabs.TabPane tab={<span data-attr="events-actions-tab">Actions</span>} key="actions" />
-            <Tabs.TabPane tab="Events stats" key="stats" />
-            <Tabs.TabPane tab="Properties stats" key="properties" />
+            <Tabs.TabPane tab="Events" key={EventsTab.Events} />
+            <Tabs.TabPane tab={<span data-attr="events-actions-tab">Actions</span>} key={EventsTab.Actions} />
+            <Tabs.TabPane tab="Events stats" key={EventsTab.EventsStats} />
+            <Tabs.TabPane tab="Properties stats" key={EventsTab.EventPropertiesStats} />
         </Tabs>
     )
 }

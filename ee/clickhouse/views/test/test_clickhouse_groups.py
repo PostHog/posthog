@@ -105,13 +105,30 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             response,
             [
                 {
+                    "created_at": "2021-05-10T00:00:00Z",
+                    "distinct_ids": ["1", "2"],
+                    "id": "01795392-cc00-0003-7dc7-67a694604d72",
+                    "is_identified": False,
+                    "name": "1",
+                    "properties": {},
                     "type": "person",
-                    "id": str(uuid),
-                    "group_type_index": None,
-                    "person": {"distinct_ids": ["1"], "properties": {}},
                 },
-                {"type": "group", "id": "1::2", "group_type_index": 1, "person": None},
-                {"type": "group", "id": "1::3", "group_type_index": 1, "person": None},
+                {
+                    "created_at": "2021-05-10T00:00:00Z",
+                    "group_key": "1::2",
+                    "group_type_index": 1,
+                    "id": "1::2",
+                    "properties": {},
+                    "type": "group",
+                },
+                {
+                    "created_at": "2021-05-10T00:00:00Z",
+                    "group_key": "1::3",
+                    "group_type_index": 1,
+                    "id": "1::3",
+                    "properties": {},
+                    "type": "group",
+                },
             ],
         )
 
@@ -124,10 +141,38 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response,
             [
-                {"type": "group", "id": "0::0", "group_type_index": 0, "person": None},
-                {"type": "group", "id": "0::1", "group_type_index": 0, "person": None},
-                {"type": "group", "id": "1::2", "group_type_index": 1, "person": None},
-                {"type": "group", "id": "1::3", "group_type_index": 1, "person": None},
+                {
+                    "created_at": "2021-05-10T00:00:00Z",
+                    "group_key": "0::0",
+                    "group_type_index": 0,
+                    "id": "0::0",
+                    "properties": {},
+                    "type": "group",
+                },
+                {
+                    "created_at": "2021-05-10T00:00:00Z",
+                    "group_key": "0::1",
+                    "group_type_index": 0,
+                    "id": "0::1",
+                    "properties": {},
+                    "type": "group",
+                },
+                {
+                    "created_at": "2021-05-10T00:00:00Z",
+                    "group_key": "1::2",
+                    "group_type_index": 1,
+                    "id": "1::2",
+                    "properties": {},
+                    "type": "group",
+                },
+                {
+                    "created_at": "2021-05-10T00:00:00Z",
+                    "group_key": "1::3",
+                    "group_type_index": 1,
+                    "id": "1::3",
+                    "properties": {},
+                    "type": "group",
+                },
             ],
         )
 

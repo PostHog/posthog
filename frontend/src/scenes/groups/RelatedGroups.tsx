@@ -1,15 +1,14 @@
 import React from 'react'
 import { useValues } from 'kea'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
-import { RelatedActor } from '~/types'
+import { ActorType } from '~/types'
 import { Skeleton } from 'antd'
 import { groupsModel } from '~/models/groupsModel'
 import UserOutlined from '@ant-design/icons/lib/icons/UserOutlined'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { urls } from 'scenes/urls'
-import { Link } from 'lib/components/Link'
-import { asDisplay } from 'scenes/persons/PersonHeader'
+import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { relatedGroupsLogic } from 'scenes/groups/relatedGroupsLogic'
+import { GroupActorHeader } from 'scenes/persons/GroupActorHeader'
 
 interface Props {
     groupTypeIndex: number | null
@@ -24,11 +23,11 @@ export function RelatedGroups({ groupTypeIndex, id }: Props): JSX.Element {
         return <Skeleton paragraph={{ rows: 2 }} active />
     }
 
-    const columns: LemonTableColumns<RelatedActor> = [
+    const columns: LemonTableColumns<ActorType> = [
         {
             title: 'Type',
             key: 'type',
-            render: function RenderCount(_, actor: RelatedActor) {
+            render: function RenderActor(_, actor: ActorType) {
                 if (actor.type === 'group') {
                     return <>{capitalizeFirstLetter(aggregationLabel(actor.group_type_index).singular)}</>
                 } else {
@@ -43,22 +42,11 @@ export function RelatedGroups({ groupTypeIndex, id }: Props): JSX.Element {
         {
             title: 'id',
             key: 'id',
-            render: function RenderCount(_, actor: RelatedActor) {
-                let url: string
+            render: function RenderActor(_, actor: ActorType) {
                 if (actor.type == 'group') {
-                    url = urls.group(actor.group_type_index, actor.id)
-                    return (
-                        <Link to={url} data-attr="related-group-link">
-                            {actor.id}
-                        </Link>
-                    )
+                    return <GroupActorHeader actor={actor} />
                 } else {
-                    url = urls.person(actor.person.distinct_ids[0])
-                    return (
-                        <Link to={url} data-attr="related-person-link">
-                            {asDisplay(actor.person)}
-                        </Link>
-                    )
+                    return <PersonHeader person={actor} withIcon={false} />
                 }
             },
         },

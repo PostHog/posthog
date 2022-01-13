@@ -1,6 +1,4 @@
 import {
-    ACTION_TYPE,
-    EVENT_TYPE,
     OrganizationMembershipLevel,
     PluginsAccessLevel,
     ShownAsValue,
@@ -423,30 +421,6 @@ export interface SessionRecordingsResponse {
     has_next: boolean
 }
 
-interface RecordingNotViewedFilter extends BasePropertyFilter {
-    type: 'recording'
-    key: 'unseen'
-}
-
-export type RecordingPropertyFilter = RecordingDurationFilter | RecordingNotViewedFilter
-
-export interface ActionTypePropertyFilter extends BasePropertyFilter {
-    type: typeof ACTION_TYPE
-    properties?: Array<EventPropertyFilter>
-}
-
-export interface EventTypePropertyFilter extends BasePropertyFilter {
-    type: typeof EVENT_TYPE
-    properties?: Array<EventPropertyFilter>
-}
-
-export type SessionsPropertyFilter =
-    | PersonPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | ActionTypePropertyFilter
-    | EventTypePropertyFilter
-
 export type EntityType = 'actions' | 'events' | 'new_entity'
 
 export interface Entity {
@@ -499,7 +473,6 @@ export interface MatchedRecording {
 }
 
 interface CommonActorType {
-    type: 'group' | 'person'
     id?: string | number
     properties: Record<string, any>
     created_at?: string
@@ -507,6 +480,7 @@ interface CommonActorType {
 }
 
 export interface PersonActorType extends CommonActorType {
+    type: 'person'
     uuid?: string
     name?: string
     distinct_ids: string[]
@@ -514,6 +488,7 @@ export interface PersonActorType extends CommonActorType {
 }
 
 export interface GroupActorType extends CommonActorType {
+    type: 'group'
     group_key: string
     group_type_index: number
 }
@@ -1358,6 +1333,8 @@ export interface PropertyDefinition {
     updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
     is_event_property?: boolean // Indicates whether this property has been seen for a particular set of events (when `eventNames` query string is sent); calculated at query time, not stored in the db
+    property_type?: 'DateTime' | 'String' | 'Numeric' | 'Boolean'
+    property_type_format?: 'unix_timestamp' | 'YYYY-MM-DD hh:mm:ss' | 'YYYY-MM-DD'
 }
 
 export interface PersonProperty {
@@ -1400,20 +1377,6 @@ export interface ExperimentResults {
     itemID: string
     noData?: boolean
 }
-
-interface RelatedPerson {
-    type: 'person'
-    id: string
-    person: Pick<PersonType, 'distinct_ids' | 'properties'>
-}
-
-interface RelatedGroup {
-    type: 'group'
-    group_type_index: number
-    id: string
-}
-
-export type RelatedActor = RelatedPerson | RelatedGroup
 
 export interface SelectOption {
     value: string

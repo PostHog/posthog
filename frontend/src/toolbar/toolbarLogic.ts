@@ -9,7 +9,7 @@ import { PostHog } from 'posthog-js'
 import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 
 // input: props = all editorProps
-export const toolbarLogic = kea<toolbarLogicType>({
+export const toolbarLogic = kea<toolbarLogicType<PostHog>>({
     path: ['toolbar', 'toolbarLogic'],
     props: {} as ToolbarProps,
     connect: () => [

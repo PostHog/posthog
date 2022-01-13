@@ -511,7 +511,7 @@ def build_selector_regex(selector: Selector) -> str:
             regex += ".*?"
             for key, value in sorted(tag.ch_attributes.items()):
                 regex += '{}="{}".*?'.format(key, value)
-        regex += r"([-_a-zA-Z0-9\.]*?)?($|;|:([^;^\s]*(;|$|\s)))"
+        regex += r'([-_a-zA-Z0-9\.:"= ]*?)?($|;|:([^;^\s]*(;|$|\s)))'
         if tag.direct_descendant:
             regex += ".*"
     return regex

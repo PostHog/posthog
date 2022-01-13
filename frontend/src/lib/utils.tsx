@@ -13,6 +13,7 @@ import {
     GroupActorType,
     ActorType,
     ActionType,
+    PropertyFilterValue,
 } from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
@@ -356,7 +357,7 @@ export function capitalizeFirstLetter(string: string): string {
     return string.charAt(0).toUpperCase() + string.slice(1)
 }
 
-export const operatorMap: Record<string, string> = {
+export const genericOperatorMap: Record<string, string> = {
     exact: '= equals',
     is_not: "≠ doesn't equal",
     icontains: '∋ contains',
@@ -367,8 +368,22 @@ export const operatorMap: Record<string, string> = {
     lt: '< lower than',
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
+}
+
+export const dateTimeOperatorMap: Record<string, string> = {
+    exact: '= equals',
+    is_not: "≠ doesn't equal",
+    regex: '∼ matches regex',
+    not_regex: "≁ doesn't match regex",
     is_date_before: '< before',
     is_date_after: '> after',
+    is_set: '✓ is set',
+    is_not_set: '✕ is not set',
+}
+
+export const allOperatorsMapping: Record<string, string> = {
+    ...dateTimeOperatorMap,
+    ...genericOperatorMap,
 }
 
 export function isOperatorMulti(operator: string): boolean {
@@ -391,21 +406,18 @@ export function isOperatorDate(operator: string): boolean {
 export function formatPropertyLabel(
     item: Record<string, any>,
     cohorts: Record<string, any>[],
-    keyMapping: KeyMappingInterface
+    keyMapping: KeyMappingInterface,
+    valueFormatter: (value: PropertyFilterValue | undefined) => string | string[] | null = (s) => [String(s)]
 ): string {
     const { value, key, operator, type } = item
     return type === 'cohort'
         ? cohorts?.find((cohort) => cohort.id === value)?.name || value
         : (keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key) +
               (isOperatorFlag(operator)
-                  ? ` ${operatorMap[operator]}`
-                  : ` ${(operatorMap[operator || 'exact'] || '?').split(' ')[0]} ${
-                        value && value.length === 1 && value[0] === '' ? '(empty string)' : value || ''
+                  ? ` ${allOperatorsMapping[operator]}`
+                  : ` ${(allOperatorsMapping[operator || 'exact'] || '?').split(' ')[0]} ${
+                        value && value.length === 1 && value[0] === '' ? '(empty string)' : valueFormatter(value) || ''
                     } `)
-}
-
-export function formatProperty(property: Record<string, any>): string {
-    return property.key + ` ${operatorMap[property.operator || 'exact'].split(' ')[0]} ` + property.value
 }
 
 // Format a label that gets returned from the /insights api
@@ -420,7 +432,7 @@ export function formatLabel(label: string, action: ActionFilter): string {
             .map(
                 (property) =>
                     `${property.key ? `${property.key} ` : ''}${
-                        operatorMap[property.operator || 'exact'].split(' ')[0]
+                        allOperatorsMapping[property.operator || 'exact'].split(' ')[0]
                     } ${property.value}`
             )
             .join(', ')})`
