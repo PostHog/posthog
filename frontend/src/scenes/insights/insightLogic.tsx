@@ -803,12 +803,7 @@ export const insightLogic = kea<insightLogicType>({
                     if (insight) {
                         actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
                         if (insight?.result) {
-                            posthog.capture('insight loaded', {
-                                insight: values.activeView,
-                                scene: sceneLogic.isMounted() ? sceneLogic.values.scene : null,
-                                success: true,
-                                duration: 0,
-                            })
+                            actions.reportInsightViewed(insight, insight.filters || {})
                             loadedFromAnotherLogic = true
                         }
                     }
@@ -841,12 +836,7 @@ export const insightLogic = kea<insightLogicType>({
                     if (insight) {
                         actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
                         if (insight?.result) {
-                            posthog.capture('insight loaded', {
-                                insight: values.activeView,
-                                scene: sceneLogic.isMounted() ? sceneLogic.values.scene : null,
-                                success: true,
-                                duration: 0,
-                            })
+                            actions.reportInsightViewed(insight, insight.filters || {})
                             return
                         }
                     }
