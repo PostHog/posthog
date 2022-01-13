@@ -11,11 +11,11 @@ from posthog.constants import AnalyticsDBMS
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
 
 
-def execute_op(op: AsyncMigrationOperation, query_id: str, rollback: bool = False):
+def execute_op(op: AsyncMigrationOperation, id_: str, rollback: bool = False):
     """
     Execute the fn or rollback_fn
     """
-    op.rollback_fn(query_id) if rollback else op.fn(query_id)
+    op.rollback_fn(id_) if rollback else op.fn(id_)
 
 
 def execute_op_clickhouse(sql: str, query_id: str, timeout_seconds: int):
@@ -53,8 +53,7 @@ def trigger_migration(migration_instance: AsyncMigration, fresh_start: bool = Tr
     task = run_async_migration.delay(migration_instance.name, fresh_start)
 
     update_async_migration(
-        migration_instance=migration_instance,
-        celery_task_id=str(task.id),
+        migration_instance=migration_instance, celery_task_id=str(task.id),
     )
 
 

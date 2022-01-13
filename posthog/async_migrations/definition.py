@@ -25,10 +25,7 @@ class AsyncMigrationType:
 
 class AsyncMigrationOperation:
     def __init__(
-        self,
-        fn=lambda query_id: None,  # potentially we should rename to something other than query_id
-        rollback_fn=lambda query_id: None,
-        resumable=False,
+        self, fn=lambda id_: None, rollback_fn=lambda id_: None, resumable=False,
     ):
         fn = fn
         # if the operation is dynamic and knows how to restart correctly after a crash

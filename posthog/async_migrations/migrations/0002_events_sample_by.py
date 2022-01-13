@@ -76,8 +76,8 @@ class Migration(AsyncMigrationDefinition):
             rollback=f"ATTACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
         ),
         AsyncMigrationOperation(
-            fn=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
-            rollback_fn=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
+            fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
+            rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
         ),
         AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.CLICKHOUSE,
@@ -117,8 +117,8 @@ class Migration(AsyncMigrationDefinition):
             rollback=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
         ),
         AsyncMigrationOperation(
-            fn=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
-            rollback_fn=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
+            fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
+            rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
         ),
     ]
 
