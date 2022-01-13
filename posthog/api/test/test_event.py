@@ -302,6 +302,11 @@ def factory_test_event_api(event_factory, person_factory, _):
                 self.assertEqual(response[0]["name"], "qwerty")
 
                 response = self.client.get(
+                    f"/api/projects/{self.team.id}/events/values/?key=random_prop&value=QW"
+                ).json()
+                self.assertEqual(response[0]["name"], "qwerty")
+
+                response = self.client.get(
                     f"/api/projects/{self.team.id}/events/values/?key=random_prop&value=6"
                 ).json()
                 self.assertEqual(response[0]["name"], "565")

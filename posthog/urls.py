@@ -2,7 +2,6 @@ from typing import Any, Callable, List, Optional
 from urllib.parse import urlparse
 
 from django.conf import settings
-from django.contrib import admin
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.urls import URLPattern, include, path, re_path
@@ -69,9 +68,6 @@ urlpatterns = [
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
-    # admin
-    path("admin/", include("loginas.urls")),
-    path("admin/", admin.site.urls),
     # ee
     *ee_urlpatterns,
     # api

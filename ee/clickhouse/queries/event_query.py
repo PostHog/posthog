@@ -11,6 +11,7 @@ from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.util import parse_timestamps
 from posthog.models import Cohort, Filter, Property
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
@@ -26,7 +27,6 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
     _filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter, SessionRecordingsFilter]
     _team_id: int
     _column_optimizer: ColumnOptimizer
-    _person_query: ClickhousePersonQuery
     _should_join_distinct_ids = False
     _should_join_persons = False
     _should_round_interval = False
@@ -51,9 +51,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         self._team_id = team_id
         self._extra_event_properties = extra_event_properties
         self._column_optimizer = ColumnOptimizer(self._filter, self._team_id)
-        self._person_query = ClickhousePersonQuery(
-            self._filter, self._team_id, self._column_optimizer, extra_fields=extra_person_fields
-        )
+        self._extra_person_fields = extra_person_fields
         self.params: Dict[str, Any] = {
             "team_id": self._team_id,
         }
@@ -124,6 +122,12 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
             if group.get("properties"):
                 return True
         return False
+
+    @cached_property
+    def _person_query(self):
+        return ClickhousePersonQuery(
+            self._filter, self._team_id, self._column_optimizer, extra_fields=self._extra_person_fields
+        )
 
     def _get_person_query(self) -> Tuple[str, Dict]:
         if self._should_join_persons:

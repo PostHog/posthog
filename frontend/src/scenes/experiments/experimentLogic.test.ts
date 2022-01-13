@@ -8,6 +8,9 @@ import { experimentLogic } from './experimentLogic'
 
 jest.mock('lib/api')
 
+const RUNNING_EXP_ID = 45
+const RUNNING_FUNNEL_EXP_ID = 46
+
 describe('experimentLogic', () => {
     let logic: ReturnType<typeof experimentLogic.build>
 
@@ -21,6 +24,68 @@ describe('experimentLogic', () => {
                 next: null,
                 previous: null,
                 results: [{ id: 1, name: 'Test Exp', description: 'bla' }],
+            }
+        } else if (
+            pathname === `api/projects/${MOCK_TEAM_ID}/experiments/${RUNNING_EXP_ID}` ||
+            pathname === `api/projects/${MOCK_TEAM_ID}/experiments/${RUNNING_FUNNEL_EXP_ID}`
+        ) {
+            return {
+                created_at: '2022-01-13T12:44:45.944423Z',
+                created_by: { id: 1, uuid: '017dc2ea-ace1-0000-c9ed-a6e43fd8956b' },
+                description: 'badum tssss',
+                feature_flag_key: 'test-experiment',
+                filters: {
+                    events: [{ id: 'user signup', name: 'user signup', type: 'events', order: 0 }],
+                    insight: 'FUNNELS',
+                },
+                id: RUNNING_EXP_ID,
+                name: 'test experiment',
+                parameters: {
+                    feature_flag_variants: [
+                        { key: 'control', rollout_percentage: 25 },
+                        { key: 'test_1', rollout_percentage: 25 },
+                        { key: 'test_2', rollout_percentage: 25 },
+                        { key: 'test_3', rollout_percentage: 25 },
+                    ],
+                    recommended_running_time: 20.2,
+                    recommended_sample_size: 2930,
+                },
+                start_date: '2022-01-13T13:25:29.896000Z',
+                updated_at: '2022-01-13T13:25:38.462106Z',
+            }
+        } else if (pathname === `api/projects/${MOCK_TEAM_ID}/experiments/${RUNNING_EXP_ID}/results`) {
+            return {
+                filters: { breakdown: '$feature/test-experiment', breakdown_type: 'event', insight: 'TRENDS' },
+                insight: [
+                    { breakdown_value: 'control', count: 200 },
+                    { breakdown_value: 'test_1', count: 400 },
+                    { breakdown_value: 'test_2', count: 500 },
+                    { breakdown_value: 'test_3', count: 100 },
+                ],
+                probability: { control: 0.7, test_1: 0.1, test_2: 0.2, test_3: 0 },
+            }
+        } else if (pathname === `api/projects/${MOCK_TEAM_ID}/experiments/${RUNNING_FUNNEL_EXP_ID}/results`) {
+            return {
+                filters: { breakdown: '$feature/test-experiment', breakdown_type: 'event', insight: 'FUNNELS' },
+                insight: [
+                    [
+                        { breakdown_value: ['control'], count: 200, order: 0 },
+                        { breakdown_value: ['control'], count: 100, order: 1 },
+                    ],
+                    [
+                        { breakdown_value: ['test_1'], count: 200, order: 0 },
+                        { breakdown_value: ['test_1'], count: 120, order: 1 },
+                    ],
+                    [
+                        { breakdown_value: ['test_2'], count: 200, order: 0 },
+                        { breakdown_value: ['test_2'], count: 140, order: 1 },
+                    ],
+                    [
+                        { breakdown_value: ['test_3'], count: 200, order: 0 },
+                        { breakdown_value: ['test_3'], count: 160, order: 1 },
+                    ],
+                ],
+                probability: { control: 0.7, test_1: 0.1, test_2: 0.2, test_3: 0 },
             }
         }
         return defaultAPIMocks(url)
@@ -100,6 +165,32 @@ describe('experimentLogic', () => {
 
             // 0 entrants over 14 days, so infinite running time
             expect(logic.values.recommendedExposureForCountData(0)).toEqual(Infinity)
+        })
+
+        it('calculates bestCountVariant and significance correctly', async () => {
+            router.actions.push(urls.experiment(RUNNING_EXP_ID))
+
+            await expectLogic(logic)
+                .toFinishListeners()
+                .toMatchValues({
+                    bestCountVariant: { value: 500, variant: { key: 'test_2', rollout_percentage: 25 } },
+                    areCountResultsSignificant: true,
+                })
+
+            expect(logic.values.mdeGivenCountData(200)).toEqual(41)
+        })
+
+        it('calculates bestConversionVariant and significance correctly', async () => {
+            router.actions.push(urls.experiment(RUNNING_FUNNEL_EXP_ID))
+
+            await expectLogic(logic)
+                .toFinishListeners()
+                .toMatchValues({
+                    bestConversionVariant: { value: 80, variant: { key: 'test_3', rollout_percentage: 25 } },
+                    areConversionResultsSignificant: true,
+                })
+
+            expect(logic.values.mdeGivenSampleSizeAndConversionRate(200, 50)).toBeCloseTo(14.142)
         })
     })
 })

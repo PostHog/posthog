@@ -333,6 +333,7 @@ jobs:
               run: |
                   cd deploy
                   mkdir -p frontend/dist
+                  python manage.py collectstatic --noinput
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html

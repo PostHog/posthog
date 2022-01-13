@@ -31,7 +31,7 @@ class DataGenerator:
     def create_people(self):
         self.people = [self.make_person(i) for i in range(self.n_people)]
         self.distinct_ids = [str(UUIDT()) for _ in self.people]
-        Person.objects.bulk_create(self.people)
+        self.people = Person.objects.bulk_create(self.people)
 
         pids = [
             PersonDistinctId(team=self.team, person=person, distinct_id=distinct_id)
@@ -41,7 +41,12 @@ class DataGenerator:
         from ee.clickhouse.models.person import create_person, create_person_distinct_id
 
         for person in self.people:
-            create_person(team_id=person.team.pk, properties=person.properties, is_identified=person.is_identified)
+            create_person(
+                uuid=str(person.uuid),
+                team_id=person.team.pk,
+                properties=person.properties,
+                is_identified=person.is_identified,
+            )
         for pid in pids:
             create_person_distinct_id(pid.team.pk, pid.distinct_id, str(pid.person.uuid))  # use dummy number for id
 

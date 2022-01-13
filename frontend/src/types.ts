@@ -1,6 +1,4 @@
 import {
-    ACTION_TYPE,
-    EVENT_TYPE,
     OrganizationMembershipLevel,
     PluginsAccessLevel,
     ShownAsValue,
@@ -422,30 +420,6 @@ export interface SessionRecordingsResponse {
     results: SessionRecordingType[]
     has_next: boolean
 }
-
-interface RecordingNotViewedFilter extends BasePropertyFilter {
-    type: 'recording'
-    key: 'unseen'
-}
-
-export type RecordingPropertyFilter = RecordingDurationFilter | RecordingNotViewedFilter
-
-export interface ActionTypePropertyFilter extends BasePropertyFilter {
-    type: typeof ACTION_TYPE
-    properties?: Array<EventPropertyFilter>
-}
-
-export interface EventTypePropertyFilter extends BasePropertyFilter {
-    type: typeof EVENT_TYPE
-    properties?: Array<EventPropertyFilter>
-}
-
-export type SessionsPropertyFilter =
-    | PersonPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | ActionTypePropertyFilter
-    | EventTypePropertyFilter
 
 export type EntityType = 'actions' | 'events' | 'new_entity'
 
