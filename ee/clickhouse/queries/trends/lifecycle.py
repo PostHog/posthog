@@ -25,10 +25,8 @@ from posthog.queries.lifecycle import LifecycleTrend
 # 3. RETURNING - Users who did the action during this interval and prior one
 # 4. DORMANT - Users who did not do the action during this period but did an action the previous period
 #
-# To do this, we need for every period (+1 prior to the first one), list of person_ids who did the event/action during that period
-# and their creation dates
-#
-# During processing, we then pair each (person_id, period, created_at) with the same person_id and previous period and compare the results
+# To do this, we need for every period (+1 prior to the first period), list of person_ids who did the event/action
+# during that period and their creation dates.
 
 
 class ClickhouseLifecycle(LifecycleTrend):

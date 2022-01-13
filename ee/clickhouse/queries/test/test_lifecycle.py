@@ -85,3 +85,44 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(Clickh
                 {"status": "returning", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
             ],
         )
+
+    @snapshot_clickhouse_queries
+    def test_lifecycle_edge_cases(self):
+        # This test tests behavior when created_at is different from first matching event and dormant/resurrecting/returning logic
+        with freeze_time("2020-01-11T12:00:00Z"):
+            Person.objects.create(distinct_ids=["person1"], team_id=self.team.pk)
+
+        journeys_for(
+            {
+                "person1": [
+                    {"event": "$pageview", "timestamp": datetime(2020, 1, 12, 12),},
+                    {"event": "$pageview", "timestamp": datetime(2020, 1, 13, 12),},
+                    {"event": "$pageview", "timestamp": datetime(2020, 1, 15, 12),},
+                    {"event": "$pageview", "timestamp": datetime(2020, 1, 16, 12),},
+                ],
+            },
+            self.team,
+        )
+
+        result = ClickhouseTrends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-11T00:00:00Z",
+                    "date_to": "2020-01-18T00:00:00Z",
+                    "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                    "shown_as": TRENDS_LIFECYCLE,
+                },
+                team=self.team,
+            ),
+            self.team,
+        )
+
+        self.assertLifecycleResults(
+            result,
+            [
+                {"status": "dormant", "data": [0, 0, 0, -1, 0, 0, -1, 0]},
+                {"status": "new", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "resurrecting", "data": [0, 1, 0, 0, 1, 0, 0, 0]},
+                {"status": "returning", "data": [0, 0, 1, 0, 0, 1, 0, 0]},
+            ],
+        )
