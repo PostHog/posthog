@@ -24,6 +24,7 @@ from posthog.models.utils import UUIDT
 from posthog.settings import TEST
 
 if TEST:
+    # :KLUDGE: Hooks are kept around for tests. All other code goes through plugin-server or the other methods explicitly
 
     @receiver(post_save, sender=Person)
     def person_created(sender, instance: Person, created, **kwargs):
