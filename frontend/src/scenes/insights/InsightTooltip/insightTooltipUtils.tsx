@@ -39,6 +39,7 @@ export interface InsightTooltipProps {
     rowCutoff?: number
     colCutoff?: number
     showHeader?: boolean
+    groupTypeLabel?: string
 }
 
 export const COL_CUTOFF = 4

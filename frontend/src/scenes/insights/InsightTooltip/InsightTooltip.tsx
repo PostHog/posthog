@@ -14,7 +14,13 @@ import { InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { IconHandClick } from 'lib/components/icons'
 
-function ClickToInspectActors({ isTruncated }: { isTruncated: boolean }): JSX.Element {
+function ClickToInspectActors({
+    isTruncated,
+    groupTypeLabel,
+}: {
+    isTruncated: boolean
+    groupTypeLabel: string
+}): JSX.Element {
     return (
         <div className="table-subtext">
             {isTruncated && (
@@ -24,7 +30,7 @@ function ClickToInspectActors({ isTruncated }: { isTruncated: boolean }): JSX.El
             )}
             <div className="table-subtext-click-to-inspect">
                 <IconHandClick style={{ marginRight: 4, marginBottom: 2 }} />
-                Click to view users
+                Click to view {groupTypeLabel}
             </div>
         </div>
     )
@@ -45,6 +51,7 @@ export function InsightTooltip({
     rowCutoff = ROW_CUTOFF,
     colCutoff = COL_CUTOFF,
     showHeader = true,
+    groupTypeLabel = 'people',
 }: InsightTooltipProps): JSX.Element {
     // If multiple entities exist (i.e., pageview + autocapture) and there is a breakdown/compare/multi-group happening, itemize entities as columns to save vertical space..
     // If only a single entity exists, itemize entity counts as rows.
@@ -112,7 +119,7 @@ export function InsightTooltip({
                         uppercaseHeader={false}
                         showHeader={showHeader}
                     />
-                    <ClickToInspectActors isTruncated={isTruncated} />
+                    <ClickToInspectActors isTruncated={isTruncated} groupTypeLabel={groupTypeLabel} />
                 </>
             )
         }
@@ -176,7 +183,7 @@ export function InsightTooltip({
                     uppercaseHeader={false}
                     showHeader={showHeader}
                 />
-                <ClickToInspectActors isTruncated={isTruncated} />
+                <ClickToInspectActors isTruncated={isTruncated} groupTypeLabel={groupTypeLabel} />
             </>
         )
     }
