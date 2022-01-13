@@ -1,4 +1,4 @@
-import React, { CSSProperties, useEffect, useMemo } from 'react'
+import React, { CSSProperties, useMemo } from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 import { FilterRow } from './components/FilterRow'
@@ -8,7 +8,7 @@ import { AnyPropertyFilter } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Placement } from '@popperjs/core'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
-import { objectsEqual } from 'lib/utils'
+import { useSyncToLogicIfChanged } from 'lib/hooks/useSyncToLogicIfChanged'
 
 interface PropertyFiltersProps {
     endpoint?: string | null
@@ -47,11 +47,8 @@ export function PropertyFilters({
     const logic = propertyFilterLogic(propertyFilterLogicProps)
     const { filterWithEmpty, filters } = useValues(logic)
     const { remove, setFilters } = useActions(logic)
-    useEffect(() => {
-        if (!objectsEqual(propertyFilters ?? [], filters ?? [])) {
-            setFilters(propertyFilters ?? [])
-        }
-    }, [propertyFilters])
+
+    useSyncToLogicIfChanged(filters ?? [], propertyFilters ?? [], setFilters)
 
     return (
         <div className="property-filters" style={style}>
