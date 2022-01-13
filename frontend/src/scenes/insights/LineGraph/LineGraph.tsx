@@ -496,7 +496,6 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
         if (type === GraphType.Bar) {
             options.scales = {
                 x: {
-                    min: 0,
                     beginAtZero: true,
                     stacked: true,
                     ticks: {
@@ -505,7 +504,6 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                     },
                 },
                 y: {
-                    min: 0,
                     beginAtZero: true,
                     stacked: true,
                     ticks: {
@@ -520,7 +518,6 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
         } else if (type === GraphType.Line) {
             options.scales = {
                 x: {
-                    min: 0,
                     beginAtZero: true,
                     display: true,
                     ticks: tickOptions,
@@ -531,7 +528,6 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                     },
                 },
                 y: {
-                    min: 0,
                     beginAtZero: true,
                     display: true,
                     ticks: {
@@ -559,7 +555,6 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
         } else if (isHorizontal) {
             options.scales = {
                 x: {
-                    min: 0,
                     beginAtZero: true,
                     display: true,
                     ticks: {
@@ -571,7 +566,6 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                     },
                 },
                 y: {
-                    min: 0,
                     beginAtZero: true,
                     ticks: {
                         precision: 0,

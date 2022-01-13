@@ -18,7 +18,6 @@ from posthog.constants import (
     INSIGHT_FUNNELS,
     INSIGHT_PATHS,
     INSIGHT_RETENTION,
-    INSIGHT_SESSIONS,
     INSIGHT_STICKINESS,
     INSIGHT_TRENDS,
     TRENDS_STICKINESS,
@@ -47,13 +46,11 @@ if is_clickhouse_enabled():
     )
     from ee.clickhouse.queries.paths import ClickhousePaths
     from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
-    from ee.clickhouse.queries.sessions.clickhouse_sessions import ClickhouseSessions
     from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
     from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 
     CACHE_TYPE_TO_INSIGHT_CLASS = {
         CacheType.TRENDS: ClickhouseTrends,
-        CacheType.SESSION: ClickhouseSessions,
         CacheType.STICKINESS: ClickhouseStickiness,
         CacheType.RETENTION: ClickhouseRetention,
         CacheType.PATHS: ClickhousePaths,
@@ -62,13 +59,11 @@ else:
     from posthog.queries.funnel import Funnel
     from posthog.queries.paths import Paths
     from posthog.queries.retention import Retention
-    from posthog.queries.sessions.sessions import Sessions
     from posthog.queries.stickiness import Stickiness
     from posthog.queries.trends import Trends
 
     CACHE_TYPE_TO_INSIGHT_CLASS = {
         CacheType.TRENDS: Trends,
-        CacheType.SESSION: Sessions,
         CacheType.STICKINESS: Stickiness,
         CacheType.RETENTION: Retention,
         CacheType.PATHS: Paths,
@@ -117,8 +112,6 @@ def update_dashboard_item_cache(dashboard_item: Insight, dashboard: Optional[Das
 def get_cache_type(filter: FilterType) -> CacheType:
     if filter.insight == INSIGHT_FUNNELS:
         return CacheType.FUNNEL
-    elif filter.insight == INSIGHT_SESSIONS:
-        return CacheType.SESSION
     elif filter.insight == INSIGHT_PATHS:
         return CacheType.PATHS
     elif filter.insight == INSIGHT_RETENTION:

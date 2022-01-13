@@ -60,7 +60,7 @@ export function Experiment(): JSX.Element {
         createExperiment,
         launchExperiment,
         setFilters,
-        editExperiment,
+        setEditExperiment,
         endExperiment,
         addExperimentGroup,
         updateExperimentGroup,
@@ -151,13 +151,15 @@ export function Experiment(): JSX.Element {
                                         ]}
                                         help={
                                             <span className="text-small text-muted">
-                                                Enter a new and unique name for the feature flag key to be associated
-                                                with this experiment.
+                                                {editingExistingExperiment
+                                                    ? ''
+                                                    : 'Enter a new and unique name for the feature flag key to be associated with this experiment.'}
                                             </span>
                                         }
                                     >
                                         <Input
                                             data-attr="experiment-feature-flag-key"
+                                            disabled={editingExistingExperiment}
                                             placeholder="examples: new-landing-page-experiment, betaFeatureExperiment, ab_test_1_experiment"
                                         />
                                     </Form.Item>
@@ -497,7 +499,10 @@ export function Experiment(): JSX.Element {
                                         style={{ margin: 0, paddingRight: 8 }}
                                         title={`${experimentData?.name}`}
                                     />
-                                    <CopyToClipboardInline iconStyle={{ color: 'var(--text-muted-alt)' }}>
+                                    <CopyToClipboardInline
+                                        explicitValue={experimentData.feature_flag_key}
+                                        iconStyle={{ color: 'var(--text-muted-alt)' }}
+                                    >
                                         <span className="text-muted">{experimentData.feature_flag_key}</span>
                                     </CopyToClipboardInline>
                                     <Tag
@@ -513,7 +518,7 @@ export function Experiment(): JSX.Element {
                             </Col>
                             {experimentData && !experimentData.start_date && (
                                 <div>
-                                    <Button className="mr-05" onClick={() => editExperiment()}>
+                                    <Button className="mr-05" onClick={() => setEditExperiment(true)}>
                                         Edit
                                     </Button>
                                     <Button type="primary" onClick={() => launchExperiment()}>
@@ -527,7 +532,6 @@ export function Experiment(): JSX.Element {
                                 </Button>
                             )}
                         </Row>
-                        {experimentData.description && <Row>Description: {experimentData.description}</Row>}
                     </Row>
                     <Row className="mb">
                         <Col span={10} style={{ paddingRight: '1rem' }}>
@@ -644,10 +648,10 @@ export function Experiment(): JSX.Element {
                     </Row>
                     <div className="experiment-result">
                         {experimentResults ? (
-                            <Row justify="space-around">
+                            <Row justify="space-around" style={{ flexFlow: 'nowrap' }}>
                                 {experimentData.parameters.feature_flag_variants.map(
                                     (variant: MultivariateFlagVariant, idx: number) => (
-                                        <Col key={idx}>
+                                        <Col key={idx} className="pr">
                                             <div style={{ fontSize: 16 }}>
                                                 <b>{capitalizeFirstLetter(variant.key)}</b>
                                             </div>

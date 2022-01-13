@@ -118,7 +118,7 @@ SELECT DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) FROM ev
 """
 
 SELECT_PROP_VALUES_SQL_WITH_FILTER = """
-SELECT DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) FROM events where team_id = %(team_id)s AND trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) LIKE %(value)s {parsed_date_from} {parsed_date_to} LIMIT 10
+SELECT DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) FROM events where team_id = %(team_id)s AND trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) ILIKE %(value)s {parsed_date_from} {parsed_date_to} LIMIT 10
 """
 
 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL = """
