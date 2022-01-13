@@ -2780,7 +2780,8 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             ],
         )
 
-    @snapshot_clickhouse_queries
+    # Note: not using `@snapshot_clickhouse_queries` here because the ordering of the session_ids in the recording
+    # query is not guaranteed, so adding it would lead to a flaky test.
     @test_with_materialized_columns(["$current_url", "$window_id", "$session_id"])
     @freeze_time("2012-01-01T03:21:34.000Z")
     def test_path_recording(self):

@@ -8,7 +8,6 @@ from rest_framework.response import Response
 from rest_framework.utils.serializer_helpers import ReturnDict, ReturnList
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.person import delete_person
 from ee.clickhouse.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
@@ -32,7 +31,6 @@ from posthog.constants import (
 from posthog.decorators import cached_function
 from posthog.models import Event, Filter, Person
 from posthog.models.filters.path_filter import PathFilter
-from posthog.models.property import PropertyName
 from posthog.utils import format_query_params_absolute_url
 
 
@@ -196,7 +194,7 @@ class ClickhousePersonViewSet(PersonViewSet):
                 funnel_filter_data = json.loads(funnel_filter_data)
             funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data}, team=self.team)
 
-        people, serialized_actors = ClickhousePathsActors(filter, self.team, funnel_filter=funnel_filter,).get_actors()
+        people, serialized_actors = ClickhousePathsActors(filter, self.team, funnel_filter=funnel_filter).get_actors()
         _should_paginate = should_paginate(people, filter.limit)
 
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None

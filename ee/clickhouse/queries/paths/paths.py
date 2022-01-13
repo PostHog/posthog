@@ -119,7 +119,7 @@ class ClickhousePaths:
     def extra_event_fields_and_properties(self):
         return self._extra_event_fields + self._extra_event_properties
 
-    # Returns the set of clauses used to select the uuid, session_id and window_id for the events in the query
+    # Returns the set of clauses used to select the uuid, timestamp, session_id and window_id for the events in the query
     # These values are used to identify the recordings shown in the person modal
     def get_extra_event_clauses(self) -> ExtraEventClauses:
         final_select_statements = " ".join(
