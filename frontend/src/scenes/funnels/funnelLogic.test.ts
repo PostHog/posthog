@@ -2,7 +2,7 @@ import { DEFAULT_EXCLUDED_PERSON_PROPERTIES, funnelLogic } from './funnelLogic'
 import { api, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import posthog from 'posthog-js'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTestLogic, initKeaTests } from '~/test/init'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -663,9 +663,12 @@ describe('funnelLogic', () => {
                     },
                 })
         })
-
         it('are not updated when results are loaded, when steps visualisation set, with one funnel step', async () => {
-            // url unset, so syncWithUrl is false
+            initKeaTests()
+            logic = funnelLogic({ dashboardItemId: Insight123, syncWithUrl: false })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
             await expectLogic(logic, () => {
                 logic.actions.loadResultsSuccess({
                     filters: { insight: InsightType.FUNNELS, funnel_viz_type: FunnelVizType.Steps },
@@ -683,7 +686,6 @@ describe('funnelLogic', () => {
                     },
                 })
         })
-
         it('are not triggered when results are loaded, when trends visualisation set', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadResultsSuccess({
