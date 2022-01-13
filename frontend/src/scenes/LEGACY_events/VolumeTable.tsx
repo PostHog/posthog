@@ -11,7 +11,7 @@ import { AvailableFeature, EventDefinition, EventOrPropType, PropertyDefinition 
 import './VolumeTable.scss'
 import { definitionDrawerLogic } from './definitions/definitionDrawerLogic'
 import { ObjectTags } from 'lib/components/ObjectTags'
-import { Owner } from './Owner'
+import { DefinitionOwner } from 'lib/components/DefinitionDrawer/DefinitionOwner'
 import { VolumeTableRecordDescription } from './definitions/VolumeTableRecordDescription'
 import { Tooltip } from 'lib/components/Tooltip'
 
@@ -104,7 +104,7 @@ export function VolumeTable({
             title: 'Owner',
             render: function Render(_, record): JSX.Element {
                 const owner = record.eventOrProp?.owner
-                return isPosthogEvent(record.eventOrProp.name) ? <>-</> : <Owner user={owner} />
+                return isPosthogEvent(record.eventOrProp.name) ? <>-</> : <DefinitionOwner user={owner} />
             },
         })
     }

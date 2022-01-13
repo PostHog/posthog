@@ -1,27 +1,26 @@
-import { useActions, useValues } from 'kea'
-import { Drawer } from 'lib/components/Drawer'
+import './DefinitionDrawer.scss'
 import React from 'react'
-import { definitionDrawerLogic } from './definitionDrawerLogic'
-import Title from 'antd/lib/typography/Title'
-import '../VolumeTable.scss'
-import { Alert, Button, Col, Collapse, Row } from 'antd'
-import { ObjectTags } from 'lib/components/ObjectTags'
-import { humanFriendlyDetailedTime } from 'lib/utils'
-import { InfoCircleOutlined } from '@ant-design/icons'
+import { useActions, useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { EventPropertiesStats } from './EventPropertiesStats'
-import { DefinitionOwnerDropdown } from './DefinitionOwnerDropdown'
-import { DefinitionDescription } from './DefinitionDescription'
-import { EventsTableSnippet } from './EventsTableSnippet'
-import { UsageDisabledWarning } from '../UsageDisabledWarning'
+import { Alert, Button, Col, Collapse, Row } from 'antd'
+import { Drawer } from 'lib/components/Drawer'
+import { definitionDrawerLogic } from 'lib/components/DefinitionDrawer/definitionDrawerLogic'
+import Title from 'antd/lib/typography/Title'
+import { ObjectTags } from 'lib/components/ObjectTags'
 import { Tooltip } from 'lib/components/Tooltip'
+import { InfoCircleOutlined } from '@ant-design/icons'
+import { humanFriendlyDetailedTime } from 'lib/utils'
+import { EventsTableSnippet } from 'scenes/LEGACY_events/definitions/EventsTableSnippet'
+import { DefinitionDescription } from './DefinitionDescription'
+import { DefinitionOwnerDropdown } from 'lib/components/DefinitionDrawer/DefinitionOwnerDropdown'
+
+const { Panel } = Collapse
 
 export function DefinitionDrawer(): JSX.Element {
     const { drawerState, definition, tagLoading, type, eventDefinitionTags, propertyDefinitionTags } =
         useValues(definitionDrawerLogic)
     const { closeDrawer, setNewTag, deleteTag, saveAll } = useActions(definitionDrawerLogic)
     const { preflight } = useValues(preflightLogic)
-    const { Panel } = Collapse
     const definitionTags = type === 'event' ? eventDefinitionTags : propertyDefinitionTags
 
     return (
@@ -35,7 +34,7 @@ export function DefinitionDrawer(): JSX.Element {
                     onClose={closeDrawer}
                     width={'60vw'}
                     bodyStyle={{ padding: 14, paddingTop: 0 }}
-                    className="legacy-definition-drawer"
+                    className="definition-drawer"
                     footer={
                         <Button style={{ float: 'right' }} type="primary" onClick={saveAll}>
                             Save
@@ -44,7 +43,24 @@ export function DefinitionDrawer(): JSX.Element {
                 >
                     {preflight && !preflight?.is_event_property_usage_enabled ? (
                         <div style={{ marginTop: 8 }}>
-                            <UsageDisabledWarning tab={type === 'event' ? 'Events Stats' : 'Property Stats'} />
+                            <Alert
+                                type="info"
+                                showIcon
+                                message={`${
+                                    type === 'event' ? 'Events Stats' : 'Property Stats'
+                                } is not enabled for your instance.`}
+                                description={
+                                    <>
+                                        You will still see the list of events and properties, but usage information will
+                                        be unavailable. If you want to enable event usage please set the follow
+                                        environment variable:{' '}
+                                        <pre style={{ display: 'inline' }}>ASYNC_EVENT_PROPERTY_USAGE=1</pre>. Please
+                                        note, enabling this environment variable{' '}
+                                        <b>may increase load considerably in your infrastructure</b>, particularly if
+                                        you have a large volume of events.
+                                    </>
+                                }
+                            />
                         </div>
                     ) : (
                         definition.volume_30_day === null && (
@@ -139,14 +155,6 @@ export function DefinitionDrawer(): JSX.Element {
                             </Row>
                         </Panel>
                     </Collapse>
-
-                    {type === 'event' && (
-                        <Collapse defaultActiveKey={['2']} expandIconPosition="right" ghost>
-                            <Panel header="Properties" key="2" className="l3">
-                                <EventPropertiesStats />
-                            </Panel>
-                        </Collapse>
-                    )}
 
                     <Collapse style={{ paddingBottom: 32 }} defaultActiveKey={['3']} expandIconPosition="right" ghost>
                         <Panel header="Recent" key="3" className="l3 events-table">

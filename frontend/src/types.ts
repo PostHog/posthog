@@ -61,6 +61,9 @@ export interface UserBasicType {
     distinct_id: string
     first_name: string
     email: string
+    user?: {
+        id?: number
+    }
 }
 
 /** Full User model. */

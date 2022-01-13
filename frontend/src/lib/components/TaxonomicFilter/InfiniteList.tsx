@@ -2,6 +2,7 @@ import './InfiniteList.scss'
 import '../Popup/Popup.scss'
 import React, { useState } from 'react'
 import { Empty, Skeleton, Tag } from 'antd'
+import clsx from 'clsx'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import {
@@ -24,8 +25,9 @@ import { urls } from 'scenes/urls'
 import { dayjs } from 'lib/dayjs'
 import { FEATURE_FLAGS, STALE_EVENT_SECONDS } from 'lib/constants'
 import { Tooltip } from '../Tooltip'
-import clsx from 'clsx'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { definitionDrawerLogic } from 'lib/components/DefinitionDrawer/definitionDrawerLogic'
+import { TaxonomicType } from 'lib/components/DefinitionDrawer/types'
 
 enum ListTooltip {
     None = 0,
@@ -134,7 +136,8 @@ const renderItemContents = ({
 const renderItemPopup = (
     item: PropertyDefinition | CohortType | ActionType,
     listGroupType: TaxonomicFilterGroupType,
-    group: TaxonomicFilterGroup
+    group: TaxonomicFilterGroup,
+    onItemEnter?: () => void
 ): JSX.Element | string => {
     const width = 265
     let data: KeyMapping | null = null
@@ -172,6 +175,13 @@ const renderItemPopup = (
             return (
                 <div style={{ width, overflowWrap: 'break-word' }}>
                     <PropertyKeyTitle data={data} />
+                    <a
+                        onClick={() => {
+                            onItemEnter?.()
+                        }}
+                    >
+                        edit
+                    </a>
                     {data.description ? <hr /> : null}
                     <PropertyKeyDescription data={data} value={value.toString()} />
 
@@ -219,6 +229,7 @@ export function InfiniteList(): JSX.Element {
         useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { openDrawer } = useActions(definitionDrawerLogic)
 
     const { isLoading, results, totalCount, index, listGroupType, group, selectedItem, selectedItemInView } =
         useValues(infiniteListLogic)
@@ -323,7 +334,24 @@ export function InfiniteList(): JSX.Element {
                           style={styles.popper}
                           {...attributes.popper}
                       >
-                          {selectedItem && group ? renderItemPopup(selectedItem, listGroupType, group) : null}
+                          {selectedItem && group
+                              ? renderItemPopup(selectedItem, listGroupType, group, () => {
+                                    // TODO: support definitions for all taxonomic types
+                                    if (
+                                        !(
+                                            listGroupType === TaxonomicFilterGroupType.Events ||
+                                            listGroupType === TaxonomicFilterGroupType.EventProperties
+                                        )
+                                    ) {
+                                        return
+                                    }
+                                    if (listGroupType === TaxonomicFilterGroupType.Events) {
+                                        openDrawer(TaxonomicType.Event, selectedItem?.id)
+                                    } else {
+                                        openDrawer(TaxonomicType.EventProperty, selectedItem?.id)
+                                    }
+                                })
+                              : null}
                       </div>,
                       document.querySelector('body') as HTMLElement
                   )

@@ -1,4 +1,6 @@
-.legacy-definition-drawer {
+.definition-drawer {
+    z-index: 1050 !important; // Above taxonomic filter poppers which are at 1049
+
     .ant-collapse-ghost > .ant-collapse-item > .ant-collapse-content > .ant-collapse-content-box {
         padding-top: 0;
     }

@@ -4,7 +4,7 @@ import { useValues, useActions } from 'kea'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { UserBasicType } from '~/types'
 import { definitionDrawerLogic } from './definitionDrawerLogic'
-import { DefinitionOwner } from 'lib/components/DefinitionDrawer/DefinitionOwner'
+import { DefinitionOwner } from './DefinitionOwner'
 
 export function DefinitionOwnerDropdown({ owner }: { owner: UserBasicType | null }): JSX.Element {
     const { members } = useValues(membersLogic)

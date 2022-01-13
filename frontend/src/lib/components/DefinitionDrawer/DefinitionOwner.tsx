@@ -2,7 +2,7 @@ import { ProfilePicture } from 'lib/components/ProfilePicture'
 import React from 'react'
 import { UserBasicType } from '~/types'
 
-export function Owner({ user }: { user?: UserBasicType | null }): JSX.Element {
+export function DefinitionOwner({ user }: { user?: UserBasicType | null }): JSX.Element {
     return (
         <>
             {user?.uuid ? (
