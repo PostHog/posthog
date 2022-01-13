@@ -38,17 +38,28 @@ class ClickhousePathsActors(ClickhousePaths, ActorBaseQuery):  # type: ignore
         if self.should_query_funnel():
             paths_funnel_cte = self.get_path_query_funnel_cte(cast(Filter, self._funnel_filter))
 
+        select_statement = "DISTINCT person_id AS actor_id"
+        group_statement = ""
+        if self._filter.include_recordings:
+            select_statement = """
+                person_id AS actor_id
+                , groupUniqArray(10)((uuid, conversion_time, session_id, window_id)) as matching_events
+            """
+            group_statement = "GROUP BY person_id"
+
         self.params["limit"] = self._filter.limit
         self.params["offset"] = self._filter.offset
 
         return (
             f"""
             {paths_funnel_cte}
-            SELECT DISTINCT person_id AS actor_id
+            SELECT
+            {select_statement}
             FROM (
                 {paths_per_person_query}
             )
             WHERE {person_path_filter}
+            {group_statement}
             ORDER BY person_id
             {"LIMIT %(limit)s" if limit_actors else ""}
             {"OFFSET %(offset)s" if limit_actors else ""}

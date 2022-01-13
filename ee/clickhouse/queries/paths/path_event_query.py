@@ -45,6 +45,19 @@ class PathEventQuery(ClickhouseEventQuery):
             funnel_paths_timestamp,
         ]
 
+        if self._filter.include_recordings:
+            _fields += [
+                f"{self.EVENT_TABLE_ALIAS}.uuid AS uuid",
+                get_property_string_expr(
+                    "events", "$session_id", "'$session_id'", "properties", table_alias=self.EVENT_TABLE_ALIAS
+                )[0]
+                + " as session_id",
+                get_property_string_expr(
+                    "events", "$window_id", "'$window_id'", "properties", table_alias=self.EVENT_TABLE_ALIAS
+                )[0]
+                + " as window_id",
+            ]
+
         event_conditional = (
             f"if({self.EVENT_TABLE_ALIAS}.event = '{SCREEN_EVENT}', {self._get_screen_name_parsing()}, "
             if self._should_query_screen()

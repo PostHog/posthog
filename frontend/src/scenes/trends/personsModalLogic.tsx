@@ -325,7 +325,14 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     actors = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
                 } else if (filters.insight === InsightType.PATHS) {
                     const cleanedParams = cleanFilters(filters)
-                    actors = await api.create(`api/person/path/?${searchTermParam}`, cleanedParams)
+                    let includeRecordingsParam = ''
+                    if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_TRENDS_PERSON_MODAL]) {
+                        includeRecordingsParam = 'include_recordings=true&'
+                    }
+                    actors = await api.create(
+                        `api/person/path/?${includeRecordingsParam}${searchTermParam}`,
+                        cleanedParams
+                    )
                 } else {
                     actors = await api.actions.getPeople(
                         { label, action, date_from, date_to, breakdown_value },

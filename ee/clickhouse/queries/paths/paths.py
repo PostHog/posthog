@@ -1,3 +1,4 @@
+import dataclasses
 from collections import defaultdict
 from re import escape
 from typing import Dict, List, Literal, Optional, Tuple, Union, cast
@@ -15,6 +16,16 @@ from posthog.models.filters.path_filter import PathFilter
 EVENT_IN_SESSION_LIMIT_DEFAULT = 5
 SESSION_TIME_THRESHOLD_DEFAULT = 1800000  # milliseconds to 30 minutes
 EDGE_LIMIT_DEFAULT = 50
+
+
+@dataclasses.dataclass
+class RecordingEventClauses:
+    path_event_select_statements_for_recordings: str
+    event_in_session_index_select_statements_for_recordings: str
+    limited_path_timings_parameters_for_recordings: str
+    path_time_tuple_select_clause_for_recordings: str
+    paths_tuple_array_zip_parameters_for_recordings: str
+    group_array_select_clause_for_recordings: str
 
 
 class ClickhousePaths:
@@ -93,6 +104,44 @@ class ClickhousePaths:
 
         return funnel_cte + path_query
 
+    def get_recording_event_clauses(self) -> RecordingEventClauses:
+        if self._filter.include_recordings:
+            return RecordingEventClauses(
+                path_event_select_statements_for_recordings="""
+                    final_uuid as uuid,
+                    final_session_id as session_id,
+                    final_window_id as window_id,
+                """,
+                event_in_session_index_select_statements_for_recordings="""
+                    , joined_path_tuple.4 as final_uuid
+                    , joined_path_tuple.5 as final_session_id
+                    , joined_path_tuple.6 as final_window_id
+                    , arrayFilter((x,y)->y, uuid, mapping) as uuids
+                    , arrayFilter((x,y)->y, session_id, mapping) as session_ids
+                    , arrayFilter((x,y)->y, window_id, mapping) as window_ids
+                """,
+                limited_path_timings_parameters_for_recordings=", limited_uuids, limited_session_ids, limited_window_ids",
+                path_time_tuple_select_clause_for_recordings="""
+                    , path_time_tuple.4 as uuid
+                    , path_time_tuple.5 as session_id
+                    , path_time_tuple.6 as window_id
+                """,
+                paths_tuple_array_zip_parameters_for_recordings=", uuids, session_ids, window_ids",
+                group_array_select_clause_for_recordings="""
+                    groupArray(uuid) as uuids,
+                    groupArray(session_id) as session_ids,
+                    groupArray(window_id) as window_ids,
+                """,
+            )
+        return RecordingEventClauses(
+            path_event_select_statements_for_recordings="",
+            event_in_session_index_select_statements_for_recordings="",
+            limited_path_timings_parameters_for_recordings="",
+            path_time_tuple_select_clause_for_recordings="",
+            paths_tuple_array_zip_parameters_for_recordings="",
+            group_array_select_clause_for_recordings="",
+        )
+
     def get_paths_per_person_query(self) -> str:
         path_event_query, params = PathEventQuery(filter=self._filter, team_id=self._team.pk).get_query()
         self.params.update(params)
@@ -103,11 +152,19 @@ class ClickhousePaths:
 
         session_threshold_clause = self.get_session_threshold_clause()
 
+        recording_event_clauses = self.get_recording_event_clauses()
+
         return PATH_ARRAY_QUERY.format(
             path_event_query=path_event_query,
             boundary_event_filter=boundary_event_filter,
             target_clause=target_clause,
             session_threshold_clause=session_threshold_clause,
+            path_event_select_statements_for_recordings=recording_event_clauses.path_event_select_statements_for_recordings,
+            event_in_session_index_select_statements_for_recordings=recording_event_clauses.event_in_session_index_select_statements_for_recordings,
+            limited_path_timings_parameters_for_recordings=recording_event_clauses.limited_path_timings_parameters_for_recordings,
+            path_time_tuple_select_clause_for_recordings=recording_event_clauses.path_time_tuple_select_clause_for_recordings,
+            paths_tuple_array_zip_parameters_for_recordings=recording_event_clauses.paths_tuple_array_zip_parameters_for_recordings,
+            group_array_select_clause_for_recordings=recording_event_clauses.group_array_select_clause_for_recordings,
         )
 
     def should_query_funnel(self) -> bool:
@@ -222,17 +279,36 @@ class ClickhousePaths:
                 params,
             )
         else:
-            path_limiting_clause, time_limiting_clause = self.get_filtered_path_ordering()
+            (
+                path_limiting_clause,
+                time_limiting_clause,
+                uuid_limiting_clause,
+                session_id_limiting_clause,
+                window_id_limiting_clause,
+            ) = self.get_filtered_path_ordering()
             compacting_function = self.get_array_compacting_function()
             params.update({"target_point": self._filter.end_point or self._filter.start_point})
-            return (
-                f"""
+
+            clause = f"""
             , indexOf(compact_path, %(target_point)s) as target_index
             , if(target_index > 0, {compacting_function}(compact_path, target_index), compact_path) as filtered_path
             , if(target_index > 0, {compacting_function}(timings, target_index), timings) as filtered_timings
             , {path_limiting_clause} as limited_path
             , {time_limiting_clause} as limited_timings
-            """,
+            """
+
+            if self._filter.include_recordings:
+                clause += f"""
+                , if(target_index > 0, {compacting_function}(uuids, target_index), uuids) as filtered_uuids
+                , if(target_index > 0, {compacting_function}(session_ids, target_index), session_ids) as filtered_session_ids
+                , if(target_index > 0, {compacting_function}(window_ids, target_index), window_ids) as filtered_window_ids
+                , {uuid_limiting_clause} as limited_uuids
+                , {session_id_limiting_clause} as limited_session_ids
+                , {window_id_limiting_clause} as limited_window_ids
+                """
+
+            return (
+                clause,
                 params,
             )
 
@@ -242,18 +318,20 @@ class ClickhousePaths:
         else:
             return "arraySlice"
 
-    def get_filtered_path_ordering(self) -> Tuple[str, str]:
+    def get_filtered_path_ordering(self) -> Tuple[str, ...]:
+
+        fields_to_include = [
+            "filtered_path",
+            "filtered_timings",
+            "filtered_uuids",
+            "filtered_session_ids",
+            "filtered_window_ids",
+        ]
 
         if self._filter.end_point:
-            return (
-                "arraySlice(filtered_path, (-1) * %(event_in_session_limit)s)",
-                "arraySlice(filtered_timings, (-1) * %(event_in_session_limit)s)",
-            )
+            return tuple([f"arraySlice({field}, (-1) * %(event_in_session_limit)s)" for field in fields_to_include])
         else:
-            return (
-                "arraySlice(filtered_path, 1, %(event_in_session_limit)s)",
-                "arraySlice(filtered_timings, 1, %(event_in_session_limit)s)",
-            )
+            return tuple([f"arraySlice({field}, 1, %(event_in_session_limit)s)" for field in fields_to_include])
 
     def validate_results(self, results):
         # Query guarantees results list to be:

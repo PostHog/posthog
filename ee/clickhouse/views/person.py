@@ -178,7 +178,7 @@ class ClickhousePersonViewSet(PersonViewSet):
             }
         )
 
-    @cached_function
+    # @cached_function
     def calculate_path_persons(self, request: Request) -> Dict[str, Tuple[list, Optional[str], Optional[str]]]:
         if request.user.is_anonymous or not self.team:
             return {"result": ([], None, None)}

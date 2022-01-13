@@ -72,7 +72,6 @@ class ActorBaseQuery:
         self._team = team
         self.entity = entity
         self._filter = filter
-        self.include_recordings = kwargs.get("include_recordings", False)
 
     def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
         """ Implemented by subclasses. Must provide query and params. The query must return list of uuids. Can be group uuids (group_key) or person uuids """
@@ -83,15 +82,6 @@ class ActorBaseQuery:
         """Override in child class with insight specific logic to determine group aggregation"""
         return False
 
-    @cached_property
-    def should_include_recordings(self) -> bool:
-        # Note: include_recordings is not guaranteed to exist because this classes initialization
-        # is not guaranteed run due to some of our classes not being setup for multiple-inheritance
-        # but being used in multi-inheritance situations. Fixing this is a bit of a refactor.
-        if hasattr(self, "include_recordings"):
-            return self.include_recordings
-        return False
-
     def get_actors(
         self,
     ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]]]:
@@ -100,7 +90,7 @@ class ActorBaseQuery:
         raw_result = sync_execute(query, params)
         actors, serialized_actors = self.get_actors_from_result(raw_result)
 
-        if self.should_include_recordings:
+        if hasattr(self._filter, "include_recordings") and self._filter.include_recordings:  # type: ignore
             serialized_actors = self.add_matched_recordings_to_serialized_actors(serialized_actors, raw_result)
 
         return actors, serialized_actors
