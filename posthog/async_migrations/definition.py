@@ -52,7 +52,7 @@ class AsyncMigrationOperation:
     ):
         return cls(
             fn=cls.get_db_op(database=database, sql=sql, timeout_seconds=timeout_seconds),
-            rollback_fn=cls.get_db_op(database=database, sql=rollback, timeout_seconds=timeout_seconds),
+            rollback_fn=cls.get_db_op(database=database, sql=rollback),
             resumable=resumable,
         )
 
