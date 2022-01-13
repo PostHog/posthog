@@ -98,7 +98,7 @@ export function defaultAPIMocks({ pathname, searchParams }: APIRoute, availableF
 }
 
 export function defaultAPICallMocks(path: string, args: any[]): any {
-    if (['actions.list'].includes(path)) {
+    if (['actions.list', 'cohorts.list'].includes(path)) {
         return { results: [], next: null }
     }
     throwLog(`Unmocked API call on: api.${path}() with args: ${JSON.stringify(args)}`)
