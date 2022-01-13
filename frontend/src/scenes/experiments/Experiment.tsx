@@ -499,7 +499,10 @@ export function Experiment(): JSX.Element {
                                         style={{ margin: 0, paddingRight: 8 }}
                                         title={`${experimentData?.name}`}
                                     />
-                                    <CopyToClipboardInline iconStyle={{ color: 'var(--text-muted-alt)' }}>
+                                    <CopyToClipboardInline
+                                        explicitValue={experimentData.feature_flag_key}
+                                        iconStyle={{ color: 'var(--text-muted-alt)' }}
+                                    >
                                         <span className="text-muted">{experimentData.feature_flag_key}</span>
                                     </CopyToClipboardInline>
                                     <Tag
