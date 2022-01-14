@@ -1,7 +1,7 @@
 import { BuiltLogic } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
-import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
+import { mockAPI } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { billingSubscribedLogicType } from './billingSubscribedLogicType'
@@ -13,9 +13,7 @@ jest.mock('lib/api')
 describe('organizationLogic', () => {
     let logic: BuiltLogic<billingSubscribedLogicType<SubscriptionStatus>>
 
-    mockAPI(async (url) => {
-        return defaultAPIMocks(url)
-    })
+    mockAPI()
 
     describe('if subscription was successful', () => {
         initKeaTestLogic({

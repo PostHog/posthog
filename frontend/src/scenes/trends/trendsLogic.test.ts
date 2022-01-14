@@ -1,5 +1,5 @@
 import { BuiltLogic } from 'kea'
-import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
+import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
@@ -14,10 +14,9 @@ const Insight123 = '123' as InsightShortId
 describe('trendsLogic', () => {
     let logic: BuiltLogic<trendsLogicType>
 
-    mockAPI(async (url) => {
-        const { pathname } = url
-        if (pathname === `api/projects/${MOCK_TEAM_ID}/insights`) {
-            return { results: [] }
+    mockAPI(async ({ pathname, searchParams }) => {
+        if (pathname === `api/projects/${MOCK_TEAM_ID}/insights` || String(searchParams.short_id) === Insight123) {
+            return { results: ['result from api'] }
         } else if (
             [`api/projects/${MOCK_TEAM_ID}/insights/123`, `api/projects/${MOCK_TEAM_ID}/insights/trend/`].includes(
                 pathname
@@ -25,7 +24,6 @@ describe('trendsLogic', () => {
         ) {
             return { result: ['result from api'] }
         }
-        return defaultAPIMocks(url)
     })
 
     describe('core assumptions', () => {

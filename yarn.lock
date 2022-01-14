@@ -10899,10 +10899,10 @@ kea-router@^1.0.6:
   dependencies:
     url-pattern "^1.0.3"
 
-kea-test-utils@^0.2.1:
-  version "0.2.1"
-  resolved "https://registry.yarnpkg.com/kea-test-utils/-/kea-test-utils-0.2.1.tgz#6fb0df3112424983a6748f8e3376def2fc40568e"
-  integrity sha512-7jZPSAVdVtcpeiXY9wNGMiHHJtX8pA/qzTE4S4y6NTjquWjGglqIMPEiqHlvrqrgX6te++gVgM1SQfiNK1+TaA==
+kea-test-utils@^0.2.2:
+  version "0.2.2"
+  resolved "https://registry.yarnpkg.com/kea-test-utils/-/kea-test-utils-0.2.2.tgz#4ae89bb601cd6bd3a11d1072b5eaa10429eb4ec6"
+  integrity sha512-WiTfn2jd9GLeMJvRIKqj7kIDaKlxk2JgzWB+aKMvcQoyNazHvyLGblE9OzZFMMRgRgs3uGs+/NXuwvPt76m6dg==
   dependencies:
     kea-waitfor "^0.2.1"
 
