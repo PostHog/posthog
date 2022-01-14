@@ -70,14 +70,18 @@ class Migration(AsyncMigrationDefinition):
             resumable=True,
             timeout_seconds=7 * 24 * 60 * 60,  # one week
         ),
+        AsyncMigrationOperation(
+            fn=lambda _: None,
+            rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
+            resumable=True,
+        ),
         AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
             rollback=f"ATTACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
         ),
         AsyncMigrationOperation(
-            fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
-            rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
+            fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False), resumable=True,
         ),
         AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.CLICKHOUSE,
@@ -105,13 +109,10 @@ class Migration(AsyncMigrationDefinition):
                 ON CLUSTER {CLICKHOUSE_CLUSTER}
             """,
         ),
-        AsyncMigrationOperation(
-            database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL",
-            rollback="",
-            resumable=True,
+        AsyncMigrationOperation.simple_op(
+            database=AnalyticsDBMS.CLICKHOUSE, sql=f"OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL", resumable=True,
         ),
-        AsyncMigrationOperation(
+        AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"ATTACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
             rollback=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
@@ -119,6 +120,7 @@ class Migration(AsyncMigrationDefinition):
         AsyncMigrationOperation(
             fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
             rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
+            resumable=True,
         ),
     ]
 
