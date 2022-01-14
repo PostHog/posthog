@@ -91,7 +91,7 @@ class TestUserAPI(APIBaseTest):
             team=self.team, name="enterprise event", owner=self.user, tags=["deprecated"]
         )
         EnterpriseEventDefinition.objects.create(
-            team=self.team, name="enterprise event", owner=self.user  # I shouldn't be counted
+            team=self.team, name="a new event", owner=self.user  # I shouldn't be counted
         )
         EnterprisePropertyDefinition.objects.create(
             team=self.team,
@@ -105,7 +105,7 @@ class TestUserAPI(APIBaseTest):
             team=self.team, name="plan", description="The current membership plan the user has active.",
         )
         EnterprisePropertyDefinition.objects.create(
-            team=self.team, name="plan",  # I shouldn't be counted
+            team=self.team, name="some_prop",  # I shouldn't be counted
         )
 
         response = self.client.get("/api/users/@me/")
