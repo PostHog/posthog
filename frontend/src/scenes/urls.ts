@@ -7,20 +7,12 @@ export const urls = {
     notFound: () => '404',
     dashboards: () => '/dashboard',
     dashboard: (id: string | number) => `/dashboard/${id}`,
-    // TODO: Deprecate below with `collaborations-taxonomy` FF
-    LEGACY_createAction: () => `/action`, // TODO: For consistency, this should be `/action/new`
-    LEGACY_action: (id: string | number) => `/action/${id}`,
-    LEGACY_actions: () => '/events/actions',
-    LEGACY_eventStats: () => '/events/stats',
-    LEGACY_eventPropertyStats: () => '/events/properties',
-    LEGACY_events: () => '/events',
-    // TODO: Deprecate above with `collaborations-taxonomy` FF
-    events: () => '/live_events',
-    taxonomy: () => '/taxonomy',
-    taxonomyEvent: () => '/taxonomy/events',
-    taxonomyEventView: (id: string | number) => `/taxonomy/events/${id}`,
-    taxonomyCalculatedEvents: () => '/taxonomy/calculated_events',
-    taxonomyCalculatedEventsEdit: (id: string | number) => `/taxonomy/calculated_events/${id}`,
+    createAction: () => `/action`, // TODO: For consistency, this should be `/action/new`
+    action: (id: string | number) => `/action/${id}`,
+    actions: () => '/events/actions',
+    eventStats: () => '/events/stats',
+    eventPropertyStats: () => '/events/properties',
+    events: () => '/events',
     insightNew: (filters?: Partial<FilterType>) => `/insights/new${filters ? combineUrl('', filters).search : ''}`,
     insightRouter: (id: string) => `/i/${id}`,
     insightEdit: (id: InsightShortId, filters?: Partial<FilterType>) =>

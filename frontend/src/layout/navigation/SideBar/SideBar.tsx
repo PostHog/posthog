@@ -208,11 +208,7 @@ function Pages(): JSX.Element {
                 <PageButton icon={<CoffeeOutlined />} identifier={Scene.APM} to={urls.apm()} />
             )}
             <LemonSpacer />
-            {featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] ? (
-                <PageButton icon={<IconGroupedEvents />} identifier={Scene.Events} to={urls.events()} />
-            ) : (
-                <PageButton icon={<IconGroupedEvents />} identifier={Scene.LEGACY_Events} to={urls.LEGACY_events()} />
-            )}
+            <PageButton icon={<IconGroupedEvents />} identifier={Scene.Events} to={urls.events()} />
             <PageButton
                 icon={<IconPerson />}
                 identifier={Scene.Persons}
@@ -224,9 +220,6 @@ function Pages(): JSX.Element {
             <LemonSpacer />
             {canViewPlugins(currentOrganization) && (
                 <PageButton icon={<IconExtension />} identifier={Scene.Plugins} to={urls.plugins()} />
-            )}
-            {featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY] && (
-                <PageButton icon={<IconGroupedEvents />} identifier={Scene.Taxonomy} to={urls.taxonomy()} />
             )}
             <PageButton icon={<IconTools />} identifier={Scene.ToolbarLaunch} to={urls.toolbarLaunch()} />
             <PageButton icon={<IconSettings />} identifier={Scene.ProjectSettings} to={urls.projectSettings()} />
