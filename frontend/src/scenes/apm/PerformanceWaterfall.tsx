@@ -26,11 +26,11 @@ function PerfBlock({ start, end, max, color }: PerfBlockProps): JSX.Element {
     if (max) {
         const left = (start / max) * 100
         const right = 100 - (end / max) * 100
-        const blockSides = { left: `${left}%`, right: `${right}%`, backgroundColor: color }
+        const blockSides = { left: `${left}%`, right: `${right}%` }
         const textPosition = { left: `${100 - right + 1}%`, right: `${right}%` }
         return (
             <>
-                <div className="performance-block positioned" style={blockSides} />
+                <div className="performance-block positioned" style={{ ...blockSides, backgroundColor: color }} />
                 <div className="positioned" style={textPosition}>
                     {Math.round(end)}ms
                 </div>
@@ -114,7 +114,6 @@ function WaterfallChart(): JSX.Element {
                                 />
                             ))}
                             {Object.entries(eventToDisplay.durations).map(([marker, measure]) => {
-                                console.log(measure.color, marker)
                                 return (
                                     <Row key={marker} className={'marker-row'}>
                                         <PerfBlock
