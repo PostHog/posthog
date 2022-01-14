@@ -122,6 +122,10 @@ export function SelectGradientOverflow({
 
     return (
         <div ref={containerRef} style={{ width: '100%' }}>
+            {/*
+            This config provider is used to configure the empty data state on the wrapped
+            ANT select component
+             */}
             <ConfigProvider
                 renderEmpty={() => {
                     if (props.loading) {
