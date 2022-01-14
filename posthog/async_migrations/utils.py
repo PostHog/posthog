@@ -45,7 +45,7 @@ def process_error(migration_instance: AsyncMigration, error: Optional[str]):
         finished_at=datetime.now(),
     )
 
-    if is_email_available():
+    if async_migrations_emails_enabled:
         from posthog.tasks.email import send_async_migration_errored_email
 
         send_async_migration_errored_email.delay(
@@ -167,3 +167,7 @@ def update_async_migration(
             execute_update()
     else:
         execute_update()
+
+
+def async_migrations_emails_enabled():
+    return is_email_available() and getattr(config, "ASYNC_MIGRATIONS_OPT_OUT_EMAILS")
