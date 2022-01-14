@@ -1,4 +1,4 @@
-import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
+import { mockAPI } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { personsLogic } from './personsLogic'
@@ -10,14 +10,16 @@ jest.mock('lib/api')
 describe('personsLogic', () => {
     let logic: ReturnType<typeof personsLogic.build>
 
-    mockAPI(async (url) => {
-        const { pathname, searchParams } = url
-        if (`api/person/` === pathname && searchParams == { properties: [{ key: 'email', operator: 'is_set' }] }) {
+    mockAPI(async ({ pathname, searchParams }) => {
+        if (
+            `api/person/` === pathname &&
+            (JSON.stringify(searchParams) == '{}' ||
+                JSON.stringify(searchParams) == JSON.stringify({ properties: [{ key: 'email', operator: 'is_set' }] }))
+        ) {
             return { result: ['result from api'] }
         } else if (`api/person/` === pathname && ['abc', 'xyz'].includes(searchParams['distinct_id'])) {
             return { results: ['person from api'] }
         }
-        return defaultAPIMocks(url)
     })
 
     beforeEach(() => {

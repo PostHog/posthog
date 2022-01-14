@@ -1333,6 +1333,8 @@ export interface PropertyDefinition {
     updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
     is_event_property?: boolean // Indicates whether this property has been seen for a particular set of events (when `eventNames` query string is sent); calculated at query time, not stored in the db
+    property_type?: 'DateTime' | 'String' | 'Numeric' | 'Boolean'
+    property_type_format?: 'unix_timestamp' | 'YYYY-MM-DD hh:mm:ss' | 'YYYY-MM-DD'
 }
 
 export interface PersonProperty {
@@ -1418,6 +1420,7 @@ export interface AppContext {
     preflight: PreflightStatus
     default_event_name: string
     persisted_feature_flags?: string[]
+    anonymous: boolean
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -1552,4 +1555,12 @@ export interface GraphPointPayload {
 export enum CompareLabelType {
     Current = 'current',
     Previous = 'previous',
+}
+
+export interface InstanceSetting {
+    key: string
+    value: boolean | string | number
+    value_type: 'bool' | 'str' | 'int'
+    description?: string
+    editable: boolean
 }
