@@ -19,6 +19,9 @@ import { posthog } from '../../utils/posthog'
 import { status } from '../../utils/status'
 import { getByAge, UUIDT } from '../../utils/utils'
 
+const NULL_IN_DATABASE = Symbol('NULL_IN_DATABASE')
+export const NULL_AFTER_PROPERTY_TYPE_DETECTION = Symbol('NULL_AFTER_PROPERTY_TYPE_DETECTION')
+
 type TeamCache<T> = Map<TeamId, [T, number]>
 
 export const unixTimestampPropertyTypeFormatPatterns: Record<keyof typeof UnixTimestampPropertyTypeFormat, RegExp> = {
@@ -120,7 +123,7 @@ export class TeamManager {
     eventDefinitionsCache: Map<TeamId, Set<string>>
     eventPropertiesCache: LRU<string, Set<string>> // Map<JSON.stringify([TeamId, Event], Set<Property>>
     eventLastSeenCache: LRU<string, number> // key: JSON.stringify([team_id, event]); value: parseInt(YYYYMMDD)
-    propertyDefinitionsCache: Map<TeamId, Map<string, string>>
+    propertyDefinitionsCache: Map<TeamId, Map<string, string | symbol>>
     instanceSiteUrl: string
     experimentalLastSeenAtEnabled: boolean
     experimentalEventPropertyTrackerEnabled: boolean
@@ -260,7 +263,7 @@ export class TeamManager {
         for (const [key, value] of Object.entries(properties)) {
             if (
                 !this.propertyDefinitionsCache.get(team.id)?.has(key) ||
-                this.propertyDefinitionsCache.get(team.id)?.get(key) === 'not_set'
+                this.propertyDefinitionsCache.get(team.id)?.get(key) === NULL_IN_DATABASE
             ) {
                 const isNumerical = typeof value === 'number'
                 const { propertyType, propertyTypeFormat } = detectPropertyDefinitionTypes(value, key)
@@ -275,7 +278,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                     [new UUIDT().toString(), key, isNumerical, team.id, propertyType, propertyTypeFormat],
                     'insertPropertyDefinition'
                 )
-                this.propertyDefinitionsCache.get(team.id)?.set(key, propertyType || 'set_to_null_on_type_detection')
+                this.propertyDefinitionsCache.get(team.id)?.set(key, propertyType || NULL_AFTER_PROPERTY_TYPE_DETECTION)
             }
         }
     }

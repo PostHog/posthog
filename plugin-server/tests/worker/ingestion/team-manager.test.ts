@@ -6,7 +6,11 @@ import { DateTimePropertyTypeFormat, Hub, PropertyType, UnixTimestampPropertyTyp
 import { createHub } from '../../../src/utils/db/hub'
 import { posthog } from '../../../src/utils/posthog'
 import { UUIDT } from '../../../src/utils/utils'
-import { dateTimePropertyTypeFormatPatterns, TeamManager } from '../../../src/worker/ingestion/team-manager'
+import {
+    dateTimePropertyTypeFormatPatterns,
+    NULL_AFTER_PROPERTY_TYPE_DETECTION,
+    TeamManager,
+} from '../../../src/worker/ingestion/team-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/posthog', () => ({
@@ -357,7 +361,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                 })
 
                 expect(teamManager.propertyDefinitionsCache.get(teamId)).toEqual(
-                    new Map([['anObjectProperty', 'set_to_null_on_type_detection']])
+                    new Map([['anObjectProperty', NULL_AFTER_PROPERTY_TYPE_DETECTION]])
                 )
 
                 expectMockQueryCallToMatch(
