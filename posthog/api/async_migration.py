@@ -92,7 +92,7 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
             )
         resumable, error = is_migration_resumable(migration_instance)
         if not resumable:
-            return response.Response({"success": False, "error": error,}, status=500,)
+            return response.Response({"success": False, "error": error,}, status=400,)
         trigger_migration(migration_instance, fresh_start=False)
         return response.Response({"success": True}, status=200)
 
