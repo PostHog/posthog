@@ -76,6 +76,7 @@ export function PropertyValue({
     const [input, setInput] = useState(isMultiSelect ? '' : toString(value))
     const [shouldBlur, setShouldBlur] = useState(false)
     const [options, setOptions] = useState({} as Record<string, Option>)
+    const [loading, setLoading] = useState(false)
     const autoCompleteRef = useRef<HTMLElement>(null)
 
     const { formatForDisplay } = useValues(propertyDefinitionsModel)
@@ -97,15 +98,16 @@ export function PropertyValue({
             return
         }
         const key = propertyKey.split('__')[0]
-        setOptions({ ...options, [propertyKey]: { ...options[propertyKey], status: 'loading' } })
+        setOptions({ ...options, [propertyKey]: { ...options[propertyKey] } })
+        setLoading(true)
         if (outerOptions) {
             setOptions({
                 ...options,
                 [propertyKey]: {
                     values: [...Array.from(new Set(outerOptions))],
-                    status: 'loaded',
                 },
             })
+            setLoading(false)
         } else {
             api.get(endpoint || 'api/' + type + '/values/?key=' + key + (newInput ? '&value=' + newInput : '')).then(
                 (propValues: PropValue[]) => {
@@ -113,9 +115,9 @@ export function PropertyValue({
                         ...options,
                         [propertyKey]: {
                             values: [...Array.from(new Set(propValues))],
-                            status: 'loaded',
                         },
                     })
+                    setLoading(false)
                 }
             )
         }
@@ -147,7 +149,6 @@ export function PropertyValue({
 
     const commonInputProps = {
         style: { width: '100%', ...style },
-        loading: options[input]?.status === 'loading',
         onSearch: (newInput: string) => {
             setInput(newInput)
             if (!Object.keys(options).includes(newInput) && !(operator && isOperatorFlag(operator))) {
@@ -196,6 +197,7 @@ export function PropertyValue({
         <>
             {isMultiSelect ? (
                 <SelectGradientOverflow
+                    loading={loading}
                     propertyKey={propertyKey}
                     {...commonInputProps}
                     autoFocus={autoFocus}
