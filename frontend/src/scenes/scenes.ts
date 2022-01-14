@@ -92,6 +92,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.LEGACY_Action]: {
         projectBased: true,
+        name: 'Action',
     },
     [Scene.Groups]: {
         projectBased: true,
