@@ -345,7 +345,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
             )
 
             const teamPropertyDefinitionsCache = new LRU<string, string | symbol>({
-                max: this.lruCacheSize * 10, // keep in memory the last 100k property definitions we have seen
+                max: this.lruCacheSize, // keep in memory the last 10k property definitions we have seen
                 maxAge: ONE_HOUR * 24, // cache up to 24h
                 updateAgeOnGet: true,
             })
