@@ -2,7 +2,7 @@ from typing import cast
 
 import dateutil.parser
 import pytest
-from django.db.utils import IntegrityError
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 from rest_framework import status
 
@@ -145,7 +145,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified"] == False
 
     def test_errors_on_invalid_verified_type(self):
-        with pytest.raises(IntegrityError):
+        with pytest.raises(ValidationError):
             EnterpriseEventDefinition.objects.create(
                 team=self.team, name="enterprise event", owner=self.user, verified="not a boolean"
             )
