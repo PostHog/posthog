@@ -283,8 +283,11 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                 this.propertyDefinitionsCache.get(team.id)?.set(key, propertyType || NULL_AFTER_PROPERTY_TYPE_DETECTION)
 
                 this.statsd?.gauge(
-                    `propertyDefinitionsCacheLength.team${team.id}`,
-                    this.propertyDefinitionsCache.get(team.id)?.length ?? 0
+                    'propertyDefinitionsCache.length',
+                    this.propertyDefinitionsCache.get(team.id)?.length ?? 0,
+                    {
+                        team_id: team.id.toString(),
+                    }
                 )
             }
         }
@@ -353,8 +356,11 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
             this.propertyDefinitionsCache.set(teamId, teamPropertyDefinitionsCache)
 
             this.statsd?.gauge(
-                `propertyDefinitionsCacheLength.team${teamId}`,
-                this.propertyDefinitionsCache.get(teamId)?.length ?? 0
+                'propertyDefinitionsCache.length',
+                this.propertyDefinitionsCache.get(teamId)?.length ?? 0,
+                {
+                    team_id: teamId.toString(),
+                }
             )
         }
 
