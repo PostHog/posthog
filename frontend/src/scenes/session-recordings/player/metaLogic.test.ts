@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTests } from '~/test/init'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { metaLogic } from 'scenes/session-recordings/player/metaLogic'
@@ -22,9 +22,10 @@ describe('metaLogic', () => {
         }
     })
 
-    initKeaTestLogic({
-        logic: metaLogic,
-        onLogic: (l) => (logic = l),
+    beforeEach(() => {
+        initKeaTests()
+        logic = metaLogic()
+        logic.mount()
     })
 
     describe('core assumptions', () => {
@@ -40,9 +41,8 @@ describe('metaLogic', () => {
 
     describe('loading state', () => {
         it('stops loading after meta load is successful', async () => {
-            await expectLogic(logic).toMatchValues({ loading: true })
             await expectLogic(logic, () => {
-                logic.connections['scenes.session-recordings.sessionRecordingLogic'].actions.loadRecordingMeta('1')
+                sessionRecordingLogic.actions.loadRecordingMeta('1')
             })
                 .toDispatchActions(['loadRecordingMetaSuccess'])
                 .toMatchValues({ loading: false })
