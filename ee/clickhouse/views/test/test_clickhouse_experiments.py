@@ -478,7 +478,7 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, LicensedTestMix
 
         # Variant with test: Beta(2, 3) and control: Beta(3, 1) distribution
         # The variant has very low probability of being better.
-        self.assertAlmostEqual(response_data["probability"]["test"], 0.2619, places=2)
+        self.assertAlmostEqual(response_data["probability"]["test"], 0.114, places=2)
 
     @snapshot_clickhouse_queries
     def test_experiment_flow_with_event_results_for_three_test_variants(self):
@@ -584,10 +584,10 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, LicensedTestMix
         self.assertEqual(result[1][1]["count"], 1)
         self.assertEqual("test", result[1][1]["breakdown_value"][0])
 
-        self.assertAlmostEqual(response_data["probability"]["test"], 0.095, places=2)
-        self.assertAlmostEqual(response_data["probability"]["test_1"], 0.193, places=2)
-        self.assertAlmostEqual(response_data["probability"]["test_2"], 0.372, places=2)
-        self.assertAlmostEqual(response_data["probability"]["control"], 0.340, places=2)
+        self.assertAlmostEqual(response_data["probability"]["test"], 0.031, places=2)
+        self.assertAlmostEqual(response_data["probability"]["test_1"], 0.158, places=2)
+        self.assertAlmostEqual(response_data["probability"]["test_2"], 0.324, places=2)
+        self.assertAlmostEqual(response_data["probability"]["control"], 0.486, places=2)
 
 
 class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
