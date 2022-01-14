@@ -116,7 +116,7 @@ class TestExperimentCRUD(APIBaseTest):
             {"description": "Bazinga", "filters": {}, "feature_flag_key": "new_key",},  # invalid
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Can't update keys: filters, get_feature_flag_key on Experiment")
+        self.assertEqual(response.json()["detail"], "Can't update keys: get_feature_flag_key on Experiment")
 
     def test_cant_reuse_existing_feature_flag(self):
         ff_key = "a-b-test"
@@ -132,12 +132,12 @@ class TestExperimentCRUD(APIBaseTest):
                 "end_date": None,
                 "feature_flag_key": ff_key,
                 "parameters": None,
-                "filters": {},
+                "filters": {"events": []},
             },
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Feature Flag key already exists. Please select a unique key")
+        self.assertEqual(response.json()["detail"], "There is already a feature flag with this key.")
 
     def test_draft_experiment_doesnt_have_FF_active(self):
         # Draft experiment
@@ -204,7 +204,7 @@ class TestExperimentCRUD(APIBaseTest):
                     "feature_flag_variants": [
                         {"key": "control", "name": "Control Group", "rollout_percentage": 33},
                         {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
-                        {"key": "test_2", "name": "Test Variant", "rollout_percentage": 33},
+                        {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
                     ]
                 },
                 "filters": {
@@ -230,19 +230,59 @@ class TestExperimentCRUD(APIBaseTest):
         self.assertEqual(created_ff.filters["groups"][0]["properties"][0]["key"], "$geoip_country_name")
 
         id = response.json()["id"]
-        end_date = "2021-12-10T00:00"
 
         # Now try updating FF
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{id}",
             {
                 "description": "Bazinga",
-                "parameters": {"feature_flag_variants": [{"key": "control", "name": "X", "rollout_percentage": 100}]},
+                "parameters": {"feature_flag_variants": [{"key": "control", "name": "X", "rollout_percentage": 33}]},
             },
         )
-
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Can't update keys: parameters on Experiment")
+        self.assertEqual(response.json()["detail"], "Can't update feature_flag_variants on Experiment")
+
+        # Now try changing FF rollout %s
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}",
+            {
+                "description": "Bazinga",
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control Group", "rollout_percentage": 34},
+                        {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
+                        {"key": "test_2", "name": "Test Variant", "rollout_percentage": 32},
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Can't update feature_flag_variants on Experiment")
+
+        # Now try changing FF keys
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}",
+            {
+                "description": "Bazinga",
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control Group", "rollout_percentage": 33},
+                        {"key": "test", "name": "Test Variant", "rollout_percentage": 33},
+                        {"key": "test2", "name": "Test Variant", "rollout_percentage": 34},
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Can't update feature_flag_variants on Experiment")
+
+        # Now try updating other parameter keys
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}",
+            {"description": "Bazinga", "parameters": {"recommended_sample_size": 1500},},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["parameters"]["recommended_sample_size"], 1500)
 
     def test_creating_invalid_multivariate_experiment_no_control(self):
         ff_key = "a-b-test"
@@ -273,6 +313,84 @@ class TestExperimentCRUD(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], "Feature flag variants must contain a control variant")
+
+    def test_deleting_experiment_soft_deletes_feature_flag(self):
+        ff_key = "a-b-tests"
+        data = {
+            "name": "Test Experiment",
+            "description": "",
+            "start_date": "2021-12-01T10:23",
+            "end_date": None,
+            "feature_flag_key": ff_key,
+            "parameters": None,
+            "filters": {
+                "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                "properties": [
+                    {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
+                ],
+            },
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/experiments/", data)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment")
+        self.assertEqual(response.json()["feature_flag_key"], ff_key)
+
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+
+        id = response.json()["id"]
+
+        # Now delete the experiment
+        response = self.client.delete(f"/api/projects/{self.team.id}/experiments/{id}")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        with self.assertRaises(Experiment.DoesNotExist):
+            Experiment.objects.get(pk=id)
+
+        # soft deleted
+        self.assertEqual(FeatureFlag.objects.get(pk=created_ff.id).deleted, True)
+
+        # can recreate new experiment with same FF key
+        response = self.client.post(f"/api/projects/{self.team.id}/experiments/", data)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_deleting_feature_flag_deletes_experiment(self):
+        ff_key = "a-b-tests"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2021-12-01T10:23",
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {
+                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "properties": [
+                        {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment")
+        self.assertEqual(response.json()["feature_flag_key"], ff_key)
+
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+
+        id = response.json()["id"]
+
+        # Now delete the feature flag
+        response = self.client.delete(f"/api/projects/{self.team.id}/feature_flags/{created_ff.pk}/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(FeatureFlag.objects.filter(pk=created_ff.pk).exists())
+
+        with self.assertRaises(Experiment.DoesNotExist):
+            Experiment.objects.get(pk=id)
 
 
 class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):

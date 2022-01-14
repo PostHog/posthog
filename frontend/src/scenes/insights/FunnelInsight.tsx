@@ -26,7 +26,7 @@ export function FunnelInsight(): JSX.Element {
                 onSaveCohort={() => {
                     setCohortModalVisible(true)
                 }}
-                showModalActions={filters.aggregation_group_type_index != undefined}
+                showModalActions={filters.aggregation_group_type_index == undefined}
                 aggregationTargetLabel={aggregationTargetLabel}
             />
             <div

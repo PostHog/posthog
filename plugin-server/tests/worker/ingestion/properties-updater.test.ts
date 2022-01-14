@@ -33,7 +33,7 @@ beforeEach(async () => {
     db = hub.db
 
     team = await getFirstTeam(hub)
-    person = await db.createPerson(PAST_TIMESTAMP, {}, {}, team.id, null, false, uuid, [distinctId])
+    person = await db.createPerson(PAST_TIMESTAMP, {}, {}, {}, team.id, null, false, uuid, [distinctId])
 })
 
 afterEach(async () => {

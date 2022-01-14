@@ -31,10 +31,14 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const [isUsingFormulas, setIsUsingFormulas] = useState(filters.formula ? true : false)
     const lifecycles = [
-        { name: 'new', tooltip: 'Users that are new.' },
-        { name: 'resurrecting', tooltip: 'Users who were once active but became dormant, and are now active again.' },
-        { name: 'returning', tooltip: 'Users who consistently use the product.' },
-        { name: 'dormant', tooltip: 'Users who are inactive.' },
+        { name: 'new', tooltip: 'Users that are new within the selected date range.' },
+        {
+            name: 'resurrecting',
+            tooltip:
+                'Users who were once active but became dormant, and are now active again within the selected date range.',
+        },
+        { name: 'returning', tooltip: 'Users who consistently use the product within the selected date range.' },
+        { name: 'dormant', tooltip: 'Users who are inactive within the selected date range.' },
     ]
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)

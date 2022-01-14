@@ -27,7 +27,7 @@
 # name: TestPerson.test_group_query_includes_recording_events.1
   '
   
-  SELECT distinct session_id
+  SELECT DISTINCT session_id
   FROM session_recording_events
   WHERE team_id = 2
     and has_full_snapshot = 1

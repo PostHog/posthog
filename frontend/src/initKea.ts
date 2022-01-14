@@ -28,6 +28,15 @@ interface InitKeaProps {
     beforePlugins?: KeaPlugin[]
 }
 
+// Used in some tests to make life easier
+let errorsSilenced = false
+export function silenceKeaLoadersErrors(): void {
+    errorsSilenced = true
+}
+export function resumeKeaLoadersErrors(): void {
+    errorsSilenced = false
+}
+
 export function initKea({ state, routerHistory, routerLocation, beforePlugins }: InitKeaProps = {}): void {
     resetContext({
         plugins: [
@@ -52,7 +61,9 @@ export function initKea({ state, routerHistory, routerLocation, beforePlugins }:
                             error.code
                         )
                     }
-                    console.error(error)
+                    if (!errorsSilenced) {
+                        console.error(error)
+                    }
                     ;(window as any).Sentry?.captureException(error)
                 },
             }),

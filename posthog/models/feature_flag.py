@@ -7,9 +7,12 @@ from django.db import models
 from django.db.models.expressions import ExpressionWrapper, RawSQL, Subquery
 from django.db.models.fields import BooleanField
 from django.db.models.query import QuerySet
+from django.db.models.signals import pre_delete
+from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
+from posthog.models.experiment import Experiment
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -96,6 +99,11 @@ class FeatureFlag(models.Model):
                     {"properties": self.filters.get("properties", []), "rollout_percentage": self.rollout_percentage}
                 ]
             }
+
+
+@receiver(pre_delete, sender=Experiment)
+def delete_experiment_flags(sender, instance, **kwargs):
+    FeatureFlag.objects.filter(experiment=instance).update(deleted=True)
 
 
 class FeatureFlagOverride(models.Model):

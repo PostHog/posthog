@@ -288,20 +288,20 @@ class TestTrendExperimentCalculator(unittest.TestCase):
         variant_b = CountVariant("B", 30, 1)
 
         probabilities = ClickhouseTrendExperimentResult.calculate_results(variant_a, [variant_b])  # a is control
-        self.assertAlmostEqual(probabilities[1], 0.92, places=2)
+        self.assertAlmostEqual(probabilities[1], 0.92, places=1)
 
         monte_carlo_probability = calculate_probability_of_winning_for_target_count_data(variant_b, [variant_a])
-        self.assertAlmostEqual(probabilities[1], monte_carlo_probability, places=2)
+        self.assertAlmostEqual(probabilities[1], monte_carlo_probability, places=1)
 
     def test_calculate_results_small_numbers(self):
         variant_a = CountVariant("A", 2, 1)
         variant_b = CountVariant("B", 1, 1)
 
         probabilities = ClickhouseTrendExperimentResult.calculate_results(variant_a, [variant_b])  # a is control
-        self.assertAlmostEqual(probabilities[1], 0.31, places=2)
+        self.assertAlmostEqual(probabilities[1], 0.31, places=1)
 
         monte_carlo_probability = calculate_probability_of_winning_for_target_count_data(variant_b, [variant_a])
-        self.assertAlmostEqual(probabilities[1], monte_carlo_probability, places=2)
+        self.assertAlmostEqual(probabilities[1], monte_carlo_probability, places=1)
 
     def test_calculate_count_data_probability(self):
         probability = probability_B_beats_A_count_data(15, 1, 30, 1)
@@ -309,7 +309,7 @@ class TestTrendExperimentCalculator(unittest.TestCase):
         # same relative exposure should give same results
         probability2 = probability_B_beats_A_count_data(15, 10, 30, 10)
 
-        self.assertAlmostEqual(probability, 0.988, places=2)
+        self.assertAlmostEqual(probability, 0.988, places=1)
         self.assertAlmostEqual(probability, probability2)
 
     def test_calculate_results_with_three_variants(self):
@@ -318,11 +318,11 @@ class TestTrendExperimentCalculator(unittest.TestCase):
         variant_c = CountVariant("C", 19, 1)
 
         probabilities = ClickhouseTrendExperimentResult.calculate_results(variant_a, [variant_b, variant_c])
-        self.assertAlmostEqual(probabilities[0], 0.16, places=2)
-        self.assertAlmostEqual(probabilities[1], 0.72, places=2)
-        self.assertAlmostEqual(probabilities[2], 0.12, places=2)
+        self.assertAlmostEqual(probabilities[0], 0.16, places=1)
+        self.assertAlmostEqual(probabilities[1], 0.72, places=1)
+        self.assertAlmostEqual(probabilities[2], 0.12, places=1)
 
         monte_carlo_probability = calculate_probability_of_winning_for_target_count_data(
             variant_a, [variant_b, variant_c]
         )
-        self.assertAlmostEqual(probabilities[0], monte_carlo_probability, places=2)
+        self.assertAlmostEqual(probabilities[0], monte_carlo_probability, places=1)
