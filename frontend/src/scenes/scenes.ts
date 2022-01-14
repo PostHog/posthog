@@ -46,37 +46,25 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Cohorts',
     },
-    [Scene.LEGACY_Events]: {
-        projectBased: true,
-        name: 'Events & Actions',
-    },
-    [Scene.LEGACY_Actions]: {
-        projectBased: true,
-        name: 'Events & Actions',
-    },
-    [Scene.LEGACY_EventStats]: {
-        projectBased: true,
-        name: 'Events & Actions',
-    },
-    [Scene.LEGACY_EventPropertyStats]: {
-        projectBased: true,
-        name: 'Events & Actions',
-    },
     [Scene.Events]: {
         projectBased: true,
         name: 'Events & Actions',
     },
-    [Scene.Taxonomy]: {
+    [Scene.Actions]: {
         projectBased: true,
-        name: 'Data Management',
+        name: 'Events & Actions',
     },
-    [Scene.TaxonomyEvents]: {
+    [Scene.EventStats]: {
         projectBased: true,
-        name: 'Data Management',
+        name: 'Events & Actions',
     },
-    [Scene.TaxonomyCalculatedEvents]: {
+    [Scene.EventPropertyStats]: {
         projectBased: true,
-        name: 'Data Management',
+        name: 'Events & Actions',
+    },
+    [Scene.APM]: {
+        projectBased: true,
+        name: 'APM',
     },
     [Scene.SessionRecordings]: {
         projectBased: true,
@@ -90,7 +78,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Persons & Groups',
     },
-    [Scene.LEGACY_Action]: {
+    [Scene.Action]: {
         projectBased: true,
         name: 'Action',
     },
@@ -218,25 +206,18 @@ export const redirects: Record<string, string | ((params: Params) => string)> = 
 export const routes: Record<string, Scene> = {
     [urls.dashboards()]: Scene.Dashboards,
     [urls.dashboard(':id')]: Scene.Dashboard,
-    // TODO: Deprecate below with `collaborations-taxonomy` FF
-    [urls.LEGACY_createAction()]: Scene.LEGACY_Action,
-    [urls.LEGACY_action(':id')]: Scene.LEGACY_Action,
-    [urls.LEGACY_actions()]: Scene.LEGACY_Actions,
-    [urls.LEGACY_eventStats()]: Scene.LEGACY_EventStats,
-    [urls.LEGACY_eventPropertyStats()]: Scene.LEGACY_EventPropertyStats,
-    [urls.LEGACY_events()]: Scene.LEGACY_Events,
-    // TODO: Deprecate above with `collaborations-taxonomy` FF
-    [urls.events()]: Scene.Events,
-    [urls.taxonomy()]: Scene.Taxonomy,
-    [urls.taxonomyEvent()]: Scene.TaxonomyEvents,
-    [urls.taxonomyEventView(':id')]: Scene.TaxonomyEvents,
-    [urls.taxonomyCalculatedEvents()]: Scene.TaxonomyCalculatedEvents,
-    [urls.taxonomyCalculatedEventsEdit(':id')]: Scene.TaxonomyCalculatedEvents,
+    [urls.createAction()]: Scene.Action,
+    [urls.action(':id')]: Scene.Action,
     [urls.insightNew()]: Scene.Insight,
     [urls.insightEdit(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.insightView(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.savedInsights()]: Scene.SavedInsights,
     [urls.insightRouter(':shortId')]: Scene.InsightRouter,
+    [urls.actions()]: Scene.Actions,
+    [urls.eventStats()]: Scene.EventStats,
+    [urls.eventPropertyStats()]: Scene.EventPropertyStats,
+    [urls.events()]: Scene.Events,
+    [urls.apm()]: Scene.APM,
     [urls.sessionRecordings()]: Scene.SessionRecordings,
     [urls.person('*', false)]: Scene.Person,
     [urls.persons()]: Scene.Persons,

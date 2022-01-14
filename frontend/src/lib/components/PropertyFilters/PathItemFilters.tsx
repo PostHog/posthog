@@ -1,7 +1,7 @@
 import React, { CSSProperties, useEffect } from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
-import '../../../scenes/LEGACY_actions/Actions.scss'
+import '../../../scenes/actions/Actions.scss'
 import { AnyPropertyFilter } from '~/types'
 import { PathItemSelector } from './components/PathItemSelector'
 import { Button, Row } from 'antd'

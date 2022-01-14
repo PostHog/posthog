@@ -17,12 +17,10 @@ import { organizationLogic } from './organizationLogic'
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.InsightRouter]: Scene.Insight,
-    [Scene.LEGACY_Action]: Scene.LEGACY_Events,
-    [Scene.LEGACY_Actions]: Scene.LEGACY_Events,
-    [Scene.LEGACY_EventStats]: Scene.LEGACY_Events,
-    [Scene.LEGACY_EventPropertyStats]: Scene.LEGACY_Events,
-    [Scene.TaxonomyEvents]: Scene.Taxonomy,
-    [Scene.TaxonomyCalculatedEvents]: Scene.Taxonomy,
+    [Scene.Action]: Scene.Events,
+    [Scene.Actions]: Scene.Events,
+    [Scene.EventStats]: Scene.Events,
+    [Scene.EventPropertyStats]: Scene.Events,
     [Scene.Person]: Scene.Persons,
     [Scene.Groups]: Scene.Persons,
     [Scene.Group]: Scene.Persons,

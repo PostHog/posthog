@@ -2,7 +2,7 @@ import { Meta } from '@storybook/react'
 import { keaStory } from 'lib/storybook/kea-story'
 
 import eventsState from './events.json'
-import { EventsTable } from 'scenes/LEGACY_events'
+import { EventsTable } from 'scenes/events'
 
 export default {
     title: 'PostHog/Scenes/Events',
