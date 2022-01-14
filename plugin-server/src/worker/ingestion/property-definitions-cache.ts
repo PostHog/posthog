@@ -11,7 +11,10 @@ export const NULL_AFTER_PROPERTY_TYPE_DETECTION = Symbol('NULL_AFTER_PROPERTY_TY
 type PropertyDefinitionsCacheValue = PropertyType | typeof NULL_IN_DATABASE | typeof NULL_AFTER_PROPERTY_TYPE_DETECTION
 
 /**
- * The PropertyDefinitionsCache is used to reduce the load on Postgres when inserting property definitions during event ingestion
+ * During event ingestion the team manager attempts to auto-detect the property type and format for properties
+ *
+ * The PropertyDefinitionsCache is used to reduce the load on Postgres
+ * when inserting property definitions during event ingestion
  *
  * A property definition can be in one of several states
  *
@@ -64,9 +67,9 @@ export class PropertyDefinitionsCache {
         return !teamCache?.has(key) || teamCache?.get(key) === NULL_IN_DATABASE
     }
 
-    set(teamId: number, key: string, propertyType: null | PropertyType.Numeric | PropertyType.String): void {
+    set(teamId: number, key: string, detectedPropertyType: PropertyType | null): void {
         const teamCache = this.propertyDefinitionsCache.get(teamId)
-        teamCache?.set(key, propertyType || NULL_AFTER_PROPERTY_TYPE_DETECTION)
+        teamCache?.set(key, detectedPropertyType ?? NULL_AFTER_PROPERTY_TYPE_DETECTION)
 
         this.statsd?.gauge('propertyDefinitionsCache.length', teamCache?.length ?? 0, {
             team_id: teamId.toString(),
