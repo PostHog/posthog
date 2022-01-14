@@ -37,13 +37,14 @@ class Migration(AsyncMigrationDefinition):
             sql="CREATE TABLE test_async_migration ( key VARCHAR, value VARCHAR )",
             rollback="DROP TABLE test_async_migration",
         ),
+        AsyncMigrationOperation(fn=sec.side_effect, rollback_fn=sec.side_effect_rollback,),
         AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.POSTGRES,
             sql="INSERT INTO test_async_migration (key, value) VALUES ('a', 'b')",
             rollback="TRUNCATE TABLE test_async_migration",
         ),
-        AsyncMigrationOperation(fn=sec.side_effect, rollback_fn=sec.side_effect_rollback,),
         AsyncMigrationOperation.simple_op(database=AnalyticsDBMS.POSTGRES, sql="SELECT pg_sleep(1)", resumable=True),
+        AsyncMigrationOperation(fn=sec.side_effect, rollback_fn=sec.side_effect_rollback,),
         AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.POSTGRES,
             sql="UPDATE test_async_migration SET value='c' WHERE key='a'",

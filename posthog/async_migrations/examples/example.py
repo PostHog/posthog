@@ -15,6 +15,14 @@ ONE_DAY = 60 * 60 * 24
 TEMPORARY_TABLE_NAME = "person_distinct_id_async_migration"
 
 
+def example_fn(_):
+    pass
+
+
+def example_rollback_fn():
+    pass
+
+
 class Migration(AsyncMigrationDefinition):
 
     description = "An example async migration."
@@ -82,6 +90,7 @@ class Migration(AsyncMigrationDefinition):
             sql=PERSONS_DISTINCT_ID_TABLE_MV_SQL,
             rollback=f"DROP TABLE IF EXISTS person_distinct_id_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
         ),
+        AsyncMigrationOperation(fn=example_fn, rollback_fn=example_rollback_fn),
     ]
 
     def healthcheck(self):

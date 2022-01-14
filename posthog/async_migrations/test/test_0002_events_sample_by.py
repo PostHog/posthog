@@ -18,7 +18,7 @@ def execute_query(query: str) -> Any:
     return sync_execute(query)
 
 
-class Test0001EventsSampleBy(BaseTest):
+class Test0002EventsSampleBy(BaseTest):
 
     # This set up is necessary to mimic the state of the DB before the new default schema came into place
     def setUp(self):
@@ -100,4 +100,4 @@ class Test0001EventsSampleBy(BaseTest):
         self.assertEqual(sm.status, MigrationStatus.CompletedSuccessfully)
         self.assertEqual(sm.progress, 100)
         self.assertEqual(sm.last_error, "")
-        self.assertEqual(sm.current_operation_index, 7)
+        self.assertEqual(sm.current_operation_index, 10)

@@ -2,6 +2,7 @@ import pytest
 from infi.clickhouse_orm.utils import import_submodules
 
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
+from posthog.async_migrations.examples.example import example_fn, example_rollback_fn
 from posthog.async_migrations.setup import ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH
 from posthog.constants import AnalyticsDBMS
 from posthog.test.base import BaseTest
@@ -21,6 +22,6 @@ class TestAsyncMigrationDefinition(BaseTest):
         self.assertEqual(example_migration.description, "An example async migration.")
         self.assertEqual(example_migration.posthog_min_version, "1.29.0")
         self.assertEqual(example_migration.posthog_max_version, "1.30.0")
-        self.assertEqual(example_migration.operations[-1].sql, PERSONS_DISTINCT_ID_TABLE_MV_SQL)
-        self.assertEqual(example_migration.operations[-1].database, AnalyticsDBMS.CLICKHOUSE)
+        self.assertEqual(example_migration.operations[-1].fn, example_fn)
+        self.assertEqual(example_migration.operations[-1].rollback_fn, example_rollback_fn)
         self.assertTrue(isinstance(example_migration.service_version_requirements[0], ServiceVersionRequirement))

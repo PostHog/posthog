@@ -169,8 +169,9 @@ def attempt_migration_rollback(migration_instance: AsyncMigration, force: bool =
 
     try:
         ops = get_async_migration_definition(migration_instance.name).operations
-
-        for op_index in range(migration_instance.current_operation_index, -1, -1):
+        # if the migration was completed the index is set 1 after, normally we should try rollback for current op
+        current_index = min(migration_instance.current_operation_index, len(ops) - 1)
+        for op_index in range(current_index, -1, -1):
             op = ops[op_index]
             execute_op(op, str(UUIDT()), rollback=True)
     except Exception as e:
