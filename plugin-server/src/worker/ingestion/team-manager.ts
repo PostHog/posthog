@@ -337,7 +337,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
             this.propertyDefinitionsCache.set(
                 teamId,
                 eventProperties.rows.reduce((teamCache, row) => {
-                    teamCache[row.name] = row.property_type ?? 'not_set'
+                    teamCache[row.name] = row.property_type ?? NULL_IN_DATABASE
                     return teamCache
                 }, new Map())
             )
