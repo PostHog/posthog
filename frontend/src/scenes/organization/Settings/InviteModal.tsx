@@ -62,6 +62,7 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
                         }
                     }}
                     autoFocus={index === 0}
+                    data-attr="invite-email-input"
                 />
             </Col>
             <Col xs={isDeletable ? 11 : 12}>
@@ -107,7 +108,12 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
             onOk={inviteTeamMembers}
             okText={validInvitesCount ? `Invite ${pluralize(validInvitesCount, 'team member')}` : 'Invite team members'}
             destroyOnClose
-            okButtonProps={{ disabled: !canSubmit, loading }}
+            okButtonProps={{
+                disabled: !canSubmit,
+                loading,
+                // @ts-expect-error - data-attr works just fine despite not being in ButtonProps
+                'data-attr': 'invite-team-member-submit',
+            }}
             cancelButtonProps={{ disabled: loading }}
             closable={!loading}
         >
