@@ -44,7 +44,6 @@ export const scene: SceneExport = {
 export function Experiment(): JSX.Element {
     const {
         newExperimentData,
-        experimentId,
         experimentData,
         experimentInsightId,
         minimumSampleSizePerVariant,
@@ -58,6 +57,7 @@ export function Experiment(): JSX.Element {
         experimentResultsLoading,
         areCountResultsSignificant,
         areConversionResultsSignificant,
+        experimentId,
     } = useValues(experimentLogic)
     const {
         setNewExperimentData,
@@ -531,7 +531,18 @@ export function Experiment(): JSX.Element {
                                                     <b>{capitalizeFirstLetter(variant)}</b>
                                                 </div>
                                                 {experimentInsightType === InsightType.TRENDS && (
-                                                    <div>Count {countDataForVariant(variant)}</div>
+                                                    <Row>
+                                                        <b style={{ paddingRight: 4 }}>Count:</b>{' '}
+                                                        {countDataForVariant(variant)}{' '}
+                                                        {'action' in experimentResults.insight[0] && (
+                                                            <Row style={{ paddingLeft: 4 }}>
+                                                                <EntityFilterInfo
+                                                                    filter={experimentResults.insight[0].action}
+                                                                />
+                                                                s
+                                                            </Row>
+                                                        )}
+                                                    </Row>
                                                 )}
                                                 <Progress
                                                     percent={Number(
@@ -651,13 +662,13 @@ export function ExperimentPreview({
     runningTime,
     sampleSizePerVariant,
 }: ExperimentPreviewProps): JSX.Element {
-    const { experimentInsightType, experimentData } = useValues(experimentLogic)
+    const { experimentInsightType, experimentData, experimentId } = useValues(experimentLogic)
     const [currentVariant, setCurrentVariant] = useState('control')
 
     return (
         <Card className="experiment-preview">
             <Row>
-                <Col span={12}>
+                <Col span={experimentId === 'new' ? 24 : 12}>
                     <Row className="experiment-preview-row">
                         <Col>
                             <div className="card-secondary mb-05">Preview</div>
@@ -783,50 +794,54 @@ export function ExperimentPreview({
                         </Row>
                     )}
                 </Col>
-                <Col span={12} className="pl">
-                    <div className="card-secondary mb">Feature flag usage and implementation</div>
-                    <Row justify="space-between" className="mb-05">
-                        <div>
-                            <span className="mr-05">Variant group</span>
-                            <Select
-                                onChange={setCurrentVariant}
-                                defaultValue={'control'}
-                                suffixIcon={<CaretDownOutlined />}
-                            >
-                                {experiment?.parameters?.feature_flag_variants?.map(
-                                    (variant: MultivariateFlagVariant, idx: number) => (
-                                        <Select.Option key={idx} value={variant.key}>
-                                            {variant.key}
-                                        </Select.Option>
-                                    )
-                                )}
-                            </Select>
-                        </div>
-                        <div>
-                            <CodeLanguageSelect />
-                        </div>
-                    </Row>
-                    <b>Implement your experiment in code</b>
-                    <CodeSnippet language={Language.JavaScript} wrap>
-                        {`if (posthog.getFeatureFlag('${experiment?.feature_flag_key ?? ''}') === '${currentVariant}') {
+                {experimentId !== 'new' && (
+                    <Col span={12} className="pl">
+                        <div className="card-secondary mb">Feature flag usage and implementation</div>
+                        <Row justify="space-between" className="mb-05">
+                            <div>
+                                <span className="mr-05">Variant group</span>
+                                <Select
+                                    onChange={setCurrentVariant}
+                                    defaultValue={'control'}
+                                    suffixIcon={<CaretDownOutlined />}
+                                >
+                                    {experiment?.parameters?.feature_flag_variants?.map(
+                                        (variant: MultivariateFlagVariant, idx: number) => (
+                                            <Select.Option key={idx} value={variant.key}>
+                                                {variant.key}
+                                            </Select.Option>
+                                        )
+                                    )}
+                                </Select>
+                            </div>
+                            <div>
+                                <CodeLanguageSelect />
+                            </div>
+                        </Row>
+                        <b>Implement your experiment in code</b>
+                        <CodeSnippet language={Language.JavaScript} wrap>
+                            {`if (posthog.getFeatureFlag('${
+                                experiment?.feature_flag_key ?? ''
+                            }') === '${currentVariant}') {
     // where '${currentVariant}' is the variant, run your code here
 }`}
-                    </CodeSnippet>
-                    <b>Test that it works</b>
-                    <CodeSnippet language={Language.JavaScript}>
-                        {`posthog.feature_flags.override({'${experiment?.feature_flag_key}': '${currentVariant}'})`}
-                    </CodeSnippet>
-                    <a
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        href="https://posthog.com/docs/user-guides/feature-flags"
-                    >
-                        <Row align="middle">
-                            Experiment implementation guide
-                            <IconOpenInNew className="ml-05" />
-                        </Row>
-                    </a>
-                </Col>
+                        </CodeSnippet>
+                        <b>Test that it works</b>
+                        <CodeSnippet language={Language.JavaScript}>
+                            {`posthog.feature_flags.override({'${experiment?.feature_flag_key}': '${currentVariant}'})`}
+                        </CodeSnippet>
+                        <a
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            href="https://posthog.com/docs/user-guides/feature-flags"
+                        >
+                            <Row align="middle">
+                                Experiment implementation guide
+                                <IconOpenInNew className="ml-05" />
+                            </Row>
+                        </a>
+                    </Col>
+                )}
             </Row>
         </Card>
     )
