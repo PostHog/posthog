@@ -26,7 +26,7 @@ class AsyncMigrationOperation:
     def __init__(
         self, fn: Callable[[str], None], rollback_fn: Callable[[str], None] = lambda _: None, resumable=False,
     ):
-        fn = fn
+        self.fn = fn
         # if the operation is dynamic and knows how to restart correctly after a crash
         # Example:
         #   - Not resumable: `INSERT INTO table1 (col1) SELECT col1 FROM table2`
