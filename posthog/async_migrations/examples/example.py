@@ -15,11 +15,11 @@ ONE_DAY = 60 * 60 * 24
 TEMPORARY_TABLE_NAME = "person_distinct_id_async_migration"
 
 
-def example_fn(_):
+def example_fn(uuid: str):
     pass
 
 
-def example_rollback_fn():
+def example_rollback_fn(uuid: str):
     pass
 
 

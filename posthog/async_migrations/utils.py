@@ -11,11 +11,11 @@ from posthog.constants import AnalyticsDBMS
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
 
 
-def execute_op(op: AsyncMigrationOperation, id_: str, rollback: bool = False):
+def execute_op(op: AsyncMigrationOperation, uuid: str, rollback: bool = False):
     """
     Execute the fn or rollback_fn
     """
-    op.rollback_fn(id_) if rollback else op.fn(id_)
+    op.rollback_fn(uuid) if rollback else op.fn(uuid)
 
 
 def execute_op_clickhouse(sql: str, query_id: str, timeout_seconds: int):

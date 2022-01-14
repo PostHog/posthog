@@ -2,7 +2,6 @@ import pytest
 from infi.clickhouse_orm.utils import import_submodules
 
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
-from posthog.async_migrations.examples.example import example_fn, example_rollback_fn
 from posthog.async_migrations.setup import ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH
 from posthog.constants import AnalyticsDBMS
 from posthog.test.base import BaseTest
@@ -13,6 +12,7 @@ class TestAsyncMigrationDefinition(BaseTest):
     @pytest.mark.ee
     def test_get_async_migration_definition(self):
         from ee.clickhouse.sql.person import PERSONS_DISTINCT_ID_TABLE_MV_SQL
+        from posthog.async_migrations.examples.example import example_fn, example_rollback_fn
 
         modules = import_submodules(ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH)
         example_migration = modules["example"].Migration()
