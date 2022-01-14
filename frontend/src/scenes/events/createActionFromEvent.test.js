@@ -53,7 +53,7 @@ describe('createActionFromEvent()', () => {
         it('directs to the action page and shows toast', async () => {
             await given.subject()
 
-            expect(router.actions.push).toHaveBeenCalledWith('/taxonomy/calculated_events/456')
+            expect(router.actions.push).toHaveBeenCalledWith('/action/456')
             expect(toast.mock.calls).toMatchSnapshot()
         })
 

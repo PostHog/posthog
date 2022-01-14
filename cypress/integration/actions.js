@@ -16,7 +16,7 @@ const createAction = (actionName) => {
 }
 
 function navigateToActionsTab() {
-    cy.clickNavMenu('legacy_events')
+    cy.clickNavMenu('events')
     cy.get('[data-attr=events-actions-tab]').click()
 }
 

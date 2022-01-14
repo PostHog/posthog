@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Row, Tabs, Col, Card, Skeleton, Tag, Dropdown, Menu, Button, Popconfirm } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
-import { EventsTable } from 'scenes/LEGACY_events'
+import { EventsTable } from 'scenes/events'
 import { SessionRecordingsTable } from 'scenes/session-recordings/SessionRecordingsTable'
 import { useActions, useValues, BindLogic } from 'kea'
 import { PersonLogicProps, personsLogic } from './personsLogic'

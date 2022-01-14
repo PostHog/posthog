@@ -3,9 +3,10 @@ import './index.scss'
 import React, { useState } from 'react'
 import { Button, Col, Divider, Input, Row } from 'antd'
 import { useActions } from 'kea'
-import { AsyncMigrationsSetting, asyncMigrationsLogic } from './asyncMigrationsLogic'
+import { asyncMigrationsLogic } from './asyncMigrationsLogic'
+import { InstanceSetting } from '~/types'
 
-export function SettingUpdateField({ setting }: { setting: AsyncMigrationsSetting }): JSX.Element {
+export function SettingUpdateField({ setting }: { setting: InstanceSetting }): JSX.Element {
     const { updateSetting } = useActions(asyncMigrationsLogic)
 
     const [inputValue, setInputValue] = useState<string>(String(setting.value))

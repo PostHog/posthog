@@ -52,6 +52,14 @@ def process_error(migration_instance: AsyncMigration, error: Optional[str]):
     attempt_migration_rollback(migration_instance)
 
 
+def can_resume_migration(migration_instance: AsyncMigration):
+    from posthog.async_migrations.runner import is_current_operation_resumable
+
+    if not is_current_operation_resumable(migration_instance):
+        return False, "Can't resume a migration because the current operation isn't resumable"
+    return True, ""
+
+
 def trigger_migration(migration_instance: AsyncMigration, fresh_start: bool = True):
     from posthog.tasks.async_migrations import run_async_migration
 
