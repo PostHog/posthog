@@ -20,6 +20,7 @@ export const urls = {
     insightView: (id: InsightShortId, filters?: Partial<FilterType>) =>
         `/insights/${id}${filters ? combineUrl('', filters).search : ''}`,
     savedInsights: () => '/insights',
+    apm: () => '/apm/waterfall',
     sessionRecordings: () => '/recordings',
     person: (id: string, encode: boolean = true) => (encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`),
     persons: () => '/persons',
