@@ -757,30 +757,6 @@ export interface EventDefinitionType {
     created_at: string // DateTime
 }
 
-export enum UnixTimestampPropertyTypeFormat {
-    UNIX_TIMESTAMP = 'unix_timestamp',
-    UNIX_TIMESTAMP_MILLISECONDS = 'unix_timestamp_milliseconds',
-}
-
-export enum DateTimePropertyTypeFormat {
-    ISO8601_DATE = 'YYYY-MM-DDThh:mm:ssZ',
-    FULL_DATE = 'YYYY-MM-DD hh:mm:ss',
-    FULL_DATE_INCREASING = 'DD-MM-YYYY hh:mm:ss',
-    DATE = 'YYYY-MM-DD',
-    RFC_822 = 'rfc_822',
-    WITH_SLASHES = 'YYYY/MM/DD hh:mm:ss',
-    WITH_SLASHES_INCREASING = 'DD/MM/YYYY hh:mm:ss',
-}
-
-export type PropertyTypeFormat = DateTimePropertyTypeFormat | UnixTimestampPropertyTypeFormat
-
-export enum PropertyType {
-    DateTime = 'DateTime',
-    String = 'String',
-    Numeric = 'Numeric',
-    Boolean = 'Boolean',
-}
-
 export interface PropertyDefinitionType {
     id: string
     name: string
@@ -788,8 +764,6 @@ export interface PropertyDefinitionType {
     volume_30_day: number | null
     query_usage_30_day: number | null
     team_id: number
-    property_type?: PropertyType
-    property_type_format?: PropertyTypeFormat
 }
 
 export interface EventPropertyType {

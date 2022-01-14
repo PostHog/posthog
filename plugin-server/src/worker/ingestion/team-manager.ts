@@ -10,8 +10,6 @@ import { timeoutGuard } from '../../utils/db/utils'
 import { posthog } from '../../utils/posthog'
 import { status } from '../../utils/status'
 import { getByAge, UUIDT } from '../../utils/utils'
-import { detectPropertyDefinitionTypes } from './property-definitions-auto-discovery'
-import { PropertyDefinitionsCache } from './property-definitions-cache'
 
 type TeamCache<T> = Map<TeamId, [T, number]>
 
@@ -21,30 +19,28 @@ export class TeamManager {
     eventDefinitionsCache: Map<TeamId, Set<string>>
     eventPropertiesCache: LRU<string, Set<string>> // Map<JSON.stringify([TeamId, Event], Set<Property>>
     eventLastSeenCache: LRU<string, number> // key: JSON.stringify([team_id, event]); value: parseInt(YYYYMMDD)
-    propertyDefinitionsCache: PropertyDefinitionsCache
+    propertyDefinitionsCache: Map<TeamId, Set<string>>
     instanceSiteUrl: string
     experimentalLastSeenAtEnabled: boolean
     experimentalEventPropertyTrackerEnabled: boolean
     statsd?: StatsD
-    private readonly lruCacheSize: number
 
     constructor(db: DB, serverConfig: PluginsServerConfig, statsd?: StatsD) {
         this.db = db
         this.statsd = statsd
         this.teamCache = new Map()
         this.eventDefinitionsCache = new Map()
-        this.lruCacheSize = serverConfig.EVENT_PROPERTY_LRU_SIZE
         this.eventPropertiesCache = new LRU({
-            max: this.lruCacheSize, // keep in memory the last 10k team+event combos we have seen
+            max: serverConfig.EVENT_PROPERTY_LRU_SIZE, // keep in memory the last 10k team+event combos we have seen
             maxAge: ONE_HOUR * 24, // cache up to 24h
             updateAgeOnGet: true,
         })
         this.eventLastSeenCache = new LRU({
-            max: this.lruCacheSize, // keep in memory the last 10k team+event combos we have seen
+            max: serverConfig.EVENT_PROPERTY_LRU_SIZE, // keep in memory the last 10k team+event combos we have seen
             maxAge: ONE_HOUR * 24, // cache up to 24h
             updateAgeOnGet: true,
         })
-        this.propertyDefinitionsCache = new PropertyDefinitionsCache(serverConfig, statsd)
+        this.propertyDefinitionsCache = new Map()
         this.instanceSiteUrl = serverConfig.SITE_URL || 'unknown'
 
         // TODO: #7422 Remove temporary EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED
@@ -107,16 +103,18 @@ export class TeamManager {
                 status.info('Inserting new event definition with last_seen_at')
                 this.eventLastSeenCache.set(cacheKey, cacheTime)
                 await this.db.postgresQuery(
-                    `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, last_seen_at, created_at)
-VALUES ($1, $2, NULL, NULL, $3, $4, NOW()) ON CONFLICT
-ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET last_seen_at=$4`,
+                    `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, last_seen_at, created_at)` +
+                        ` VALUES ($1, $2, NULL, NULL, $3, $4, NOW())` +
+                        ` ON CONFLICT ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq` +
+                        ` DO UPDATE SET last_seen_at=$4`,
                     [new UUIDT().toString(), event, team.id, DateTime.now()],
                     'insertEventDefinition'
                 )
             } else {
                 await this.db.postgresQuery(
-                    `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, created_at)
-VALUES ($1, $2, NULL, NULL, $3, NOW()) ON CONFLICT DO NOTHING`,
+                    `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, created_at)` +
+                        ` VALUES ($1, $2, NULL, NULL, $3, NOW())` +
+                        ` ON CONFLICT DO NOTHING`,
                     [new UUIDT().toString(), event, team.id],
                     'insertEventDefinition'
                 )
@@ -128,7 +126,7 @@ VALUES ($1, $2, NULL, NULL, $3, NOW()) ON CONFLICT DO NOTHING`,
                 if ((this.eventLastSeenCache.get(cacheKey) ?? 0) < cacheTime) {
                     this.eventLastSeenCache.set(cacheKey, cacheTime)
                     await this.db.postgresQuery(
-                        `UPDATE posthog_eventdefinition SET last_seen_at=$1 WHERE team_id=$2 AND name=$3`,
+                        `UPDATE posthog_eventdefinition SET last_seen_at=$1 WHERE team_id=$2 and name=$3`,
                         [DateTime.now(), team.id, event],
                         'updateEventLastSeenAt'
                     )
@@ -161,21 +159,13 @@ VALUES ($1, $2, NULL, NULL, $3, NOW()) ON CONFLICT DO NOTHING`,
 
     private async syncPropertyDefinitions(properties: Properties, team: Team) {
         for (const [key, value] of Object.entries(properties)) {
-            if (this.propertyDefinitionsCache.shouldUpdate(team.id, key)) {
-                const isNumerical = typeof value === 'number'
-                const { propertyType, propertyTypeFormat } = detectPropertyDefinitionTypes(value, key)
-
+            if (!this.propertyDefinitionsCache.get(team.id)?.has(key)) {
                 await this.db.postgresQuery(
-                    `
-INSERT INTO posthog_propertydefinition
-(id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type, property_type_format)
-VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6)
-ON CONFLICT ON CONSTRAINT posthog_propertydefinition_team_id_name_e21599fc_uniq
-DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertydefinition.property_type IS NULL`,
-                    [new UUIDT().toString(), key, isNumerical, team.id, propertyType, propertyTypeFormat],
+                    `INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id) VALUES ($1, $2, $3, NULL, NULL, $4) ON CONFLICT DO NOTHING`,
+                    [new UUIDT().toString(), key, typeof value === 'number', team.id],
                     'insertPropertyDefinition'
                 )
-                this.propertyDefinitionsCache.set(team.id, key, propertyType)
+                this.propertyDefinitionsCache.get(team.id)?.add(key)
             }
         }
     }
@@ -224,14 +214,15 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
             this.eventDefinitionsCache.set(teamId, eventDefinitionsCache)
         }
 
-        if (!this.propertyDefinitionsCache.has(teamId)) {
+        let propertyDefinitionsCache = this.propertyDefinitionsCache.get(teamId)
+        if (!propertyDefinitionsCache) {
             const eventProperties = await this.db.postgresQuery(
-                'SELECT name, property_type FROM posthog_propertydefinition WHERE team_id = $1',
+                'SELECT name FROM posthog_propertydefinition WHERE team_id = $1',
                 [teamId],
                 'fetchPropertyDefinitions'
             )
-
-            this.propertyDefinitionsCache.initialize(teamId, eventProperties.rows)
+            propertyDefinitionsCache = new Set(eventProperties.rows.map((r) => r.name))
+            this.propertyDefinitionsCache.set(teamId, propertyDefinitionsCache)
         }
 
         // Run only if the feature is enabled for this team
@@ -250,7 +241,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                 // All-in-all, not the end of the world, but a slight nuisance.
 
                 const eventProperties = await this.db.postgresQuery(
-                    'SELECT property FROM posthog_eventproperty WHERE team_id = $1 AND event = $2',
+                    'SELECT property FROM posthog_eventproperty WHERE team_id = $1 and event = $2',
                     [teamId, event],
                     'fetchEventProperties'
                 )

@@ -35,7 +35,6 @@ from posthog.models.event import Selector
 from posthog.models.property import (
     NEGATED_OPERATORS,
     UNIX_TIMESTAMP,
-    UNIX_TIMESTAMP_MILLISECONDS,
     OperatorType,
     Property,
     PropertyIdentifier,
@@ -246,11 +245,8 @@ def prop_filter_json_extract(
         if (
             prop.property_definition is not None
             and prop.property_definition.format is not None
-            and prop.property_definition.format in [UNIX_TIMESTAMP, UNIX_TIMESTAMP_MILLISECONDS]
+            and prop.property_definition.format == UNIX_TIMESTAMP
         ):
-            # ClickHouse can only parse 9 or 10 digit unix timestamps.
-            # So we drop the fractional seconds from millisecond timestamps
-            # or from after decimal place in seconds timestamps
             query = f"AND parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10)) > %({prop_value_param_key})s"
 
         return (
@@ -265,11 +261,8 @@ def prop_filter_json_extract(
         if (
             prop.property_definition is not None
             and prop.property_definition.format is not None
-            and prop.property_definition.format in [UNIX_TIMESTAMP, UNIX_TIMESTAMP_MILLISECONDS]
+            and prop.property_definition.format == UNIX_TIMESTAMP
         ):
-            # ClickHouse can only parse 9 or 10 digit unix timestamps.
-            # So we drop the fractional seconds from millisecond timestamps
-            # or from after decimal place in seconds timestamps
             query = f"AND parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10)) < %({prop_value_param_key})s"
 
         return (
