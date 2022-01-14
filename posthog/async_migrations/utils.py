@@ -52,7 +52,7 @@ def process_error(migration_instance: AsyncMigration, error: Optional[str]):
     attempt_migration_rollback(migration_instance)
 
 
-def is_migration_resumable(migration_instance: AsyncMigration):
+def can_resume_migration(migration_instance: AsyncMigration):
     from posthog.async_migrations.runner import is_current_operation_resumable
 
     if not is_current_operation_resumable(migration_instance):

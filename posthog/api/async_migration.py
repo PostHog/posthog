@@ -4,8 +4,8 @@ from rest_framework.decorators import action
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.async_migrations.runner import MAX_CONCURRENT_ASYNC_MIGRATIONS, is_posthog_version_compatible
 from posthog.async_migrations.utils import (
+    can_resume_migration,
     force_stop_migration,
-    is_migration_resumable,
     rollback_migration,
     trigger_migration,
 )
@@ -90,7 +90,7 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
             return response.Response(
                 {"success": False, "error": "Can't resume a migration that isn't in errored state",}, status=400,
             )
-        resumable, error = is_migration_resumable(migration_instance)
+        resumable, error = can_resume_migration(migration_instance)
         if not resumable:
             return response.Response({"success": False, "error": error,}, status=400,)
         trigger_migration(migration_instance, fresh_start=False)
