@@ -210,15 +210,15 @@ export class TeamManager {
                 this.eventLastSeenCache.set(cacheKey, cacheTime)
                 await this.db.postgresQuery(
                     `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, last_seen_at, created_at)
-                     VALUES ($1, $2, NULL, NULL, $3, $4, NOW()) ON CONFLICT
-                     ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET last_seen_at=$4`,
+VALUES ($1, $2, NULL, NULL, $3, $4, NOW()) ON CONFLICT
+ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET last_seen_at=$4`,
                     [new UUIDT().toString(), event, team.id, DateTime.now()],
                     'insertEventDefinition'
                 )
             } else {
                 await this.db.postgresQuery(
                     `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, created_at)
-                     VALUES ($1, $2, NULL, NULL, $3, NOW()) ON CONFLICT DO NOTHING`,
+VALUES ($1, $2, NULL, NULL, $3, NOW()) ON CONFLICT DO NOTHING`,
                     [new UUIDT().toString(), event, team.id],
                     'insertEventDefinition'
                 )
