@@ -55,10 +55,12 @@ KNOWN_PROPERTY_FORMATS = Literal[
     "YYYY-MM-DD",
 ]
 
+PROPERTY_TYPES = Literal["DateTime", "String", "Numeric", "Boolean"]
+
 
 @dataclasses.dataclass(frozen=True)
 class PropertyDefinition:
-    dataType: Literal["DateTime", "String", "Numeric", "Boolean"]
+    dataType: PROPERTY_TYPES
     format: Optional[KNOWN_PROPERTY_FORMATS]
 
     def to_dict(self):
@@ -81,7 +83,7 @@ class Property:
         type: Optional[PropertyType] = None,
         # Only set for `type` == `group`
         group_type_index: Optional[int] = None,
-        property_type: Optional[Literal["DateTime"]] = None,
+        property_type: Optional[PROPERTY_TYPES] = None,
         property_type_format: Optional[KNOWN_PROPERTY_FORMATS] = None,
         **kwargs,
     ) -> None:
