@@ -14,7 +14,7 @@ import {
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { getAppContext } from 'lib/utils/getAppContext'
+import { isUserLoggedIn } from 'lib/utils'
 
 export type TabName = 'overview' | 'internal_metrics'
 
@@ -32,7 +32,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<TabName>>({
             null as SystemStatus | null,
             {
                 loadSystemStatus: async () => {
-                    if (getAppContext()?.anonymous) {
+                    if (!isUserLoggedIn()) {
                         // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
                         return null
                     }

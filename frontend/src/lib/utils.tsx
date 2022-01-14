@@ -23,6 +23,7 @@ import { DashboardEventSource } from './utils/eventUsageLogic'
 import { helpButtonLogic } from './components/HelpButton/HelpButton'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from './components/Spinner/Spinner'
+import { getAppContext } from './utils/getAppContext'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -1272,3 +1273,5 @@ export function getEventNamesForAction(actionId: string | number, allActions: Ac
         .filter((a) => a.id === id)
         .flatMap((a) => a.steps?.filter((step) => step.event).map((step) => String(step.event)) as string[])
 }
+
+export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous
