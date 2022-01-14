@@ -76,7 +76,6 @@ export function PropertyValue({
     const [input, setInput] = useState(isMultiSelect ? '' : toString(value))
     const [shouldBlur, setShouldBlur] = useState(false)
     const [options, setOptions] = useState({} as Record<string, Option>)
-    const [loading, setLoading] = useState(false)
     const autoCompleteRef = useRef<HTMLElement>(null)
 
     const { formatForDisplay } = useValues(propertyDefinitionsModel)
@@ -98,16 +97,15 @@ export function PropertyValue({
             return
         }
         const key = propertyKey.split('__')[0]
-        setOptions({ ...options, [propertyKey]: { ...options[propertyKey] } })
-        setLoading(true)
+        setOptions({ ...options, [propertyKey]: { ...options[propertyKey], status: 'loading' } })
         if (outerOptions) {
             setOptions({
                 ...options,
                 [propertyKey]: {
                     values: [...Array.from(new Set(outerOptions))],
+                    status: 'loaded',
                 },
             })
-            setLoading(false)
         } else {
             api.get(endpoint || 'api/' + type + '/values/?key=' + key + (newInput ? '&value=' + newInput : '')).then(
                 (propValues: PropValue[]) => {
@@ -115,9 +113,9 @@ export function PropertyValue({
                         ...options,
                         [propertyKey]: {
                             values: [...Array.from(new Set(propValues))],
+                            status: 'loaded',
                         },
                     })
-                    setLoading(false)
                 }
             )
         }
@@ -197,7 +195,7 @@ export function PropertyValue({
         <>
             {isMultiSelect ? (
                 <SelectGradientOverflow
-                    loading={loading}
+                    loading={options[propertyKey]?.status === 'loading'}
                     propertyKey={propertyKey}
                     {...commonInputProps}
                     autoFocus={autoFocus}
