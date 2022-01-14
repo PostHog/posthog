@@ -170,4 +170,4 @@ def update_async_migration(
 
 
 def async_migrations_emails_enabled():
-    return is_email_available() and getattr(config, "ASYNC_MIGRATIONS_OPT_OUT_EMAILS")
+    return is_email_available() and not getattr(config, "ASYNC_MIGRATIONS_OPT_OUT_EMAILS")
