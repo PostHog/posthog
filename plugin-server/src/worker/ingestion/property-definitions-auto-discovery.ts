@@ -22,7 +22,10 @@ export const dateTimePropertyTypeFormatPatterns: Record<keyof typeof DateTimePro
         /^((mon|tue|wed|thu|fri|sat|sun), )?\d{2} (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec) \d{4} \d{2}:\d{2}:\d{2}( [+|-]\d{4})?$/i,
 }
 
-export function detectPropertyDefinitionTypes(value: unknown, key: string) {
+export function detectPropertyDefinitionTypes(
+    value: unknown,
+    key: string
+): { propertyType: PropertyType | null; propertyTypeFormat: PropertyTypeFormat | null } {
     let propertyType: PropertyType | null = null
     let propertyTypeFormat: PropertyTypeFormat | null = null
 
