@@ -18,12 +18,12 @@ import { onboardingSetupLogic } from './onboardingSetupLogic'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { Link } from 'lib/components/Link'
 import { IconOpenInNew } from 'lib/components/icons'
-import { BulkInviteModal } from 'scenes/organization/Settings/BulkInviteModal'
 import { LinkButton } from 'lib/components/LinkButton'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 
 const { Panel } = Collapse
 
@@ -123,13 +123,13 @@ export function OnboardingSetup(): JSX.Element {
         projectModalShown,
         stepVerification,
         currentSection,
-        inviteTeamModalShown,
         teamInviteAvailable,
         progressPercentage,
         slackCalled,
     } = useValues(onboardingSetupLogic)
-    const { switchToNonDemoProject, setProjectModalShown, setInviteTeamModalShown, completeOnboarding, callSlack } =
+    const { switchToNonDemoProject, setProjectModalShown, completeOnboarding, callSlack } =
         useActions(onboardingSetupLogic)
+    const { showInviteModal } = useActions(inviteLogic)
 
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -265,7 +265,7 @@ export function OnboardingSetup(): JSX.Element {
                                         title="Invite your team members"
                                         icon={<UsergroupAddOutlined />}
                                         identifier="invite-team"
-                                        handleClick={() => setInviteTeamModalShown(true)}
+                                        handleClick={showInviteModal}
                                         caption="Spread the knowledge, share insights with everyone in your team."
                                         customActionElement={
                                             <Button type="primary" icon={<PlusOutlined />}>
@@ -297,7 +297,7 @@ export function OnboardingSetup(): JSX.Element {
                                     Enter a <b>name</b> for your first project
                                 </div>
                                 <div className="text-muted">
-                                    It’s helpful to separate your different apps in multiple projects. Read more about
+                                    It's helpful to separate your different apps in multiple projects. Read more about
                                     our recommendations and{' '}
                                     <Link
                                         to={`https://posthog.com/docs/features/organizations?${UTM_TAGS}`}
@@ -310,7 +310,6 @@ export function OnboardingSetup(): JSX.Element {
                             </div>
                         }
                     />
-                    <BulkInviteModal visible={inviteTeamModalShown} onClose={() => setInviteTeamModalShown(false)} />
                 </>
             ) : (
                 <div className="already-completed">
@@ -321,7 +320,6 @@ export function OnboardingSetup(): JSX.Element {
                         <Link
                             to={`https://posthog.com/docs?${UTM_TAGS}&utm_message=onboarding-completed`}
                             target="_blank"
-                            rel="noopener"
                         >
                             our docs <IconOpenInNew />
                         </Link>

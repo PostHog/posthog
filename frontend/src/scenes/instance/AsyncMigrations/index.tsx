@@ -10,7 +10,6 @@ import {
     migrationStatusNumberToMessage,
     asyncMigrationsLogic,
     AsyncMigrationsTab,
-    AsyncMigrationsSetting,
 } from './asyncMigrationsLogic'
 import {
     PlayCircleOutlined,
@@ -237,7 +236,7 @@ export function AsyncMigrations(): JSX.Element {
                     ) : activeTab === AsyncMigrationsTab.Settings ? (
                         <>
                             <br />
-                            {asyncMigrationSettings.map((setting: AsyncMigrationsSetting) => {
+                            {asyncMigrationSettings.map((setting) => {
                                 return (
                                     <div key={setting.key}>
                                         <SettingUpdateField setting={setting} />

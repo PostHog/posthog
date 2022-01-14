@@ -13,6 +13,34 @@
     border: none;
     font-size: 0.875rem;
     text-align: left;
+    &.LemonRow--status-highlighted {
+        background: rgba($primary, 0.1);
+        color: var(--text-default);
+        font-weight: 600;
+        .LemonRow__icon {
+            color: var(--primary);
+        }
+    }
+
+    &.LemonRow--status-danger {
+        font-weight: 600;
+        color: var(--danger);
+        .LemonRow__icon {
+            color: var(--danger);
+        }
+    }
+
+    &.LemonRow--status-warning {
+        .LemonRow__icon {
+            color: var(--warning);
+        }
+    }
+
+    &.LemonRow--status-success {
+        .LemonRow__icon {
+            color: var(--success);
+        }
+    }
 }
 
 .LemonRow__main-area {
@@ -27,35 +55,6 @@
     margin-top: -0.3333rem;
     margin-bottom: 0.5rem;
     margin-left: 2.5rem;
-}
-
-.LemonRow--status-highlighted {
-    background: rgba($primary, 0.1);
-    color: var(--text-default);
-    font-weight: 600;
-    .LemonRow__icon {
-        color: var(--primary);
-    }
-}
-
-.LemonRow--status-danger {
-    font-weight: 600;
-    color: var(--danger);
-    .LemonRow__icon {
-        color: var(--danger);
-    }
-}
-
-.LemonRow--status-warning {
-    .LemonRow__icon {
-        color: var(--warning);
-    }
-}
-
-.LemonRow--status-success {
-    .LemonRow__icon {
-        color: var(--success);
-    }
 }
 
 .LemonRow--full-width {
