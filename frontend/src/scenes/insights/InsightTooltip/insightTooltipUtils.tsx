@@ -43,6 +43,7 @@ export interface InsightTooltipProps extends TooltipConfig {
     seriesData?: SeriesDatum[]
     hideColorCol?: boolean
     forceEntitiesAsColumns?: boolean
+    groupTypeLabel?: string
 }
 
 export const COL_CUTOFF = 4
