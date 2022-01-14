@@ -523,13 +523,15 @@ def test_events(db, team) -> List[UUID]:
             event="$pageview",
             team=team,
             distinct_id="whatever",
-            properties={"unix_timestamp": datetime(2021, 4, 1, 18).timestamp()},
+            # unix timestamp in seconds
+            properties={"unix_timestamp": int(datetime(2021, 4, 1, 18).timestamp())},
         ),
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
-            properties={"unix_timestamp": datetime(2021, 4, 1, 19).timestamp()},
+            # unix timestamp in seconds
+            properties={"unix_timestamp": int(datetime(2021, 4, 1, 19).timestamp())},
         ),
         _create_event(
             event="$pageview",
@@ -555,34 +557,86 @@ def test_events(db, team) -> List[UUID]:
             distinct_id="whatever",
             properties={"short_date": f"{datetime(2021, 4, 6):%Y-%m-%d}"},
         ),
+        # unix timestamp in seconds with fractions of a second
         _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"sdk_$time": 1639427152.339},),
+        # unix timestamp in milliseconds
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"unix_timestamp_milliseconds": 1641977394339},
+        ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"rfc_822_time": "Wed, 02 Oct 2002 15:00:00 +0200"},
+        ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"iso_8601_$time": f"{datetime(2021, 4, 1, 19):%Y-%m-%dT%H:%M:%S%Z}"},
+        ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"full_date_increasing_$time": f"{datetime(2021, 4, 1, 19):%d-%m-%Y %H:%M:%S}"},
+        ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"with_slashes_$time": f"{datetime(2021, 4, 1, 19):%Y/%m/%d %H:%M:%S}"},
+        ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"with_slashes_increasing_$time": f"{datetime(2021, 4, 1, 19):%d/%m/%Y %H:%M:%S}"},
+        ),
     ]
 
 
 TEST_PROPERTIES = [
-    (Property(key="email", value="test@posthog.com"), [0]),
-    (Property(key="email", value="test@posthog.com", operator="exact"), [0]),
-    (Property(key="email", value=["pineapple@pizza.com", "mongo@example.com"], operator="exact"), [1]),
-    (Property(key="attr", value="5"), [4]),
-    (Property(key="email", value="test@posthog.com", operator="is_not"), range(1, 12)),
-    (Property(key="email", value=["test@posthog.com", "mongo@example.com"], operator="is_not"), range(2, 12)),
-    (Property(key="email", value=r".*est@.*", operator="regex"), [0]),
-    (Property(key="email", value=r"?.", operator="regex"), []),
-    (Property(key="email", operator="is_set", value="is_set"), [0, 1]),
-    (Property(key="email", operator="is_not_set", value="is_not_set"), range(2, 12)),
-    (Property(key="unix_timestamp", operator="is_date_before", value="2021-04-02"), [5, 6]),
-    (Property(key="unix_timestamp", operator="is_date_after", value="2021-04-01"), [5, 6]),
-    (Property(key="unix_timestamp", operator="is_date_before", value="2021-04-01 18:30:00"), [5]),
-    (Property(key="unix_timestamp", operator="is_date_after", value="2021-04-01 18:30:00"), [6]),
-    (Property(key="long_date", operator="is_date_before", value="2021-04-02"), [7, 8]),
-    (Property(key="long_date", operator="is_date_after", value="2021-04-01"), [7, 8]),
-    (Property(key="long_date", operator="is_date_before", value="2021-04-01 18:30:00"), [7]),
-    (Property(key="long_date", operator="is_date_after", value="2021-04-01 18:30:00"), [8]),
-    (Property(key="short_date", operator="is_date_before", value="2021-04-05"), [9]),
-    (Property(key="short_date", operator="is_date_after", value="2021-04-05"), [10]),
-    (Property(key="short_date", operator="is_date_before", value="2021-04-07"), [9, 10]),
-    (Property(key="short_date", operator="is_date_after", value="2021-04-03"), [9, 10]),
-    (
+    pytest.param(Property(key="email", value="test@posthog.com"), [0]),
+    pytest.param(Property(key="email", value="test@posthog.com", operator="exact"), [0]),
+    pytest.param(Property(key="email", value=["pineapple@pizza.com", "mongo@example.com"], operator="exact"), [1]),
+    pytest.param(
+        Property(key="attr", value="5"), [4], id="matching a number only matches event index 4 from test_events"
+    ),
+    pytest.param(
+        Property(key="email", value="test@posthog.com", operator="is_not"),
+        range(1, 18),
+        id="matching on email is not a value matches all but the first event from test_events",
+    ),
+    pytest.param(
+        Property(key="email", value=["test@posthog.com", "mongo@example.com"], operator="is_not"),
+        range(2, 18),
+        id="matching on email is not a value matches all but the first two events from test_events",
+    ),
+    pytest.param(Property(key="email", value=r".*est@.*", operator="regex"), [0]),
+    pytest.param(Property(key="email", value=r"?.", operator="regex"), []),
+    pytest.param(Property(key="email", operator="is_set", value="is_set"), [0, 1]),
+    pytest.param(
+        Property(key="email", operator="is_not_set", value="is_not_set"),
+        range(2, 18),
+        id="matching for email property not being set matches all but the first two events from test_events",
+    ),
+    pytest.param(Property(key="unix_timestamp", operator="is_date_before", value="2021-04-02"), [5, 6]),
+    pytest.param(Property(key="unix_timestamp", operator="is_date_after", value="2021-04-01"), [5, 6]),
+    pytest.param(Property(key="unix_timestamp", operator="is_date_before", value="2021-04-01 18:30:00"), [5]),
+    pytest.param(Property(key="unix_timestamp", operator="is_date_after", value="2021-04-01 18:30:00"), [6]),
+    pytest.param(Property(key="long_date", operator="is_date_before", value="2021-04-02"), [7, 8]),
+    pytest.param(Property(key="long_date", operator="is_date_after", value="2021-04-01"), [7, 8]),
+    pytest.param(Property(key="long_date", operator="is_date_before", value="2021-04-01 18:30:00"), [7]),
+    pytest.param(Property(key="long_date", operator="is_date_after", value="2021-04-01 18:30:00"), [8]),
+    pytest.param(Property(key="short_date", operator="is_date_before", value="2021-04-05"), [9]),
+    pytest.param(Property(key="short_date", operator="is_date_after", value="2021-04-05"), [10]),
+    pytest.param(Property(key="short_date", operator="is_date_before", value="2021-04-07"), [9, 10]),
+    pytest.param(Property(key="short_date", operator="is_date_after", value="2021-04-03"), [9, 10]),
+    pytest.param(
         Property(
             key="sdk_$time",
             operator="is_date_before",
@@ -591,6 +645,150 @@ TEST_PROPERTIES = [
             property_type_format="unix_timestamp",
         ),
         [11],
+        id="matching a unix timestamp in seconds with fractional seconds after the decimal point",
+    ),
+    pytest.param(
+        Property(
+            key="unix_timestamp_milliseconds",
+            operator="is_date_after",
+            value="2022-01-11",
+            property_type="DateTime",
+            property_type_format="unix_timestamp_milliseconds",
+        ),
+        [12],
+        id="matching unix timestamp in milliseconds after a given date (which ClickHouse doesn't support)",
+    ),
+    pytest.param(
+        Property(
+            key="unix_timestamp_milliseconds",
+            operator="is_date_before",
+            value="2022-01-13",
+            property_type="DateTime",
+            property_type_format="unix_timestamp_milliseconds",
+        ),
+        [12],
+        id="matching unix timestamp in milliseconds before a given date (which ClickHouse doesn't support)",
+    ),
+    pytest.param(
+        Property(
+            key="rfc_822_time",
+            operator="is_date_before",
+            value="2002-10-02 17:01:00",
+            property_type="DateTime",
+            property_type_format="rfc_822",
+        ),
+        [13],
+        id="matching rfc 822 format date with timeszone offset before a given date",
+    ),
+    pytest.param(
+        Property(
+            key="rfc_822_time",
+            operator="is_date_after",
+            value="2002-10-02 14:59:00",
+            property_type="DateTime",
+            property_type_format="rfc_822",
+        ),
+        [],
+        id="matching rfc 822 format date takes into account timeszone offset after a given date",
+    ),
+    pytest.param(
+        Property(
+            key="rfc_822_time",
+            operator="is_date_after",
+            value="2002-10-02 12:59:00",
+            property_type="DateTime",
+            property_type_format="rfc_822",
+        ),
+        [13],
+        id="matching rfc 822 format date after a given date",
+    ),
+    pytest.param(
+        Property(
+            key="iso_8601_$time",
+            operator="is_date_before",
+            value="2021-04-01 20:00:00",
+            property_type="DateTime",
+            property_type_format="YYYY-MM-DDThh:mm:ssZ",
+        ),
+        [14],
+        id="matching ISO 8601 format date before a given date",
+    ),
+    pytest.param(
+        Property(
+            key="iso_8601_$time",
+            operator="is_date_after",
+            value="2021-04-01 18:00:00",
+            property_type="DateTime",
+            property_type_format="YYYY-MM-DDThh:mm:ssZ",
+        ),
+        [14],
+        id="matching ISO 8601 format date after a given date",
+    ),
+    pytest.param(
+        Property(
+            key="full_date_increasing_$time",
+            operator="is_date_before",
+            value="2021-04-01 20:00:00",
+            property_type="DateTime",
+            property_type_format="DD-MM-YYYY hh:mm:ss",
+        ),
+        [15],
+        id="matching full format date with date parts n increasing order before a given date",
+    ),
+    pytest.param(
+        Property(
+            key="full_date_increasing_$time",
+            operator="is_date_after",
+            value="2021-04-01 18:00:00",
+            property_type="DateTime",
+            property_type_format="DD-MM-YYYY hh:mm:ss",
+        ),
+        [15],
+        id="matching full format date with date parts in increasing order after a given date",
+    ),
+    pytest.param(
+        Property(
+            key="with_slashes_$time",
+            operator="is_date_before",
+            value="2021-04-01 20:00:00",
+            property_type="DateTime",
+            property_type_format="YYYY/MM/DD hh:mm:ss",
+        ),
+        [16],
+        id="matching full format date with date parts separated by slashes before a given date",
+    ),
+    pytest.param(
+        Property(
+            key="with_slashes_$time",
+            operator="is_date_after",
+            value="2021-04-01 18:00:00",
+            property_type="DateTime",
+            property_type_format="YYYY/MM/DD hh:mm:ss",
+        ),
+        [16],
+        id="matching full format date with date parts separated by slashes after a given date",
+    ),
+    pytest.param(
+        Property(
+            key="with_slashes_increasing_$time",
+            operator="is_date_before",
+            value="2021-04-01 20:00:00",
+            property_type="DateTime",
+            property_type_format="DD/MM/YYYY hh:mm:ss",
+        ),
+        [17],
+        id="matching full format date with date parts increasing in size and separated by slashes before a given date",
+    ),
+    pytest.param(
+        Property(
+            key="with_slashes_increasing_$time",
+            operator="is_date_after",
+            value="2021-04-01 18:00:00",
+            property_type="DateTime",
+            property_type_format="DD/MM/YYYY hh:mm:ss",
+        ),
+        [17],
+        id="matching full format date with date parts increasing in size and separated by slashes after a given date",
     ),
 ]
 
