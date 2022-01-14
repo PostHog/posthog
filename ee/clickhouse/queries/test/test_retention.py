@@ -45,9 +45,11 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
         create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={})
         create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", properties={})
 
-        Person.objects.create(team=self.team, distinct_ids=["person1", "alias1"])
-        Person.objects.create(team=self.team, distinct_ids=["person2"])
-        Person.objects.create(team=self.team, distinct_ids=["person3"])
+        p1 = Person.objects.create(
+            team=self.team, distinct_ids=["person1", "alias1"], properties={"email": "posthog.com"}
+        )
+        p2 = Person.objects.create(team=self.team, distinct_ids=["person2"], properties={"email": "posthog.com"})
+        p3 = Person.objects.create(team=self.team, distinct_ids=["person3"])
 
         self._create_events(
             [
@@ -66,6 +68,31 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
                 ("person2", self._date(month=1, day=15), {"$group_0": "org:6", "$group_1": "company:1"}),
             ]
         )
+
+        return p1, p2, p3
+
+    @snapshot_clickhouse_queries
+    def test_retention_test_account_filters(self):
+        _, _, p3 = self._create_groups_and_events()
+
+        self.team.test_account_filters = [
+            {"key": "email", "type": "person", "value": "posthog.com", "operator": "not_icontains"}
+        ]
+        self.team.save()
+
+        filter = RetentionFilter(
+            data={"date_to": self._date(10, month=1, hour=0), "period": "Week", "total_intervals": 7,}, team=self.team,
+        )
+
+        result = ClickhouseRetention().run(filter, self.team,)
+
+        self.assertEqual(
+            self.pluck(result, "values", "count"),
+            [[1, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0], [0, 0], [0],],
+        )
+
+        actor_result = ClickhouseRetention().actors_in_period(filter.with_data({"selected_interval": 0}), self.team)
+        assert [actor["id"] for actor in actor_result] == [p3.uuid]
 
     @snapshot_clickhouse_queries
     def test_groups_filtering(self):
