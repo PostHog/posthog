@@ -87,6 +87,7 @@ def parse_prop_clauses(
                 final.append(filter_query)
                 params.update(filter_params)
             else:
+                assert False
                 final.append(
                     "AND {table_name}distinct_id IN ({filter_query})".format(
                         filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(
@@ -126,6 +127,7 @@ def parse_prop_clauses(
                 final.append(filter_query)
                 params.update(filter_params)
             else:
+                assert False
                 # :TRICKY: offer groups support for queries which don't support automatically joining with groups table yet (e.g. lifecycle)
                 filter_query, filter_params = prop_filter_json_extract(
                     prop, idx, prepend, prop_var=f"group_properties", allow_denormalized_props=False
@@ -370,6 +372,9 @@ def get_property_string_expr(
         (optional) alias of the table being queried
     :return:
     """
+
+    assert allow_denormalized_props
+
     materialized_columns = get_materialized_columns(table) if allow_denormalized_props else {}
 
     table_string = f"{table_alias}." if table_alias != None else ""
