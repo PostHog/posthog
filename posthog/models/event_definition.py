@@ -19,6 +19,7 @@ class EventDefinition(UUIDModel):
     query_usage_30_day: models.IntegerField = models.IntegerField(
         default=None, null=True,
     )  # Number of times the event has been used in a query in the last 30 rolling days (computed asynchronously)
+    verified: models.BooleanField = models.BooleanField(default=False, null=True)
 
     class Meta:
         unique_together = ("team", "name")

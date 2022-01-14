@@ -21,6 +21,7 @@ class EnterpriseEventDefinitionSerializer(serializers.ModelSerializer):
             "updated_at",
             "updated_by",
             "last_seen_at",
+            "verified",
         )
         read_only_fields = [
             "id",

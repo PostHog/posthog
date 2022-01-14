@@ -54,6 +54,12 @@ class TestEventDefinitionAPI(APIBaseTest):
         # None, we need to call this task to have them calculated.
         calculate_event_property_usage_for_team(cls.demo_team.pk)
 
+    def test_individual_property_verified(self):
+        event = EventDefinition.objects.create(team=self.team, name="verified event", verified=True)
+        response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.json()["verified"] == True
+
     def test_list_event_definitions(self):
         response = self.client.get("/api/projects/@current/event_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

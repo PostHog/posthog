@@ -552,6 +552,7 @@ export const createProcessEventTests = (
                 volume_30_day: null,
                 created_at: expect.any(String),
                 last_seen_at: expect.any(String),
+                verified: false,
             },
         ])
         expect(await hub.db.fetchPropertyDefinitions()).toEqual([
@@ -1955,6 +1956,7 @@ export const createProcessEventTests = (
                 volume_30_day: null,
                 created_at: expect.any(String),
                 last_seen_at: expect.any(String),
+                verified: false,
             },
         ])
         expect(await hub.db.fetchPropertyDefinitions()).toEqual([

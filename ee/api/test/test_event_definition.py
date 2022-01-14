@@ -1,12 +1,13 @@
 from typing import cast
 
 import dateutil.parser
+import pytest
+from django.db.utils import IntegrityError
 from django.utils import timezone
 from rest_framework import status
 
 from ee.models.event_definition import EnterpriseEventDefinition
 from ee.models.license import License, LicenseManager
-from posthog.models import team
 from posthog.models.event_definition import EventDefinition
 from posthog.test.base import APIBaseTest
 
@@ -117,3 +118,34 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
         self.assertIn("This feature is part of the premium PostHog offering.", response.json()["detail"])
+
+    def test_can_set_and_query_event_verified(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+        event = EnterpriseEventDefinition.objects.create(
+            team=self.team, name="enterprise event", owner=self.user, verified=True
+        )
+        response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        assert response.json()["verified"] == True
+
+        query_list_response = self.client.get(f"/api/projects/@current/event_definitions")
+        matches = [p["name"] for p in query_list_response.json()["results"] if p["name"] == "enterprise event"]
+        assert len(matches) == 1
+
+    def test_default_unverified(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+        event = EnterpriseEventDefinition.objects.create(team=self.team, name="enterprise event", owner=self.user)
+        response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.json()["verified"] == False
+
+    def test_errors_on_invalid_verified_type(self):
+        with pytest.raises(IntegrityError):
+            EnterpriseEventDefinition.objects.create(
+                team=self.team, name="enterprise event", owner=self.user, verified="not a boolean"
+            )
