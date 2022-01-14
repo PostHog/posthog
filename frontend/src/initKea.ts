@@ -43,7 +43,15 @@ export function initKea({ state, routerHistory, routerLocation, beforePlugins }:
             ...(beforePlugins || []),
             localStoragePlugin,
             windowValuesPlugin({ window: window }),
-            routerPlugin({ history: routerHistory, location: routerLocation }),
+            routerPlugin({
+                history: routerHistory,
+                location: routerLocation,
+                urlPatternOptions: {
+                    // :TRICKY: We override default url segment matching characters.
+                    // This list includes all characters which are not escaped by encodeURIComponent
+                    segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'",
+                },
+            }),
             loadersPlugin({
                 onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
                     // Toast if it's a fetch error or a specific API update error
