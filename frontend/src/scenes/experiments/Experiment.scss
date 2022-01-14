@@ -156,16 +156,16 @@
 
     .experiment-result {
         padding-top: $default_spacing;
-        border-top: 1px solid $border;
     }
 
     .significant-results {
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-        padding: 8px;
+        padding: $default_spacing / 2;
+        width: 100%;
         background: rgba(119, 185, 108, 0.1);
         border-radius: 4px;
+        text-align: center;
+        margin-bottom: $default_spacing;
+    }
 
     .preview-conversion-goal-num {
         height: 24px;
