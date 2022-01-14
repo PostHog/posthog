@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { delay, idToKey, setPageTitle } from 'lib/utils'
+import { delay, idToKey, isUserLoggedIn, setPageTitle } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import { toast } from 'react-toastify'
@@ -51,8 +51,12 @@ export const dashboardsModel = kea<dashboardsModelType>({
             {
                 loadDashboards: async (_, breakpoint) => {
                     await breakpoint(50)
+                    if (!isUserLoggedIn()) {
+                        // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
+                        return []
+                    }
                     const { results } = await api.get(`api/projects/${teamLogic.values.currentTeamId}/dashboards/`)
-                    return idToKey(results)
+                    return idToKey(results ?? [])
                 },
             },
         ],
