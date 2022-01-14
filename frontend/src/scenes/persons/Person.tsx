@@ -21,6 +21,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { groupsModel } from '~/models/groupsModel'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
+import { Loading } from 'lib/utils'
 
 const { TabPane } = Tabs
 
@@ -30,7 +31,7 @@ export const scene: SceneExport = {
     paramsToProps: ({ params }) => ({ syncWithUrl: true, urlId: params._ }), // wildcard is stored in _
 }
 
-function PersonMinutiae({ person }: { person: PersonType }): JSX.Element {
+function PersonCaption({ person }: { person: PersonType }): JSX.Element {
     return (
         <div style={{ display: 'flex', flexWrap: 'wrap' }}>
             <div className="mr">
@@ -41,7 +42,7 @@ function PersonMinutiae({ person }: { person: PersonType }): JSX.Element {
 
             <div>
                 <span className="text-muted">IDs:</span>{' '}
-                <span style={{ display: 'inline-flex' }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center' }}>
                     <CopyToClipboardInline
                         tooltipMessage={null}
                         description="person distinct ID"
@@ -83,7 +84,6 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
     const personsLogicProps: PersonLogicProps = { syncWithUrl: true, urlId }
     const {
         person,
-
         personLoading,
         deletedPersonLoading,
         hasNewKeys,
@@ -99,7 +99,9 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
     const { showGroupsOptions } = useValues(groupsModel)
 
     if (!person) {
-        return (
+        return personLoading ? (
+            <Loading />
+        ) : (
             <PageHeader
                 title="Person not found"
                 caption={urlId ? `There's no person matching distinct ID "${urlId}".` : undefined}
@@ -111,6 +113,7 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
         <BindLogic logic={personsLogic} props={personsLogicProps}>
             <PageHeader
                 title={asDisplay(person)}
+                caption={<PersonCaption person={person} />}
                 buttons={
                     <div>
                         <Popconfirm
@@ -138,9 +141,8 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
                     </div>
                 }
             />
-            <PersonMinutiae person={person} />
+
             <Tabs
-                defaultActiveKey={PersonsTabType.PROPERTIES}
                 activeKey={currentTab}
                 onChange={(tab) => {
                     navigateToTab(tab as PersonsTabType)

@@ -109,13 +109,10 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
             (s) => [s.activeTab, s.showSessionRecordings],
             (activeTab, showSessionRecordings) => {
                 // Ensure the activeTab reflects a valid tab given the available tabs
-                if (!activeTab) {
-                    return showSessionRecordings ? PersonsTabType.SESSION_RECORDINGS : PersonsTabType.EVENTS
-                }
                 if (activeTab === PersonsTabType.SESSION_RECORDINGS && !showSessionRecordings) {
                     return PersonsTabType.EVENTS
                 }
-                return activeTab
+                return activeTab || PersonsTabType.PROPERTIES
             },
         ],
         propertiesSearched: [
