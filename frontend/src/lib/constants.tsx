@@ -89,6 +89,7 @@ export const FEATURE_FLAGS = {
     RECORDINGS_IN_TRENDS_PERSON_MODAL: '7852-recordings-in-trends-person-modal', // owner: @rcmarron
     COLLABORATIONS_TAXONOMY: 'collaborations-taxonomy', // owner: @alexkim205
     PATHS_ADVANCED_EXPERIMENT: 'paths-advanced-2101', // owner: @paolodamico; `control`, `direct` (A), `no-advanced` (B)
+    APM: 'hackathon-apm', //owner @pauldambra
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

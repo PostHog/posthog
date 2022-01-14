@@ -78,6 +78,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Data Management',
     },
+    [Scene.APM]: {
+        projectBased: true,
+        name: 'APM',
+    },
     [Scene.SessionRecordings]: {
         projectBased: true,
         name: 'Recordings',
@@ -237,6 +241,7 @@ export const routes: Record<string, Scene> = {
     [urls.insightView(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.savedInsights()]: Scene.SavedInsights,
     [urls.insightRouter(':shortId')]: Scene.InsightRouter,
+    [urls.apm()]: Scene.APM,
     [urls.sessionRecordings()]: Scene.SessionRecordings,
     [urls.person('*', false)]: Scene.Person,
     [urls.persons()]: Scene.Persons,

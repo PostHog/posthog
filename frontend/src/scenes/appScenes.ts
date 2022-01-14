@@ -21,6 +21,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Taxonomy]: () => import('./taxonomy/Taxonomy'),
     [Scene.TaxonomyEvents]: () => import('./taxonomy/Taxonomy'),
     [Scene.TaxonomyCalculatedEvents]: () => import('./taxonomy/Taxonomy'),
+    [Scene.APM]: () => import('./apm/PerformanceWaterfall'),
     [Scene.SessionRecordings]: () => import('./session-recordings/SessionRecordings'),
     [Scene.Person]: () => import('./persons/Person'),
     [Scene.Persons]: () => import('./persons/Persons'),
