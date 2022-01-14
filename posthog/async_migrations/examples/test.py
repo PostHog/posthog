@@ -12,11 +12,11 @@ class SideEffects:
         self.side_effect_count = 0
         self.side_effect_rollback_count = 0
 
-    def side_effect(self, query_id):
+    def side_effect(self, _):
         self.side_effect_count += 1
         return
 
-    def side_effect_rollback(self, query_id):
+    def side_effect_rollback(self, _):
         self.side_effect_rollback_count += 1
         return
 

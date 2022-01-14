@@ -1,7 +1,6 @@
 from datetime import datetime
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
-from posthog.async_migrations.utils import execute_op_clickhouse, execute_op_postgres
 from posthog.constants import AnalyticsDBMS
 from posthog.version_requirement import ServiceVersionRequirement
 
@@ -25,7 +24,7 @@ class AsyncMigrationType:
 
 class AsyncMigrationOperation:
     def __init__(
-        self, fn=lambda id_: None, rollback_fn=lambda id_: None, resumable=False,
+        self, fn: Callable[[str], None], rollback_fn: Callable[[str], None] = lambda _: None, resumable=False,
     ):
         fn = fn
         # if the operation is dynamic and knows how to restart correctly after a crash
@@ -42,19 +41,21 @@ class AsyncMigrationOperation:
     def simple_op(
         cls,
         sql,
-        rollback,
+        rollback=None,
         database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE,
         resumable=False,
         timeout_seconds: int = 60,
     ):
         return cls(
             fn=cls.get_db_op(database=database, sql=sql, timeout_seconds=timeout_seconds),
-            rollback_fn=cls.get_db_op(database=database, sql=rollback),
+            rollback_fn=cls.get_db_op(database=database, sql=rollback) if rollback else lambda _: None,
             resumable=resumable,
         )
 
     @classmethod
-    def get_db_op(cls, sql="", database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE, timeout_seconds: int = 60):
+    def get_db_op(cls, sql: str, database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE, timeout_seconds: int = 60):
+        from posthog.async_migrations.utils import execute_op_clickhouse, execute_op_postgres
+
         # timeout is currently CH only
         def run_db_op(query_id):
             if database == AnalyticsDBMS.CLICKHOUSE:
