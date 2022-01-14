@@ -2,7 +2,7 @@ import React from 'react'
 import './InfoMessage.scss'
 import { InfoCircleOutlined } from '@ant-design/icons'
 
-// New UI for inline info messages
+/** An informative message. */
 export function InfoMessage({
     children,
     style,
@@ -13,7 +13,7 @@ export function InfoMessage({
     return (
         <div className="info-message" style={style}>
             <InfoCircleOutlined />
-            {children}
+            <div>{children}</div>
         </div>
     )
 }

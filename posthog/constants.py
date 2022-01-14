@@ -50,6 +50,8 @@ INSIGHT_TO_DISPLAY = {
     INSIGHT_FUNNELS: TRENDS_FUNNEL,
     INSIGHT_PATHS: TRENDS_PATHS,
     INSIGHT_RETENTION: TRENDS_RETENTION,
+    # :KLUDGE: Sessions insight is no longer supported, but this is needed to make updating these insights possible.
+    "SESSIONS": TRENDS_LINEAR,
 }
 
 

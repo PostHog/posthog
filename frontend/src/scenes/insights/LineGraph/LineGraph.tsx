@@ -32,21 +32,14 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { lineGraphLogic } from 'scenes/insights/LineGraph/lineGraphLogic'
-import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { groupsModel } from '~/models/groupsModel'
 
 //--Chart Style Options--//
 Chart.register(CrosshairPlugin)
 Chart.defaults.animation['duration'] = 0
 
 //--Chart Style Options--//
-
-interface TooltipConfig {
-    altTitle?: string | ((tooltipData: SeriesDatum[]) => React.ReactNode)
-    rowCutoff?: number
-    colCutoff?: number
-    renderSeries?: (value: React.ReactNode, seriesDatum: SeriesDatum, idx: number) => React.ReactNode
-    showHeader?: boolean
-}
 
 interface LineGraphProps {
     datasets: GraphDataset[]
@@ -97,6 +90,7 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
     } = props
     let datasets = _datasets
     const { createTooltipData } = useValues(lineGraphLogic)
+    const { aggregationLabel } = useValues(groupsModel)
     const chartRef = useRef<HTMLCanvasElement | null>(null)
     const myLineChart = useRef<Chart<ChartType, any, string>>()
     const annotationsRoot = useRef<HTMLDivElement | null>(null)
@@ -341,24 +335,28 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                         if (tooltip.body) {
                             const referenceDataPoint = tooltip.dataPoints[0] // Use this point as reference to get the date
                             const dataset = datasets[referenceDataPoint.datasetIndex]
+                            const seriesData = createTooltipData(tooltip.dataPoints, (dp) => {
+                                const hasDotted =
+                                    datasets.some((d) => d.dotted) &&
+                                    dp.dataIndex - datasets?.[dp.datasetIndex]?.data?.length >=
+                                        incompletenessOffsetFromEnd
+                                return (
+                                    dp.datasetIndex >= (hasDotted ? _datasets.length : 0) &&
+                                    dp.datasetIndex < (hasDotted ? _datasets.length * 2 : _datasets.length)
+                                )
+                            })
 
                             ReactDOM.render(
                                 <Provider store={getContext().store}>
                                     <InsightTooltip
                                         date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
-                                        seriesData={createTooltipData(tooltip.dataPoints, (dp) => {
-                                            const hasDotted =
-                                                datasets.some((d) => d.dotted) &&
-                                                dp.dataIndex - datasets?.[dp.datasetIndex]?.data?.length >=
-                                                    incompletenessOffsetFromEnd
-                                            return (
-                                                dp.datasetIndex >= (hasDotted ? _datasets.length : 0) &&
-                                                dp.datasetIndex < (hasDotted ? _datasets.length * 2 : _datasets.length)
-                                            )
-                                        })}
+                                        seriesData={seriesData}
                                         hideColorCol={isHorizontal}
                                         forceEntitiesAsColumns={isHorizontal}
                                         hideInspectActorsSection={!(onClick && showPersonsModal)}
+                                        groupTypeLabel={
+                                            aggregationLabel(seriesData?.[0]?.action?.math_group_type_index).plural
+                                        }
                                         {...tooltipConfig}
                                     />
                                 </Provider>,

@@ -9,7 +9,7 @@ describe('Invite Signup', () => {
         cy.get('h2').contains('Pending Invites').should('exist')
 
         // Test invite creation flow
-        cy.get('[data-attr=invites-table] [data-attr=invite-teammate-button]').click()
+        cy.get('[data-attr=invite-teammate-button]').click()
         cy.get('[data-attr=invite-email-input]').type('charlie@posthog.com').should('have.value', 'charlie@posthog.com')
         cy.get('[data-attr=invite-team-member-submit]').click()
         cy.get('[data-attr=invites-table] tbody td').should('contain', 'charlie@posthog.com')
@@ -24,9 +24,9 @@ describe('Invite Signup', () => {
 
         // Delete the invite
         cy.visit('/organization/members')
-        cy.get('[data-attr=invites-table] .anticon-delete').click()
-        cy.get('.ant-modal-confirm-btns button').contains('Delete').click()
-        cy.get('.Toastify__toast-body').should('contain', 'removed')
+        cy.get('[data-attr=invites-table] [data-attr=invite-delete]').click()
+        cy.get('.ant-modal-confirm-btns button').contains('Yes, cancel invite').click()
+        cy.get('.Toastify__toast-body').should('contain', 'Invite canceled successfully')
         cy.get('[data-attr=invites-table] tbody td').should('not.contain', 'charlie@posthog.com')
     })
 

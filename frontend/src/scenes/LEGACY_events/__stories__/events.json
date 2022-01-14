@@ -7486,109 +7486,6 @@
                             }
                         },
                         {
-                            "id": 43075,
-                            "distinct_id": "1FMtZwaNIkI9rRLn5PMHm_TnhoAPerJLvTMdGa52GSI",
-                            "properties": {
-                                "$ip": "13.106.122.3",
-                                "$os": "Mac OS X",
-                                "$lib": "web",
-                                "$set": {
-                                    "$geoip_latitude": -33.8591,
-                                    "$geoip_city_name": "Sydney",
-                                    "$geoip_longitude": 151.2002,
-                                    "$geoip_time_zone": "Australia/Sydney",
-                                    "$geoip_postal_code": "2000",
-                                    "$geoip_country_code": "AU",
-                                    "$geoip_country_name": "Australia",
-                                    "$geoip_continent_code": "OC",
-                                    "$geoip_continent_name": "Oceania",
-                                    "$geoip_subdivision_1_code": "NSW",
-                                    "$geoip_subdivision_1_name": "New South Wales"
-                                },
-                                "$host": "localhost:8000",
-                                "$time": 1629800165.745,
-                                "realm": "hosted",
-                                "token": "ASECtCtPHPry2b9W_9_imSU2CO6dl3gpro2ESWuKwMU",
-                                "display": "ActionsLineGraph",
-                                "insight": "SESSIONS",
-                                "$browser": "Chrome",
-                                "$user_id": "1FMtZwaNIkI9rRLn5PMHm_TnhoAPerJLvTMdGa52GSI",
-                                "interval": "day",
-                                "$pathname": "/insights",
-                                "$referrer": "http://localhost:8000/insights?insight=TRENDS&properties=%5B%5D&filter_test_accounts=false&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%2C%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A1%7D%2C%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A2%7D%5D&actions=%5B%5D&interval=day&display=ActionsLineGraph",
-                                "$set_once": {
-                                    "$initial_geoip_latitude": -33.8591,
-                                    "$initial_geoip_city_name": "Sydney",
-                                    "$initial_geoip_longitude": 151.2002,
-                                    "$initial_geoip_time_zone": "Australia/Sydney",
-                                    "$initial_geoip_postal_code": "2000",
-                                    "$initial_geoip_country_code": "AU",
-                                    "$initial_geoip_country_name": "Australia",
-                                    "$initial_geoip_continent_code": "OC",
-                                    "$initial_geoip_continent_name": "Oceania",
-                                    "$initial_geoip_subdivision_1_code": "NSW",
-                                    "$initial_geoip_subdivision_1_name": "New South Wales"
-                                },
-                                "$device_id": "179fcb6eb94401-01a74f4cf30319-1f3a6255-13c680-179fcb6eb9519d1",
-                                "$insert_id": "v34z3jwngkxnao2i",
-                                "distinct_id": "1FMtZwaNIkI9rRLn5PMHm_TnhoAPerJLvTMdGa52GSI",
-                                "$current_url": "http://localhost:8000/insights?insight=SESSIONS&properties=%5B%5D&filter_test_accounts=false&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&actions=%5B%5D&interval=day&display=ActionsLineGraph&session=avg",
-                                "$device_type": "Desktop",
-                                "$lib_version": "1.12.3",
-                                "ee_available": true,
-                                "events_count": 1,
-                                "report_delay": 10,
-                                "$screen_width": 1440,
-                                "actions_count": 0,
-                                "filters_count": 0,
-                                "$screen_height": 900,
-                                "from_dashboard": false,
-                                "properties_all": [],
-                                "$geoip_latitude": -33.8591,
-                                "$plugins_failed": [],
-                                "$viewport_width": 880,
-                                "is_demo_project": true,
-                                "posthog_version": "1.27.0",
-                                "$browser_version": 92,
-                                "$geoip_city_name": "Sydney",
-                                "$geoip_longitude": 151.2002,
-                                "$geoip_time_zone": "Australia/Sydney",
-                                "$viewport_height": 780,
-                                "properties_local": [],
-                                "$initial_referrer": "$direct",
-                                "$plugins_deferred": [],
-                                "$referring_domain": "localhost:8000",
-                                "properties_global": [],
-                                "$geoip_postal_code": "2000",
-                                "$plugins_succeeded": ["GeoIP (1)"],
-                                "$geoip_country_code": "AU",
-                                "$geoip_country_name": "Australia",
-                                "filter_test_accounts": false,
-                                "$active_feature_flags": ["4050-query-ui-optB"],
-                                "$geoip_continent_code": "OC",
-                                "$geoip_continent_name": "Oceania",
-                                "email_service_available": false,
-                                "is_first_component_load": false,
-                                "$geoip_subdivision_1_code": "NSW",
-                                "$geoip_subdivision_1_name": "New South Wales",
-                                "$initial_referring_domain": "$direct",
-                                "total_event_actions_count": 1,
-                                "properties_local_custom_count": 0,
-                                "properties_global_custom_count": 0,
-                                "total_event_action_filters_count": 0
-                            },
-                            "elements": [],
-                            "event": "insight analyzed",
-                            "timestamp": "2021-08-24T10:16:05.764000Z",
-                            "person": {
-                                "is_identified": true,
-                                "distinct_ids": ["1FMtZwaNIkI9rRLn5PMHm_TnhoAPerJLvTMdGa52GSI"],
-                                "properties": {
-                                    "email": "marius@posthog.com"
-                                }
-                            }
-                        },
-                        {
                             "id": 43074,
                             "distinct_id": "1FMtZwaNIkI9rRLn5PMHm_TnhoAPerJLvTMdGa52GSI",
                             "properties": {
@@ -12600,10 +12497,6 @@
                                 },
                                 {
                                     "icon": {},
-                                    "display": "Go to Sessions"
-                                },
-                                {
-                                    "icon": {},
                                     "display": "Go to Funnels"
                                 },
                                 {
@@ -12621,10 +12514,6 @@
                                 {
                                     "icon": {},
                                     "display": "Go to Actions"
-                                },
-                                {
-                                    "icon": {},
-                                    "display": "Go to Live Sessions"
                                 },
                                 {
                                     "icon": {},

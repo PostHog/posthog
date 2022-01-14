@@ -134,13 +134,12 @@ export const insightLogic = kea<insightLogicType>({
             } as Partial<InsightModel>,
             {
                 loadInsight: async ({ shortId }) => {
-                    return (
-                        await api.get(
-                            `api/projects/${teamLogic.values.currentTeamId}/insights/?short_id=${encodeURIComponent(
-                                shortId
-                            )}`
-                        )
-                    ).results[0]
+                    const response = await api.get(
+                        `api/projects/${teamLogic.values.currentTeamId}/insights/?short_id=${encodeURIComponent(
+                            shortId
+                        )}`
+                    )
+                    return response.results[0]
                 },
                 updateInsight: async ({ insight, callback }, breakpoint) => {
                     if (!Object.entries(insight).length) {

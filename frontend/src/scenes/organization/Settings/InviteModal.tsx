@@ -1,14 +1,16 @@
 import { Alert, Button, Col, Input, Row } from 'antd'
 import Modal from 'antd/lib/modal/Modal'
 import { useActions, useValues } from 'kea'
-import React, { useEffect } from 'react'
+import React from 'react'
 import { userLogic } from 'scenes/userLogic'
 import { PlusOutlined, CloseOutlined } from '@ant-design/icons'
 import { red } from '@ant-design/colors'
-import './BulkInviteModal.scss'
+import './InviteModal.scss'
 import { isEmail, pluralize } from 'lib/utils'
-import { bulkInviteLogic } from './bulkInviteLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { inviteLogic } from './inviteLogic'
+import { InfoMessage } from 'lib/components/InfoMessage/InfoMessage'
+import { IconOpenInNew } from 'lib/components/icons'
 
 /** Shuffled placeholder names */
 const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fill('John'), 'Sonic'].sort(
@@ -16,11 +18,27 @@ const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fil
 )
 const MAX_INVITES_AT_ONCE = 20
 
+export function EmailUnavailableMessage(): JSX.Element {
+    return (
+        <InfoMessage style={{ marginTop: 16 }}>
+            <>
+                This PostHog instance isn't{' '}
+                <a href="https://posthog.com/docs/self-host/configure/email" target="_blank" rel="noopener">
+                    configured&nbsp;to&nbsp;send&nbsp;emails&nbsp;
+                    <IconOpenInNew />
+                </a>
+                .<br />
+                Remember to <u>share the invite link</u> with each team member you invite.
+            </>
+        </InfoMessage>
+    )
+}
+
 function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean }): JSX.Element {
     const name = PLACEHOLDER_NAMES[index % PLACEHOLDER_NAMES.length]
 
-    const { invites } = useValues(bulkInviteLogic)
-    const { updateInviteAtIndex, inviteTeamMembers, deleteInviteAtIndex } = useActions(bulkInviteLogic)
+    const { invitesToSend } = useValues(inviteLogic)
+    const { updateInviteAtIndex, inviteTeamMembers, deleteInviteAtIndex } = useActions(inviteLogic)
 
     return (
         <Row gutter={16} className="invite-row" align="middle">
@@ -28,7 +46,7 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
                 <Input
                     placeholder={`${name.toLowerCase()}@posthog.com`}
                     type="email"
-                    className={`error-on-blur${!invites[index]?.isValid ? ' errored' : ''}`}
+                    className={`error-on-blur${!invitesToSend[index]?.isValid ? ' errored' : ''}`}
                     onChange={(e) => {
                         const { value } = e.target
                         let isValid = true
@@ -37,12 +55,14 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
                         }
                         updateInviteAtIndex({ target_email: e.target.value, isValid }, index)
                     }}
-                    value={invites[index]?.target_email}
+                    value={invitesToSend[index]?.target_email}
                     onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                             inviteTeamMembers()
                         }
                     }}
+                    autoFocus={index === 0}
+                    data-attr="invite-email-input"
                 />
             </Col>
             <Col xs={isDeletable ? 11 : 12}>
@@ -67,21 +87,15 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
     )
 }
 
-export function BulkInviteModal({ visible, onClose }: { visible: boolean; onClose: () => void }): JSX.Element {
+export function InviteModal({ visible, onClose }: { visible: boolean; onClose: () => void }): JSX.Element {
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
-    const { invites, canSubmit, invitedTeamMembersLoading, invitedTeamMembers } = useValues(bulkInviteLogic)
-    const { appendInviteRow, resetInviteRows, inviteTeamMembers } = useActions(bulkInviteLogic)
+    const { invitesToSend, canSubmit, invitedTeamMembersInternalLoading: loading } = useValues(inviteLogic)
+    const { appendInviteRow, resetInviteRows, inviteTeamMembers } = useActions(inviteLogic)
 
-    useEffect(() => {
-        if (invitedTeamMembers.length) {
-            onClose()
-        }
-    }, [invitedTeamMembers])
-
-    const areInvitesCreatable = invites.length + 1 < MAX_INVITES_AT_ONCE
-    const areInvitesDeletable = invites.length > 1
-    const validInvitesCount = invites.filter((invite) => invite.isValid && invite.target_email).length
+    const areInvitesCreatable = invitesToSend.length + 1 < MAX_INVITES_AT_ONCE
+    const areInvitesDeletable = invitesToSend.length > 1
+    const validInvitesCount = invitesToSend.filter((invite) => invite.isValid && invite.target_email).length
 
     return (
         <Modal
@@ -94,9 +108,14 @@ export function BulkInviteModal({ visible, onClose }: { visible: boolean; onClos
             onOk={inviteTeamMembers}
             okText={validInvitesCount ? `Invite ${pluralize(validInvitesCount, 'team member')}` : 'Invite team members'}
             destroyOnClose
-            okButtonProps={{ disabled: !canSubmit, loading: invitedTeamMembersLoading }}
-            cancelButtonProps={{ disabled: invitedTeamMembersLoading }}
-            closable={!invitedTeamMembersLoading}
+            okButtonProps={{
+                disabled: !canSubmit,
+                loading,
+                // @ts-expect-error - data-attr works just fine despite not being in ButtonProps
+                'data-attr': 'invite-team-member-submit',
+            }}
+            cancelButtonProps={{ disabled: loading }}
+            closable={!loading}
         >
             {preflight?.licensed_users_available === 0 ? (
                 <Alert
@@ -128,7 +147,7 @@ export function BulkInviteModal({ visible, onClose }: { visible: boolean; onClos
                         </Col>
                     </Row>
 
-                    {invites.map((_, index) => (
+                    {invitesToSend.map((_, index) => (
                         <InviteRow index={index} key={index.toString()} isDeletable={areInvitesDeletable} />
                     ))}
 
@@ -141,19 +160,7 @@ export function BulkInviteModal({ visible, onClose }: { visible: boolean; onClos
                     </div>
                 </div>
             )}
-            {!preflight?.email_service_available && (
-                <Alert
-                    type="warning"
-                    style={{ marginTop: 16 }}
-                    message={
-                        <>
-                            Sending emails is not enabled in your PostHog instance.
-                            <br />
-                            Remember to <b>share the invite link</b> with each team member you want to invite.
-                        </>
-                    }
-                />
-            )}
+            {!preflight?.email_service_available && <EmailUnavailableMessage />}
         </Modal>
     )
 }

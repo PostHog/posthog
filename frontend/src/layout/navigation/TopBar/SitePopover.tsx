@@ -31,6 +31,7 @@ import {
 } from '~/layout/navigation/OrganizationSwitcher'
 import { dayjs } from 'lib/dayjs'
 import { isLicenseExpired } from 'scenes/instance/Licenses'
+import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 
 function SitePopoverSection({ title, children }: { title?: string; children: any }): JSX.Element {
     return (
@@ -90,7 +91,8 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
 }
 
 function InviteMembersButton(): JSX.Element {
-    const { closeSitePopover, showInviteModal } = useActions(navigationLogic)
+    const { closeSitePopover } = useActions(navigationLogic)
+    const { showInviteModal } = useActions(inviteLogic)
 
     return (
         <LemonButton

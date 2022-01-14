@@ -100,7 +100,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
 
     def get_queryset(self):
         queryset = cast(EventManager, super().get_queryset()).add_person_id(self.team_id)
-        if self.action == "list" or self.action == "sessions" or self.action == "actions":
+        if self.action == "list" or self.action == "actions":
             queryset = self._filter_request(self.request, queryset)
         order_by = self._parse_order_by(self.request)
         return queryset.order_by(*order_by)
