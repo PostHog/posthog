@@ -150,7 +150,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
             // Tries to initialize a new player
             const windowId: string | null = values.currentPlayerPosition?.windowId ?? null
             actions.setPlayer(null)
-            values.rootFrame.innerHTML = '' // Clear the previously drawn frames
+            if (values.rootFrame) {
+                values.rootFrame.innerHTML = '' // Clear the previously drawn frames
+            }
             if (
                 !values.rootFrame ||
                 windowId === null ||
@@ -192,6 +194,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
             actions.seek(values.currentPlayerPosition)
         },
         setSkipInactivitySetting: ({ skipInactivitySetting }) => {
+            eventUsageLogic.actions.reportRecordingPlayerSkipInactivityToggled(skipInactivitySetting)
             if (!values.currentSegment?.isActive && skipInactivitySetting) {
                 actions.setSkippingInactivity(true)
             } else {
@@ -293,7 +296,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
         startScrub: () => {
             actions.stopAnimation()
         },
-        setSpeed: () => {
+        setSpeed: ({ speed }) => {
+            eventUsageLogic.actions.reportRecordingPlayerSpeedChanged(speed)
             actions.syncPlayerSpeed()
         },
         seek: async ({ playerPosition, forcePlay }, breakpoint) => {

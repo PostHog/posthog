@@ -12,6 +12,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { IconOpenInNew } from 'lib/components/icons'
 import { userLogic } from 'scenes/userLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { useAnchor } from 'lib/hooks/useAnchor'
 
 export const scene: SceneExport = {
     component: OrganizationSettings,
@@ -145,6 +146,7 @@ function EmailPreferences({ isRestricted }: RestrictedComponentProps): JSX.Eleme
 export function OrganizationSettings(): JSX.Element {
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
+    useAnchor(location.hash)
 
     return (
         <>

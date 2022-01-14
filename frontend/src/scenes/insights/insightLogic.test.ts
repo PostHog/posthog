@@ -1,4 +1,4 @@
-import { defaultAPIMocks, MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
+import { MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { insightLogic } from './insightLogic'
@@ -10,6 +10,7 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 import * as Sentry from '@sentry/browser'
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 
 jest.mock('lib/api')
 jest.mock('@sentry/browser')
@@ -30,83 +31,85 @@ describe('insightLogic', () => {
     let logic: ReturnType<typeof insightLogic.build>
     beforeEach(initKeaTests)
 
-    mockAPI(async (url) => {
-        const { pathname, searchParams, method, data } = url
-        const throwAPIError = (): void => {
-            throw { status: 0, statusText: 'error from the API' }
-        }
-        if (
-            [
-                `api/projects/${MOCK_TEAM_ID}/insights`,
-                `api/projects/${MOCK_TEAM_ID}/insights/42`,
-                `api/projects/${MOCK_TEAM_ID}/insights/43`,
-                `api/projects/${MOCK_TEAM_ID}/insights/44`,
-            ].includes(pathname)
-        ) {
-            return {
-                result: pathname.endsWith('42') ? ['result from api'] : null,
-                id: pathname.endsWith('42') ? 42 : 43,
-                short_id: pathname.endsWith('42') ? Insight42 : Insight43,
-                filters: data?.filters || API_FILTERS,
+    mockAPI(
+        async (url) => {
+            const { pathname, searchParams, method, data } = url
+            const throwAPIError = (): void => {
+                throw { status: 0, statusText: 'error from the API' }
             }
-        } else if (pathname === 'api/projects/997/insights/' && url.searchParams.short_id) {
-            if (url.searchParams.short_id === 500) {
-                throwAPIError()
-            }
+            if (
+                [
+                    `api/projects/${MOCK_TEAM_ID}/insights`,
+                    `api/projects/${MOCK_TEAM_ID}/insights/42`,
+                    `api/projects/${MOCK_TEAM_ID}/insights/43`,
+                    `api/projects/${MOCK_TEAM_ID}/insights/44`,
+                ].includes(pathname)
+            ) {
+                return {
+                    result: pathname.endsWith('42') ? ['result from api'] : null,
+                    id: pathname.endsWith('42') ? 42 : 43,
+                    short_id: pathname.endsWith('42') ? Insight42 : Insight43,
+                    filters: data?.filters || API_FILTERS,
+                }
+            } else if (pathname === 'api/projects/997/insights/' && url.searchParams.short_id) {
+                if (url.searchParams.short_id === 500) {
+                    throwAPIError()
+                }
 
-            return {
-                results: [
-                    {
-                        result: parseInt(url.searchParams.short_id) === 42 ? ['result from api'] : null,
-                        id: parseInt(url.searchParams.short_id),
-                        short_id: url.searchParams.short_id.toString(),
-                        filters: data?.filters || API_FILTERS,
-                    },
-                ],
-            }
-        } else if ([`api/projects/${MOCK_TEAM_ID}/dashboards/33/`].includes(pathname)) {
-            return {
-                id: 33,
-                filters: {},
-                items: [
-                    {
-                        id: 42,
-                        short_id: Insight42,
-                        result: 'result!',
-                        filters: { insight: InsightType.TRENDS, interval: 'month' },
-                        tags: ['bla'],
-                    },
-                ],
-            }
-        } else if ([`api/projects/${MOCK_TEAM_ID}/insights/500`].includes(pathname)) {
-            throwAPIError()
-        } else if (pathname === 'api/projects/997/insights/' && url.searchParams.saved) {
-            return {
-                results: [
-                    { id: 42, short_id: Insight42, result: ['result 42'], filters: API_FILTERS },
-                    { id: 43, short_id: Insight43, result: ['result 43'], filters: API_FILTERS },
-                ],
-            }
-        } else if (method === 'create' && pathname === `api/projects/${MOCK_TEAM_ID}/insights/`) {
-            return { id: 12, short_id: Insight12, name: data?.name }
-        } else if (
-            [
-                `api/projects/${MOCK_TEAM_ID}/insights`,
-                `api/projects/${MOCK_TEAM_ID}/insights/session/`,
-                `api/projects/${MOCK_TEAM_ID}/insights/trend/`,
-                `api/projects/${MOCK_TEAM_ID}/insights/path/`,
-                `api/projects/${MOCK_TEAM_ID}/insights/path`,
-                `api/projects/${MOCK_TEAM_ID}/insights/funnel/`,
-                `api/projects/${MOCK_TEAM_ID}/insights/retention/`,
-            ].includes(pathname)
-        ) {
-            if (searchParams?.events?.[0]?.throw) {
+                return {
+                    results: [
+                        {
+                            result: parseInt(url.searchParams.short_id) === 42 ? ['result from api'] : null,
+                            id: parseInt(url.searchParams.short_id),
+                            short_id: url.searchParams.short_id.toString(),
+                            filters: data?.filters || API_FILTERS,
+                        },
+                    ],
+                }
+            } else if ([`api/projects/${MOCK_TEAM_ID}/dashboards/33/`].includes(pathname)) {
+                return {
+                    id: 33,
+                    filters: {},
+                    items: [
+                        {
+                            id: 42,
+                            short_id: Insight42,
+                            result: 'result!',
+                            filters: { insight: InsightType.TRENDS, interval: 'month' },
+                            tags: ['bla'],
+                        },
+                    ],
+                }
+            } else if ([`api/projects/${MOCK_TEAM_ID}/insights/500`].includes(pathname)) {
                 throwAPIError()
+            } else if (pathname === 'api/projects/997/insights/' && url.searchParams.saved) {
+                return {
+                    results: [
+                        { id: 42, short_id: Insight42, result: ['result 42'], filters: API_FILTERS },
+                        { id: 43, short_id: Insight43, result: ['result 43'], filters: API_FILTERS },
+                    ],
+                }
+            } else if (method === 'create' && pathname === `api/projects/${MOCK_TEAM_ID}/insights/`) {
+                return { id: 12, short_id: Insight12, name: data?.name }
+            } else if (
+                [
+                    `api/projects/${MOCK_TEAM_ID}/insights`,
+                    `api/projects/${MOCK_TEAM_ID}/insights/trend/`,
+                    `api/projects/${MOCK_TEAM_ID}/insights/path/`,
+                    `api/projects/${MOCK_TEAM_ID}/insights/path`,
+                    `api/projects/${MOCK_TEAM_ID}/insights/funnel/`,
+                    `api/projects/${MOCK_TEAM_ID}/insights/retention/`,
+                ].includes(pathname)
+            ) {
+                if (searchParams?.events?.[0]?.throw) {
+                    throwAPIError()
+                }
+                return { result: ['result from api'] }
             }
-            return { result: ['result from api'] }
-        }
-        return defaultAPIMocks(url, { availableFeatures: [AvailableFeature.DASHBOARD_COLLABORATION] })
-    })
+        },
+        undefined,
+        [AvailableFeature.DASHBOARD_COLLABORATION]
+    )
 
     it('requires props', () => {
         expect(() => {
@@ -124,18 +127,55 @@ describe('insightLogic', () => {
     })
 
     describe('insight legend', () => {
-        it('toggles insight legend', () => {
+        it('toggles insight legend', async () => {
             logic = insightLogic({
                 dashboardItemId: undefined,
-                filters: { legend_hidden: false },
+                filters: { show_legend: false },
             })
-            expectLogic(logic, () => {
+            logic.mount()
+
+            await expectLogic(logic, () => {
                 logic.actions.toggleInsightLegend()
             })
-                .toDispatchActions(['toggleInsightLegend', 'setFilter'])
+                .toDispatchActions(['toggleInsightLegend', 'setFilters'])
                 .toMatchValues({
-                    filters: partial({ legend_hidden: true }),
+                    filters: partial({ show_legend: true }),
                 })
+        })
+        it('initialize insight with hidden keys', async () => {
+            logic = insightLogic({
+                dashboardItemId: undefined,
+                filters: { hidden_legend_keys: { 0: true, 10: true } },
+            })
+            logic.mount()
+            await expectLogic(logic).toMatchValues({
+                filters: partial({ hidden_legend_keys: { 0: true, 10: true } }),
+            })
+        })
+        it('setHiddenById', async () => {
+            logic = insightLogic({
+                dashboardItemId: undefined,
+            })
+            logic.mount()
+
+            expectLogic(logic, () => {
+                logic.actions.setHiddenById({ '0': true, '2': false })
+                logic.actions.setHiddenById({ '8': true, '2': true })
+            }).toMatchValues({ hiddenLegendKeys: { 0: true, 2: true, 8: true } })
+        })
+        it('toggleVisibility', async () => {
+            logic = insightLogic({
+                dashboardItemId: undefined,
+            })
+            logic.mount()
+
+            expectLogic(logic, () => {
+                logic.actions.toggleVisibility(1)
+            }).toMatchValues({ hiddenLegendKeys: { 1: true } })
+
+            expectLogic(logic, () => {
+                logic.actions.toggleVisibility(1)
+            }).toMatchValues({ hiddenLegendKeys: { 1: undefined } })
         })
     })
 
@@ -151,6 +191,7 @@ describe('insightLogic', () => {
                 logic.actions.setFilters({ insight: InsightType.FUNNELS })
             }).toDispatchActions([
                 eventUsageLogic.actionCreators.reportInsightViewed(
+                    { tags: [], filters: {}, result: null },
                     { insight: InsightType.FUNNELS },
                     ItemMode.View,
                     true,
@@ -224,6 +265,9 @@ describe('insightLogic', () => {
         })
 
         describe('props with filters, no cached results, error from API', () => {
+            beforeEach(silenceKeaLoadersErrors)
+            afterEach(resumeKeaLoadersErrors)
+
             it('makes a query to load the results', async () => {
                 logic = insightLogic({
                     dashboardItemId: Insight42,
@@ -329,6 +373,9 @@ describe('insightLogic', () => {
         })
 
         describe('props with no filters, no cached results, API throws', () => {
+            beforeEach(silenceKeaLoadersErrors)
+            afterEach(resumeKeaLoadersErrors)
+
             it('makes a query to load the results', async () => {
                 logic = insightLogic({
                     dashboardItemId: Insight500, // 500 --> result: throws

@@ -65,7 +65,12 @@ export const insightLogic = kea<insightLogicType>({
         setActiveView: (type: InsightType) => ({ type }),
         updateActiveView: (type: InsightType) => ({ type }),
         setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode) => ({ filters, insightMode }),
-        reportInsightViewed: (filters: Partial<FilterType>, previousFilters?: Partial<FilterType>) => ({
+        reportInsightViewed: (
+            insightModel: Partial<InsightModel>,
+            filters: Partial<FilterType>,
+            previousFilters?: Partial<FilterType>
+        ) => ({
+            insightModel,
             filters,
             previousFilters,
         }),
@@ -117,6 +122,8 @@ export const insightLogic = kea<insightLogicType>({
         setInsightMetadata: (metadata: Partial<InsightModel>) => ({ metadata }),
         createAndRedirectToNewInsight: (filters?: Partial<FilterType>) => ({ filters }),
         toggleInsightLegend: true,
+        toggleVisibility: (index: number) => ({ index }),
+        setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
     }),
     loaders: ({ actions, cache, values, props }) => ({
         insight: [
@@ -128,13 +135,12 @@ export const insightLogic = kea<insightLogicType>({
             } as Partial<InsightModel>,
             {
                 loadInsight: async ({ shortId }) => {
-                    return (
-                        await api.get(
-                            `api/projects/${teamLogic.values.currentTeamId}/insights/?short_id=${encodeURIComponent(
-                                shortId
-                            )}`
-                        )
-                    ).results[0]
+                    const response = await api.get(
+                        `api/projects/${teamLogic.values.currentTeamId}/insights/?short_id=${encodeURIComponent(
+                            shortId
+                        )}`
+                    )
+                    return response.results[0]
                 },
                 updateInsight: async ({ insight, callback }, breakpoint) => {
                     if (!Object.entries(insight).length) {
@@ -239,13 +245,6 @@ export const insightLogic = kea<insightLogicType>({
                         ) {
                             response = await api.get(
                                 `api/projects/${currentTeamId}/insights/trend/?${toParams(
-                                    filterTrendsClientSideParams(params)
-                                )}`,
-                                cache.abortController.signal
-                            )
-                        } else if (insight === InsightType.SESSIONS || filters?.session) {
-                            response = await api.get(
-                                `api/projects/${currentTeamId}/insights/session/?${toParams(
                                     filterTrendsClientSideParams(params)
                                 )}`,
                                 cache.abortController.signal
@@ -486,6 +485,12 @@ export const insightLogic = kea<insightLogicType>({
                 return Array.from(new Set(allEvents.filter((a): a is string => !!a)))
             },
         ],
+        hiddenLegendKeys: [
+            (s) => [s.filters],
+            (filters) => {
+                return filters.hidden_legend_keys ?? {}
+            },
+        ],
     },
     listeners: ({ actions, selectors, values, props }) => ({
         setFilters: async ({ filters }, _, __, previousState) => {
@@ -494,20 +499,20 @@ export const insightLogic = kea<insightLogicType>({
                 return
             }
 
-            actions.reportInsightViewed(filters, previousFilters)
+            actions.reportInsightViewed(values.insight, filters, previousFilters)
 
             const backendFilterChanged = !objectsEqual(
                 Object.assign({}, values.filters, {
                     layout: undefined,
-                    hiddenLegendKeys: undefined,
+                    hidden_legend_keys: undefined,
                     funnel_advanced: undefined,
-                    legend_hidden: undefined,
+                    show_legend: undefined,
                 }),
                 Object.assign({}, values.loadedFilters, {
                     layout: undefined,
-                    hiddenLegendKeys: undefined,
+                    hidden_legend_keys: undefined,
                     funnel_advanced: undefined,
-                    legend_hidden: undefined,
+                    show_legend: undefined,
                 })
             )
 
@@ -522,6 +527,7 @@ export const insightLogic = kea<insightLogicType>({
                 previousFilters && extractObjectDiffKeys(previousFilters, filters)
 
             eventUsageLogic.actions.reportInsightViewed(
+                values.insight,
                 filters || {},
                 values.insightMode,
                 values.isFirstLoad,
@@ -533,6 +539,7 @@ export const insightLogic = kea<insightLogicType>({
             await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
 
             eventUsageLogic.actions.reportInsightViewed(
+                values.insight,
                 filters || {},
                 values.insightMode,
                 values.isFirstLoad,
@@ -675,7 +682,7 @@ export const insightLogic = kea<insightLogicType>({
             }
         },
         loadInsightSuccess: async ({ insight }) => {
-            actions.reportInsightViewed(insight?.filters || {})
+            actions.reportInsightViewed(insight, insight?.filters || {})
             // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query
             if (!insight.result && values.filters) {
                 actions.loadResults()
@@ -723,7 +730,31 @@ export const insightLogic = kea<insightLogicType>({
             )
         },
         toggleInsightLegend: () => {
-            actions.setFilters({ ...values.filters, legend_hidden: !values.filters.legend_hidden })
+            actions.setFilters({ ...values.filters, show_legend: !values.filters.show_legend })
+        },
+        toggleVisibility: ({ index }) => {
+            const currentIsHidden = !!values.hiddenLegendKeys?.[index]
+
+            actions.setFilters({
+                ...values.filters,
+                hidden_legend_keys: {
+                    ...values.hiddenLegendKeys,
+                    [`${index}`]: currentIsHidden ? undefined : true,
+                },
+            })
+        },
+        setHiddenById: ({ entry }) => {
+            const nextEntries = Object.fromEntries(
+                Object.entries(entry).map(([index, hiddenState]) => [index, hiddenState ? true : undefined])
+            )
+
+            actions.setFilters({
+                ...values.filters,
+                hidden_legend_keys: {
+                    ...values.hiddenLegendKeys,
+                    ...nextEntries,
+                },
+            })
         },
     }),
     actionToUrl: ({ values }) => {

@@ -8,6 +8,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.property import (
+    get_property_string_expr,
     get_single_or_multi_property_string_expr,
     parse_prop_clauses,
     prop_filter_json_extract,
@@ -275,6 +276,24 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(len(self._run_query(filter_text_is_not_set)), 1)
 
+    def test_prop_element_with_space(self):
+        _create_event(
+            event="$autocapture",
+            team=self.team,
+            distinct_id="whatever",
+            elements=[
+                Element(tag_name="a", href="/789", nth_child=0, nth_of_type=0,),
+                Element(tag_name="button", attr_class=["btn space", "btn-tertiary"], nth_child=0, nth_of_type=0),
+            ],
+        )
+
+        # selector
+
+        filter = Filter(
+            data={"properties": [{"key": "selector", "value": ["button"], "operator": "exact", "type": "element"}]}
+        )
+        self.assertEqual(len(self._run_query(filter)), 1)
+
     def test_prop_ints_saved_as_strings(self):
         _create_event(
             event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": "0"},
@@ -423,6 +442,24 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         filter = Filter(data={"properties": [{"key": "test_prop", "value": 0}],})
         self.assertEqual(len(self._run_query(filter)), 1)
 
+    def test_get_property_string_expr(self):
+        string_expr = get_property_string_expr("events", "some_non_mat_prop", "'some_non_mat_prop'", "properties")
+        self.assertEqual(string_expr, ("trim(BOTH '\"' FROM JSONExtractRaw(properties, 'some_non_mat_prop'))", False))
+
+        string_expr = get_property_string_expr(
+            "events", "some_non_mat_prop", "'some_non_mat_prop'", "properties", table_alias="e"
+        )
+        self.assertEqual(string_expr, ("trim(BOTH '\"' FROM JSONExtractRaw(e.properties, 'some_non_mat_prop'))", False))
+
+        materialize("events", "some_mat_prop")
+        string_expr = get_property_string_expr("events", "some_mat_prop", "'some_mat_prop'", "properties")
+        self.assertEqual(string_expr, ("mat_some_mat_prop", True))
+
+        string_expr = get_property_string_expr(
+            "events", "some_mat_prop", "'some_mat_prop'", "properties", table_alias="e"
+        )
+        self.assertEqual(string_expr, ("e.mat_some_mat_prop", True))
+
 
 @pytest.mark.django_db
 def test_parse_prop_clauses_defaults(snapshot):
@@ -550,7 +587,8 @@ TEST_PROPERTIES = [
             key="sdk_$time",
             operator="is_date_before",
             value="2021-12-25",
-            property_definition=PropertyDefinition(dataType="DateTime", format="unix_timestamp").to_dict(),
+            property_type="DateTime",
+            property_type_format="unix_timestamp",
         ),
         [11],
     ),

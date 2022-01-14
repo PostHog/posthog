@@ -14,7 +14,6 @@ import {
     ProjectOutlined,
     CheckOutlined,
     TagOutlined,
-    ClockCircleOutlined,
     UserOutlined,
     UsergroupAddOutlined,
     FlagOutlined,
@@ -45,6 +44,8 @@ import posthog from 'posthog-js'
 import { debugCHQueries } from './DebugCHQueries'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { urls } from 'scenes/urls'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
@@ -125,7 +126,7 @@ export const commandPaletteLogic = kea<
     connect: {
         actions: [personalAPIKeysLogic, ['createKey']],
         values: [teamLogic, ['currentTeam'], userLogic, ['user']],
-        logic: [preflightLogic], // used in afterMount, which does not auto-connect
+        logic: [preflightLogic, featureFlagLogic], // used in afterMount, which does not auto-connect
     },
     actions: {
         hidePalette: true,
@@ -434,14 +435,6 @@ export const commandPaletteLogic = kea<
                         },
                     },
                     {
-                        icon: ClockCircleOutlined,
-                        display: 'Go to Sessions',
-                        executor: () => {
-                            // TODO: Don't reset insight on change
-                            push(urls.insightNew({ insight: InsightType.SESSIONS }))
-                        },
-                    },
-                    {
                         icon: FunnelPlotOutlined,
                         display: 'Go to Funnels',
                         executor: () => {
@@ -465,20 +458,46 @@ export const commandPaletteLogic = kea<
                             push(urls.insightNew({ insight: InsightType.PATHS }))
                         },
                     },
-                    {
-                        icon: ContainerOutlined,
-                        display: 'Go to Events',
-                        executor: () => {
-                            push(urls.events())
-                        },
-                    },
-                    {
-                        icon: AimOutlined,
-                        display: 'Go to Actions',
-                        executor: () => {
-                            push(urls.actions())
-                        },
-                    },
+                    ...(featureFlagLogic.values.featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY]
+                        ? [
+                              {
+                                  icon: ContainerOutlined,
+                                  display: 'Go to Events & Actions',
+                                  executor: () => {
+                                      push(urls.events())
+                                  },
+                              },
+                              {
+                                  icon: AimOutlined,
+                                  display: 'Go to Taxonomy',
+                                  executor: () => {
+                                      push(urls.taxonomy())
+                                  },
+                              },
+                          ]
+                        : [
+                              {
+                                  icon: ContainerOutlined,
+                                  display: 'Go to Events',
+                                  executor: () => {
+                                      push(urls.LEGACY_events())
+                                  },
+                              },
+                              {
+                                  icon: AimOutlined,
+                                  display: 'Go to Actions',
+                                  executor: () => {
+                                      push(urls.LEGACY_actions())
+                                  },
+                              },
+                              {
+                                  icon: PlusOutlined,
+                                  display: 'Create action',
+                                  executor: () => {
+                                      push(urls.LEGACY_createAction())
+                                  },
+                              },
+                          ]),
                     {
                         icon: UserOutlined,
                         display: 'Go to Persons',
@@ -546,13 +565,6 @@ export const commandPaletteLogic = kea<
                         synonyms: ['redis', 'celery', 'django', 'postgres', 'backend', 'service', 'online'],
                         executor: () => {
                             push(urls.systemStatus())
-                        },
-                    },
-                    {
-                        icon: PlusOutlined,
-                        display: 'Create action',
-                        executor: () => {
-                            push(urls.createAction())
                         },
                     },
                     {

@@ -8,22 +8,25 @@ import {
     PropertyOperator,
     RecordingDurationFilter,
     RecordingFilters,
+    SessionRecordingId,
     SessionRecordingsResponse,
 } from '~/types'
 import { sessionRecordingsTableLogicType } from './sessionRecordingsTableLogicType'
 import { router } from 'kea-router'
-import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
+import { eventUsageLogic, RecordingWatchedSource, SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import equal from 'fast-deep-equal'
 import { teamLogic } from '../teamLogic'
 import { dayjs } from 'lib/dayjs'
 import { SessionRecordingType } from '~/types'
 
-export type SessionRecordingId = string
 export type PersonUUID = string
 interface Params {
     filters?: RecordingFilters
-    sessionRecordingId?: SessionRecordingId
     source?: RecordingWatchedSource
+}
+
+interface HashParams {
+    sessionRecordingId?: SessionRecordingId
 }
 
 const LIMIT = 50
@@ -50,7 +53,7 @@ export const DEFAULT_ENTITY_FILTERS = {
     ],
 }
 
-export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<PersonUUID, SessionRecordingId>>({
+export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<PersonUUID>>({
     path: (key) => ['scenes', 'session-recordings', 'sessionRecordingsTableLogic', key],
     key: (props) => props.personUUID || 'global',
     props: {} as {
@@ -58,6 +61,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
     },
     connect: {
         values: [teamLogic, ['currentTeamId']],
+        actions: [eventUsageLogic, ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded']],
     },
     actions: {
         getSessionRecordings: true,
@@ -80,7 +84,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
         }),
         setDurationFilter: (durationFilter: RecordingDurationFilter) => ({ durationFilter }),
     },
-    loaders: ({ props, values }) => ({
+    loaders: ({ props, values, actions }) => ({
         sessionRecordingsResponse: [
             {
                 results: [],
@@ -95,7 +99,13 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
                     }
                     const params = toParams(paramsDict)
                     await breakpoint(100) // Debounce for lots of quick filter changes
+
+                    const startTime = performance.now()
                     const response = await api.get(`api/projects/${values.currentTeamId}/session_recordings?${params}`)
+                    const loadTimeMs = performance.now() - startTime
+
+                    actions.reportRecordingsListFetched(loadTimeMs)
+
                     breakpoint()
                     return response
                 },
@@ -184,15 +194,19 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
     },
     listeners: ({ actions }) => ({
         setEntityFilters: () => {
+            actions.reportRecordingsListFilterAdded(SessionRecordingFilterType.EventAndAction)
             actions.getSessionRecordings()
         },
         setPropertyFilters: () => {
+            actions.reportRecordingsListFilterAdded(SessionRecordingFilterType.PersonAndCohort)
             actions.getSessionRecordings()
         },
         setDateRange: () => {
+            actions.reportRecordingsListFilterAdded(SessionRecordingFilterType.DateRange)
             actions.getSessionRecordings()
         },
         setDurationFilter: () => {
+            actions.reportRecordingsListFilterAdded(SessionRecordingFilterType.Duration)
             actions.getSessionRecordings()
         },
         loadNext: () => {
@@ -236,7 +250,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
     actionToUrl: ({ values }) => {
         const buildURL = (
             overrides: Partial<Params> = {},
-            replace = false
+            replace: boolean
         ): [
             string,
             Params,
@@ -246,17 +260,26 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
             }
         ] => {
             const params: Params = {
-                sessionRecordingId: values.sessionRecordingId || undefined,
                 filters: values.filterQueryParams,
                 ...overrides,
             }
-            return [router.values.location.pathname, params, router.values.hashParams, { replace }]
+            const hashParams: HashParams = {
+                ...router.values.hashParams,
+            }
+
+            if (!values.sessionRecordingId) {
+                delete hashParams.sessionRecordingId
+            } else {
+                hashParams.sessionRecordingId = values.sessionRecordingId
+            }
+
+            return [router.values.location.pathname, params, hashParams, { replace }]
         }
 
         return {
             loadSessionRecordings: () => buildURL({}, true),
-            openSessionPlayer: ({ source }) => buildURL({ source }),
-            closeSessionPlayer: () => buildURL({ sessionRecordingId: undefined }),
+            openSessionPlayer: ({ source }) => buildURL({ source }, false),
+            closeSessionPlayer: () => buildURL({}, false),
             setEntityFilters: () => buildURL({}, true),
             setPropertyFilters: () => buildURL({}, true),
             setDateRange: () => buildURL({}, true),
@@ -267,8 +290,8 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
     },
 
     urlToAction: ({ actions, values, props }) => {
-        const urlToAction = (_: any, params: Params): void => {
-            const nulledSessionRecordingId = params.sessionRecordingId ?? null
+        const urlToAction = (_: any, params: Params, hashParams: HashParams): void => {
+            const nulledSessionRecordingId = hashParams.sessionRecordingId ?? null
             if (nulledSessionRecordingId !== values.sessionRecordingId) {
                 actions.openSessionPlayer(nulledSessionRecordingId, RecordingWatchedSource.Direct)
             }

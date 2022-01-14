@@ -8,7 +8,6 @@ import {
 import { getSeriesColor, humanizeOrder } from 'scenes/funnels/funnelUtils'
 import { RenderedCell } from 'rc-table/lib/interface'
 import React from 'react'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { zeroPad } from 'lib/utils'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { FunnelStepDropdown } from 'scenes/funnels/FunnelStepDropdown'
@@ -131,7 +130,7 @@ export const renderGraphAndHeader = (
                     children: (
                         <div className="funnel-step-title">
                             <span className="funnel-step-glyph">{zeroPad(humanizeOrder(stepIndex), 2)}</span>
-                            <PropertyKeyInfo value={step?.name ?? ''} disableIcon className="funnel-step-name" />
+                            {step && <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />}
                             <FunnelStepDropdown index={stepIndex} />
                         </div>
                     ),

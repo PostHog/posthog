@@ -1,4 +1,4 @@
-from typing import Dict, Tuple, cast
+from typing import Dict, Optional, Tuple, cast
 
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from ee.clickhouse.queries.paths.paths import ClickhousePaths
@@ -26,11 +26,7 @@ class ClickhousePathsActors(ClickhousePaths, ActorBaseQuery):  # type: ignore
         other path item between start and end key.
     """
 
-    @cached_property
-    def is_aggregating_by_groups(self) -> bool:
-        return False
-
-    def actor_query(self) -> Tuple[str, Dict]:
+    def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
         paths_per_person_query = self.get_paths_per_person_query()
         person_path_filter = self.get_person_path_filter()
         paths_funnel_cte = ""
@@ -44,14 +40,14 @@ class ClickhousePathsActors(ClickhousePaths, ActorBaseQuery):  # type: ignore
         return (
             f"""
             {paths_funnel_cte}
-            SELECT DISTINCT person_id
+            SELECT DISTINCT person_id AS actor_id
             FROM (
                 {paths_per_person_query}
             )
             WHERE {person_path_filter}
             ORDER BY person_id
-            LIMIT %(limit)s
-            OFFSET %(offset)s
+            {"LIMIT %(limit)s" if limit_actors else ""}
+            {"OFFSET %(offset)s" if limit_actors else ""}
         """,
             self.params,
         )

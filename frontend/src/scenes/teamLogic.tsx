@@ -5,7 +5,7 @@ import { TeamType } from '~/types'
 import { userLogic } from './userLogic'
 import { toast } from 'react-toastify'
 import React from 'react'
-import { identifierToHuman, resolveWebhookService } from 'lib/utils'
+import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { organizationLogic } from './organizationLogic'
 import { getAppContext } from '../lib/utils/getAppContext'
 
@@ -41,6 +41,10 @@ export const teamLogic = kea<teamLogicType>({
             null as TeamType | null,
             {
                 loadCurrentTeam: async () => {
+                    if (!isUserLoggedIn()) {
+                        // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
+                        return null
+                    }
                     try {
                         return await api.get('api/projects/@current')
                     } catch {

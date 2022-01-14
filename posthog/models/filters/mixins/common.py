@@ -35,7 +35,7 @@ from posthog.constants import (
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_EVENTS,
 )
-from posthog.models.entity import Entity, ExclusionEntity
+from posthog.models.entity import MATH_TYPE, Entity, ExclusionEntity
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType
 from posthog.models.filters.mixins.utils import cached_property, include_dict, process_bool
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
@@ -169,7 +169,7 @@ class BreakdownValueMixin(BaseParamMixin):
 
 class InsightMixin(BaseParamMixin):
     @cached_property
-    def insight(self) -> Literal["TRENDS", "SESSIONS", "FUNNELS", "RETENTION", "PATHS", "LIFECYCLE", "STICKINESS"]:
+    def insight(self) -> Literal["TRENDS", "FUNNELS", "RETENTION", "PATHS", "LIFECYCLE", "STICKINESS"]:
         return self._data.get(INSIGHT, INSIGHT_TRENDS).upper()
 
     @include_dict
@@ -365,6 +365,7 @@ class EntitiesMixin(BaseParamMixin):
         }
 
 
+# These arguments are used to specify the target entity for insight actor retrieval on trend graphs
 class EntityIdMixin(BaseParamMixin):
     @cached_property
     def target_entity_id(self) -> Optional[str]:
@@ -383,3 +384,13 @@ class EntityTypeMixin(BaseParamMixin):
     @include_dict
     def entity_type_to_dict(self):
         return {"entity_type": self.target_entity_type} if self.target_entity_type else {}
+
+
+class EntityMathMixin(BaseParamMixin):
+    @cached_property
+    def target_entity_math(self) -> Optional[MATH_TYPE]:
+        return self._data.get("entity_math", None)
+
+    @include_dict
+    def entity_math_to_dict(self):
+        return {"entity_math": self.target_entity_math} if self.target_entity_math else {}
