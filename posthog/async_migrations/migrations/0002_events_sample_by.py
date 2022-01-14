@@ -1,3 +1,5 @@
+from functools import cached_property
+
 from constance import config
 from django.conf import settings
 
@@ -30,6 +32,25 @@ Migration Summary
 """
 
 
+def generate_insert_into_op(partition_gte: int, partition_lt=None) -> AsyncMigrationOperation:
+    lt_expression = f"toYYYYMM(timestamp) < {partition_lt} AND" if partition_lt else ""
+    op = AsyncMigrationOperation(
+        database=AnalyticsDBMS.CLICKHOUSE,
+        sql=f"""
+        INSERT INTO {TEMPORARY_TABLE_NAME}
+        SELECT *
+        FROM {EVENTS_TABLE}
+        WHERE 
+            toYYYYMM(timestamp) >= {partition_gte} AND {lt_expression}
+            timestamp >= (SELECT max(timestamp) FROM {TEMPORARY_TABLE_NAME})
+        """,
+        rollback=f"TRUNCATE TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
+        resumable=True,
+        timeout_seconds=2 * 24 * 60 * 60,  # two days
+    )
+    return op
+
+
 class Migration(AsyncMigrationDefinition):
 
     description = (
@@ -45,78 +66,74 @@ class Migration(AsyncMigrationDefinition):
         ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0,<21.7.0"),
     ]
 
-    operations = [
-        AsyncMigrationOperation(
-            database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"""
-            CREATE TABLE IF NOT EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER} AS {EVENTS_TABLE_NAME}
-            ENGINE = ReplacingMergeTree(_timestamp)
-            PARTITION BY toYYYYMM(timestamp)
-            ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
-            SAMPLE BY cityHash64(distinct_id) 
-            """,
-            rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
-            resumable=True,
-        ),
-        AsyncMigrationOperation(
-            database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"""
-            INSERT INTO {TEMPORARY_TABLE_NAME}
-            SELECT * 
-            FROM {EVENTS_TABLE}
-            WHERE timestamp < toDateTime64(toYYYYMM(now()) - 1, 6)
-            AND timestamp >= (SELECT max(timestamp) FROM {TEMPORARY_TABLE_NAME})""",
-            rollback=f"TRUNCATE TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
-            resumable=True,
-            timeout_seconds=7 * 24 * 60 * 60,  # one week
-        ),
-        AsyncMigrationOperation(
-            database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
-            rollback=f"ATTACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
-            side_effect=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
-            side_effect_rollback=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
-        ),
-        AsyncMigrationOperation(
-            database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"""
-            INSERT INTO {TEMPORARY_TABLE_NAME}
-            SELECT * 
-            FROM {EVENTS_TABLE}
-            WHERE timestamp >= (SELECT max(timestamp) FROM {TEMPORARY_TABLE_NAME})""",
-            rollback=f"TRUNCATE TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
-            resumable=True,
-            timeout_seconds=3 * 24 * 60 * 60,  # three days
-        ),
-        AsyncMigrationOperation(
-            database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"""
-                RENAME TABLE
-                    {EVENTS_TABLE_NAME} to {BACKUP_TABLE_NAME},
-                    {TEMPORARY_TABLE_NAME} to {EVENTS_TABLE_NAME}
-                ON CLUSTER {CLICKHOUSE_CLUSTER}
-            """,
-            rollback=f"""
-                RENAME TABLE
-                    {EVENTS_TABLE_NAME} to {EVENTS_TABLE_NAME}_failed,
-                    {BACKUP_TABLE_NAME} to {EVENTS_TABLE_NAME}
-                ON CLUSTER {CLICKHOUSE_CLUSTER}
-            """,
-        ),
-        AsyncMigrationOperation(
-            database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL",
-            rollback="",
-            resumable=True,
-        ),
-        AsyncMigrationOperation(
-            database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"ATTACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
-            rollback=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
-            side_effect=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
-            side_effect_rollback=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
-        ),
-    ]
+    @cached_property
+    def operations(self):
+
+        last_partition_op = [generate_insert_into_op(self._partitions[-1])] if len(self._partitions) > 0 else []
+        old_partition_ops = []
+
+        previous_partition = self._partitions[0] if len(self._partitions) > 0 else None
+        for partition in self._partitions[1:]:
+            old_partition_ops.append(generate_insert_into_op(previous_partition, partition))
+            previous_partition = partition
+
+        create_table_op = [
+            AsyncMigrationOperation(
+                database=AnalyticsDBMS.CLICKHOUSE,
+                sql=f"""
+                CREATE TABLE IF NOT EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER} AS {EVENTS_TABLE_NAME}
+                ENGINE = ReplacingMergeTree(_timestamp)
+                PARTITION BY toYYYYMM(timestamp)
+                ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
+                SAMPLE BY cityHash64(distinct_id) 
+                """,
+                rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
+                resumable=True,
+            )
+        ]
+
+        detach_mv_op = [
+            AsyncMigrationOperation(
+                database=AnalyticsDBMS.CLICKHOUSE,
+                sql=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
+                rollback=f"ATTACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
+                side_effect=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
+                side_effect_rollback=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
+            )
+        ]
+
+        post_insert_ops = [
+            AsyncMigrationOperation(
+                database=AnalyticsDBMS.CLICKHOUSE,
+                sql=f"""
+                    RENAME TABLE
+                        {EVENTS_TABLE_NAME} to {BACKUP_TABLE_NAME},
+                        {TEMPORARY_TABLE_NAME} to {EVENTS_TABLE_NAME}
+                    ON CLUSTER {CLICKHOUSE_CLUSTER}
+                """,
+                rollback=f"""
+                    RENAME TABLE
+                        {EVENTS_TABLE_NAME} to {EVENTS_TABLE_NAME}_failed,
+                        {BACKUP_TABLE_NAME} to {EVENTS_TABLE_NAME}
+                    ON CLUSTER {CLICKHOUSE_CLUSTER}
+                """,
+            ),
+            AsyncMigrationOperation(
+                database=AnalyticsDBMS.CLICKHOUSE,
+                sql=f"OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL",
+                rollback="",
+                resumable=True,
+            ),
+            AsyncMigrationOperation(
+                database=AnalyticsDBMS.CLICKHOUSE,
+                sql=f"ATTACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
+                rollback=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
+                side_effect=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
+                side_effect_rollback=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
+            ),
+        ]
+
+        return create_table_op + old_partition_ops + detach_mv_op + last_partition_op + post_insert_ops
 
     def is_required(self):
         if settings.MULTI_TENANCY:
@@ -172,3 +189,14 @@ class Migration(AsyncMigrationDefinition):
 
         progress = 100 * (total_events_moved / total_events_to_move)
         return progress
+
+    @cached_property
+    def _partitions(self):
+        return list(
+            sorted(
+                row[0]
+                for row in sync_execute(
+                    f"SELECT DISTINCT toUInt32(partition) FROM system.parts WHERE table='{EVENTS_TABLE}'"
+                )
+            )
+        )
