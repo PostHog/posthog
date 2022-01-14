@@ -10,7 +10,6 @@ import { EmptyPropertyFilter, EventType, PropertyFilter } from '~/types'
 import { urls } from 'scenes/urls'
 
 const errorToastSpy = jest.spyOn(utils, 'errorToast')
-const successToastSpy = jest.spyOn(utils, 'successToast')
 
 jest.mock('lib/api')
 import api from 'lib/api'
@@ -530,21 +529,6 @@ describe('eventsTableLogic', () => {
                     logic.actions.fetchOrPollFailure({})
                 })
                 expect(errorToastSpy).toHaveBeenCalled()
-            })
-
-            it('gives the user advice about the events export download', async () => {
-                window = Object.create(window)
-                Object.defineProperty(window, 'location', {
-                    value: {
-                        href: 'https://dummy.com',
-                    },
-                    writable: true,
-                })
-
-                await expectLogic(logic, () => {
-                    logic.actions.startDownload()
-                })
-                expect(successToastSpy).toHaveBeenCalled()
             })
         })
     })
