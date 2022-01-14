@@ -6,7 +6,7 @@ import { Link } from 'lib/components/Link'
 import { Button } from 'antd'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
-import { autoCaptureEventToDescription } from 'lib/utils'
+import { autoCaptureEventToDescription, successToast } from 'lib/utils'
 import './EventsTable.scss'
 import { eventsTableLogic } from './eventsTableLogic'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
@@ -84,7 +84,7 @@ export function EventsTable({
     } = useValues(logic)
     const { tableWidth, selectedColumns } = useValues(tableConfigLogic)
     const { propertyNames } = useValues(propertyDefinitionsModel)
-    const { fetchNextEvents, prependNewEvents, setEventFilter, toggleAutomaticLoad, startDownload, setPollingActive } =
+    const { fetchNextEvents, prependNewEvents, setEventFilter, toggleAutomaticLoad, setPollingActive } =
         useActions(logic)
     const { filters } = useValues(propertyFilterLogic({ pageKey }))
 
@@ -383,9 +383,16 @@ export function EventsTable({
                             )}
                             {exportUrl && (
                                 <Tooltip title="Export up to 10,000 latest events." placement="left">
-                                    <Button icon={<DownloadOutlined />} onClick={startDownload}>
-                                        Export events
-                                    </Button>
+                                    <a href={exportUrl} target="_blank">
+                                        <Button
+                                            icon={<DownloadOutlined />}
+                                            onClick={() => {
+                                                successToast('Export is starting', 'It should finish soon.')
+                                            }}
+                                        >
+                                            Export events
+                                        </Button>
+                                    </a>
                                 </Tooltip>
                             )}
                         </div>
