@@ -145,7 +145,7 @@ const renderItemPopup = (
             return (
                 <div style={{ width, overflowWrap: 'break-word' }}>
                     <AimOutlined /> Actions
-                    <Link to={urls.LEGACY_action(item.id)} style={{ float: 'right' }} tabIndex={-1}>
+                    <Link to={urls.action(item.id)} style={{ float: 'right' }} tabIndex={-1}>
                         edit
                     </Link>
                     <br />

@@ -4,7 +4,7 @@ import { SelectorCount } from '~/toolbar/actions/SelectorCount'
 import { cssEscape } from 'lib/utils/cssEscape'
 import { UrlMatchingToggle } from '~/toolbar/actions/UrlMatchingToggle'
 import { ActionStepForm } from '~/toolbar/types'
-import { URL_MATCHING_HINTS } from 'scenes/LEGACY_actions/hints'
+import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
 
 interface StepFieldProps {
     item: 'href' | 'text' | 'selector' | 'url'
