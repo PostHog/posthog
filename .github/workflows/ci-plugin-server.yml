@@ -62,7 +62,6 @@ jobs:
             REDIS_URL: 'redis://localhost'
             CLICKHOUSE_HOST: 'localhost'
             CLICKHOUSE_DATABASE: 'posthog_test'
-            KAFKA_ENABLED: 'true'
             KAFKA_HOSTS: 'kafka:9092'
 
         steps:
@@ -144,7 +143,6 @@ jobs:
             REDIS_URL: 'redis://localhost'
             CLICKHOUSE_HOST: 'localhost'
             CLICKHOUSE_DATABASE: 'posthog_test'
-            KAFKA_ENABLED: 'true'
             KAFKA_HOSTS: 'kafka:9092'
 
         steps:
