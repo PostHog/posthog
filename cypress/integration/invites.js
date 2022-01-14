@@ -25,8 +25,8 @@ describe('Invite Signup', () => {
         // Delete the invite
         cy.visit('/organization/members')
         cy.get('[data-attr=invites-table] [data-attr=invite-delete]').click()
-        cy.get('.ant-modal-confirm-btns button').contains('Delete').click()
-        cy.get('.Toastify__toast-body').should('contain', 'removed')
+        cy.get('.ant-modal-confirm-btns button').contains('Yes, cancel invite').click()
+        cy.get('.Toastify__toast-body').should('contain', 'Invite canceled successfully')
         cy.get('[data-attr=invites-table] tbody td').should('not.contain', 'charlie@posthog.com')
     })
 

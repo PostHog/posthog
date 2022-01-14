@@ -98,7 +98,7 @@ export const inviteLogic = kea<inviteLogicType<InviteRowState>>({
                 deleteInvite: async (invite: OrganizationInviteType) => {
                     await api.delete(`api/organizations/@current/invites/${invite.id}/`)
                     preflightLogic.actions.loadPreflight() // Make sure licensed_users_available is updated
-                    successToast('Invite revoked successfully', `Invite for ${invite.target_email} has been revoked.`)
+                    successToast('Invite canceled successfully', `Invite for ${invite.target_email} has been canceled.`)
                     return values.invites.filter((thisInvite) => thisInvite.id !== invite.id)
                 },
             },
