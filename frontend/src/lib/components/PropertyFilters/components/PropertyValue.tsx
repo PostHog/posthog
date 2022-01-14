@@ -147,7 +147,6 @@ export function PropertyValue({
 
     const commonInputProps = {
         style: { width: '100%', ...style },
-        loading: options[input]?.status === 'loading',
         onSearch: (newInput: string) => {
             setInput(newInput)
             if (!Object.keys(options).includes(newInput) && !(operator && isOperatorFlag(operator))) {
@@ -196,6 +195,7 @@ export function PropertyValue({
         <>
             {isMultiSelect ? (
                 <SelectGradientOverflow
+                    loading={options[propertyKey]?.status === 'loading'}
                     propertyKey={propertyKey}
                     {...commonInputProps}
                     autoFocus={autoFocus}
