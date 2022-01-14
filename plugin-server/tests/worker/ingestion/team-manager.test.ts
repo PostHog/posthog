@@ -6,11 +6,9 @@ import { DateTimePropertyTypeFormat, Hub, PropertyType, UnixTimestampPropertyTyp
 import { createHub } from '../../../src/utils/db/hub'
 import { posthog } from '../../../src/utils/posthog'
 import { UUIDT } from '../../../src/utils/utils'
-import {
-    dateTimePropertyTypeFormatPatterns,
-    NULL_AFTER_PROPERTY_TYPE_DETECTION,
-    TeamManager,
-} from '../../../src/worker/ingestion/team-manager'
+import { dateTimePropertyTypeFormatPatterns } from '../../../src/worker/ingestion/property-definitions-auto-discovery'
+import { NULL_AFTER_PROPERTY_TYPE_DETECTION } from '../../../src/worker/ingestion/property-definitions-cache'
+import { TeamManager } from '../../../src/worker/ingestion/team-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/posthog', () => ({

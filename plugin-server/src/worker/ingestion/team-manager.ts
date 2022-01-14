@@ -4,118 +4,16 @@ import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 
 import { ONE_HOUR } from '../../config/constants'
-import {
-    DateTimePropertyTypeFormat,
-    PluginsServerConfig,
-    PropertyType,
-    PropertyTypeFormat,
-    Team,
-    TeamId,
-    UnixTimestampPropertyTypeFormat,
-} from '../../types'
+import { PluginsServerConfig, Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
 import { posthog } from '../../utils/posthog'
 import { status } from '../../utils/status'
 import { getByAge, UUIDT } from '../../utils/utils'
-
-const NULL_IN_DATABASE = Symbol('NULL_IN_DATABASE')
-export const NULL_AFTER_PROPERTY_TYPE_DETECTION = Symbol('NULL_AFTER_PROPERTY_TYPE_DETECTION')
+import { detectPropertyDefinitionTypes } from './property-definitions-auto-discovery'
+import { PropertyDefinitionsCache } from './property-definitions-cache'
 
 type TeamCache<T> = Map<TeamId, [T, number]>
-
-export const unixTimestampPropertyTypeFormatPatterns: Record<keyof typeof UnixTimestampPropertyTypeFormat, RegExp> = {
-    UNIX_TIMESTAMP: /^\d{10}(\.\d*)?$/,
-    UNIX_TIMESTAMP_MILLISECONDS: /^\d{13}$/,
-}
-
-export const dateTimePropertyTypeFormatPatterns: Record<keyof typeof DateTimePropertyTypeFormat, RegExp> = {
-    DATE: /^\d{4}-\d{2}-\d{2}$/,
-    ISO8601_DATE: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/,
-    FULL_DATE: /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/,
-    FULL_DATE_INCREASING: /^\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2}$/,
-    WITH_SLASHES: /^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}$/,
-    WITH_SLASHES_INCREASING: /^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}$/,
-    // see https://datatracker.ietf.org/doc/html/rfc2822#section-3.3
-    RFC_822:
-        /^((mon|tue|wed|thu|fri|sat|sun), )?\d{2} (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec) \d{4} \d{2}:\d{2}:\d{2}( [+|-]\d{4})?$/i,
-}
-
-function detectPropertyDefinitionTypes(value: unknown, key: string) {
-    let propertyType: PropertyType | null = null
-    let propertyTypeFormat: PropertyTypeFormat | null = null
-
-    /**
-     * Auto detecting unix timestamps is tricky. It's hard to know what is a big number or ID and what is a timestamp
-     *
-     * This tries to detect the most likely cases.
-     *
-     * * Numbers or Numeric Strings
-     * * That are either ten digits (seconds since unix epoch), or 13 digits (milliseconds since unix epoch),
-     * * or ten digits with numbers after the decimal place (whole seconds since unix epoch and fractions of a second)
-     * * where the property key includes either time or timestamp
-     *
-     * ten digits of seconds since epoch runs between Sep 09 2001 and Nov 20th 2286
-     *
-     * These are some representations from a variety of programming languages
-     *
-     * Python
-     * >>> datetime.now().timestamp()
-     * 1641477529.234715
-     *
-     * Ruby
-     * puts Time.now.to_i
-     * 1641477692
-     *
-     * Node JS
-     * console.log(Date.now())
-     * 1641477753371
-     *
-     * Java
-     * System.out.println(LocalDateTime.now().toEpochSecond(ZoneOffset.UTC));
-     * 1641478115
-     *
-     * SQL Lite
-     * select strftime('%s', 'now')
-     * 1641478347
-     */
-    const detectUnixTimestamps = () => {
-        Object.entries(unixTimestampPropertyTypeFormatPatterns).find(([dateTimeFormat, pattern]) => {
-            if (
-                (key.toLowerCase().includes('timestamp') || key.toLowerCase().includes('time')) &&
-                String(value).match(pattern)
-            ) {
-                propertyType = PropertyType.DateTime
-                propertyTypeFormat =
-                    UnixTimestampPropertyTypeFormat[dateTimeFormat as keyof typeof UnixTimestampPropertyTypeFormat]
-                return true
-            }
-        })
-    }
-
-    if (typeof value === 'number') {
-        propertyType = PropertyType.Numeric
-
-        detectUnixTimestamps()
-    }
-
-    if (typeof value === 'string') {
-        propertyType = PropertyType.String
-
-        Object.entries(dateTimePropertyTypeFormatPatterns).find(([dateTimeFormat, pattern]) => {
-            if (value.match(pattern)) {
-                propertyType = PropertyType.DateTime
-                propertyTypeFormat =
-                    DateTimePropertyTypeFormat[dateTimeFormat as keyof typeof DateTimePropertyTypeFormat]
-                return true
-            }
-        })
-
-        detectUnixTimestamps()
-    }
-
-    return { propertyType, propertyTypeFormat }
-}
 
 export class TeamManager {
     db: DB
@@ -123,7 +21,7 @@ export class TeamManager {
     eventDefinitionsCache: Map<TeamId, Set<string>>
     eventPropertiesCache: LRU<string, Set<string>> // Map<JSON.stringify([TeamId, Event], Set<Property>>
     eventLastSeenCache: LRU<string, number> // key: JSON.stringify([team_id, event]); value: parseInt(YYYYMMDD)
-    propertyDefinitionsCache: Map<TeamId, LRU<string, string | symbol>>
+    propertyDefinitionsCache: PropertyDefinitionsCache
     instanceSiteUrl: string
     experimentalLastSeenAtEnabled: boolean
     experimentalEventPropertyTrackerEnabled: boolean
@@ -146,7 +44,7 @@ export class TeamManager {
             maxAge: ONE_HOUR * 24, // cache up to 24h
             updateAgeOnGet: true,
         })
-        this.propertyDefinitionsCache = new Map()
+        this.propertyDefinitionsCache = new PropertyDefinitionsCache(serverConfig, statsd)
         this.instanceSiteUrl = serverConfig.SITE_URL || 'unknown'
 
         // TODO: #7422 Remove temporary EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED
@@ -263,10 +161,7 @@ VALUES ($1, $2, NULL, NULL, $3, NOW()) ON CONFLICT DO NOTHING`,
 
     private async syncPropertyDefinitions(properties: Properties, team: Team) {
         for (const [key, value] of Object.entries(properties)) {
-            if (
-                !this.propertyDefinitionsCache.get(team.id)?.has(key) ||
-                this.propertyDefinitionsCache.get(team.id)?.get(key) === NULL_IN_DATABASE
-            ) {
+            if (this.propertyDefinitionsCache.shouldUpdate(team.id, key)) {
                 const isNumerical = typeof value === 'number'
                 const { propertyType, propertyTypeFormat } = detectPropertyDefinitionTypes(value, key)
 
@@ -280,15 +175,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                     [new UUIDT().toString(), key, isNumerical, team.id, propertyType, propertyTypeFormat],
                     'insertPropertyDefinition'
                 )
-                this.propertyDefinitionsCache.get(team.id)?.set(key, propertyType || NULL_AFTER_PROPERTY_TYPE_DETECTION)
-
-                this.statsd?.gauge(
-                    'propertyDefinitionsCache.length',
-                    this.propertyDefinitionsCache.get(team.id)?.length ?? 0,
-                    {
-                        team_id: team.id.toString(),
-                    }
-                )
+                this.propertyDefinitionsCache.set(team.id, key, propertyType)
             }
         }
     }
@@ -344,24 +231,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                 'fetchPropertyDefinitions'
             )
 
-            const teamPropertyDefinitionsCache = new LRU<string, string | symbol>({
-                max: this.lruCacheSize, // keep in memory the last 10k property definitions we have seen
-                maxAge: ONE_HOUR * 24, // cache up to 24h
-                updateAgeOnGet: true,
-            })
-
-            eventProperties.rows.forEach((row) => {
-                teamPropertyDefinitionsCache.set(row.name, row.property_type ?? NULL_IN_DATABASE)
-            })
-            this.propertyDefinitionsCache.set(teamId, teamPropertyDefinitionsCache)
-
-            this.statsd?.gauge(
-                'propertyDefinitionsCache.length',
-                this.propertyDefinitionsCache.get(teamId)?.length ?? 0,
-                {
-                    team_id: teamId.toString(),
-                }
-            )
+            this.propertyDefinitionsCache.initialize(teamId, eventProperties.rows)
         }
 
         // Run only if the feature is enabled for this team
