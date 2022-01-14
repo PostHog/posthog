@@ -1,3 +1,7 @@
+import datetime
+import uuid
+
+import pytz
 from rest_framework.status import (
     HTTP_200_OK,
     HTTP_204_NO_CONTENT,
@@ -7,6 +11,7 @@ from rest_framework.status import (
 )
 
 from ee.api.test.base import APILicensedTest
+from ee.clickhouse.models.event import create_event
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
@@ -271,9 +276,21 @@ class TestProjectEnterpriseAPI(APILicensedTest):
             {"correlation_config": {"excluded_person_property_names": ["$os"]}}, response_data
         )
 
-    # Fetching projects
+    # Retrieving projects
 
     def test_fetch_team_as_org_admin_works(self):
+        create_event(
+            uuid.uuid4(),
+            "very_old_event",
+            self.team,
+            "user_123456",
+            datetime.datetime(2010, 1, 1, 23, 59, 59, 0, tzinfo=pytz.UTC),
+        )
+
+        create_event(
+            uuid.uuid4(), "no_so_old_event", self.team, "user_123456", datetime.datetime(2015, 1, 1, tzinfo=pytz.UTC),
+        )
+
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
@@ -286,6 +303,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
                 "name": "Default Project",
                 "access_control": False,
                 "effective_membership_level": OrganizationMembership.Level.ADMIN,
+                "event_first_seen": "2010-01-01T23:59:59Z",
             },
             response_data,
         )

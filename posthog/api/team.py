@@ -1,3 +1,4 @@
+import datetime
 from typing import Any, Dict, List, Optional, Type, cast
 
 from django.db import transaction
@@ -44,6 +45,7 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
 class TeamSerializer(serializers.ModelSerializer):
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
+    event_first_seen = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
@@ -70,6 +72,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "effective_membership_level",
             "access_control",
             "has_group_types",
+            "event_first_seen",
         )
         read_only_fields = (
             "id",
@@ -81,7 +84,6 @@ class TeamSerializer(serializers.ModelSerializer):
             "updated_at",
             "ingested_event",
             "effective_membership_level",
-            "has_group_types",
         )
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
@@ -89,6 +91,18 @@ class TeamSerializer(serializers.ModelSerializer):
 
     def get_has_group_types(self, team: Team) -> bool:
         return GroupTypeMapping.objects.filter(team=team).exists()
+
+    def get_event_first_seen(self, team: Team) -> Optional[datetime.datetime]:
+        # TODO: Remove try statement when CH is moved out ee/
+        try:
+            from ee.clickhouse.client import sync_execute
+        except ImportError:
+            return None
+
+        response = sync_execute(
+            "SELECT timestamp FROM events WHERE team_id = %(team_id)s ORDER BY timestamp LIMIT 1", {"team_id": team.pk}
+        )
+        return response[0][0]
 
     def validate(self, attrs: Any) -> Any:
         if "access_control" in attrs:
