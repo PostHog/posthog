@@ -56,7 +56,7 @@ def is_migration_resumable(migration_instance: AsyncMigration):
     from posthog.async_migrations.runner import is_current_operation_resumable
 
     if not is_current_operation_resumable(migration_instance):
-        return False, "Can't resume a migration because the current opearation isn't resumable"
+        return False, "Can't resume a migration because the current operation isn't resumable"
     return True, ""
 
 
