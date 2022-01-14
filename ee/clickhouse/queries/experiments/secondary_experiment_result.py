@@ -46,9 +46,8 @@ class ClickhouseSecondaryExperimentResult:
         self.team = team
         if query_filter.insight == INSIGHT_TRENDS:
             query_filter = query_filter.with_data({"display": TRENDS_CUMULATIVE})
-            self.query_filter = query_filter
-        else:
-            self.query_filter = query_filter
+
+        self.query_filter = query_filter
 
     def get_results(self):
 
