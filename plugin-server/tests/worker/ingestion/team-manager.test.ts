@@ -360,8 +360,8 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                     anObjectProperty: { anything: randomInteger() },
                 })
 
-                expect(teamManager.propertyDefinitionsCache.get(teamId)).toEqual(
-                    new Map([['anObjectProperty', NULL_AFTER_PROPERTY_TYPE_DETECTION]])
+                expect(teamManager.propertyDefinitionsCache.get(teamId)?.peek('anObjectProperty')).toEqual(
+                    NULL_AFTER_PROPERTY_TYPE_DETECTION
                 )
 
                 expectMockQueryCallToMatch(
@@ -379,7 +379,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                     some_number: randomInteger(),
                 })
 
-                expect(teamManager.propertyDefinitionsCache.get(teamId)).toEqual(new Map([['some_number', 'Numeric']]))
+                expect(teamManager.propertyDefinitionsCache.get(teamId)?.peek('some_number')).toEqual('Numeric')
 
                 expectMockQueryCallToMatch(
                     {
@@ -396,7 +396,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                     some_string: randomString(),
                 })
 
-                expect(teamManager.propertyDefinitionsCache.get(teamId)).toEqual(new Map([['some_string', 'String']]))
+                expect(teamManager.propertyDefinitionsCache.get(teamId)?.peek('some_string')).toEqual('String')
 
                 expectMockQueryCallToMatch(
                     {

@@ -123,24 +123,26 @@ export class TeamManager {
     eventDefinitionsCache: Map<TeamId, Set<string>>
     eventPropertiesCache: LRU<string, Set<string>> // Map<JSON.stringify([TeamId, Event], Set<Property>>
     eventLastSeenCache: LRU<string, number> // key: JSON.stringify([team_id, event]); value: parseInt(YYYYMMDD)
-    propertyDefinitionsCache: Map<TeamId, Map<string, string | symbol>>
+    propertyDefinitionsCache: Map<TeamId, LRU<string, string | symbol>>
     instanceSiteUrl: string
     experimentalLastSeenAtEnabled: boolean
     experimentalEventPropertyTrackerEnabled: boolean
     statsd?: StatsD
+    private readonly lruCacheSize: number
 
     constructor(db: DB, serverConfig: PluginsServerConfig, statsd?: StatsD) {
         this.db = db
         this.statsd = statsd
         this.teamCache = new Map()
         this.eventDefinitionsCache = new Map()
+        this.lruCacheSize = serverConfig.EVENT_PROPERTY_LRU_SIZE
         this.eventPropertiesCache = new LRU({
-            max: serverConfig.EVENT_PROPERTY_LRU_SIZE, // keep in memory the last 10k team+event combos we have seen
+            max: this.lruCacheSize, // keep in memory the last 10k team+event combos we have seen
             maxAge: ONE_HOUR * 24, // cache up to 24h
             updateAgeOnGet: true,
         })
         this.eventLastSeenCache = new LRU({
-            max: serverConfig.EVENT_PROPERTY_LRU_SIZE, // keep in memory the last 10k team+event combos we have seen
+            max: this.lruCacheSize, // keep in memory the last 10k team+event combos we have seen
             maxAge: ONE_HOUR * 24, // cache up to 24h
             updateAgeOnGet: true,
         })
@@ -279,6 +281,11 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                     'insertPropertyDefinition'
                 )
                 this.propertyDefinitionsCache.get(team.id)?.set(key, propertyType || NULL_AFTER_PROPERTY_TYPE_DETECTION)
+
+                this.statsd?.gauge(
+                    `propertyDefinitionsCacheLength.team${team.id}`,
+                    this.propertyDefinitionsCache.get(team.id)?.length ?? 0
+                )
             }
         }
     }
@@ -334,12 +341,20 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                 'fetchPropertyDefinitions'
             )
 
-            this.propertyDefinitionsCache.set(
-                teamId,
-                eventProperties.rows.reduce((teamCache, row) => {
-                    teamCache[row.name] = row.property_type ?? NULL_IN_DATABASE
-                    return teamCache
-                }, new Map())
+            const teamPropertyDefinitionsCache = new LRU<string, string | symbol>({
+                max: this.lruCacheSize * 10, // keep in memory the last 100k property definitions we have seen
+                maxAge: ONE_HOUR * 24, // cache up to 24h
+                updateAgeOnGet: true,
+            })
+
+            eventProperties.rows.forEach((row) => {
+                teamPropertyDefinitionsCache.set(row.name, row.property_type ?? NULL_IN_DATABASE)
+            })
+            this.propertyDefinitionsCache.set(teamId, teamPropertyDefinitionsCache)
+
+            this.statsd?.gauge(
+                `propertyDefinitionsCacheLength.team${teamId}`,
+                this.propertyDefinitionsCache.get(teamId)?.length ?? 0
             )
         }
 
