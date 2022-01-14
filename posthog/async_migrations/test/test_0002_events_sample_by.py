@@ -100,4 +100,4 @@ class Test0002EventsSampleBy(BaseTest):
         self.assertEqual(sm.status, MigrationStatus.CompletedSuccessfully)
         self.assertEqual(sm.progress, 100)
         self.assertEqual(sm.last_error, "")
-        self.assertEqual(sm.current_operation_index, 10)
+        self.assertEqual(sm.current_operation_index, 9)

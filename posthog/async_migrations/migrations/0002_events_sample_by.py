@@ -71,7 +71,7 @@ class Migration(AsyncMigrationDefinition):
             timeout_seconds=7 * 24 * 60 * 60,  # one week
         ),
         AsyncMigrationOperation(
-            fn=lambda _: None,
+            fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
             rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
             resumable=True,
         ),
@@ -79,9 +79,6 @@ class Migration(AsyncMigrationDefinition):
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
             rollback=f"ATTACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
-        ),
-        AsyncMigrationOperation(
-            fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False), resumable=True,
         ),
         AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.CLICKHOUSE,
