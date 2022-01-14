@@ -52,7 +52,6 @@ export function Experiment(): JSX.Element {
         variants,
         expectedRunningTime,
         experimentResults,
-        conversionRateForVariant,
         countDataForVariant,
         editingExistingExperiment,
         experimentInsightType,
@@ -524,23 +523,19 @@ export function Experiment(): JSX.Element {
                         {experimentResults ? (
                             <>
                                 <Row justify="space-around" style={{ flexFlow: 'nowrap' }}>
-                                    {experimentData.parameters.feature_flag_variants.map(
-                                        (variant: MultivariateFlagVariant, idx: number) => (
+                                    {Object.keys(experimentResults.probability)
+                                        .reverse()
+                                        .map((variant, idx) => (
                                             <Col key={idx} className="pr">
-                                                <div style={{ fontSize: 16 }}>
-                                                    <b>{capitalizeFirstLetter(variant.key)}</b>
+                                                <div>
+                                                    <b>{capitalizeFirstLetter(variant)}</b>
                                                 </div>
-                                                {experimentInsightType === InsightType.FUNNELS
-                                                    ? 'Conversion rate: '
-                                                    : 'Count: '}
-                                                <b>
-                                                    {experimentInsightType === InsightType.FUNNELS
-                                                        ? `${conversionRateForVariant(variant.key)}%`
-                                                        : countDataForVariant(variant.key)}
-                                                </b>
+                                                {experimentInsightType === InsightType.TRENDS && (
+                                                    <div>Count {countDataForVariant(variant)}</div>
+                                                )}
                                                 <Progress
                                                     percent={Number(
-                                                        (experimentResults.probability[variant.key] * 100).toFixed(1)
+                                                        (experimentResults.probability[variant] * 100).toFixed(1)
                                                     )}
                                                     size="small"
                                                     showInfo={false}
@@ -551,15 +546,11 @@ export function Experiment(): JSX.Element {
                                                     }
                                                 />
                                                 <div>
-                                                    Probability that this variant has higher conversion than other
-                                                    variants:{' '}
-                                                    <b>
-                                                        {(experimentResults.probability[variant.key] * 100).toFixed(1)}%
-                                                    </b>
+                                                    Probability that this variant is the best:{' '}
+                                                    <b>{(experimentResults.probability[variant] * 100).toFixed(1)}%</b>
                                                 </div>
                                             </Col>
-                                        )
-                                    )}
+                                        ))}
                                 </Row>
                             </>
                         ) : experimentResultsLoading ? (
