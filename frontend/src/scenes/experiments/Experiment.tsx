@@ -1,5 +1,5 @@
 import SaveOutlined from '@ant-design/icons/lib/icons/SaveOutlined'
-import { Button, Card, Col, Form, Input, InputNumber, Progress, Row, Select, Tag, Tooltip } from 'antd'
+import { Button, Card, Col, Collapse, Form, Input, InputNumber, Progress, Row, Select, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -75,7 +75,6 @@ export function Experiment(): JSX.Element {
 
     const [form] = Form.useForm()
 
-    const [currentVariant, setCurrentVariant] = useState('control')
     const [showWarning, setShowWarning] = useState(true)
 
     const { insightProps } = useValues(
@@ -489,143 +488,37 @@ export function Experiment(): JSX.Element {
                             )}
                         </Row>
                     </Row>
-                    <Row className="mb">
-                        <Col span={10} style={{ paddingRight: '1rem' }}>
-                            {showWarning &&
-                                experimentResults &&
-                                ((experimentInsightType == InsightType.TRENDS && areCountResultsSignificant) ||
-                                    (experimentInsightType == InsightType.FUNNELS &&
-                                        areConversionResultsSignificant)) && (
-                                    <Row className="significant-results">
-                                        <Col span={19} style={{ color: '#497342' }}>
-                                            Experiment results are significant. You can end your experiment now or let
-                                            it run until completion.
-                                        </Col>
-                                        <Col span={5}>
-                                            <Button style={{ color: '#497342' }} onClick={() => setShowWarning(false)}>
-                                                Dismiss
-                                            </Button>
-                                        </Col>
-                                    </Row>
-                                )}
-                            <Col>
-                                <div className="card-secondary">Participants</div>
-                                <div>
-                                    {!!experimentData.filters.properties?.length ? (
-                                        <div>
-                                            {experimentData.filters.properties.map((item) => {
-                                                return (
-                                                    <PropertyFilterButton
-                                                        key={item.key}
-                                                        item={item}
-                                                        greyBadges={true}
-                                                    />
-                                                )
-                                            })}
-                                        </div>
-                                    ) : (
-                                        '100% of users'
-                                    )}
-                                </div>
-                            </Col>
-                            {/* {experimentInsightType === InsightType.TRENDS ? (
-                                <Col>
-                                    <div className="card-secondary mt">Recommended running time</div>
-                                    <span>
-                                        ~{experimentData.parameters?.recommended_running_time}{' '}
-                                        <span className="text-muted">days</span>
-                                    </span>
-                                </Col>
-                            ) : (
-                                <Col>
-                                    <div className="card-secondary mt">Recommended sample size</div>
-                                    <span>
-                                        ~{experimentData.parameters?.recommended_sample_size}{' '}
-                                        <span className="text-muted">persons</span>
-                                    </span>
-                                </Col>
-                            )} */}
-                            {/* <Col>
-                                <div className="card-secondary mt">Variants</div>
-                                <ul className="variants-list">
-                                    {experimentData.parameters?.feature_flag_variants?.map(
-                                        (variant: MultivariateFlagVariant, idx: number) => (
-                                            <li key={idx}>{variant.key}</li>
-                                        )
-                                    )}
-                                </ul>
-                            </Col>
-                            <Row>
-                                <Col className="mr">
-                                    <div className="card-secondary mt">Start date</div>
-                                    {experimentData.start_date ? (
-                                        <span>{dayjs(experimentData.start_date).format('D MMM YYYY')}</span>
-                                    ) : (
-                                        <span className="description">Not started yet</span>
-                                    )}
-                                </Col>
-                                {experimentData.end_date && (
-                                    <Col className="ml">
-                                        <div className="card-secondary mt">Completed date</div>
-                                        <span>{dayjs(experimentData.end_date).format('D MMM YYYY')}</span>
+                    <Row>
+                        {showWarning &&
+                            experimentResults &&
+                            ((experimentInsightType === InsightType.TRENDS && areCountResultsSignificant) ||
+                                (experimentInsightType === InsightType.FUNNELS && areConversionResultsSignificant)) && (
+                                <Row align="middle" className="significant-results">
+                                    <Col span={19} style={{ color: '#497342' }}>
+                                        Experiment results are significant. You can end your experiment now or let it
+                                        run until completion.
                                     </Col>
-                                )}
-                            </Row> */}
-                        </Col>
-                        <Col span={14}>
-                            <ExperimentPreview
-                                experiment={experimentData}
-                                trendCount={trendCount}
-                                exposure={exposure}
-                                sampleSizePerVariant={sampleSizePerVariant}
-                                runningTime={runningTime}
-                                conversionRate={conversionRate}
-                            />
-                            <div style={{ borderBottom: '1px solid (--border)' }}>
-                                <b>Test that your code works properly for each variant</b>
-                            </div>
-                            <Row justify="space-between">
-                                <div>
-                                    Feature flag override for{' '}
-                                    <Select
-                                        onChange={setCurrentVariant}
-                                        defaultValue={'control'}
-                                        suffixIcon={<CaretDownOutlined />}
-                                    >
-                                        {experimentData.parameters.feature_flag_variants?.map(
-                                            (variant: MultivariateFlagVariant, idx: number) => (
-                                                <Select.Option key={idx} value={variant.key}>
-                                                    {variant.key}
-                                                </Select.Option>
-                                            )
-                                        )}
-                                    </Select>
-                                </div>
-                                <div>
-                                    Language <CodeLanguageSelect />
-                                </div>
-                            </Row>
-                            <CodeSnippet language={Language.JavaScript}>
-                                {`posthog.feature_flags.override({'${experimentData.feature_flag_key}': '${currentVariant}'})`}
-                            </CodeSnippet>
-                            <CodeSnippet language={Language.JavaScript} wrap>
-                                {`if (posthog.getFeatureFlag('${
-                                    experimentData.feature_flag_key ?? ''
-                                }') === '${currentVariant}') {
-    // where '${currentVariant}' is the variant, run your code here
-}`}
-                            </CodeSnippet>
-                            <a
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                href="https://posthog.com/docs/user-guides/feature-flags"
-                            >
-                                <Row align="middle">
-                                    Experiment implementation guide
-                                    <IconOpenInNew className="ml-05" />
+                                    <Col span={5}>
+                                        <Button style={{ color: '#497342' }} onClick={() => setShowWarning(false)}>
+                                            Dismiss
+                                        </Button>
+                                    </Col>
                                 </Row>
-                            </a>
-                        </Col>
+                            )}
+                    </Row>
+                    <Row>
+                        <Collapse className="full-width" defaultActiveKey="experiment-details">
+                            <Collapse.Panel header={<b>Experiment details</b>} key="experiment-details">
+                                <ExperimentPreview
+                                    experiment={experimentData}
+                                    trendCount={trendCount}
+                                    exposure={exposure}
+                                    sampleSizePerVariant={sampleSizePerVariant}
+                                    runningTime={runningTime}
+                                    conversionRate={conversionRate}
+                                />
+                            </Collapse.Panel>
+                        </Collapse>
                     </Row>
                     <div className="experiment-result">
                         {experimentResults ? (
@@ -768,111 +661,182 @@ export function ExperimentPreview({
     sampleSizePerVariant,
 }: ExperimentPreviewProps): JSX.Element {
     const { experimentInsightType, experimentData } = useValues(experimentLogic)
+    const [currentVariant, setCurrentVariant] = useState('control')
 
     return (
         <Card className="experiment-preview">
-            <Row className="experiment-preview-row">
-                <Col>
-                    <div className="card-secondary mb-05">Preview</div>
-                    <div>
-                        <span className="mr-05">
-                            <b>{experiment?.name}</b>
-                        </span>
-                        {experiment?.feature_flag_key && (
-                            <CopyToClipboardInline
-                                explicitValue={experiment.feature_flag_key}
-                                iconStyle={{ color: 'var(--text-muted-alt)' }}
-                                description="feature flag key"
-                            >
-                                <span className="text-muted">{experiment.feature_flag_key}</span>
-                            </CopyToClipboardInline>
-                        )}
-                    </div>
-                </Col>
-            </Row>
-            <Row className="experiment-preview-row">
-                {experimentInsightType === InsightType.TRENDS ? (
-                    <>
-                        <Col span={12}>
-                            <div className="card-secondary">Baseline Count</div>
-                            <div className="l4">{trendCount}</div>
-                        </Col>
-                        <Col span={12}>
-                            <div className="card-secondary">Recommended Duration</div>
+            <Row>
+                <Col span={12}>
+                    <Row className="experiment-preview-row">
+                        <Col>
+                            <div className="card-secondary mb-05">Preview</div>
                             <div>
-                                <span className="l4">~{exposure}</span> days
+                                <span className="mr-05">
+                                    <b>{experiment?.name}</b>
+                                </span>
+                                {experiment?.feature_flag_key && (
+                                    <CopyToClipboardInline
+                                        explicitValue={experiment.feature_flag_key}
+                                        iconStyle={{ color: 'var(--text-muted-alt)' }}
+                                        description="feature flag key"
+                                    >
+                                        <span className="text-muted">{experiment.feature_flag_key}</span>
+                                    </CopyToClipboardInline>
+                                )}
                             </div>
                         </Col>
-                    </>
-                ) : (
-                    <>
-                        <Col span={8}>
-                            <div className="card-secondary">Baseline Conversion Rate</div>
-                            <div className="l4">{conversionRate.toFixed(1)}%</div>
-                        </Col>
-                        <Col span={8}>
-                            <div className="card-secondary">Recommended Sample Size</div>
-                            <div className="pb">
-                                <span className="l4">~{sampleSizePerVariant}</span> persons
-                            </div>
-                        </Col>
-                        <Col span={8}>
-                            <div className="card-secondary">Expected Duration</div>
-                            <div>
-                                <span className="l4">~{runningTime}</span> days
-                            </div>
-                        </Col>
-                    </>
-                )}
-                <Col>
-                    <Col>
-                        <div className="card-secondary mt">Experiment variants</div>
-                        <ul className="variants-list">
-                            {experiment?.parameters?.feature_flag_variants?.map(
-                                (variant: MultivariateFlagVariant, idx: number) => (
-                                    <li key={idx}>{variant.key}</li>
-                                )
-                            )}
-                        </ul>
-                    </Col>
-                    <Row>
-                        <Col className="mr">
-                            <div className="card-secondary mt">Start date</div>
-                            {experiment?.start_date ? (
-                                <span>{dayjs(experiment?.start_date).format('D MMM YYYY')}</span>
-                            ) : (
-                                <span className="description">Not started yet</span>
-                            )}
-                        </Col>
-                        {experiment?.end_date && (
-                            <Col className="ml">
-                                <div className="card-secondary mt">Completed date</div>
-                                <span>{dayjs(experiment?.end_date).format('D MMM YYYY')}</span>
-                            </Col>
-                        )}
                     </Row>
-                </Col>
-            </Row>
-            {experimentInsightType === InsightType.FUNNELS && experimentData && (
-                <Row className="experiment-preview-row">
-                    <Col>
-                        <div className="card-secondary mb-05">Conversion goal</div>
-                        {experiment?.filters?.events?.map((event, idx) => (
-                            <Col key={idx} className="mb-05">
-                                <Row style={{ marginBottom: 4 }}>
-                                    <div className="preview-conversion-goal-num">{idx + 1}</div>
-                                    <b>
-                                        <EntityFilterInfo filter={event} />
-                                    </b>
-                                </Row>
-                                {event.properties?.map((prop: PropertyFilter) => (
-                                    <PropertyFilterButton key={prop.key} item={prop} greyBadges={true} />
+                    <Row className="experiment-preview-row">
+                        {experimentInsightType === InsightType.TRENDS ? (
+                            <>
+                                <Col span={12}>
+                                    <div className="card-secondary">Baseline Count</div>
+                                    <div className="l4">{trendCount}</div>
+                                </Col>
+                                <Col span={12}>
+                                    <div className="card-secondary">Recommended Duration</div>
+                                    <div>
+                                        <span className="l4">~{exposure}</span> days
+                                    </div>
+                                </Col>
+                            </>
+                        ) : (
+                            <>
+                                <Col span={8}>
+                                    <div className="card-secondary">Baseline Conversion Rate</div>
+                                    <div className="l4">{conversionRate.toFixed(1)}%</div>
+                                </Col>
+                                <Col span={8}>
+                                    <div className="card-secondary">Recommended Sample Size</div>
+                                    <div className="pb">
+                                        <span className="l4">~{sampleSizePerVariant}</span> persons
+                                    </div>
+                                </Col>
+                                <Col span={8}>
+                                    <div className="card-secondary">Expected Duration</div>
+                                    <div>
+                                        <span className="l4">~{runningTime}</span> days
+                                    </div>
+                                </Col>
+                            </>
+                        )}
+                        <Col>
+                            <Row className="full-width mt">
+                                <Col className="mr">
+                                    <div className="card-secondary">Experiment variants</div>
+                                    <ul className="variants-list">
+                                        {experiment?.parameters?.feature_flag_variants?.map(
+                                            (variant: MultivariateFlagVariant, idx: number) => (
+                                                <li key={idx}>{variant.key}</li>
+                                            )
+                                        )}
+                                    </ul>
+                                </Col>
+                                <Col>
+                                    <div className="card-secondary">Participants</div>
+                                    <div>
+                                        {!!experiment?.filters?.properties?.length ? (
+                                            <div>
+                                                {experiment?.filters.properties.map((item) => {
+                                                    return (
+                                                        <PropertyFilterButton
+                                                            key={item.key}
+                                                            item={item}
+                                                            greyBadges={true}
+                                                        />
+                                                    )
+                                                })}
+                                            </div>
+                                        ) : (
+                                            '100% of users'
+                                        )}
+                                    </div>
+                                </Col>
+                            </Row>
+                            <Row>
+                                <Col className="mr">
+                                    <div className="card-secondary mt">Start date</div>
+                                    {experiment?.start_date ? (
+                                        <span>{dayjs(experiment?.start_date).format('D MMM YYYY')}</span>
+                                    ) : (
+                                        <span className="description">Not started yet</span>
+                                    )}
+                                </Col>
+                                {experiment?.end_date && (
+                                    <Col className="ml">
+                                        <div className="card-secondary mt">Completed date</div>
+                                        <span>{dayjs(experiment?.end_date).format('D MMM YYYY')}</span>
+                                    </Col>
+                                )}
+                            </Row>
+                        </Col>
+                    </Row>
+                    {experimentInsightType === InsightType.FUNNELS && experimentData && (
+                        <Row className="experiment-preview-row">
+                            <Col>
+                                <div className="card-secondary mb-05">Conversion goal</div>
+                                {experiment?.filters?.events?.map((event, idx) => (
+                                    <Col key={idx} className="mb-05">
+                                        <Row style={{ marginBottom: 4 }}>
+                                            <div className="preview-conversion-goal-num">{idx + 1}</div>
+                                            <b>
+                                                <EntityFilterInfo filter={event} />
+                                            </b>
+                                        </Row>
+                                        {event.properties?.map((prop: PropertyFilter) => (
+                                            <PropertyFilterButton key={prop.key} item={prop} greyBadges={true} />
+                                        ))}
+                                    </Col>
                                 ))}
                             </Col>
-                        ))}
-                    </Col>
-                </Row>
-            )}
+                        </Row>
+                    )}
+                </Col>
+                <Col span={12} className="pl">
+                    <div className="card-secondary mb">Feature flag usage and implementation</div>
+                    <Row justify="space-between" className="mb-05">
+                        <div>
+                            <span className="mr-05">Variant group</span>
+                            <Select
+                                onChange={setCurrentVariant}
+                                defaultValue={'control'}
+                                suffixIcon={<CaretDownOutlined />}
+                            >
+                                {experiment?.parameters?.feature_flag_variants?.map(
+                                    (variant: MultivariateFlagVariant, idx: number) => (
+                                        <Select.Option key={idx} value={variant.key}>
+                                            {variant.key}
+                                        </Select.Option>
+                                    )
+                                )}
+                            </Select>
+                        </div>
+                        <div>
+                            <CodeLanguageSelect />
+                        </div>
+                    </Row>
+                    <b>Implement your experiment in code</b>
+                    <CodeSnippet language={Language.JavaScript} wrap>
+                        {`if (posthog.getFeatureFlag('${experiment?.feature_flag_key ?? ''}') === '${currentVariant}') {
+    // where '${currentVariant}' is the variant, run your code here
+}`}
+                    </CodeSnippet>
+                    <b>Test that it works</b>
+                    <CodeSnippet language={Language.JavaScript}>
+                        {`posthog.feature_flags.override({'${experiment?.feature_flag_key}': '${currentVariant}'})`}
+                    </CodeSnippet>
+                    <a
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        href="https://posthog.com/docs/user-guides/feature-flags"
+                    >
+                        <Row align="middle">
+                            Experiment implementation guide
+                            <IconOpenInNew className="ml-05" />
+                        </Row>
+                    </a>
+                </Col>
+            </Row>
         </Card>
     )
 }
