@@ -17,7 +17,7 @@ from posthog.celery import app
 # 1. spawning a thread within the worker
 # 2. suggesting users scale celery when running async migrations
 # 3. ...
-@app.task(ignore_result=False, max_retries=0)
+@app.task(track_started=True, ignore_result=False, max_retries=0)
 def run_async_migration(migration_name: str, fresh_start: bool = True) -> None:
     if fresh_start:
         start_async_migration(migration_name)
@@ -53,8 +53,9 @@ def check_async_migration_health() -> None:
 
     active_task_ids = []
 
-    for _, tasks in active_tasks_per_node.items():
-        active_task_ids += [task["id"] for task in tasks]
+    if active_tasks_per_node:
+        for _, tasks in active_tasks_per_node.items():
+            active_task_ids += [task["id"] for task in tasks]
 
     # the worker crashed - this is how we find out and process the error
     if migration_instance.celery_task_id not in active_task_ids:

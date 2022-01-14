@@ -18,14 +18,30 @@ from posthog.models.group import Group
 from posthog.models.team import Team
 
 
-class FunnelCorrelationActors:
-    def __init__(self, filter: Filter, team: Team, base_uri: str = "/") -> None:
+class FunnelCorrelationActors(ActorBaseQuery):
+    _filter: Filter
+
+    def __init__(self, filter: Filter, team: Team, base_uri: str = "/", **kwargs) -> None:
         self._base_uri = base_uri
         self._filter = filter
         self._team = team
 
         if not self._filter.correlation_person_limit:
             self._filter = self._filter.with_data({FUNNEL_CORRELATION_PERSON_LIMIT: 100})
+
+    @cached_property
+    def aggregation_group_type_index(self):
+        return self._filter.aggregation_group_type_index
+
+    def actor_query(self, limit_actors: Optional[bool] = True):
+        if self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
+            return _FunnelPropertyCorrelationActors(self._filter, self._team, self._base_uri).actor_query(
+                limit_actors=limit_actors
+            )
+        else:
+            return _FunnelEventsCorrelationActors(self._filter, self._team, self._base_uri).actor_query(
+                limit_actors=limit_actors
+            )
 
     def get_actors(
         self,
@@ -44,10 +60,10 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
         super().__init__(team, filter)
 
     @cached_property
-    def is_aggregating_by_groups(self) -> bool:
-        return self._filter.aggregation_group_type_index is not None
+    def aggregation_group_type_index(self):
+        return self._filter.aggregation_group_type_index
 
-    def actor_query(self, extra_fields: Optional[List[str]] = None):
+    def actor_query(self, limit_actors: Optional[bool] = True):
 
         if not self._filter.correlation_person_entity:
             raise ValidationError("No entity for persons specified")
@@ -82,8 +98,8 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
                 {conversion_filter}
                 {prop_query}
             ORDER BY actor_id
-            LIMIT {self._filter.correlation_person_limit}
-            OFFSET {self._filter.correlation_person_offset}
+            {"LIMIT %(limit)s" if limit_actors else ""}
+            {"OFFSET %(offset)s" if limit_actors else ""}
         """
 
         params = {
@@ -92,6 +108,8 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
             "target_event": self._filter.correlation_person_entity.id,
             "funnel_step_names": [entity.id for entity in self._filter.events],
             "target_step": len(self._filter.entities),
+            "limit": self._filter.correlation_person_limit,
+            "offset": self._filter.correlation_person_offset,
         }
 
         return query, params
@@ -105,10 +123,10 @@ class _FunnelPropertyCorrelationActors(ActorBaseQuery):
         super().__init__(team, filter)
 
     @cached_property
-    def is_aggregating_by_groups(self) -> bool:
-        return self._filter.aggregation_group_type_index is not None
+    def aggregation_group_type_index(self):
+        return self._filter.aggregation_group_type_index
 
-    def actor_query(self, extra_fields: Optional[List[str]] = None):
+    def actor_query(self, limit_actors: Optional[bool] = True, extra_fields: Optional[List[str]] = None):
         if not self._filter.correlation_property_values:
             raise ValidationError("Property Correlation expects atleast one Property to get persons for")
 
@@ -134,14 +152,16 @@ class _FunnelPropertyCorrelationActors(ActorBaseQuery):
             WHERE {conversion_filter}
             {group_filters}
             ORDER BY actor_id
-            LIMIT {self._filter.correlation_person_limit}
-            OFFSET {self._filter.correlation_person_offset}
+            {"LIMIT %(limit)s" if limit_actors else ""}
+            {"OFFSET %(offset)s" if limit_actors else ""}
         """
         params = {
             **funnel_persons_params,
             **actor_join_subquery_params,
             **group_filters_params,
             "target_step": len(self._filter.entities),
+            "limit": self._filter.correlation_person_limit,
+            "offset": self._filter.correlation_person_offset,
         }
 
         return query, params

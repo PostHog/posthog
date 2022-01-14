@@ -3,7 +3,7 @@ from rest_framework.decorators import action
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.async_migrations.runner import MAX_CONCURRENT_ASYNC_MIGRATIONS, is_posthog_version_compatible
-from posthog.async_migrations.utils import force_rollback_migration, force_stop_migration, trigger_migration
+from posthog.async_migrations.utils import force_stop_migration, rollback_migration, trigger_migration
 from posthog.models.async_migration import AsyncMigration, MigrationStatus, get_all_running_async_migrations
 from posthog.permissions import StaffUser
 
@@ -90,6 +90,17 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
         return response.Response({"success": True}, status=200)
 
     @action(methods=["POST"], detail=True)
+    def rollback(self, request, **kwargs):
+        migration_instance = self.get_object()
+        if migration_instance.status != MigrationStatus.Errored:
+            return response.Response(
+                {"success": False, "error": "Can't rollback a migration that isn't in errored state.",}, status=400,
+            )
+
+        rollback_migration(migration_instance)
+        return response.Response({"success": True}, status=200)
+
+    @action(methods=["POST"], detail=True)
     def force_rollback(self, request, **kwargs):
         migration_instance = self.get_object()
         if migration_instance.status != MigrationStatus.CompletedSuccessfully:
@@ -98,5 +109,5 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
                 status=400,
             )
 
-        force_rollback_migration(migration_instance)
+        rollback_migration(migration_instance)
         return response.Response({"success": True}, status=200)

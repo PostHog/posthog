@@ -74,9 +74,9 @@ NPM_TOKEN = os.getenv("NPM_TOKEN", None)
 
 ACTION_EVENT_MAPPING_INTERVAL_SECONDS = get_from_env("ACTION_EVENT_MAPPING_INTERVAL_SECONDS", 300, type_cast=int)
 
-ASYNC_EVENT_PROPERTY_USAGE = get_from_env("ASYNC_EVENT_PROPERTY_USAGE", False, type_cast=str_to_bool)
+ASYNC_EVENT_PROPERTY_USAGE = get_from_env("ASYNC_EVENT_PROPERTY_USAGE", True, type_cast=str_to_bool)
 EVENT_PROPERTY_USAGE_INTERVAL_SECONDS = get_from_env(
-    "ASYNC_EVENT_PROPERTY_USAGE_INTERVAL_SECONDS", 60 * 60, type_cast=int
+    "ASYNC_EVENT_PROPERTY_USAGE_INTERVAL_SECONDS", 86400, type_cast=int
 )
 
 UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = get_from_env(
@@ -108,9 +108,6 @@ AUTO_LOGIN = get_from_env("AUTO_LOGIN", False, type_cast=str_to_bool)
 
 # Keep in sync with plugin-server
 EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC = "events_added_to_dead_letter_queue"
-
-# Teams with access to an experimental query optimization. Only ready to be used on cloud.
-PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS = get_list(os.getenv("PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS", ""))
 
 
 # Extend and override these settings with EE's ones

@@ -264,7 +264,7 @@ FROM (
 GROUP BY distinct_id
 """
 
-# Query to query distinct ids using the new table, will be used if PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS applies
+# Query to query distinct ids using the new table, will be used if 0003_fill_person_distinct_id2 migration is complete
 GET_TEAM_PERSON_DISTINCT_IDS_NEW_TABLE = """
 SELECT distinct_id, argMax(person_id, version) as person_id
 FROM person_distinct_id2
@@ -374,8 +374,9 @@ ORDER BY count DESC, key ASC
 GET_ACTORS_FROM_EVENT_QUERY = """
 SELECT
     {id_field} AS actor_id
+    {matching_events_select_statement}
 FROM ({events_query})
 GROUP BY actor_id
-LIMIT %(limit)s
-OFFSET %(offset)s
+{limit}
+{offset}
 """

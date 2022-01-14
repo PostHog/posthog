@@ -1,90 +1,41 @@
-from datetime import datetime, timedelta
-from typing import Any, Callable, Dict, List, Tuple, Union
+from datetime import datetime
+from typing import Callable, Dict, List, Tuple
 
-from dateutil.relativedelta import relativedelta
 from django.db.models.query import Prefetch
-from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.action import format_action_filter
+from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.models.person import get_persons_by_uuids
-from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
+from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.trends.util import parse_response
-from ee.clickhouse.queries.util import get_earliest_timestamp, get_time_diff, get_trunc_func_ch, parse_timestamps
+from ee.clickhouse.queries.util import get_earliest_timestamp, parse_timestamps
 from ee.clickhouse.sql.trends.lifecycle import LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.queries.lifecycle import LifecycleTrend
+
+# Lifecycle takes an event/action, time range, interval and for every period, splits the users who did the action into 4:
+#
+# 1. NEW - Users who did the action during interval and were also created during that period
+# 2. RESURRECTING - Users who did the action during this interval, but not one prior
+# 3. RETURNING - Users who did the action during this interval and prior one
+# 4. DORMANT - Users who did not do the action during this period but did an action the previous period
+#
+# To do this, we need for every period (+1 prior to the first period), list of person_ids who did the event/action
+# during that period and their creation dates.
 
 
 class ClickhouseLifecycle(LifecycleTrend):
-    def get_interval(self, interval: str) -> Tuple[Union[timedelta, relativedelta], str, str]:
-        if interval == "hour":
-            return timedelta(hours=1), "1 HOUR", "1 MINUTE"
-        elif interval == "minute":
-            return timedelta(minutes=1), "1 MINUTE", "1 SECOND"
-        elif interval == "day":
-            return timedelta(days=1), "1 DAY", "1 HOUR"
-        elif interval == "week":
-            return timedelta(weeks=1), "1 WEEK", "1 DAY"
-        elif interval == "month":
-            return relativedelta(months=1), "1 MONTH", "1 DAY"
-        else:
-            raise ValidationError("{interval} not supported")
-
     def _format_lifecycle_query(self, entity: Entity, filter: Filter, team_id: int) -> Tuple[str, Dict, Callable]:
-        date_from = filter.date_from
-
-        if not date_from:
-            date_from = get_earliest_timestamp(team_id)
-
-        interval = filter.interval
-        num_intervals, seconds_in_interval, _ = get_time_diff(interval, filter.date_from, filter.date_to, team_id)
-        interval_increment, interval_string, sub_interval_string = self.get_interval(interval)
-        trunc_func = get_trunc_func_ch(interval)
-        event_query = ""
-        event_params: Dict[str, Any] = {}
-
-        props_to_filter = [*filter.properties, *entity.properties]
-        prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, group_properties_joined=False)
-
-        _, _, date_params = parse_timestamps(filter=filter, team_id=team_id)
-
-        if entity.type == TREND_FILTER_TYPE_ACTIONS:
-            try:
-                action = entity.get_action()
-                event_query, event_params = format_action_filter(action)
-            except:
-                return "", {}, self._parse_result(filter, entity)
-        else:
-            event_query = "event = %(event)s"
-            event_params = {"event": entity.id}
+        event_query, event_params = LifecycleEventQuery(team_id=team_id, filter=filter).get_query()
 
         return (
-            LIFECYCLE_SQL.format(
-                interval=interval_string,
-                trunc_func=trunc_func,
-                event_query=event_query,
-                filters=prop_filters,
-                sub_interval=sub_interval_string,
-                GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
-            ),
-            {
-                "team_id": team_id,
-                "prev_date_from": (date_from - interval_increment).strftime(
-                    "%Y-%m-%d{}".format(
-                        " %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else " 00:00:00"
-                    )
-                ),
-                "num_intervals": num_intervals,
-                "seconds_in_interval": seconds_in_interval,
-                **event_params,
-                **date_params,
-                **prop_filter_params,
-            },
+            LIFECYCLE_SQL.format(events_query=event_query, interval_expr=filter.interval),
+            event_params,
             self._parse_result(filter, entity),
         )
 
@@ -110,63 +61,14 @@ class ClickhouseLifecycle(LifecycleTrend):
         request: Request,
         limit: int = 100,
     ):
-        entity = filter.entities[0]
-        date_from = filter.date_from
-
-        if not date_from:
-            date_from = get_earliest_timestamp(team_id)
-
-        interval = filter.interval
-        num_intervals, seconds_in_interval, _ = get_time_diff(
-            interval, filter.date_from, filter.date_to, team_id=team_id
-        )
-        interval_increment, interval_string, sub_interval_string = self.get_interval(interval)
-        trunc_func = get_trunc_func_ch(interval)
-        event_query = ""
-        event_params: Dict[str, Any] = {}
-
-        _, _, date_params = parse_timestamps(filter=filter, team_id=team_id)
-
-        if entity.type == TREND_FILTER_TYPE_ACTIONS:
-            try:
-                action = entity.get_action()
-                event_query, event_params = format_action_filter(action)
-            except:
-                return []
-        else:
-            event_query = "event = %(event)s"
-            event_params = {"event": entity.id}
-
-        props_to_filter = [*filter.properties, *entity.properties]
-        prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, group_properties_joined=False)
+        event_query, event_params = LifecycleEventQuery(team_id=team_id, filter=filter).get_query()
 
         result = sync_execute(
-            LIFECYCLE_PEOPLE_SQL.format(
-                interval=interval_string,
-                trunc_func=trunc_func,
-                event_query=event_query,
-                filters=prop_filters,
-                sub_interval=sub_interval_string,
-                GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
-            ),
+            LIFECYCLE_PEOPLE_SQL.format(events_query=event_query, interval_expr=filter.interval),
             {
-                "team_id": team_id,
-                "prev_date_from": (date_from - interval_increment).strftime(
-                    "%Y-%m-%d{}".format(
-                        " %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else " 00:00:00"
-                    )
-                ),
-                "num_intervals": num_intervals,
-                "seconds_in_interval": seconds_in_interval,
                 **event_params,
-                **date_params,
-                **prop_filter_params,
                 "status": lifecycle_type,
-                "target_date": target_date.strftime(
-                    "%Y-%m-%d{}".format(
-                        " %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else " 00:00:00"
-                    )
-                ),
+                "target_date": target_date,
                 "offset": filter.offset,
                 "limit": limit,
             },
@@ -177,3 +79,65 @@ class ClickhouseLifecycle(LifecycleTrend):
         from posthog.api.person import PersonSerializer
 
         return PersonSerializer(people, many=True).data
+
+
+class LifecycleEventQuery(ClickhouseEventQuery):
+    _filter: Filter
+
+    def get_query(self):
+        date_query, date_params = self._get_date_filter()
+        self.params.update(date_params)
+
+        prop_query, prop_params = self._get_props(self._filter.properties)
+        self.params.update(prop_params)
+
+        person_query, person_params = self._get_person_query()
+        self.params.update(person_params)
+
+        groups_query, groups_params = self._get_groups_query()
+        self.params.update(groups_params)
+
+        entity_params, entity_format_params = get_entity_filtering_params(
+            self._filter.entities[0], self._team_id, table_name=self.EVENT_TABLE_ALIAS
+        )
+        self.params.update(entity_params)
+
+        return (
+            f"""
+            SELECT DISTINCT
+                person_id,
+                toDateTime(dateTrunc(%(interval)s, events.timestamp)) AS period,
+                person.created_at AS created_at
+            FROM events AS {self.EVENT_TABLE_ALIAS}
+            {self._get_distinct_id_query()}
+            {person_query}
+            {groups_query}
+            WHERE team_id = %(team_id)s
+            {entity_format_params["entity_query"]}
+            {date_query}
+            {prop_query}
+        """,
+            self.params,
+        )
+
+    @cached_property
+    def _person_query(self):
+        return ClickhousePersonQuery(self._filter, self._team_id, self._column_optimizer, extra_fields=["created_at"],)
+
+    def _get_date_filter(self):
+        _, _, date_params = parse_timestamps(filter=self._filter, team_id=self._team_id)
+        params = {**date_params, "interval": self._filter.interval}
+        # :TRICKY: We fetch all data even for the period before the graph starts up until the end of the last period
+        return (
+            f"""
+            AND timestamp >= toDateTime(dateTrunc(%(interval)s, toDateTime(%(date_from)s))) - INTERVAL 1 {self._filter.interval}
+            AND timestamp < toDateTime(dateTrunc(%(interval)s, toDateTime(%(date_to)s))) + INTERVAL 1 {self._filter.interval}
+        """,
+            params,
+        )
+
+    def _determine_should_join_distinct_ids(self) -> None:
+        self._should_join_distinct_ids = True
+
+    def _determine_should_join_persons(self) -> None:
+        self._should_join_persons = True

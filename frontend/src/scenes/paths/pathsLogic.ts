@@ -69,7 +69,6 @@ export const pathsLogic = kea<pathsLogicType<PathNode>>({
         },
         openPersonsModal: ({ path_start_key, path_end_key, path_dropoff_key }) => {
             personsModalLogic.actions.loadPeople({
-                action: 'session',
                 label: path_dropoff_key || path_start_key || path_end_key || 'Pageview',
                 date_from: '',
                 date_to: '',

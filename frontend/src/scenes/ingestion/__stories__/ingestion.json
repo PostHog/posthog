@@ -731,8 +731,7 @@
                 "is_demo": false,
                 "timezone": "UTC",
                 "data_attributes": ["data-attr"],
-                "session_recording_opt_in": false,
-                "session_recording_retention_period_days": null
+                "session_recording_opt_in": false
             },
             "currentTeamLoading": false,
             "teamBeingDeleted": null
@@ -802,10 +801,6 @@
                                 },
                                 {
                                     "icon": {},
-                                    "display": "Go to Sessions"
-                                },
-                                {
-                                    "icon": {},
                                     "display": "Go to Funnels"
                                 },
                                 {
@@ -823,10 +818,6 @@
                                 {
                                     "icon": {},
                                     "display": "Go to Actions"
-                                },
-                                {
-                                    "icon": {},
-                                    "display": "Go to Live Sessions"
                                 },
                                 {
                                     "icon": {},

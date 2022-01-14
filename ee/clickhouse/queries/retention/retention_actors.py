@@ -22,10 +22,10 @@ class ClickhouseRetentionActors(ActorBaseQuery):
         super().__init__(team, filter)
 
     @cached_property
-    def is_aggregating_by_groups(self) -> bool:
-        return self._filter.aggregation_group_type_index is not None
+    def aggregation_group_type_index(self):
+        return self._filter.aggregation_group_type_index
 
-    def actor_query(self) -> Tuple[str, Dict]:
+    def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
         actor_query = _build_actor_query(
             filter=self._filter,
             team=self._team,
@@ -44,8 +44,8 @@ class ClickhouseRetentionActorsByPeriod(ActorBaseQuery):
         super().__init__(team, filter)
 
     @cached_property
-    def is_aggregating_by_groups(self) -> bool:
-        return self._filter.aggregation_group_type_index is not None
+    def aggregation_group_type_index(self):
+        return self._filter.aggregation_group_type_index
 
     def actors(self):
         """
@@ -152,7 +152,8 @@ def _build_actor_query(
         -- NOTE: relies on ids being monotonic
         ORDER BY actor_id
 
-        LIMIT 100 OFFSET %(offset)s
+        LIMIT 100
+        OFFSET %(offset)s
     """
 
     actor_query = substitute_params(actor_query_template, {"offset": filter.offset}).format(

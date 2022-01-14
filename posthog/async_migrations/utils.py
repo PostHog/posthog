@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
+from constance import config
 from django.db import transaction
 
 from posthog.async_migrations.definition import AsyncMigrationOperation
@@ -8,7 +9,6 @@ from posthog.async_migrations.setup import DEPENDENCY_TO_ASYNC_MIGRATION
 from posthog.celery import app
 from posthog.constants import AnalyticsDBMS
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
-from posthog.settings import ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK
 
 
 def execute_op(op: AsyncMigrationOperation, query_id: str, rollback: bool = False):
@@ -44,7 +44,7 @@ def process_error(migration_instance: AsyncMigration, error: Optional[str]):
         finished_at=datetime.now(),
     )
 
-    if ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK:
+    if getattr(config, "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK"):
         return
 
     from posthog.async_migrations.runner import attempt_migration_rollback
@@ -78,10 +78,10 @@ def force_stop_migration(migration_instance: AsyncMigration, error: str = "Force
     process_error(migration_instance, error)
 
 
-def force_rollback_migration(migration_instance: AsyncMigration):
+def rollback_migration(migration_instance: AsyncMigration, force: bool = False):
     from posthog.async_migrations.runner import attempt_migration_rollback
 
-    attempt_migration_rollback(migration_instance, force=True)
+    attempt_migration_rollback(migration_instance, force=force)
 
 
 def complete_migration(migration_instance: AsyncMigration):
@@ -105,7 +105,6 @@ def mark_async_migration_as_running(migration_instance: AsyncMigration):
         migration_instance=migration_instance,
         last_error="",
         current_query_id="",
-        celery_task_id="",
         progress=0,
         current_operation_index=0,
         status=MigrationStatus.Running,

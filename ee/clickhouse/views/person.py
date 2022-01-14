@@ -1,5 +1,5 @@
 import json
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Tuple, Type, Union
 
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -10,6 +10,7 @@ from rest_framework.utils.serializer_helpers import ReturnDict, ReturnList
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.person import delete_person
 from ee.clickhouse.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
+from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 from ee.clickhouse.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
@@ -35,6 +36,21 @@ from posthog.utils import format_query_params_absolute_url
 
 def should_paginate(results, limit: Union[str, int]) -> bool:
     return len(results) > int(limit) - 1
+
+
+def get_funnel_actor_class(filter: Filter) -> Callable:
+    funnel_actor_class: Type[ClickhouseFunnelBase]
+    if filter.funnel_viz_type == FunnelVizType.TRENDS:
+        funnel_actor_class = ClickhouseFunnelTrendsActors
+    else:
+        if filter.funnel_order_type == "unordered":
+            funnel_actor_class = ClickhouseFunnelUnorderedActors
+        elif filter.funnel_order_type == "strict":
+            funnel_actor_class = ClickhouseFunnelStrictActors
+        else:
+            funnel_actor_class = ClickhouseFunnelActors
+
+    return funnel_actor_class
 
 
 class ClickhousePersonViewSet(PersonViewSet):
@@ -73,17 +89,7 @@ class ClickhousePersonViewSet(PersonViewSet):
         if not filter.limit:
             filter = filter.with_data({LIMIT: 100})
 
-        funnel_actor_class: Callable
-
-        if filter.funnel_viz_type == FunnelVizType.TRENDS:
-            funnel_actor_class = ClickhouseFunnelTrendsActors
-        else:
-            if filter.funnel_order_type == "unordered":
-                funnel_actor_class = ClickhouseFunnelUnorderedActors
-            elif filter.funnel_order_type == "strict":
-                funnel_actor_class = ClickhouseFunnelStrictActors
-            else:
-                funnel_actor_class = ClickhouseFunnelActors
+        funnel_actor_class = get_funnel_actor_class(filter)
 
         actors, serialized_actors = funnel_actor_class(filter, self.team).get_actors()
         _should_paginate = should_paginate(actors, filter.limit)
@@ -200,9 +206,6 @@ class ClickhousePersonViewSet(PersonViewSet):
     def destroy(self, request: Request, pk=None, **kwargs):  # type: ignore
         try:
             person = Person.objects.get(team=self.team, pk=pk)
-
-            events = Event.objects.filter(team=self.team, distinct_id__in=person.distinct_ids)
-            events.delete()
             delete_person(
                 person.uuid, person.properties, person.is_identified, delete_events=True, team_id=self.team.pk
             )

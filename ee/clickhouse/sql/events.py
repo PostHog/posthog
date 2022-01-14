@@ -118,7 +118,7 @@ SELECT DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) FROM ev
 """
 
 SELECT_PROP_VALUES_SQL_WITH_FILTER = """
-SELECT DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) FROM events where team_id = %(team_id)s AND trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) LIKE %(value)s {parsed_date_from} {parsed_date_to} LIMIT 10
+SELECT DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) FROM events where team_id = %(team_id)s AND trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) ILIKE %(value)s {parsed_date_from} {parsed_date_to} LIMIT 10
 """
 
 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL = """
@@ -170,7 +170,7 @@ FROM events WHERE uuid = %(event_id)s AND team_id = %(team_id)s
 """
 
 GET_EARLIEST_TIMESTAMP_SQL = """
-SELECT timestamp from events WHERE team_id = %(team_id)s order by toDate(timestamp), timestamp limit 1
+SELECT timestamp from events WHERE team_id = %(team_id)s AND timestamp > %(earliest_timestamp)s order by toDate(timestamp), timestamp limit 1
 """
 
 NULL_SQL = """

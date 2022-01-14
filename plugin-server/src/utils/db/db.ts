@@ -143,6 +143,9 @@ export class DB {
     /** How many unique group types to allow per team */
     MAX_GROUP_TYPES_PER_TEAM = 5
 
+    /** Whether to write to clickhouse_person_unique_id topic */
+    writeToPersonUniqueId?: boolean
+
     constructor(
         postgres: Pool,
         redisPool: GenericPool<Redis.Redis>,
@@ -487,7 +490,8 @@ export class DB {
     public async createPerson(
         createdAt: DateTime,
         properties: Properties,
-        propertiesOnce: Properties,
+        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
+        propertiesLastOperation: PropertiesLastOperation,
         teamId: number,
         isUserId: number | null,
         isIdentified: boolean,
@@ -496,26 +500,14 @@ export class DB {
     ): Promise<Person> {
         const kafkaMessages: ProducerRecord[] = []
 
-        const props = { ...propertiesOnce, ...properties }
-        const props_last_operation: Record<string, any> = {}
-        const props_last_updated_at: Record<string, any> = {}
-        Object.keys(propertiesOnce).forEach((key) => {
-            props_last_operation[key] = PropertyUpdateOperation.SetOnce
-            props_last_updated_at[key] = createdAt
-        })
-        Object.keys(properties).forEach((key) => {
-            props_last_operation[key] = PropertyUpdateOperation.Set
-            props_last_updated_at[key] = createdAt
-        })
-
         const person = await this.postgresTransaction(async (client) => {
             const insertResult = await this.postgresQuery(
                 'INSERT INTO posthog_person (created_at, properties, properties_last_updated_at, properties_last_operation, team_id, is_user_id, is_identified, uuid, version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *',
                 [
                     createdAt.toISO(),
-                    JSON.stringify(props),
-                    JSON.stringify(props_last_updated_at),
-                    JSON.stringify(props_last_operation),
+                    JSON.stringify(properties),
+                    JSON.stringify(propertiesLastUpdatedAt),
+                    JSON.stringify(propertiesLastOperation),
                     teamId,
                     isUserId,
                     isIdentified,
@@ -534,7 +526,7 @@ export class DB {
 
             if (this.kafkaProducer) {
                 kafkaMessages.push(
-                    generateKafkaPersonUpdateMessage(createdAt, props, teamId, isIdentified, uuid, person.version)
+                    generateKafkaPersonUpdateMessage(createdAt, properties, teamId, isIdentified, uuid, person.version)
                 )
             }
 
@@ -553,9 +545,13 @@ export class DB {
         return person
     }
 
-    public async updatePerson(person: Person, update: Partial<Person>, client: PoolClient): Promise<ProducerRecord[]>
-    public async updatePerson(person: Person, update: Partial<Person>): Promise<Person>
-    public async updatePerson(
+    public async updatePersonDeprecated(
+        person: Person,
+        update: Partial<Person>,
+        client: PoolClient
+    ): Promise<ProducerRecord[]>
+    public async updatePersonDeprecated(person: Person, update: Partial<Person>): Promise<Person>
+    public async updatePersonDeprecated(
         person: Person,
         update: Partial<Person>,
         client?: PoolClient
@@ -601,6 +597,41 @@ export class DB {
         }
 
         return client ? kafkaMessages : updatedPerson
+    }
+
+    public async updatePerson(
+        client: PoolClient,
+        personId: number,
+        createdAt: DateTime,
+        properties: Properties,
+        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
+        propertiesLastOperation: PropertiesLastOperation
+    ): Promise<number> {
+        const updateResult: QueryResult = await this.postgresQuery(
+            `UPDATE posthog_person SET
+            created_at = $1,
+            properties = $2,
+            properties_last_updated_at = $3,
+            properties_last_operation = $4,
+            version = COALESCE(version, 0)::numeric + 1
+        WHERE id = $5
+        RETURNING version`,
+            [
+                createdAt.toISO(),
+                JSON.stringify(properties),
+                JSON.stringify(propertiesLastUpdatedAt),
+                JSON.stringify(propertiesLastOperation),
+                personId,
+            ],
+            'updatePersonProperties',
+            client
+        )
+
+        if (updateResult.rows.length === 0) {
+            // this function should always be called in a transaction with person fetch locking for update before
+            throw new RaceConditionError('Failed updating person properties')
+        }
+        return Number(updateResult.rows[0].version)
     }
 
     public async deletePerson(person: Person, client: PoolClient): Promise<ProducerRecord[]> {
@@ -688,21 +719,7 @@ export class DB {
         const { id, version: versionStr, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId
         if (this.kafkaProducer) {
             const version = Number(versionStr || 0)
-            return [
-                {
-                    topic: KAFKA_PERSON_UNIQUE_ID,
-                    messages: [
-                        {
-                            value: Buffer.from(
-                                JSON.stringify({
-                                    ...personDistinctIdCreated,
-                                    person_id: person.uuid,
-                                    is_deleted: 0,
-                                })
-                            ),
-                        },
-                    ],
-                },
+            const messages = [
                 {
                     topic: KAFKA_PERSON_DISTINCT_ID,
                     messages: [
@@ -719,6 +736,25 @@ export class DB {
                     ],
                 },
             ]
+
+            if (await this.fetchWriteToPersonUniqueId()) {
+                messages.push({
+                    topic: KAFKA_PERSON_UNIQUE_ID,
+                    messages: [
+                        {
+                            value: Buffer.from(
+                                JSON.stringify({
+                                    ...personDistinctIdCreated,
+                                    person_id: person.uuid,
+                                    is_deleted: 0,
+                                })
+                            ),
+                        },
+                    ],
+                })
+            }
+
+            return messages
         } else {
             return []
         }
@@ -769,21 +805,6 @@ export class DB {
                 const { id, version: versionStr, ...usefulColumns } = row as PersonDistinctId
                 const version = Number(versionStr || 0)
                 kafkaMessages.push({
-                    topic: KAFKA_PERSON_UNIQUE_ID,
-                    messages: [
-                        {
-                            value: Buffer.from(
-                                JSON.stringify({ ...usefulColumns, person_id: target.uuid, is_deleted: 0 })
-                            ),
-                        },
-                        {
-                            value: Buffer.from(
-                                JSON.stringify({ ...usefulColumns, person_id: source.uuid, is_deleted: 1 })
-                            ),
-                        },
-                    ],
-                })
-                kafkaMessages.push({
                     topic: KAFKA_PERSON_DISTINCT_ID,
                     messages: [
                         {
@@ -793,18 +814,37 @@ export class DB {
                         },
                     ],
                 })
+
+                if (await this.fetchWriteToPersonUniqueId()) {
+                    kafkaMessages.push({
+                        topic: KAFKA_PERSON_UNIQUE_ID,
+                        messages: [
+                            {
+                                value: Buffer.from(
+                                    JSON.stringify({ ...usefulColumns, person_id: target.uuid, is_deleted: 0 })
+                                ),
+                            },
+                            {
+                                value: Buffer.from(
+                                    JSON.stringify({ ...usefulColumns, person_id: source.uuid, is_deleted: 1 })
+                                ),
+                            },
+                        ],
+                    })
+                }
             }
         }
         return kafkaMessages
     }
 
     // Cohort & CohortPeople
-
+    // testutil
     public async createCohort(cohort: Partial<Cohort>): Promise<Cohort> {
         const insertResult = await this.postgresQuery(
-            `INSERT INTO posthog_cohort (name, deleted, groups, team_id, created_at, created_by_id, is_calculating, last_calculation,errors_calculating, is_static) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *;`,
+            `INSERT INTO posthog_cohort (name, description, deleted, groups, team_id, created_at, created_by_id, is_calculating, last_calculation,errors_calculating, is_static) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *;`,
             [
                 cohort.name,
+                cohort.description,
                 cohort.deleted ?? false,
                 cohort.groups ?? [],
                 cohort.team_id,
@@ -1215,6 +1255,26 @@ export class DB {
         return selectResult.rows[0]
     }
 
+    public async fetchAsyncMigrationComplete(migrationName: string): Promise<boolean> {
+        const { rows } = await this.postgresQuery(
+            `
+            SELECT name
+            FROM posthog_asyncmigration
+            WHERE name = $1 AND status = 2
+            `,
+            [migrationName],
+            'fetchAsyncMigrationComplete'
+        )
+        return rows.length > 0
+    }
+
+    public async fetchWriteToPersonUniqueId(): Promise<boolean> {
+        if (this.writeToPersonUniqueId === undefined) {
+            this.writeToPersonUniqueId = !(await this.fetchAsyncMigrationComplete('0003_fill_person_distinct_id2'))
+        }
+        return this.writeToPersonUniqueId as boolean
+    }
+
     /** Return the ID of the team that is used exclusively internally by the instance for storing metrics data. */
     public async fetchInternalMetricsTeam(): Promise<Team['id'] | null> {
         const { rows } = await this.postgresQuery(
@@ -1443,14 +1503,19 @@ export class DB {
     ): Promise<void> {
         await this.postgresQuery(
             `
-            UPDATE posthog_group
-            SET group_properties = $4, properties_last_updated_at = $5, properties_last_operation = $6, version = $7
+            UPDATE posthog_group SET
+            created_at = $4,
+            group_properties = $5,
+            properties_last_updated_at = $6,
+            properties_last_operation = $7,
+            version = $8
             WHERE team_id = $1 AND group_key = $2 AND group_type_index = $3
             `,
             [
                 teamId,
                 groupKey,
                 groupTypeIndex,
+                createdAt.toISO(),
                 JSON.stringify(groupProperties),
                 JSON.stringify(propertiesLastUpdatedAt),
                 JSON.stringify(propertiesLastOperation),

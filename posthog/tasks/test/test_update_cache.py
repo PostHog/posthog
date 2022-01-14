@@ -355,3 +355,74 @@ class TestUpdateCache(APIBaseTest):
         patch_calculate_by_filter.side_effect = None
         data = self.client.get(f"/api/projects/{self.team.pk}/insights/{item_to_cache.pk}/?refresh=true")
         self.assertEqual(Insight.objects.get().refresh_attempt, 0)
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_filters_multiple_dashboard(self) -> None:
+        # Regression test. Previously if we had insights with the same filter, but different dashboard filters, we woul donly update one of those
+        dashboard1 = Dashboard.objects.create(filters={"date_from": "-14d"}, team=self.team, is_shared=True)
+        dashboard2 = Dashboard.objects.create(filters={"date_from": "-30d"}, team=self.team, is_shared=True)
+        dashboard3 = Dashboard.objects.create(team=self.team, is_shared=True)
+
+        filter = {"events": [{"id": "$pageview"}]}
+
+        item1 = Insight.objects.create(dashboard=dashboard1, filters=filter, team=self.team)
+        item2 = Insight.objects.create(dashboard=dashboard2, filters=filter, team=self.team)
+        item3 = Insight.objects.create(dashboard=dashboard3, filters=filter, team=self.team)
+
+        update_cached_items()
+
+        insights = Insight.objects.all().order_by("id")
+
+        self.assertEqual(len(get_safe_cache(insights[0].filters_hash)["result"][0]["data"]), 15)
+        self.assertEqual(len(get_safe_cache(insights[1].filters_hash)["result"][0]["data"]), 31)
+        self.assertEqual(len(get_safe_cache(insights[2].filters_hash)["result"][0]["data"]), 8)
+        self.assertEqual(insights[0].last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00")
+        self.assertEqual(insights[1].last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00")
+        self.assertEqual(insights[2].last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00")
+
+        # self.assertEquals(insights[0].filters_hash, generate_cache_key('{}_{}'.format(Filter(data=filter).toJSON(), self.team.pk)))
+        # self.assertEquals(insights[1].filters_hash, generate_cache_key('{}_{}'.format(Filter(data=filter).toJSON(), self.team.pk)))
+        # self.assertEquals(insights[2].filters_hash, generate_cache_key('{}_{}'.format(Filter(data=filter).toJSON(), self.team.pk)))
+
+        # TODO: assert each items cache has the right number of days and the right filters hash
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_insights_old_filter(self) -> None:
+        # Some filters hashes are wrong (likely due to changes in our filters models) and previously we would not save changes to those insights and constantly retry them.
+        dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
+        filter = {"events": [{"id": "$pageview"}]}
+        item = Insight.objects.create(
+            dashboard=dashboard, filters=filter, filters_hash="cache_thisiswrong", team=self.team
+        )
+        Insight.objects.all().update(filters_hash="cache_thisiswrong")
+        self.assertEquals(Insight.objects.get().filters_hash, "cache_thisiswrong")
+
+        update_cached_items()
+
+        self.assertEquals(
+            Insight.objects.get().filters_hash,
+            generate_cache_key("{}_{}".format(Filter(data=filter).toJSON(), self.team.pk)),
+        )
+        self.assertEquals(Insight.objects.get().last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00")
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    @patch("posthog.tasks.update_cache.dashboard_item_update_task_params")
+    def test_broken_insights(self, dashboard_item_update_task_params: MagicMock) -> None:
+        # sometimes we have broken insights, add a test to catch
+        dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
+        item = Insight.objects.create(dashboard=dashboard, filters={}, team=self.team)
+
+        update_cached_items()
+
+        self.assertEqual(dashboard_item_update_task_params.call_count, 0)
+
+    @patch("posthog.tasks.update_cache.dashboard_item_update_task_params")
+    def test_broken_exception_insights(self, dashboard_item_update_task_params: MagicMock) -> None:
+        dashboard_item_update_task_params.side_effect = Exception()
+        dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
+        filter = {"events": [{"id": "$pageview"}]}
+        item = Insight.objects.create(dashboard=dashboard, filters=filter, team=self.team)
+
+        update_cached_items()
+
+        self.assertEquals(Insight.objects.get().refresh_attempt, 1)

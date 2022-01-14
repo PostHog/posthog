@@ -73,22 +73,22 @@ export const FEATURE_FLAGS = {
     FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui', // owner: @alexkim205
     DIVE_DASHBOARDS: 'hackathon-dive-dashboards', // owner: @tiina303
     NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights', // owner: @neilkakkar
-    NEW_SESSIONS_PLAYER_EVENTS_LIST: 'new-sessions-player-events-list', // owner: @rcmarron / @alexkim205
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
-    SESSION_INSIGHT_REMOVAL: 'session-insight-removal', // owner: @paolodamico
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @paolodamico
     FUNNELS_CUE_ENABLED: 'funnels-cue-enabled', // owner: @paolodamico
-    FUNNEL_SIMPLE_MODE: 'funnel-simple-mode', // owner: @paolodamico
     EXPERIMENTATION: 'experimentation', // owner: @neilkakkar
     RETENTION_BREAKDOWN: 'retention-breakdown', // owner: @hazzadous
     STALE_EVENTS: 'stale-events', // owner: @paolodamico
     INSIGHT_LEGENDS: 'insight-legends', // owner: @alexkim205
     LINE_GRAPH_V2: 'line-graph-v2', // owner @alexkim205
-    NEW_INSIGHT_TOOLTIPS: 'insight-tooltips', // owner @alexkim205
     DASHBOARD_REDESIGN: 'dashboard-redesign', // owner: @Twixes
     UNSEEN_EVENT_PROPERTIES: 'unseen-event-properties', // owner: @mariusandra
     QUERY_EVENTS_BY_DATETIME: '6619-query-events-by-date', // owner @pauldambra
     MULTI_POINT_PERSON_MODAL: '7590-multi-point-person-modal', // owner: @paolodamico
+    EXPERIMENT_CORRELATION_DISCOVERY: 'experiment-correlation-discovery', // owner: @neilkakkar
+    RECORDINGS_IN_TRENDS_PERSON_MODAL: '7852-recordings-in-trends-person-modal', // owner: @rcmarron
+    COLLABORATIONS_TAXONOMY: 'collaborations-taxonomy', // owner: @alexkim205
+    PATHS_ADVANCED_EXPERIMENT: 'paths-advanced-2101', // owner: @paolodamico; `control`, `direct` (A), `no-advanced` (B)
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

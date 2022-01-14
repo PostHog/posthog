@@ -96,7 +96,6 @@
                 "timezone": "UTC",
                 "data_attributes": ["data-attr"],
                 "session_recording_opt_in": true,
-                "session_recording_retention_period_days": null,
                 "effective_membership_level": 15,
                 "access_control": false
             },
@@ -436,10 +435,6 @@
                                 },
                                 {
                                     "icon": {},
-                                    "display": "Go to Sessions"
-                                },
-                                {
-                                    "icon": {},
                                     "display": "Go to Funnels"
                                 },
                                 {
@@ -457,10 +452,6 @@
                                 {
                                     "icon": {},
                                     "display": "Go to Actions"
-                                },
-                                {
-                                    "icon": {},
-                                    "display": "Go to Live Sessions"
                                 },
                                 {
                                     "icon": {},

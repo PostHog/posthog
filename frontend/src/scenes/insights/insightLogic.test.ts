@@ -92,7 +92,6 @@ describe('insightLogic', () => {
         } else if (
             [
                 `api/projects/${MOCK_TEAM_ID}/insights`,
-                `api/projects/${MOCK_TEAM_ID}/insights/session/`,
                 `api/projects/${MOCK_TEAM_ID}/insights/trend/`,
                 `api/projects/${MOCK_TEAM_ID}/insights/path/`,
                 `api/projects/${MOCK_TEAM_ID}/insights/path`,
@@ -124,18 +123,55 @@ describe('insightLogic', () => {
     })
 
     describe('insight legend', () => {
-        it('toggles insight legend', () => {
+        it('toggles insight legend', async () => {
             logic = insightLogic({
                 dashboardItemId: undefined,
-                filters: { legend_hidden: false },
+                filters: { show_legend: false },
             })
-            expectLogic(logic, () => {
+            logic.mount()
+
+            await expectLogic(logic, () => {
                 logic.actions.toggleInsightLegend()
             })
-                .toDispatchActions(['toggleInsightLegend', 'setFilter'])
+                .toDispatchActions(['toggleInsightLegend', 'setFilters'])
                 .toMatchValues({
-                    filters: partial({ legend_hidden: true }),
+                    filters: partial({ show_legend: true }),
                 })
+        })
+        it('initialize insight with hidden keys', async () => {
+            logic = insightLogic({
+                dashboardItemId: undefined,
+                filters: { hidden_legend_keys: { 0: true, 10: true } },
+            })
+            logic.mount()
+            await expectLogic(logic).toMatchValues({
+                filters: partial({ hidden_legend_keys: { 0: true, 10: true } }),
+            })
+        })
+        it('setHiddenById', async () => {
+            logic = insightLogic({
+                dashboardItemId: undefined,
+            })
+            logic.mount()
+
+            expectLogic(logic, () => {
+                logic.actions.setHiddenById({ '0': true, '2': false })
+                logic.actions.setHiddenById({ '8': true, '2': true })
+            }).toMatchValues({ hiddenLegendKeys: { 0: true, 2: true, 8: true } })
+        })
+        it('toggleVisibility', async () => {
+            logic = insightLogic({
+                dashboardItemId: undefined,
+            })
+            logic.mount()
+
+            expectLogic(logic, () => {
+                logic.actions.toggleVisibility(1)
+            }).toMatchValues({ hiddenLegendKeys: { 1: true } })
+
+            expectLogic(logic, () => {
+                logic.actions.toggleVisibility(1)
+            }).toMatchValues({ hiddenLegendKeys: { 1: undefined } })
         })
     })
 
@@ -151,6 +187,7 @@ describe('insightLogic', () => {
                 logic.actions.setFilters({ insight: InsightType.FUNNELS })
             }).toDispatchActions([
                 eventUsageLogic.actionCreators.reportInsightViewed(
+                    { tags: [], filters: {}, result: null },
                     { insight: InsightType.FUNNELS },
                     ItemMode.View,
                     true,
@@ -378,12 +415,12 @@ describe('insightLogic', () => {
         })
 
         it('sets filters from the URL', async () => {
-            const url = urls.insightEdit(Insight44, { insight: InsightType.TRENDS, interval: 'minute' })
+            const url = urls.insightEdit(Insight44, { insight: InsightType.TRENDS, interval: 'hour' })
             router.actions.push(url)
             await expectLogic(logic)
                 .toDispatchActions([router.actionCreators.push(url), 'setFilters'])
                 .toMatchValues({
-                    filters: partial({ insight: InsightType.TRENDS, interval: 'minute' }),
+                    filters: partial({ insight: InsightType.TRENDS, interval: 'hour' }),
                 })
 
             // setting the same URL twice doesn't call `setFilters`
@@ -392,7 +429,7 @@ describe('insightLogic', () => {
                 .toDispatchActions([router.actionCreators.push(url)])
                 .toNotHaveDispatchedActions(['setFilters'])
                 .toMatchValues({
-                    filters: partial({ insight: InsightType.TRENDS, interval: 'minute' }),
+                    filters: partial({ insight: InsightType.TRENDS, interval: 'hour' }),
                 })
 
             // calls when the values changed
@@ -435,22 +472,22 @@ describe('insightLogic', () => {
             router.actions.push(urls.insightNew())
             await expectLogic(router).toDispatchActions(['push', 'locationChanged', 'replace', 'locationChanged'])
 
-            logic.actions.setFilters({ insight: InsightType.TRENDS, interval: 'minute' })
+            logic.actions.setFilters({ insight: InsightType.TRENDS, interval: 'hour' })
             await expectLogic()
                 .toDispatchActions(logic, [
-                    logic.actionCreators.setFilters({ insight: InsightType.TRENDS, interval: 'minute' }),
+                    logic.actionCreators.setFilters({ insight: InsightType.TRENDS, interval: 'hour' }),
                 ])
                 .toDispatchActions(router, ['replace', 'locationChanged'])
-                .toMatchValues(router, { searchParams: partial({ interval: 'minute' }) })
+                .toMatchValues(router, { searchParams: partial({ interval: 'hour' }) })
 
             // no change in filters, doesn't change the URL
-            logic.actions.setFilters({ insight: InsightType.TRENDS, interval: 'minute' })
+            logic.actions.setFilters({ insight: InsightType.TRENDS, interval: 'hour' })
             await expectLogic()
                 .toDispatchActions(logic, [
-                    logic.actionCreators.setFilters({ insight: InsightType.TRENDS, interval: 'minute' }),
+                    logic.actionCreators.setFilters({ insight: InsightType.TRENDS, interval: 'hour' }),
                 ])
                 .toNotHaveDispatchedActions(router, ['replace', 'locationChanged'])
-                .toMatchValues(router, { searchParams: partial({ interval: 'minute' }) })
+                .toMatchValues(router, { searchParams: partial({ interval: 'hour' }) })
 
             logic.actions.setFilters({ insight: InsightType.TRENDS, interval: 'month' })
             await expectLogic(router)
