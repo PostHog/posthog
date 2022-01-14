@@ -9,6 +9,7 @@ import {
     invertDataSource,
     InvertedSeriesDatum,
     SeriesDatum,
+    getFormattedDate,
 } from './insightTooltipUtils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
@@ -40,6 +41,7 @@ export function InsightTooltip({
     date,
     seriesData = [],
     altTitle,
+    altRightTitle,
     renderSeries = (value: React.ReactNode, _: SeriesDatum, idx: number) => (
         <>
             <SeriesLetter className="mr-025" hasBreakdown={false} seriesIndex={idx} />
@@ -59,7 +61,9 @@ export function InsightTooltip({
     const itemizeEntitiesAsColumns =
         forceEntitiesAsColumns ||
         (seriesData?.length > 1 && (seriesData?.[0]?.breakdown_value || seriesData?.[0]?.compare_label))
-    const title = getTooltipTitle({ date, seriesData, altTitle: altTitle })
+    const title =
+        getTooltipTitle(seriesData, altTitle, date) ?? getFormattedDate(date, seriesData?.[0]?.filter?.interval)
+    const rightTitle = getTooltipTitle(seriesData, altRightTitle, date) ?? null
 
     const renderTable = (): JSX.Element => {
         if (itemizeEntitiesAsColumns) {
@@ -88,20 +92,21 @@ export function InsightTooltip({
                         key: `series-column-data-${colIdx}`,
                         align: 'right',
                         title:
-                            !altTitle &&
-                            renderSeries(
-                                <InsightLabel
-                                    className="series-column-header"
-                                    action={seriesColumn.action}
-                                    fallbackName={seriesColumn.label}
-                                    hideBreakdown
-                                    hideCompare
-                                    hideIcon
-                                    allowWrap
-                                />,
-                                seriesColumn,
-                                colIdx
-                            ),
+                            (colIdx === 0 ? rightTitle : undefined) ||
+                            (!altTitle &&
+                                renderSeries(
+                                    <InsightLabel
+                                        className="series-column-header"
+                                        action={seriesColumn.action}
+                                        fallbackName={seriesColumn.label}
+                                        hideBreakdown
+                                        hideCompare
+                                        hideIcon
+                                        allowWrap
+                                    />,
+                                    seriesColumn,
+                                    colIdx
+                                )),
                         render: function renderSeriesColumnData(_, datum) {
                             return <div className="series-data-cell">{datum.seriesData?.[colIdx]?.count ?? 0}</div>
                         },
@@ -125,7 +130,7 @@ export function InsightTooltip({
         }
 
         // Itemize tooltip entities as rows
-        const dataSource = seriesData
+        const dataSource = [...seriesData]
         const columns: LemonTableColumns<SeriesDatum> = []
         const isTruncated = dataSource?.length > rowCutoff
 
@@ -167,6 +172,7 @@ export function InsightTooltip({
             key: 'counts',
             className: 'datum-counts-column',
             width: 50,
+            title: <span style={{ whiteSpace: 'nowrap' }}>{rightTitle ?? undefined}</span>,
             align: 'right',
             render: function renderDatum(_, datum) {
                 return <div className="series-data-cell">{datum.count ?? 0}</div>

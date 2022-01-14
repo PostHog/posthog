@@ -32,7 +32,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { lineGraphLogic } from 'scenes/insights/LineGraph/lineGraphLogic'
-import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { groupsModel } from '~/models/groupsModel'
 
 //--Chart Style Options--//
@@ -40,14 +40,6 @@ Chart.register(CrosshairPlugin)
 Chart.defaults.animation['duration'] = 0
 
 //--Chart Style Options--//
-
-interface TooltipConfig {
-    altTitle?: string | ((tooltipData: SeriesDatum[]) => React.ReactNode)
-    rowCutoff?: number
-    colCutoff?: number
-    renderSeries?: (value: React.ReactNode, seriesDatum: SeriesDatum, idx: number) => React.ReactNode
-    showHeader?: boolean
-}
 
 interface LineGraphProps {
     datasets: GraphDataset[]

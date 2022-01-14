@@ -28,35 +28,43 @@ export interface InvertedSeriesDatum {
     seriesData: SeriesDatum[]
 }
 
-export interface InsightTooltipProps {
+export interface TooltipConfig {
+    altTitle?: string | ((tooltipData: SeriesDatum[], formattedDate: string) => React.ReactNode)
+    altRightTitle?: string | ((tooltipData: SeriesDatum[], formattedDate: string) => React.ReactNode)
+    rowCutoff?: number
+    colCutoff?: number
+    renderSeries?: (value: React.ReactNode, seriesDatum: SeriesDatum, idx: number) => React.ReactNode
+    showHeader?: boolean
+}
+
+export interface InsightTooltipProps extends TooltipConfig {
     date?: string
     hideInspectActorsSection?: boolean
     seriesData?: SeriesDatum[]
-    renderSeries?: (value: React.ReactNode, seriesDatum: SeriesDatum, idx: number) => React.ReactNode
-    altTitle?: string | ((tooltipData: SeriesDatum[]) => React.ReactNode)
     hideColorCol?: boolean
     forceEntitiesAsColumns?: boolean
-    rowCutoff?: number
-    colCutoff?: number
-    showHeader?: boolean
     groupTypeLabel?: string
 }
 
 export const COL_CUTOFF = 4
 export const ROW_CUTOFF = 8
 
-export function getTooltipTitle({ date, seriesData = [], altTitle }: InsightTooltipProps): React.ReactNode {
+export function getTooltipTitle(
+    seriesData: SeriesDatum[],
+    altTitleOrFn?: string | ((tooltipData: SeriesDatum[], date: string) => React.ReactNode),
+    date?: string
+): React.ReactNode | null {
     // Use tooltip alternate title (or generate one if it's a function). Else default to date.
-    if (altTitle) {
-        if (typeof altTitle === 'function') {
-            return altTitle(seriesData)
+    if (altTitleOrFn) {
+        if (typeof altTitleOrFn === 'function') {
+            return altTitleOrFn(seriesData, getFormattedDate(date))
         }
-        return altTitle
+        return altTitleOrFn
     }
-    return getFormattedDate(date, seriesData?.[0]?.filter?.interval)
+    return null
 }
 
-function getFormattedDate(dayInput?: string | number, interval?: IntervalType): string {
+export function getFormattedDate(dayInput?: string | number, interval?: IntervalType): string {
     // Number of days
     if (Number.isInteger(dayInput)) {
         return pluralize(dayInput as number, 'day')
