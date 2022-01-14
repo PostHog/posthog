@@ -99,10 +99,15 @@ class TeamSerializer(serializers.ModelSerializer):
         except ImportError:
             return None
 
-        response = sync_execute(
-            "SELECT timestamp FROM events WHERE team_id = %(team_id)s ORDER BY timestamp LIMIT 1", {"team_id": team.pk}
-        )
-        return response[0][0]
+        try:
+            response = sync_execute(
+                "SELECT timestamp FROM events WHERE team_id = %(team_id)s ORDER BY timestamp LIMIT 1",
+                {"team_id": team.pk},
+            )[0][0]
+        except IndexError:
+            return None
+
+        return response
 
     def validate(self, attrs: Any) -> Any:
         if "access_control" in attrs:
