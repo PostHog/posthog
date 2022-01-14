@@ -32,6 +32,7 @@ import { CorrelationConfig } from './CorrelationConfig'
 import { urls } from 'scenes/urls'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { AuthorizedUrlsTable } from 'scenes/toolbar-launch/AuthorizedUrlsTable'
+import { GroupAnalytics } from 'scenes/project/Settings/GroupAnalytics'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -286,6 +287,7 @@ export function ProjectSettings(): JSX.Element {
                 </p>
                 <SessionRecording />
                 <Divider />
+                <GroupAnalytics />
                 <RestrictedArea Component={AccessControl} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <Divider />
                 {currentTeam?.access_control && hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) && (

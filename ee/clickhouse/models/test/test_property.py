@@ -276,6 +276,24 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(len(self._run_query(filter_text_is_not_set)), 1)
 
+    def test_prop_element_with_space(self):
+        _create_event(
+            event="$autocapture",
+            team=self.team,
+            distinct_id="whatever",
+            elements=[
+                Element(tag_name="a", href="/789", nth_child=0, nth_of_type=0,),
+                Element(tag_name="button", attr_class=["btn space", "btn-tertiary"], nth_child=0, nth_of_type=0),
+            ],
+        )
+
+        # selector
+
+        filter = Filter(
+            data={"properties": [{"key": "selector", "value": ["button"], "operator": "exact", "type": "element"}]}
+        )
+        self.assertEqual(len(self._run_query(filter)), 1)
+
     def test_prop_ints_saved_as_strings(self):
         _create_event(
             event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": "0"},
@@ -569,7 +587,8 @@ TEST_PROPERTIES = [
             key="sdk_$time",
             operator="is_date_before",
             value="2021-12-25",
-            property_definition=PropertyDefinition(dataType="DateTime", format="unix_timestamp").to_dict(),
+            property_type="DateTime",
+            property_type_format="unix_timestamp",
         ),
         [11],
     ),

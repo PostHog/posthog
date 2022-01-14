@@ -10,7 +10,6 @@ import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 const POLL_TIMEOUT = 5000
 
@@ -110,7 +109,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
     },
 
     reducers: ({ props }) => ({
-        sceneIsEventsPage: [props.sceneUrl ? props.sceneUrl === urls.events() : false, {}],
+        sceneIsEventsPage: [props.sceneUrl ? props.sceneUrl === urls.LEGACY_events() : false, {}],
         pollingIsActive: [
             true,
             {
@@ -306,14 +305,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 clearTimeout(values.pollTimeout)
 
                 const properties = [...values.properties, ...(props.fixedFilters?.properties || [])]
-                if (featureFlagLogic?.values.featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME]) {
-                    // hard coded property definitions until the API returns them
-                    properties.forEach((p: AnyPropertyFilter) => {
-                        if (p.key === '$time') {
-                            p['property_definition'] = { dataType: 'DateTime', format: 'unix_timestamp' }
-                        }
-                    })
-                }
 
                 const params = {
                     ...(props.fixedFilters || {}),
@@ -376,14 +367,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             }
 
             const properties = [...values.properties, ...(props.fixedFilters?.properties || [])]
-            if (featureFlagLogic?.values.featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME]) {
-                // hard coded property definitions until the API returns them
-                properties.forEach((p: AnyPropertyFilter) => {
-                    if (p.key === '$time') {
-                        p['property_definition'] = { dataType: 'DateTime', format: 'unix_timestamp' }
-                    }
-                })
-            }
 
             const params: Record<string, unknown> = {
                 ...(props.fixedFilters || {}),

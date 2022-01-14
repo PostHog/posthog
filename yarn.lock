@@ -8528,9 +8528,9 @@ flush-write-stream@^1.0.0:
     readable-stream "^2.3.6"
 
 follow-redirects@^1.0.0:
-  version "1.13.3"
-  resolved "https://registry.yarnpkg.com/follow-redirects/-/follow-redirects-1.13.3.tgz#e5598ad50174c1bc4e872301e82ac2cd97f90267"
-  integrity sha512-DUgl6+HDzB0iEptNQEXLx/KhTmDb8tZUHSeLqpnjpknR70H0nC2t9N73BK6fN4hOvJ84pKlIQVQ4k5FFlBedKA==
+  version "1.14.7"
+  resolved "https://registry.yarnpkg.com/follow-redirects/-/follow-redirects-1.14.7.tgz#2004c02eb9436eee9a21446a6477debf17e81685"
+  integrity sha512-+hbxoLbFMbRKDwohX8GkTataGqO6Jb7jGwpAlwgy2bIz25XtRm7KEzJM76R1WiNT5SwZkX4Y75SwBolkpmE7iQ==
 
 for-in@^1.0.2:
   version "1.0.2"
@@ -13007,10 +13007,10 @@ posthog-js-lite@^0.0.3:
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.3.tgz#87e373706227a849c4e7c6b0cb2066a64ad5b6ed"
   integrity sha512-wEOs8DEjlFBwgd7l19grosaF7mTlliZ9G9pL0Qji189FDg2ukY5IegUxTyTs7gsTGt6WK9W47BF5yXA5+bwvZg==
 
-posthog-js@1.17.0:
-  version "1.17.0"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.17.0.tgz#a8328f44a83c8acd3b63cc97fa037acbfac95265"
-  integrity sha512-U45pooYQ0W0ltZ1cvsijgU5JZBKR2HnyGh04NJ0AaKgSETqT73WUGtttb/n6JtRlWP2ZDnihlu4FYx88gVz1OQ==
+posthog-js@1.17.1:
+  version "1.17.1"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.17.1.tgz#e04c5bab6d5c80a8907c14275881f65becbbe62f"
+  integrity sha512-pQCCI0id8tFwOdHFj8CffAdm+p9w/7cwb7hDPRRoO+qYN+9WYgtZHlcjyd8y/5fpS3hTIAfYUZa3FM26NR+X1Q==
   dependencies:
     "@sentry/types" "^6.11.0"
     fflate "^0.4.1"

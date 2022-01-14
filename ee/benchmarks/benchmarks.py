@@ -121,6 +121,36 @@ class QuerySuite:
         ClickhouseTrends().run(filter, self.team)
 
     @benchmark_clickhouse
+    def track_trends_event_property_breakdown(self):
+        filter = Filter(data={"events": [{"id": "$pageview"}], "breakdown": "$host", **DATE_RANGE,})
+
+        with no_materialized_columns():
+            ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_trends_event_property_breakdown_materialized(self):
+        filter = Filter(data={"events": [{"id": "$pageview"}], "breakdown": "$host", **DATE_RANGE,})
+
+        ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_trends_person_property_breakdown(self):
+        filter = Filter(
+            data={"events": [{"id": "$pageview"}], "breakdown": "$browser", "breakdown_type": "person", **DATE_RANGE,}
+        )
+
+        with no_materialized_columns():
+            ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_trends_person_property_breakdown_materialized(self):
+        filter = Filter(
+            data={"events": [{"id": "$pageview"}], "breakdown": "$browser", "breakdown_type": "person", **DATE_RANGE,}
+        )
+
+        ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
     def track_trends_dau(self):
         filter = Filter(data={"events": [{"id": "$pageview", "math": "dau"}], **DATE_RANGE,})
         ClickhouseTrends().run(filter, self.team)
@@ -478,14 +508,104 @@ class QuerySuite:
         filter = Filter(
             data={
                 "insight": "LIFECYCLE",
-                "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0, "math": "total"}],
-                "display": "ActionsLineGraph",
+                "events": [{"id": "$pageview", "type": "events"}],
                 "interval": "week",
                 "shown_as": "Lifecycle",
                 "date_from": "-14d",
-                "properties": [],
-                "compare": False,
-                "filter_test_accounts": True,
+                **DATE_RANGE,
+            },
+            team=self.team,
+        )
+
+        ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_lifecycle_event_property_filter(self):
+        filter = Filter(
+            data={
+                "insight": "LIFECYCLE",
+                "events": [{"id": "$pageview", "type": "events"}],
+                "interval": "week",
+                "shown_as": "Lifecycle",
+                "date_from": "-14d",
+                "properties": [
+                    {
+                        "key": "$host",
+                        "operator": "is_not",
+                        "value": [
+                            "localhost:8000",
+                            "localhost:5000",
+                            "127.0.0.1:8000",
+                            "127.0.0.1:3000",
+                            "localhost:3000",
+                        ],
+                    }
+                ],
+                **DATE_RANGE,
+            },
+            team=self.team,
+        )
+
+        with no_materialized_columns():
+            ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_lifecycle_event_property_filter_materialized(self):
+        filter = Filter(
+            data={
+                "insight": "LIFECYCLE",
+                "events": [{"id": "$pageview", "type": "events"}],
+                "interval": "week",
+                "shown_as": "Lifecycle",
+                "date_from": "-14d",
+                "properties": [
+                    {
+                        "key": "$host",
+                        "operator": "is_not",
+                        "value": [
+                            "localhost:8000",
+                            "localhost:5000",
+                            "127.0.0.1:8000",
+                            "127.0.0.1:3000",
+                            "localhost:3000",
+                        ],
+                    }
+                ],
+                **DATE_RANGE,
+            },
+            team=self.team,
+        )
+
+        ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_lifecycle_person_property_filter(self):
+        filter = Filter(
+            data={
+                "insight": "LIFECYCLE",
+                "events": [{"id": "$pageview", "type": "events"}],
+                "interval": "week",
+                "shown_as": "Lifecycle",
+                "date_from": "-14d",
+                "properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                **DATE_RANGE,
+            },
+            team=self.team,
+        )
+
+        with no_materialized_columns():
+            ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_lifecycle_person_property_filter_materialized(self):
+        filter = Filter(
+            data={
+                "insight": "LIFECYCLE",
+                "events": [{"id": "$pageview", "type": "events"}],
+                "interval": "week",
+                "shown_as": "Lifecycle",
+                "date_from": "-14d",
+                "properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
                 **DATE_RANGE,
             },
             team=self.team,
