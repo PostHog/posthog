@@ -10,7 +10,7 @@ import { Paths } from 'scenes/paths/Paths'
 import { ACTIONS_BAR_CHART_VALUE, ACTIONS_TABLE, FEATURE_FLAGS, FUNNEL_VIZ, FunnelLayout } from 'lib/constants'
 import { People } from 'scenes/funnels/FunnelPeople'
 import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepTable'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightsTable } from 'scenes/insights/InsightsTable'
 import React from 'react'
@@ -30,6 +30,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { FunnelCorrelation } from './FunnelCorrelation'
 import { InsightLegend, InsightLegendButton } from 'lib/components/InsightLegend/InsightLegend'
+import { InfoMessage } from 'lib/components/InfoMessage/InfoMessage'
+import { helpButtonLogic } from 'lib/components/HelpButton/HelpButton'
+import { teamLogic } from 'scenes/teamLogic'
+import dayjs from 'dayjs'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -62,6 +66,8 @@ export function InsightContainer(
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
         funnelLogic(insightProps)
     )
+    const { toggleHelp } = useActions(helpButtonLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -184,6 +190,23 @@ export function InsightContainer(
                             <InsightLegendButton />
                         </Col>
                     </Row>
+                    {filters.date_from === 'all' &&
+                        currentTeam?.event_first_seen &&
+                        dayjs(currentTeam.event_first_seen) < dayjs('2015-01-01') && (
+                            <Row style={{ padding: '0 16px' }}>
+                                <InfoMessage style={{ width: '100%' }}>
+                                    <>
+                                        Looks like you have some old events in this project. The "All time" filter will
+                                        consider all events from Jan 1, 2015 onwards. If you wish to analyze data from
+                                        before 2015, please{' '}
+                                        <a onClick={toggleHelp} style={{ userSelect: 'none' }}>
+                                            reach out
+                                        </a>
+                                        .
+                                    </>
+                                </InfoMessage>
+                            </Row>
+                        )}
                     {!!BlockingEmptyState ? (
                         BlockingEmptyState
                     ) : featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS] &&

@@ -11,8 +11,6 @@ import { FunnelDisplayLayoutPicker } from './FunnelTab/FunnelDisplayLayoutPicker
 import { FunnelBinsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBinsPicker'
 import { PathStepPicker } from './PathTab/PathStepPicker'
 import { ReferencePicker as RetentionReferencePicker } from './RetentionTab/ReferencePicker'
-import { Tooltip } from 'antd'
-import { InfoCircleOutlined } from '@ant-design/icons'
 
 interface InsightDisplayConfigProps {
     filters: FilterType
@@ -92,11 +90,6 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                             makeLabel={(key) => (
                                 <>
                                     <CalendarOutlined /> {key}
-                                    {key == 'All time' && (
-                                        <Tooltip title={`Only events dated after 2015 will be shown`}>
-                                            <InfoCircleOutlined className="info-indicator" />
-                                        </Tooltip>
-                                    )}
                                 </>
                             )}
                         />
