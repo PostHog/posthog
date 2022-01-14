@@ -150,7 +150,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<P
             // Tries to initialize a new player
             const windowId: string | null = values.currentPlayerPosition?.windowId ?? null
             actions.setPlayer(null)
-            values.rootFrame.innerHTML = '' // Clear the previously drawn frames
+            if (values.rootFrame) {
+                values.rootFrame.innerHTML = '' // Clear the previously drawn frames
+            }
             if (
                 !values.rootFrame ||
                 windowId === null ||

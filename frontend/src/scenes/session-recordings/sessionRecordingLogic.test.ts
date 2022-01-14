@@ -9,6 +9,7 @@ import recordingEventsJson from './__mocks__/recording_events.json'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { combineUrl, router } from 'kea-router'
 import { RecordingEventType } from '~/types'
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 
 jest.mock('lib/api')
 
@@ -57,13 +58,13 @@ describe('sessionRecordingLogic', () => {
                 '/recordings',
                 {},
                 {
-                    sessionRecordingId: 'abc',
+                    sessionRecordingId: '1',
                 }
             )
 
             await expectLogic(logic).toDispatchActions([
-                logic.actionCreators.loadRecordingMeta('abc'),
-                logic.actionCreators.loadRecordingSnapshots('abc'),
+                logic.actionCreators.loadRecordingMeta('1'),
+                logic.actionCreators.loadRecordingSnapshots('1'),
             ])
         })
     })
@@ -146,6 +147,7 @@ describe('sessionRecordingLogic', () => {
                     throw new Error('Oh no.')
                 }
             })
+            silenceKeaLoadersErrors()
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingMeta('1')
             })
@@ -154,7 +156,7 @@ describe('sessionRecordingLogic', () => {
                     sessionPlayerData: null,
                 })
                 .toFinishAllListeners()
-
+            resumeKeaLoadersErrors()
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingSnapshots('1')
             })
@@ -174,6 +176,7 @@ describe('sessionRecordingLogic', () => {
                 snapshotsByWindowId: {},
                 bufferedTo: null,
             }
+            silenceKeaLoadersErrors()
             api.get.mockImplementation(async (url: string) => {
                 if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
                     throw new Error('Oh no.')
@@ -197,6 +200,7 @@ describe('sessionRecordingLogic', () => {
                 .toMatchValues({
                     sessionPlayerData: expected,
                 })
+            resumeKeaLoadersErrors()
         })
     })
 
@@ -288,7 +292,7 @@ describe('sessionRecordingLogic', () => {
         })
         it('server error mid-fetch', async () => {
             const firstNext = `${EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT}?person_id=1&before=2021-10-28T17:45:12.128000Z&after=2021-10-28T16:45:05Z`
-
+            silenceKeaLoadersErrors()
             api.get.mockClear()
             api.get
                 .mockImplementationOnce(async (url: string) => {
@@ -304,7 +308,6 @@ describe('sessionRecordingLogic', () => {
                 .mockImplementationOnce(async () => {
                     throw new Error('Error in third request')
                 })
-
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingMeta('1')
             })
@@ -316,6 +319,7 @@ describe('sessionRecordingLogic', () => {
                     },
                 })
                 .toDispatchActions([logic.actionCreators.loadEvents(firstNext), 'loadEventsFailure'])
+            resumeKeaLoadersErrors()
             expect(api.get).toBeCalledTimes(3)
         })
         it('makes the events searchable', async () => {
@@ -424,7 +428,7 @@ describe('sessionRecordingLogic', () => {
 
             const snapshotUrl = createSnapshotEndpoint(1)
             const firstNext = `${snapshotUrl}/?offset=200&limit=200`
-
+            silenceKeaLoadersErrors()
             api.get
                 .mockImplementationOnce(async (url: string) => {
                     if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
@@ -450,6 +454,7 @@ describe('sessionRecordingLogic', () => {
                     logic.actionCreators.loadRecordingSnapshots(undefined, firstNext),
                     'loadRecordingSnapshotsFailure',
                 ])
+            resumeKeaLoadersErrors()
             expect(api.get).toBeCalledTimes(2)
         })
     })
