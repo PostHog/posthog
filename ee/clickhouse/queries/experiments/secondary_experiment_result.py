@@ -50,7 +50,7 @@ class ClickhouseSecondaryExperimentResult:
         else:
             self.query_filter = query_filter
 
-    def get_results(self) -> Dict[str, Dict[str, Union[int, float]]]:
+    def get_results(self):
 
         if self.query_filter.insight == INSIGHT_TRENDS:
             trend_results = ClickhouseTrends().run(self.query_filter, self.team)
@@ -75,13 +75,13 @@ class ClickhouseSecondaryExperimentResult:
 
         return variants
 
-    def get_trend_count_data_for_variants(self, insight_results) -> Dict[str, int]:
+    def get_trend_count_data_for_variants(self, insight_results) -> Dict[str, float]:
         # this assumes the Trend insight is Cumulative
         variants = {}
 
         for result in insight_results:
             count = result["count"]
             breakdown_value = result["breakdown_value"]
-            variants[breakdown_value] = int(count)
+            variants[breakdown_value] = count
 
         return variants
