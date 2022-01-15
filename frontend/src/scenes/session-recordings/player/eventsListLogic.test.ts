@@ -1,5 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
-import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
+import { mockAPI } from 'lib/api.mock'
 import { List } from 'react-virtualized/dist/es/List'
 import { initKeaTestLogic } from '~/test/init'
 import {
@@ -15,9 +15,7 @@ jest.mock('lib/api')
 describe('eventsListLogic', () => {
     let logic: ReturnType<typeof eventsListLogic.build>
 
-    mockAPI(async (url) => {
-        return defaultAPIMocks(url)
-    })
+    mockAPI()
 
     initKeaTestLogic({
         logic: eventsListLogic,
