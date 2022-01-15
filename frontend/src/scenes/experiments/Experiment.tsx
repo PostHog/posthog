@@ -14,6 +14,7 @@ import {
     ChartDisplayType,
     Experiment,
     FilterType,
+    FunnelStep,
     FunnelVizType,
     InsightType,
     MultivariateFlagVariant,
@@ -100,10 +101,14 @@ export function Experiment(): JSX.Element {
     const exposure = recommendedExposureForCountData(trendCount)
     const funnelResultsPersonsTotal =
         experimentInsightType === InsightType.FUNNELS &&
-        experimentResults?.insight.reduce((sum, variantResult) => variantResult[0].count + sum, 0)
+        experimentResults?.insight &&
+        (experimentResults.insight as FunnelStep[][]).reduce(
+            (sum: number, variantResult: FunnelStep[]) => variantResult[0].count + sum,
+            0
+        )
     const experimentProgressPercent =
         experimentInsightType === InsightType.FUNNELS
-            ? (funnelResultsPersonsTotal / sampleSize) * 100
+            ? ((funnelResultsPersonsTotal || 0) / sampleSize) * 100
             : (dayjs().diff(experimentData?.start_date, 'day') / exposure) * 100
 
     const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
