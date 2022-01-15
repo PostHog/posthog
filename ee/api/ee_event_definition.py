@@ -6,6 +6,7 @@ from posthog.api.shared import UserBasicSerializer
 
 class EnterpriseEventDefinitionSerializer(serializers.ModelSerializer):
     updated_by = UserBasicSerializer(read_only=True)
+    verified_by = UserBasicSerializer(read_only=True)
 
     class Meta:
         model = EnterpriseEventDefinition
@@ -22,6 +23,8 @@ class EnterpriseEventDefinitionSerializer(serializers.ModelSerializer):
             "updated_by",
             "last_seen_at",
             "verified",
+            "verified_at",
+            "verified_by",
         )
         read_only_fields = [
             "id",
@@ -31,10 +34,22 @@ class EnterpriseEventDefinitionSerializer(serializers.ModelSerializer):
             "volume_30_day",
             "query_usage_30_day",
             "last_seen_at",
+            "verified_at",
         ]
+
+    def create(self, event_definition: EnterpriseEventDefinition, validated_data):
+        if validated_data["verified"]:
+            validated_data["verified_by"] = self.context["request"].user
+        else:
+            validated_data["verified_by"] = None
+        return super().update(event_definition, validated_data)
 
     def update(self, event_definition: EnterpriseEventDefinition, validated_data):
         validated_data["updated_by"] = self.context["request"].user
+        if "verified" in validated_data and validated_data["verified"]:
+            validated_data["verified_by"] = self.context["request"].user
+        else:
+            validated_data["verified_by"] = None
         return super().update(event_definition, validated_data)
 
     def to_representation(self, instance):
