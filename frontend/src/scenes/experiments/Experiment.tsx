@@ -98,10 +98,9 @@ export function Experiment(): JSX.Element {
     const entrants = results?.[0]?.count
     const runningTime = expectedRunningTime(entrants, sampleSize)
     const exposure = recommendedExposureForCountData(trendCount)
-    const funnelResultsPersonsTotal = experimentResults?.insight.reduce(
-        (sum, variantResult) => variantResult[0].count + sum,
-        0
-    )
+    const funnelResultsPersonsTotal =
+        experimentInsightType === InsightType.FUNNELS &&
+        experimentResults?.insight.reduce((sum, variantResult) => variantResult[0].count + sum, 0)
     const experimentProgressPercent =
         experimentInsightType === InsightType.FUNNELS
             ? (funnelResultsPersonsTotal / sampleSize) * 100
