@@ -121,7 +121,6 @@ describe('TeamManager()', () => {
                     volume_30_day: 3,
                     last_seen_at: null,
                     created_at: expect.any(String),
-                    verified: false,
                 },
                 {
                     id: expect.any(String),
@@ -131,7 +130,6 @@ describe('TeamManager()', () => {
                     volume_30_day: null,
                     last_seen_at: '2014-03-23T23:23:23.000Z', // values are not updated directly
                     created_at: expect.any(String),
-                    verified: false,
                 },
                 {
                     id: expect.any(String),
@@ -141,7 +139,6 @@ describe('TeamManager()', () => {
                     volume_30_day: null,
                     last_seen_at: '2020-02-27T11:00:36.000Z', // overridden Date.now()
                     created_at: expect.any(String),
-                    verified: false,
                 },
             ])
 

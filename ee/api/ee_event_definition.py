@@ -37,13 +37,6 @@ class EnterpriseEventDefinitionSerializer(serializers.ModelSerializer):
             "verified_at",
         ]
 
-    def create(self, event_definition: EnterpriseEventDefinition, validated_data):
-        if "verified" in validated_data and validated_data["verified"]:
-            validated_data["verified_by"] = self.context["request"].user
-        else:
-            validated_data["verified_by"] = None
-        return super().update(event_definition, validated_data)
-
     def update(self, event_definition: EnterpriseEventDefinition, validated_data):
         validated_data["updated_by"] = self.context["request"].user
         if "verified" in validated_data and validated_data["verified"]:

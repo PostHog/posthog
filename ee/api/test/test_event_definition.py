@@ -105,7 +105,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
     def test_update_event_without_license(self):
         event = EnterpriseEventDefinition.objects.create(team=self.team, name="enterprise event")
         response = self.client.patch(
-            f"/api/projects/@current/event_definitions/{str(event.id)}/", data={"description": "test"},
+            f"/api/projects/@current/event_definitions/{str(event.id)}", data={"description": "test"},
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
         self.assertIn("This feature is part of the premium PostHog offering.", response.json()["detail"])
@@ -116,7 +116,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         )
         event = EnterpriseEventDefinition.objects.create(team=self.team, name="description test")
         response = self.client.patch(
-            f"/api/projects/@current/event_definitions/{str(event.id)}/", data={"description": "test"},
+            f"/api/projects/@current/event_definitions/{str(event.id)}", data={"description": "test"},
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
         self.assertIn("This feature is part of the premium PostHog offering.", response.json()["detail"])
@@ -190,5 +190,5 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
     def test_errors_on_invalid_verified_by_type(self):
         with pytest.raises(ValueError):
             EnterpriseEventDefinition.objects.create(
-                team=self.team, name="enterprise event", owner=self.user, verified_by="Not user id"
+                team=self.team, name="enterprise event", owner=self.user, verified_by="Not user id"  # type: ignore
             )

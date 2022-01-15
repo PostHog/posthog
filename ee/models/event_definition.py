@@ -32,5 +32,6 @@ class EnterpriseEventDefinition(EventDefinition):
         # Event becomes unverified
         elif not self.verified:
             self.verified_at = None
+            self.verified_by = None
         self._prev_verified = self.verified
         super().save(*args, **kwargs)
