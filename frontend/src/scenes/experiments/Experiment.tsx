@@ -98,6 +98,14 @@ export function Experiment(): JSX.Element {
     const entrants = results?.[0]?.count
     const runningTime = expectedRunningTime(entrants, sampleSize)
     const exposure = recommendedExposureForCountData(trendCount)
+    const funnelResultsPersonsTotal = experimentResults?.insight.reduce(
+        (sum, variantResult) => variantResult[0].count + sum,
+        0
+    )
+    const experimentProgressPercent =
+        experimentInsightType === InsightType.FUNNELS
+            ? (funnelResultsPersonsTotal / sampleSize) * 100
+            : (dayjs().diff(experimentData?.start_date, 'day') / exposure) * 100
 
     const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
     const status = (): string => {
@@ -433,7 +441,7 @@ export function Experiment(): JSX.Element {
                                 experiment={newExperimentData}
                                 trendCount={trendCount}
                                 exposure={exposure}
-                                sampleSizePerVariant={sampleSizePerVariant}
+                                sampleSize={sampleSize}
                                 runningTime={runningTime}
                                 conversionRate={conversionRate}
                             />
@@ -512,10 +520,41 @@ export function Experiment(): JSX.Element {
                                     experiment={experimentData}
                                     trendCount={trendCount}
                                     exposure={exposure}
-                                    sampleSizePerVariant={sampleSizePerVariant}
+                                    sampleSize={sampleSize}
                                     runningTime={runningTime}
                                     conversionRate={conversionRate}
                                 />
+                                <Col span={8} className="mt ml">
+                                    <div className="mb-05">
+                                        <b>Experiment progress</b>
+                                    </div>
+                                    <Progress
+                                        strokeWidth={20}
+                                        showInfo={false}
+                                        percent={experimentProgressPercent}
+                                        strokeColor="var(--success)"
+                                    />
+                                    {experimentInsightType === InsightType.TRENDS && experimentData.start_date && (
+                                        <Row justify="space-between" className="mt-05">
+                                            <div>
+                                                <b>{dayjs().diff(experimentData.start_date, 'day')}</b> days running
+                                            </div>
+                                            <div>
+                                                Goal: <b>{exposure}</b> days
+                                            </div>
+                                        </Row>
+                                    )}
+                                    {experimentInsightType === InsightType.FUNNELS && (
+                                        <Row justify="space-between" className="mt-05">
+                                            <div>
+                                                <b>{Math.floor(experimentProgressPercent)}</b> participants seen
+                                            </div>
+                                            <div>
+                                                Goal: <b>{sampleSize}</b> participants
+                                            </div>
+                                        </Row>
+                                    )}
+                                </Col>
                             </Collapse.Panel>
                         </Collapse>
                     </Row>
@@ -651,7 +690,7 @@ interface ExperimentPreviewProps {
     exposure: number
     conversionRate: number
     runningTime: number
-    sampleSizePerVariant: number
+    sampleSize: number
 }
 
 export function ExperimentPreview({
@@ -660,9 +699,9 @@ export function ExperimentPreview({
     exposure,
     conversionRate,
     runningTime,
-    sampleSizePerVariant,
+    sampleSize,
 }: ExperimentPreviewProps): JSX.Element {
-    const { experimentInsightType, experimentData, experimentId } = useValues(experimentLogic)
+    const { experimentInsightType, experimentId } = useValues(experimentLogic)
     const [currentVariant, setCurrentVariant] = useState('control')
 
     return (
@@ -696,7 +735,7 @@ export function ExperimentPreview({
                                     <div className="l4">{trendCount}</div>
                                 </Col>
                                 <Col span={12}>
-                                    <div className="card-secondary">Recommended Duration</div>
+                                    <div className="card-secondary">Recommended running time</div>
                                     <div>
                                         <span className="l4">~{exposure}</span> days
                                     </div>
@@ -711,11 +750,11 @@ export function ExperimentPreview({
                                 <Col span={8}>
                                     <div className="card-secondary">Recommended Sample Size</div>
                                     <div className="pb">
-                                        <span className="l4">~{sampleSizePerVariant}</span> persons
+                                        <span className="l4">~{sampleSize}</span> persons
                                     </div>
                                 </Col>
                                 <Col span={8}>
-                                    <div className="card-secondary">Expected Duration</div>
+                                    <div className="card-secondary">Recommended running time</div>
                                     <div>
                                         <span className="l4">~{runningTime}</span> days
                                     </div>
@@ -773,7 +812,7 @@ export function ExperimentPreview({
                             </Row>
                         </Col>
                     </Row>
-                    {experimentInsightType === InsightType.FUNNELS && experimentData && (
+                    {experimentInsightType === InsightType.FUNNELS && experimentId !== 'new' && (
                         <Row className="experiment-preview-row">
                             <Col>
                                 <div className="card-secondary mb-05">Conversion goal</div>
