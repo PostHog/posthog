@@ -209,7 +209,6 @@ jobs:
                   touch frontend/dist/shared_dashboard.html
 
             - name: Wait for Clickhouse & Kafka
-              if: ${{ !matrix.foss }}
               run: bin/check_kafka_clickhouse_up
 
             - name: Run FOSS tests
