@@ -17,6 +17,12 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { isUserLoggedIn } from 'lib/utils'
 
+export interface MetricRow {
+    metric: string
+    key: string
+    value: any
+}
+
 export type InstanceStatusTabName = 'overview' | 'internal_metrics' | 'configuration'
 
 /**

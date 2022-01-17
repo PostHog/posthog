@@ -4,6 +4,7 @@ import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import React, { useEffect } from 'react'
 import { EnvironmentConfigOption, preflightLogic } from 'scenes/PreflightCheck/logic'
 import { InstanceSetting } from '~/types'
+import { RenderMetricValue } from './RenderMetricValue'
 import { systemStatusLogic } from './systemStatusLogic'
 
 export function InstanceConfigTab(): JSX.Element {
@@ -23,6 +24,12 @@ export function InstanceConfigTab(): JSX.Element {
         {
             title: 'Description',
             dataIndex: 'description',
+        },
+        {
+            title: 'Value',
+            render: function renderValue(_, record) {
+                return RenderMetricValue({ value: record.value, key: record.key, metric: record.description })
+            },
         },
     ]
 

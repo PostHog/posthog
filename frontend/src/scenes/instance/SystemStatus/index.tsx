@@ -11,6 +11,7 @@ import { OverviewTab } from 'scenes/instance/SystemStatus/OverviewTab'
 import { InternalMetricsTab } from 'scenes/instance/SystemStatus/InternalMetricsTab'
 import { SceneExport } from 'scenes/sceneTypes'
 import { InstanceConfigTab } from './InstanceConfigTab'
+import { userLogic } from 'scenes/userLogic'
 
 export const scene: SceneExport = {
     component: SystemStatus,
@@ -21,6 +22,7 @@ export function SystemStatus(): JSX.Element {
     const { tab, error, systemStatus } = useValues(systemStatusLogic)
     const { setTab } = useActions(systemStatusLogic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
+    const { user } = useValues(userLogic)
 
     return (
         <div className="system-status-scene">
@@ -76,9 +78,11 @@ export function SystemStatus(): JSX.Element {
                 <Tabs.TabPane tab="System overview" key="overview">
                     <OverviewTab />
                 </Tabs.TabPane>
-                <Tabs.TabPane tab="Configuration" key="configuration">
-                    <InstanceConfigTab />
-                </Tabs.TabPane>
+                {user?.is_staff && (
+                    <Tabs.TabPane tab="Configuration" key="configuration">
+                        <InstanceConfigTab />
+                    </Tabs.TabPane>
+                )}
                 {systemStatus?.internal_metrics.clickhouse && (
                     <Tabs.TabPane tab="Internal metrics" key="internal_metrics">
                         <InternalMetricsTab />

@@ -1,43 +1,14 @@
 import React from 'react'
-import { Table, Tag, Card } from 'antd'
-import { systemStatusLogic } from './systemStatusLogic'
+import { Table, Card } from 'antd'
+import { MetricRow, systemStatusLogic } from './systemStatusLogic'
 import { useValues } from 'kea'
 import { SystemStatusSubrows } from '~/types'
 import { IconOpenInNew } from 'lib/components/icons'
 import { Link } from 'lib/components/Link'
-import { humanFriendlyDetailedTime } from 'lib/utils'
-
-interface MetricRow {
-    metric: string
-    key: string
-    value: any
-}
+import { RenderMetricValue } from './RenderMetricValue'
 
 const METRIC_KEY_TO_INTERNAL_LINK = {
     async_migrations_ok: '/instance/async_migrations',
-}
-
-const TIMESTAMP_VALUES = new Set(['last_event_ingested_timestamp'])
-
-function RenderValue(metricRow: MetricRow): JSX.Element | string {
-    const value = metricRow.value
-
-    if (TIMESTAMP_VALUES.has(metricRow.key)) {
-        if (new Date(value).getTime() === new Date('1970-01-01T00:00:00').getTime()) {
-            return 'Never'
-        }
-        return humanFriendlyDetailedTime(value)
-    }
-
-    if (typeof value === 'boolean') {
-        return <Tag color={value ? 'success' : 'error'}>{value ? 'Yes' : 'No'}</Tag>
-    }
-
-    if (value === null || value === undefined || value === '') {
-        return <Tag>Unknown</Tag>
-    }
-
-    return value.toString()
 }
 
 function RenderMetric(metricRow: MetricRow): JSX.Element {
@@ -64,7 +35,7 @@ export function OverviewTab(): JSX.Element {
         },
         {
             title: 'Value',
-            render: RenderValue,
+            render: RenderMetricValue,
         },
     ]
 
