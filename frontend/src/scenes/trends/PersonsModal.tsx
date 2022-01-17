@@ -93,13 +93,13 @@ export function PersonsModal({
         [filters, people, isInitialLoad]
     )
 
+    const flaggedInsights = featureFlags[FEATURE_FLAGS.NEW_INSIGHT_COHORTS]
     const isDownloadCsvAvailable: boolean = view === InsightType.TRENDS && showModalActions && !!people?.action
     const isSaveAsCohortAvailable =
         clickhouseFeaturesEnabled &&
         (view === InsightType.TRENDS ||
             view === InsightType.STICKINESS ||
-            view === InsightType.FUNNELS ||
-            view == InsightType.PATHS) &&
+            (flaggedInsights && (view === InsightType.FUNNELS || view === InsightType.PATHS))) &&
         showModalActions
 
     const colorList = getChartColors('white', people?.crossDataset?.length)
