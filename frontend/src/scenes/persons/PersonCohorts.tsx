@@ -1,7 +1,6 @@
 import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { personsLogic } from './personsLogic'
-import Skeleton from 'antd/lib/skeleton'
 import { CohortType } from '~/types'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { urls } from 'scenes/urls'
@@ -16,10 +15,6 @@ export function PersonCohorts(): JSX.Element {
             loadCohorts()
         }
     }, [cohorts, cohortsLoading])
-
-    if (cohortsLoading) {
-        return <Skeleton paragraph={{ rows: 2 }} active />
-    }
 
     const columns: LemonTableColumns<CohortType> = [
         {

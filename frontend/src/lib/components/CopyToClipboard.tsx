@@ -45,7 +45,7 @@ export function CopyToClipboardInline({
             className={isValueSensitive ? 'ph-no-capture' : ''}
             style={{
                 cursor: selectable ? 'text' : 'pointer',
-                display: 'flex',
+                display: 'inline-flex',
                 alignItems: 'center',
                 flexDirection: iconPosition === 'end' ? 'row' : 'row-reverse',
                 flexWrap: 'nowrap',

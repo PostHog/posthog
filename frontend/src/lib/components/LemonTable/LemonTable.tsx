@@ -335,7 +335,7 @@ export function LemonTable<T extends Record<string, any>>({
                             ) : (
                                 <tr className="LemonTable__empty-state">
                                     <td colSpan={columns.length + Number(!!expandable)}>
-                                        {emptyState || `No ${nouns[1]}`}
+                                        {!loading ? emptyState || `No ${nouns[1]}` : `Loading ${nouns[1]}…`}
                                     </td>
                                 </tr>
                             )}

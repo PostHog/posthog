@@ -1,5 +1,5 @@
 import React from 'react'
-import { Tabs, Tag, Dropdown, Menu, Button, Popconfirm, Input } from 'antd'
+import { Tabs, Tag, Dropdown, Menu, Button, Popconfirm } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { EventsTable } from 'scenes/events'
 import { SessionRecordingsTable } from 'scenes/session-recordings/SessionRecordingsTable'
@@ -12,16 +12,15 @@ import { DownOutlined } from '@ant-design/icons'
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { NewPropertyComponent } from './NewPropertyComponent'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { Tooltip } from 'lib/components/Tooltip'
 import { PersonsTabType, PersonType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { groupsModel } from '~/models/groupsModel'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { Loading } from 'lib/utils'
+import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 
 const { TabPane } = Tabs
 
@@ -35,46 +34,42 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
     return (
         <div style={{ display: 'flex', flexWrap: 'wrap' }}>
             <div className="mr">
-                {' '}
+                <span className="text-muted">IDs:</span>{' '}
+                <CopyToClipboardInline
+                    tooltipMessage={null}
+                    description="person distinct ID"
+                    style={{ justifyContent: 'flex-end' }}
+                >
+                    {person.distinct_ids[0]}
+                </CopyToClipboardInline>
+                {person.distinct_ids.length > 1 && (
+                    <Dropdown
+                        overlay={
+                            <Menu>
+                                {person.distinct_ids.map((distinct_id: string) => (
+                                    <Menu.Item key={distinct_id}>
+                                        <CopyToClipboardInline
+                                            description="person distinct ID"
+                                            iconStyle={{ color: 'var(--primary)' }}
+                                        >
+                                            {distinct_id}
+                                        </CopyToClipboardInline>
+                                    </Menu.Item>
+                                ))}
+                            </Menu>
+                        }
+                        trigger={['click']}
+                    >
+                        <Tag className="extra-ids">
+                            +{person.distinct_ids.length}
+                            <DownOutlined />
+                        </Tag>
+                    </Dropdown>
+                )}
+            </div>
+            <div>
                 <span className="text-muted">First seen:</span>{' '}
                 {person.created_at ? <TZLabel time={person.created_at} /> : 'unknown'}
-            </div>
-
-            <div>
-                <span className="text-muted">IDs:</span>{' '}
-                <span style={{ display: 'inline-flex', alignItems: 'center' }}>
-                    <CopyToClipboardInline
-                        tooltipMessage={null}
-                        description="person distinct ID"
-                        iconStyle={{ color: 'var(--primary)' }}
-                        style={{ justifyContent: 'flex-end' }}
-                    >
-                        {person.distinct_ids[0]}
-                    </CopyToClipboardInline>
-                    {person.distinct_ids.length > 1 && (
-                        <Dropdown
-                            overlay={
-                                <Menu>
-                                    {person.distinct_ids.map((distinct_id: string) => (
-                                        <Menu.Item key={distinct_id}>
-                                            <CopyToClipboardInline
-                                                description="person distinct ID"
-                                                iconStyle={{ color: 'var(--primary)' }}
-                                            >
-                                                {distinct_id}
-                                            </CopyToClipboardInline>
-                                        </Menu.Item>
-                                    ))}
-                                </Menu>
-                            }
-                            trigger={['click']}
-                        >
-                            <Tag className="extra-ids">
-                                +{person.distinct_ids.length} <DownOutlined />
-                            </Tag>
-                        </Dropdown>
-                    )}
-                </span>
             </div>
         </div>
     )
@@ -82,21 +77,12 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
 
 export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
     const personsLogicProps: PersonLogicProps = { syncWithUrl: true, urlId }
-    const {
-        person,
-        personLoading,
-        deletedPersonLoading,
-        hasNewKeys,
-        currentTab,
-        showSessionRecordings,
-        splitMergeModalShown,
-        propertySearchTerm,
-        propertiesSearched,
-    } = useValues(personsLogic(personsLogicProps))
-    const { deletePerson, editProperty, navigateToTab, setSplitMergeModalShown, setPropertySearchTerm } = useActions(
+    const { person, personLoading, deletedPersonLoading, currentTab, showSessionRecordings, splitMergeModalShown } =
+        useValues(personsLogic(personsLogicProps))
+    const { deletePerson, editProperty, navigateToTab, setSplitMergeModalShown } = useActions(
         personsLogic(personsLogicProps)
     )
-    const { showGroupsOptions } = useValues(groupsModel)
+    const { groupsEnabled } = useValues(groupsAccessLogic)
 
     if (!person) {
         return personLoading ? (
@@ -151,28 +137,14 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
                 <TabPane
                     tab={<span data-attr="persons-properties-tab">Properties</span>}
                     key={PersonsTabType.PROPERTIES}
-                    disabled={personLoading}
                 >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
-                        <Input.Search
-                            placeholder="Search for property keys and values"
-                            allowClear
-                            enterButton
-                            style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
-                            value={propertySearchTerm}
-                            onChange={(e) => {
-                                setPropertySearchTerm(e.target.value)
-                            }}
-                        />
-                        <NewPropertyComponent />
-                    </div>
                     <PropertiesTable
-                        properties={propertiesSearched}
+                        properties={person.properties || {}}
+                        searchable
                         onEdit={editProperty}
-                        sortProperties={!hasNewKeys}
+                        sortProperties
                         embedded={false}
                         onDelete={(key) => editProperty(key, undefined)}
-                        className="persons-page-props-table"
                     />
                 </TabPane>
                 <TabPane tab={<span data-attr="persons-events-tab">Events</span>} key={PersonsTabType.EVENTS}>
@@ -196,14 +168,10 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
                     </TabPane>
                 )}
 
-                <TabPane
-                    tab={<span data-attr="persons-cohorts-tab">Cohorts</span>}
-                    key={PersonsTabType.COHORTS}
-                    disabled={personLoading}
-                >
+                <TabPane tab={<span data-attr="persons-cohorts-tab">Cohorts</span>} key={PersonsTabType.COHORTS}>
                     <PersonCohorts />
                 </TabPane>
-                {showGroupsOptions && person.uuid && (
+                {groupsEnabled && person.uuid && (
                     <TabPane
                         tab={
                             <span data-attr="persons-related-tab">
@@ -214,7 +182,6 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
                             </span>
                         }
                         key={PersonsTabType.RELATED}
-                        disabled={personLoading}
                     >
                         <RelatedGroups id={person.uuid} groupTypeIndex={null} />
                     </TabPane>

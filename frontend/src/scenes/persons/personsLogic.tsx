@@ -48,11 +48,9 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
         loadPersons: (url: string | null = '') => ({ url }),
         setListFilters: (payload: Filters) => ({ payload }),
         editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
-        setHasNewKeys: true,
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
         navigateToTab: (tab: PersonsTabType) => ({ tab }),
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
-        setPropertySearchTerm: (searchTerm: string) => ({ searchTerm }),
     },
     reducers: {
         listFilters: [
@@ -65,12 +63,6 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
                     }
                     return newFilters
                 },
-            },
-        ],
-        hasNewKeys: [
-            false,
-            {
-                setHasNewKeys: () => true,
             },
         ],
         activeTab: [
@@ -91,12 +83,6 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
                 results: state.results.map((p) => (person && p.id === person.id ? person : p)),
             }),
         },
-        propertySearchTerm: [
-            '',
-            {
-                setPropertySearchTerm: (_, { searchTerm }) => searchTerm,
-            },
-        ],
     },
     selectors: {
         showSessionRecordings: [
@@ -113,21 +99,6 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
                     return PersonsTabType.EVENTS
                 }
                 return activeTab || PersonsTabType.PROPERTIES
-            },
-        ],
-        propertiesSearched: [
-            (s) => [s.person, s.propertySearchTerm],
-            (person, propertySearchTerm): PersonType['properties'] => {
-                const normalizedPropertySearchTerm = propertySearchTerm.toLowerCase()
-                return person
-                    ? Object.fromEntries(
-                          Object.entries(person.properties).filter(
-                              ([key, value]) =>
-                                  key.toLowerCase().includes(normalizedPropertySearchTerm) ||
-                                  JSON.stringify(value).toLowerCase().includes(normalizedPropertySearchTerm)
-                          )
-                      )
-                    : {}
             },
         ],
         breadcrumbs: [
@@ -188,7 +159,6 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
                 }
 
                 if (!Object.keys(person.properties).includes(key)) {
-                    actions.setHasNewKeys()
                     person.properties = { [key]: parsedValue, ...person.properties } // To add property at the top (if new)
                     action = 'added'
                 } else {

@@ -10,6 +10,7 @@ import { CopyToClipboardInline } from './CopyToClipboard'
 import { useValues } from 'kea'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { LemonButton } from './LemonButton'
+import { NewPropertyComponent } from 'scenes/persons/NewPropertyComponent'
 
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
@@ -131,6 +132,7 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
 interface PropertiesTableType extends BasePropertyType {
     properties: any
     sortProperties?: boolean
+    searchable?: boolean
     /** Whether this table should be style for being embedded. Default: true. */
     embedded?: boolean
     onDelete?: (key: string) => void
@@ -142,28 +144,39 @@ export function PropertiesTable({
     rootKey,
     onEdit,
     sortProperties = false,
+    searchable = false,
     embedded = true,
     nestingLevel = 0,
     onDelete,
     className,
 }: PropertiesTableType): JSX.Element {
+    const [searchTerm, setSearchTerm] = useState('')
+
     const objectProperties = useMemo(() => {
         if (!(properties instanceof Object)) {
             return []
         }
-        const entries = Object.entries(properties)
-        if (!sortProperties) {
-            return entries
+        let entries = Object.entries(properties)
+        if (searchTerm) {
+            const normalizedSearchTerm = searchTerm.toLowerCase()
+            entries = entries.filter(
+                ([key, value]) =>
+                    key.toLowerCase().includes(normalizedSearchTerm) ||
+                    JSON.stringify(value).toLowerCase().includes(normalizedSearchTerm)
+            )
         }
-        return entries.sort((a, b) => {
-            if (a[0][0] === '$' && b[0][0] !== '$') {
-                return 1
-            } else if (a[0][0] !== '$' && b[0][0] === '$') {
-                return -1
-            }
-            return a[0].toLowerCase() < b[0].toLowerCase() ? -1 : 1
-        })
-    }, [properties, sortProperties])
+        if (sortProperties) {
+            entries.sort(([aKey], [bKey]) => {
+                if (aKey[0] === '$' && bKey[0] !== '$') {
+                    return 1
+                } else if (aKey[0] !== '$' && bKey[0] === '$') {
+                    return -1
+                }
+                return aKey.toLowerCase() < bKey.toLowerCase() ? -1 : 1
+            })
+        }
+        return entries
+    }, [properties, sortProperties, searchTerm])
 
     if (Array.isArray(properties)) {
         return (
@@ -234,16 +247,34 @@ export function PropertiesTable({
 
     if (properties instanceof Object) {
         return (
-            <LemonTable
-                columns={columns}
-                showHeader={!embedded}
-                size="small"
-                rowKey="0"
-                embedded={embedded}
-                dataSource={objectProperties}
-                className={className}
-                emptyState="This property value is an empty object."
-            />
+            <>
+                {searchable && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+                        <Input.Search
+                            placeholder="Search for property keys and values"
+                            className="mb"
+                            allowClear
+                            enterButton
+                            style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
+                            value={searchTerm}
+                            onChange={(e) => {
+                                setSearchTerm(e.target.value)
+                            }}
+                        />
+                        {onEdit && <NewPropertyComponent editProperty={onEdit} />}
+                    </div>
+                )}
+                <LemonTable
+                    columns={columns}
+                    showHeader={!embedded}
+                    size="small"
+                    rowKey="0"
+                    embedded={embedded}
+                    dataSource={objectProperties}
+                    className={className}
+                    emptyState="This property value is an empty object."
+                />
+            </>
         )
     }
     // if none of above, it's a value

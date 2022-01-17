@@ -2,7 +2,6 @@ import React from 'react'
 import { useValues } from 'kea'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { ActorType } from '~/types'
-import { Skeleton } from 'antd'
 import { groupsModel } from '~/models/groupsModel'
 import UserOutlined from '@ant-design/icons/lib/icons/UserOutlined'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -18,10 +17,6 @@ interface Props {
 export function RelatedGroups({ groupTypeIndex, id }: Props): JSX.Element {
     const { relatedActors, relatedActorsLoading } = useValues(relatedGroupsLogic({ groupTypeIndex, id }))
     const { aggregationLabel } = useValues(groupsModel)
-
-    if (relatedActorsLoading) {
-        return <Skeleton paragraph={{ rows: 2 }} active />
-    }
 
     const columns: LemonTableColumns<ActorType> = [
         {
@@ -58,6 +53,8 @@ export function RelatedGroups({ groupTypeIndex, id }: Props): JSX.Element {
             columns={columns}
             rowKey="id"
             pagination={{ pageSize: 30, hideOnSinglePage: true }}
+            loading={relatedActorsLoading}
+            nouns={['related group', 'related groups']}
             emptyState="No related groups found"
         />
     )
