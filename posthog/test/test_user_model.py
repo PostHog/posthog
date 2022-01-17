@@ -51,7 +51,7 @@ class TestUser(BaseTest):
             self.assertEqual(
                 user_2.get_analytics_metadata(),
                 {
-                    "realm": "hosted",
+                    "realm": "hosted-clickhouse",
                     "email_opt_in": True,
                     "anonymize_data": False,
                     "email": "test_org_2@posthog.com",

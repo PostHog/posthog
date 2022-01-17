@@ -58,14 +58,3 @@ class TestCohort(BaseTest):
 
         cohort2.calculate_people()
         self.assertFalse(Cohort.objects.get().is_calculating)
-
-    def test_error_while_calculating(self):
-        cohort2 = Cohort.objects.create(
-            team=self.team, groups=[{"properties": {"$some_prop": "nomatchihope"}}], name="cohort2",
-        )
-
-        with patch("posthog.models.cohort.Cohort._clickhouse_persons_query") as pp:
-            pp.return_value = ...  # Using ellipsis as a dummy invalid value to crash the function
-            self.assertRaises(AttributeError, cohort2.calculate_people)
-        self.assertFalse(Cohort.objects.get().is_calculating)
-        self.assertEqual(Cohort.objects.get().errors_calculating, 1)
