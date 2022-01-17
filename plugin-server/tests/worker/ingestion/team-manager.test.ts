@@ -592,6 +592,16 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                             date: '2022-01-15T11:18:49z',
                             patternDescription,
                         },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49+11',
+                            date: '2022-01-15T11:18:49+11',
+                            patternDescription,
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49+0530',
+                            date: '2022-01-15T11:18:49+0530',
+                            patternDescription,
+                        },
                     ]
                 } else {
                     const date = patternDescription

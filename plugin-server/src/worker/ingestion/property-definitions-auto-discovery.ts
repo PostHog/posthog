@@ -12,7 +12,7 @@ export const unixTimestampPropertyTypeFormatPatterns: Record<keyof typeof UnixTi
 
 export const dateTimePropertyTypeFormatPatterns: Record<keyof typeof DateTimePropertyTypeFormat, RegExp> = {
     DATE: /^\d{4}-\d{2}-\d{2}$/,
-    ISO8601_DATE: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/i,
+    ISO8601_DATE: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?(?:\d{2})?)$/i,
     FULL_DATE: /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/,
     FULL_DATE_INCREASING: /^\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2}$/,
     WITH_SLASHES: /^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}$/,
