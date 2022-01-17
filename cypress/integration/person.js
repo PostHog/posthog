@@ -10,8 +10,8 @@ describe('Person Visualization Check', () => {
 
     it('Can access person page', () => {
         cy.get('[data-row-key="email"] > :nth-child(1)').should('contain', 'email')
-
-        cy.get('.events').should('exist')
+        cy.get('[data-attr="persons-events-tab"]').click()
+        cy.get('table').contains('Event').should('exist')
         cy.get('[data-attr="manage-events-table"] .ant-tabs-top').should('not.exist')
         cy.get('[data-row-key="email"] .copy-icon').click()
         cy.window()
