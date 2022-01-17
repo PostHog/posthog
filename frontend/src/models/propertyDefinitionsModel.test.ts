@@ -92,7 +92,8 @@ describe('the property definitions model', () => {
 
     it('can load property definitions', () => {
         expectLogic(logic).toMatchValues({
-            propertyDefinitions,
+            // by default performance properties are excluded
+            propertyDefinitions: propertyDefinitions.filter((pd) => !pd.name.startsWith('$performance')),
         })
     })
 
@@ -153,9 +154,19 @@ describe('the property definitions model', () => {
         ])
     })
 
-    it('filters out APM properties if the flag is off', async () => {
+    it('filters out APM properties if the flag is false', async () => {
         const variants = {}
         variants[FEATURE_FLAGS.APM] = false
+        featureFlagLogic.actions.setFeatureFlags([], variants)
+
+        const propertyNames = logic.values.propertyDefinitions.map((pd) => pd.name)
+
+        expect(propertyNames).not.toContain('$performance_page_loaded')
+        expect(propertyNames).not.toContain('$performance_raw')
+    })
+
+    it('filters out APM properties if the flag is undefined', async () => {
+        const variants = {}
         featureFlagLogic.actions.setFeatureFlags([], variants)
 
         const propertyNames = logic.values.propertyDefinitions.map((pd) => pd.name)

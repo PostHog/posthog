@@ -15,6 +15,9 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 function appendAtIndex<T>(array: T[], items: any[], startIndex?: number): T[] {
     if (startIndex === undefined) {
         return [...array, ...items]
@@ -45,7 +48,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
     key: (props) => `${props.taxonomicFilterLogicKey}-${props.listGroupType}`,
 
     connect: (props: InfiniteListLogicProps) => ({
-        values: [taxonomicFilterLogic(props), ['searchQuery', 'value', 'groupType', 'taxonomicGroups']],
+        values: [
+            taxonomicFilterLogic(props),
+            ['searchQuery', 'value', 'groupType', 'taxonomicGroups'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
         actions: [taxonomicFilterLogic(props), ['setSearchQuery', 'selectItem', 'infiniteListResultsReceived']],
     }),
 
@@ -110,6 +118,20 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         response = apiCache[url]
                     } else {
                         response = await api.get(url)
+
+                        if (!values.featureFlags[FEATURE_FLAGS.APM]) {
+                            const filteredResults = response.results.filter(
+                                (r: { name: string }) =>
+                                    !['$performance_raw', '$performance_page_loaded'].includes(r.name)
+                            )
+                            response = {
+                                count: filteredResults.length,
+                                next: response.next,
+                                previous: response.previous,
+                                results: filteredResults,
+                            }
+                        }
+
                         apiCache[url] = response
                         apiCacheTimers[url] = window.setTimeout(() => {
                             delete apiCache[url]

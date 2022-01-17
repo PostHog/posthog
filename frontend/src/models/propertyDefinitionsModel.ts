@@ -99,8 +99,7 @@ export const propertyDefinitionsModel = kea<
             (propertyStorage: PropertyDefinitionStorage, featureFlags: FeatureFlagsSet): PropertyDefinition[] => {
                 const propertyDefinitions = propertyStorage.results || []
 
-                if (featureFlags[FEATURE_FLAGS.APM] === false) {
-                    console.log('in branch')
+                if (!featureFlags[FEATURE_FLAGS.APM]) {
                     return propertyDefinitions.filter(
                         (pd: PropertyDefinition) => !['$performance_raw', '$performance_page_loaded'].includes(pd.name)
                     )

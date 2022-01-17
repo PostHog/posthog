@@ -1,4 +1,4 @@
-import { EventDefinition } from '~/types'
+import { EventDefinition, PropertyDefinition } from '~/types'
 
 export const mockEventDefinitions: EventDefinition[] = [
     'event1',
@@ -15,6 +15,15 @@ export const mockEventDefinitions: EventDefinition[] = [
     query_usage_30_day: index * 3 + 1,
     volume_30_day: index * 13 + 2,
 }))
+
+export const mockPropertyDefinitions = (propertyNames: string[]): PropertyDefinition[] =>
+    propertyNames.map((name, index) => ({
+        id: `uuid-${index}-foobar`,
+        name,
+        description: String(index),
+        volume_30_day: null,
+        query_usage_30_day: null,
+    }))
 
 export const mockInsight = {
     id: 110,

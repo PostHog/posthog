@@ -5,9 +5,11 @@ import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteLi
 import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
-import { mockEventDefinitions } from '~/test/mocks'
+import { mockEventDefinitions, mockPropertyDefinitions } from '~/test/mocks'
 import { teamLogic } from 'scenes/teamLogic'
 import { AppContext } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 jest.mock('lib/api')
 
@@ -26,11 +28,106 @@ describe('infiniteListLogic', () => {
                 count: results.length,
             }
         }
+        if (pathname === `api/projects/${MOCK_TEAM_ID}/property_definitions`) {
+            const propertyDefinitions = mockPropertyDefinitions([
+                '$performance_raw',
+                '$performance_page_loaded',
+                '$performance_not_on_denylist',
+            ])
+            const results = searchParams.search
+                ? propertyDefinitions.filter((e) => e.name.includes(searchParams.search))
+                : propertyDefinitions
+            return {
+                results,
+                count: results.length,
+            }
+        }
     })
 
     beforeEach(() => {
         initKeaTests()
         teamLogic.mount()
+    })
+
+    describe('when loading property definitions', () => {
+        beforeEach(() => {
+            logic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'testPropDefList',
+                listGroupType: TaxonomicFilterGroupType.EventProperties,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+            })
+            logic.mount()
+        })
+
+        it('filters performance properties if APM flag is off', async () => {
+            const variants = {}
+            variants[FEATURE_FLAGS.APM] = false
+            featureFlagLogic.actions.setFeatureFlags([], variants)
+            featureFlagLogic.actions.setFeatureFlags([], variants)
+
+            await expectLogic(logic, () => {
+                logic.actions.setSearchQuery('$perf')
+            })
+                .toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toMatchValues({
+                    items: {
+                        count: 1,
+                        queryChanged: true,
+                        results: [
+                            {
+                                description: '2',
+                                id: 'uuid-2-foobar',
+                                name: '$performance_not_on_denylist',
+                                query_usage_30_day: null,
+                                volume_30_day: null,
+                            },
+                        ],
+                        searchQuery: '$perf',
+                    },
+                })
+        })
+
+        it('does not filter performance properties if APM flag is on', async () => {
+            const variants = {}
+            variants[FEATURE_FLAGS.APM] = true
+            featureFlagLogic.actions.setFeatureFlags([], variants)
+            featureFlagLogic.actions.setFeatureFlags([], variants)
+
+            await expectLogic(logic, () => {
+                logic.actions.setSearchQuery('$perfo') //slightly change search query to avoid the cache
+            })
+                .toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toMatchValues({
+                    items: {
+                        count: 3,
+                        queryChanged: true,
+                        results: [
+                            {
+                                description: '0',
+                                id: 'uuid-0-foobar',
+                                name: '$performance_raw',
+                                query_usage_30_day: null,
+                                volume_30_day: null,
+                            },
+                            {
+                                description: '1',
+                                id: 'uuid-1-foobar',
+                                name: '$performance_page_loaded',
+                                query_usage_30_day: null,
+                                volume_30_day: null,
+                            },
+                            {
+                                description: '2',
+                                id: 'uuid-2-foobar',
+                                name: '$performance_not_on_denylist',
+                                query_usage_30_day: null,
+                                volume_30_day: null,
+                            },
+                        ],
+                        searchQuery: '$perfo',
+                    },
+                })
+        })
     })
 
     describe('events with remote data source', () => {
