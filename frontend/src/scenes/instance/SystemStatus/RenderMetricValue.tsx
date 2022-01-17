@@ -5,10 +5,8 @@ import { MetricRow } from './systemStatusLogic'
 
 const TIMESTAMP_VALUES = new Set(['last_event_ingested_timestamp'])
 
-export function RenderMetricValue(metricRow: MetricRow): JSX.Element | string {
-    const value = metricRow.value
-
-    if (TIMESTAMP_VALUES.has(metricRow.key)) {
+export function RenderMetricValue({ key, value }: Pick<MetricRow, 'key' | 'value'>): JSX.Element | string {
+    if (TIMESTAMP_VALUES.has(key)) {
         if (new Date(value).getTime() === new Date('1970-01-01T00:00:00').getTime()) {
             return 'Never'
         }

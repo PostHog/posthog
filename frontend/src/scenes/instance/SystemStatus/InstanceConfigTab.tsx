@@ -28,7 +28,7 @@ export function InstanceConfigTab(): JSX.Element {
         {
             title: 'Value',
             render: function renderValue(_, record) {
-                return RenderMetricValue({ value: record.value, key: record.key, metric: record.description })
+                return RenderMetricValue({ value: record.value, key: record.key })
             },
         },
     ]
