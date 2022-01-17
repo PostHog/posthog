@@ -726,7 +726,14 @@ export class EventsProcessor {
         const groupTypeIndex = await this.groupTypeManager.fetchGroupTypeIndex(teamId, groupType)
 
         if (groupTypeIndex !== null) {
-            await upsertGroup(this.db, teamId, groupTypeIndex, groupKey, groupPropertiesToSet || {}, timestamp)
+            await upsertGroup(
+                this.db,
+                teamId,
+                groupTypeIndex,
+                groupKey.toString(),
+                groupPropertiesToSet || {},
+                timestamp
+            )
         }
     }
 }
