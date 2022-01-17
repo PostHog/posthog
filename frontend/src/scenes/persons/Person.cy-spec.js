@@ -23,7 +23,7 @@ describe('<Person /> ', () => {
             distinct_id: '01779064-53be-000c-683f-23b1a8c8eb4c',
         })
 
-        cy.get('[data-test-person-details]').contains('smith.nunez@gmail.com').should('be.visible')
+        cy.get('.page-title').contains('smith.nunez@gmail.com').should('be.visible')
 
         cy.wait('@api_event').map(helpers.getSearchParameters).should('eql', {
             orderBy: '["-timestamp"]',
