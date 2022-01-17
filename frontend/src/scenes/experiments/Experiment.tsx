@@ -781,7 +781,7 @@ export function ExperimentPreview({
                                     <div>
                                         {!!experiment?.filters?.properties?.length ? (
                                             <div>
-                                                {experiment?.filters.properties.map((item) => {
+                                                {experiment?.filters.properties.map((item: PropertyFilter) => {
                                                     return (
                                                         <PropertyFilterButton
                                                             key={item.key}
@@ -819,7 +819,7 @@ export function ExperimentPreview({
                         <Row className="experiment-preview-row">
                             <Col>
                                 <div className="card-secondary mb-05">Conversion goal</div>
-                                {experiment?.filters?.events?.map((event, idx) => (
+                                {experiment?.filters?.events?.map((event: Record<string, any>, idx: number) => (
                                     <Col key={idx} className="mb-05">
                                         <Row style={{ marginBottom: 4 }}>
                                             <div className="preview-conversion-goal-num">{idx + 1}</div>
