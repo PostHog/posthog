@@ -356,7 +356,11 @@ export function LineGraph(props: LineGraphProps): JSX.Element {
                                         hideColorCol={isHorizontal}
                                         forceEntitiesAsColumns={isHorizontal}
                                         hideInspectActorsSection={!(onClick && showPersonsModal)}
-                                        groupTypeLabel={aggregationLabel(aggregationGroupTypeIndex).plural}
+                                        groupTypeLabel={
+                                            aggregationGroupTypeIndex === -1
+                                                ? ''
+                                                : aggregationLabel(aggregationGroupTypeIndex).plural
+                                        }
                                         {...tooltipConfig}
                                     />
                                 </Provider>,
