@@ -1,15 +1,12 @@
 from typing import cast
 
 import dateutil.parser
-import pytest
-from django.db.utils import IntegrityError
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
 from ee.models.event_definition import EnterpriseEventDefinition
 from ee.models.license import License, LicenseManager
-from posthog.models import User
 from posthog.models.event_definition import EventDefinition
 from posthog.test.base import APIBaseTest
 
@@ -126,24 +123,6 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
-        event = EnterpriseEventDefinition.objects.create(
-            team=self.team, name="enterprise event", owner=self.user, verified=True, verified_by=self.user
-        )
-        response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        assert response.json()["verified"] == True
-        assert response.json()["verified_by"]["id"] == self.user.id
-        assert response.json()["verified_at"] == "2021-08-25T22:09:14.252000Z"
-
-        query_list_response = self.client.get(f"/api/projects/@current/event_definitions")
-        matches = [p["name"] for p in query_list_response.json()["results"] if p["name"] == "enterprise event"]
-        assert len(matches) == 1
-
-    def test_unverified_by_default(self):
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
-        )
         event = EnterpriseEventDefinition.objects.create(team=self.team, name="enterprise event", owner=self.user)
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -151,6 +130,11 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified"] == False
         assert response.json()["verified_by"] == None
         assert response.json()["verified_at"] == None
+        assert response.json()["updated_at"] == "2021-08-25T22:09:14.252000Z"
+
+        query_list_response = self.client.get(f"/api/projects/@current/event_definitions")
+        matches = [p["name"] for p in query_list_response.json()["results"] if p["name"] == "enterprise event"]
+        assert len(matches) == 1
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_verify_then_unverify(self):
@@ -181,14 +165,60 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_by"] == None
         assert response.json()["verified_at"] == None
 
-    def test_errors_on_invalid_verified_type(self):
-        with pytest.raises(IntegrityError):
-            EnterpriseEventDefinition.objects.create(
-                team=self.team, name="enterprise event", owner=self.user, verified=None
-            )
+    def test_verify_then_verify_again_no_change(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+        event = EnterpriseEventDefinition.objects.create(team=self.team, name="enterprise event", owner=self.user)
+        response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_errors_on_invalid_verified_by_type(self):
-        with pytest.raises(ValueError):
-            EnterpriseEventDefinition.objects.create(
-                team=self.team, name="enterprise event", owner=self.user, verified_by="Not user id"  # type: ignore
+        assert response.json()["verified"] == False
+        assert response.json()["verified_by"] == None
+        assert response.json()["verified_at"] == None
+
+        with freeze_time("2021-08-25T22:09:14.252Z"):
+            self.client.patch(f"/api/projects/@current/event_definitions/{event.id}", {"verified": True})
+            response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        assert response.json()["verified"] == True
+        assert response.json()["verified_by"]["id"] == self.user.id
+        assert response.json()["verified_at"] == "2021-08-25T22:09:14.252000Z"
+        assert response.json()["updated_at"] == "2021-08-25T22:09:14.252000Z"
+
+        with freeze_time("2021-10-25T22:09:14.252Z"):
+            self.client.patch(f"/api/projects/@current/event_definitions/{event.id}", {"verified": True})
+            response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        assert response.json()["verified"] == True
+        assert response.json()["verified_by"]["id"] == self.user.id
+        assert response.json()["verified_at"] == "2021-08-25T22:09:14.252000Z"
+        # updated_at automatically updates on every patch request
+        assert response.json()["updated_at"] == "2021-10-25T22:09:14.252000Z"
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_cannot_update_verified_meta_properties_separately(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+        event = EnterpriseEventDefinition.objects.create(team=self.team, name="enterprise event", owner=self.user)
+        response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        assert response.json()["verified"] == False
+        assert response.json()["verified_by"] == None
+        assert response.json()["verified_at"] == None
+
+        with freeze_time("2021-08-25T22:09:14.252Z"):
+            self.client.patch(
+                f"/api/projects/@current/event_definitions/{event.id}",
+                {"verified_by": self.user.id, "verified_at": timezone.now()},
             )
+            response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        assert response.json()["verified"] == False
+        assert response.json()["verified_by"] == None
+        assert response.json()["verified_at"] == None
