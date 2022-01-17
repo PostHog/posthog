@@ -83,6 +83,11 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
                 results: state.results.map((p) => (person && p.id === person.id ? person : p)),
             }),
         },
+        person: {
+            setPerson: (_, { person }): PersonType | null => {
+                return person
+            },
+        },
     },
     selectors: {
         showSessionRecordings: [
