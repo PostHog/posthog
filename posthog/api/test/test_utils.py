@@ -54,7 +54,7 @@ class TestUtils(BaseTest):
 
         self.assertEqual(team, None)
         self.assertEqual(db_error, "Exception('test exception')")
-        self.assertEqual(error_response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)  # type: ignore
+        self.assertEqual(error_response, None)  # type: ignore
 
         get_team_from_token_patcher.stop()
 
