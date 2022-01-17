@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import React, { useState } from 'react'
 import { sceneConfigurations } from 'scenes/scenes'
-import { PushpinOutlined } from '@ant-design/icons'
+import { PushpinOutlined, DatabaseOutlined } from '@ant-design/icons'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import {
     IconArrowDropDown,
@@ -39,6 +39,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { CoffeeOutlined } from '@ant-design/icons'
+import { userLogic } from 'scenes/userLogic'
 
 function ProjectSwitcherInternal(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -130,6 +131,7 @@ function Pages(): JSX.Element {
     const { pinnedDashboards } = useValues(dashboardsModel)
     const { featureFlags } = useValues(featureFlagLogic)
     const { showGroupsOptions } = useValues(groupsModel)
+    const { user } = useValues(userLogic)
 
     const [arePinnedDashboardsShown, setArePinnedDashboardsShown] = useState(false)
 
@@ -223,6 +225,17 @@ function Pages(): JSX.Element {
             )}
             <PageButton icon={<IconTools />} identifier={Scene.ToolbarLaunch} to={urls.toolbarLaunch()} />
             <PageButton icon={<IconSettings />} identifier={Scene.ProjectSettings} to={urls.projectSettings()} />
+            {user?.is_staff && (
+                <>
+                    <LemonSpacer />
+                    <PageButton
+                        title="Instance settings"
+                        icon={<DatabaseOutlined />}
+                        identifier={Scene.SystemStatus}
+                        to={urls.systemStatus('configuration')}
+                    />
+                </>
+            )}
         </div>
     )
 }

@@ -17,7 +17,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { isUserLoggedIn } from 'lib/utils'
 
-export type TabName = 'overview' | 'internal_metrics'
+export type InstanceStatusTabName = 'overview' | 'internal_metrics' | 'configuration'
 
 /**
  * We whitelist the specific instance settings that can be edited via the /instance/status page.
@@ -26,10 +26,10 @@ export type TabName = 'overview' | 'internal_metrics'
  */
 const EDITABLE_INSTANCE_SETTINGS = ['AUTO_START_ASYNC_MIGRATIONS']
 
-export const systemStatusLogic = kea<systemStatusLogicType<TabName>>({
+export const systemStatusLogic = kea<systemStatusLogicType<InstanceStatusTabName>>({
     path: ['scenes', 'instance', 'SystemStatus', 'systemStatusLogic'],
     actions: {
-        setTab: (tab: TabName) => ({ tab }),
+        setTab: (tab: InstanceStatusTabName) => ({ tab }),
         setOpenSections: (sections: string[]) => ({ sections }),
         setAnalyzeModalOpen: (isOpen: boolean) => ({ isOpen }),
         setAnalyzeQuery: (query: string) => ({ query }),
@@ -80,7 +80,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<TabName>>({
     }),
     reducers: {
         tab: [
-            'overview' as TabName,
+            'overview' as InstanceStatusTabName,
             {
                 setTab: (_, { tab }) => tab,
             },
@@ -140,7 +140,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<TabName>>({
     }),
 
     listeners: ({ actions }) => ({
-        setTab: ({ tab }: { tab: TabName }) => {
+        setTab: ({ tab }: { tab: InstanceStatusTabName }) => {
             if (tab === 'internal_metrics') {
                 actions.loadQueries()
             }
@@ -158,7 +158,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<TabName>>({
     }),
 
     urlToAction: ({ actions, values }) => ({
-        '/instance/status(/:tab)': ({ tab }: { tab?: TabName }) => {
+        '/instance/status(/:tab)': ({ tab }: { tab?: InstanceStatusTabName }) => {
             const currentTab = tab || 'overview'
             if (currentTab !== values.tab) {
                 actions.setTab(currentTab)

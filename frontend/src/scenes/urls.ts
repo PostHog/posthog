@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 import { FilterType, InsightShortId } from '~/types'
 import { combineUrl } from 'kea-router'
+import { InstanceStatusTabName } from './instance/SystemStatus/systemStatusLogic'
 
 export const urls = {
     default: () => '/',
@@ -57,7 +58,7 @@ export const urls = {
     billingSubscribed: () => '/organization/billing/subscribed',
     // Self-hosted only
     instanceLicenses: () => '/instance/licenses',
-    systemStatus: () => '/instance/status',
+    systemStatus: (tab?: InstanceStatusTabName) => (tab ? `/instance/status/${tab}` : '/instance/status'),
     systemStatusPage: (page: string) => `/instance/status/${page}`,
     asyncMigrations: () => '/instance/async_migrations',
 }

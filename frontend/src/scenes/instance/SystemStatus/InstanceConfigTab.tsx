@@ -11,7 +11,9 @@ export function InstanceConfigTab(): JSX.Element {
     const { editableInstanceSettings, instanceSettingsLoading } = useValues(systemStatusLogic)
     const { loadInstanceSettings } = useActions(systemStatusLogic)
 
-    useEffect(() => loadInstanceSettings(), [])
+    useEffect(() => {
+        loadInstanceSettings()
+    }, [])
 
     const columns: LemonTableColumns<InstanceSetting> = [
         {

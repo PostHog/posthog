@@ -2,7 +2,7 @@ import './index.scss'
 
 import React from 'react'
 import { Alert, Tabs } from 'antd'
-import { systemStatusLogic, TabName } from './systemStatusLogic'
+import { systemStatusLogic, InstanceStatusTabName } from './systemStatusLogic'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -67,7 +67,12 @@ export function SystemStatus(): JSX.Element {
                 />
             )}
 
-            <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={(key) => setTab(key as TabName)}>
+            <Tabs
+                tabPosition="top"
+                animated={false}
+                activeKey={tab}
+                onTabClick={(key) => setTab(key as InstanceStatusTabName)}
+            >
                 <Tabs.TabPane tab="System overview" key="overview">
                     <OverviewTab />
                 </Tabs.TabPane>
