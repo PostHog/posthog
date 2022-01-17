@@ -1,17 +1,5 @@
 from posthog.settings.utils import get_from_env, str_to_bool
 
-from .emails import (
-    DEFAULT_FROM_EMAIL,
-    EMAIL_ENABLED,
-    EMAIL_HOST,
-    EMAIL_HOST_PASSWORD,
-    EMAIL_HOST_USER,
-    EMAIL_PORT,
-    EMAIL_REPLY_TO,
-    EMAIL_USE_SSL,
-    EMAIL_USE_TLS,
-)
-
 CONSTANCE_BACKEND = "constance.backends.database.DatabaseBackend"
 
 CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
@@ -42,15 +30,19 @@ CONSTANCE_CONFIG = {
         "Used to disable automatic rollback of failed async migrations",
         bool,
     ),
-    "EMAIL_ENABLED": (EMAIL_ENABLED, "", bool,),
-    "EMAIL_HOST": (EMAIL_HOST, "", str,),
-    "EMAIL_PORT": (EMAIL_PORT, "", int,),
-    "EMAIL_HOST_USER": (EMAIL_HOST_USER, "", str,),
-    "EMAIL_HOST_PASSWORD": (EMAIL_HOST_PASSWORD, "", str,),
-    "EMAIL_USE_TLS": (EMAIL_USE_TLS, "", bool,),
-    "EMAIL_USE_SSL": (EMAIL_USE_SSL, "", bool,),
-    "DEFAULT_FROM_EMAIL": (DEFAULT_FROM_EMAIL, "", str,),
-    "EMAIL_REPLY_TO": (EMAIL_REPLY_TO, "", str,),
+    "EMAIL_ENABLED": (get_from_env("EMAIL_ENABLED", True, type_cast=str_to_bool), "", bool,),
+    "EMAIL_HOST": (get_from_env("EMAIL_HOST", optional=True), "", str,),
+    "EMAIL_PORT": (get_from_env("EMAIL_PORT", 25, type_cast=int), "", int,),
+    "EMAIL_HOST_USER": (get_from_env("EMAIL_HOST_USER", optional=True), "", str,),
+    "EMAIL_HOST_PASSWORD": (get_from_env("EMAIL_HOST_PASSWORD", optional=True), "", str,),
+    "EMAIL_USE_TLS": (get_from_env("EMAIL_USE_TLS", False, type_cast=str_to_bool), "", bool,),
+    "EMAIL_USE_SSL": (get_from_env("EMAIL_USE_SSL", False, type_cast=str_to_bool), "", bool,),
+    "EMAIL_DEFAULT_FROM": (
+        get_from_env("EMAIL_DEFAULT_FROM", get_from_env("DEFAULT_FROM_EMAIL", "root@localhost")),
+        "",
+        str,
+    ),
+    "EMAIL_REPLY_TO": (get_from_env("EMAIL_REPLY_TO", ""), "", str,),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -64,6 +56,6 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "EMAIL_HOST_PASSWORD",
     "EMAIL_USE_TLS",
     "EMAIL_USE_SSL",
-    "DEFAULT_FROM_EMAIL",
+    "EMAIL_DEFAULT_FROM",
     "EMAIL_REPLY_TO",
 )

@@ -3,8 +3,10 @@ from typing import Dict, List, Optional
 
 import lxml
 import toronado
+from constance import config
 from django.conf import settings
 from django.core import exceptions, mail
+from django.core.mail.backends.smtp import EmailBackend
 from django.db import transaction
 from django.template.loader import get_template
 from django.utils import timezone
@@ -32,9 +34,7 @@ def is_email_available(with_absolute_urls: bool = False) -> bool:
     Emails with absolute URLs can't be sent if SITE_URL is unset.
     """
     return (
-        settings.EMAIL_ENABLED
-        and bool(settings.EMAIL_HOST)
-        and (not with_absolute_urls or settings.SITE_URL is not None)
+        config.EMAIL_ENABLED and bool(config.EMAIL_HOST) and (not with_absolute_urls or settings.SITE_URL is not None)
     )
 
 
@@ -68,11 +68,12 @@ def _send_email(
                 continue
 
             records.append(record)
-            reply_to = reply_to or settings.EMAIL_REPLY_TO
+            reply_to = reply_to or config.EMAIL_REPLY_TO
 
             email_message = mail.EmailMultiAlternatives(
                 subject=subject,
                 body=txt_body,
+                from_email=config.EMAIL_DEFAULT_FROM,
                 to=[dest["recipient"]],
                 headers=headers,
                 reply_to=[reply_to] if reply_to else None,
@@ -83,7 +84,14 @@ def _send_email(
 
         connection = None
         try:
-            connection = mail.get_connection()
+            connection = EmailBackend(
+                host=config.EMAIL_HOST,
+                port=config.EMAIL_PORT,
+                username=config.EMAIL_HOST_USER,
+                password=config.EMAIL_HOST_PASSWORD,
+                use_tls=config.EMAIL_USE_TLS,
+                use_ssl=config.EMAIL_USE_SSL,
+            )
             connection.open()
             connection.send_messages(messages)
 
