@@ -478,7 +478,3 @@ def factory_session_recordings_list_test(
             self.assertEqual(len(session_recordings), 0)
 
     return TestSessionRecordingsList
-
-
-class TestSessionRecordingsAPI(factory_session_recordings_list_test(SessionRecordingList, Event.objects.create, SessionRecordingEvent.objects.create, Action.objects.create, ActionStep.objects.create)):  # type: ignore
-    pass

@@ -643,16 +643,3 @@ def factory_test_event_api(event_factory, person_factory, _):
             self.assertEqual(response_invalid_token.status_code, 401)
 
     return TestEvents
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=name)
-    action.calculate_events()
-    return action
-
-
-class TestEvent(factory_test_event_api(Event.objects.create, Person.objects.create, _create_action)):  # type: ignore
-    pass

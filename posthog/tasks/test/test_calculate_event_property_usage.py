@@ -186,7 +186,3 @@ def calculate_event_property_usage_test_factory(create_event: Callable) -> Calla
             self.assertEqual(0, PropertyDefinition.objects.get(team=self.team, name="value").query_usage_30_day)
 
     return Test
-
-
-class Test(calculate_event_property_usage_test_factory(Event.objects.create)):  # type: ignore
-    pass

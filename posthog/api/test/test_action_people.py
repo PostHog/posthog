@@ -625,25 +625,3 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             self.assertEqual(people["results"][0]["people"][0]["id"], person2.pk)
 
     return TestActionPeople
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=name)
-    action.calculate_events()
-    return action
-
-
-def _create_cohort(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    groups = kwargs.pop("groups")
-    cohort = Cohort.objects.create(team=team, name=name, groups=groups)
-    cohort.calculate_people()
-    return cohort
-
-
-class TestActionPeople(action_people_test_factory(Event.objects.create, Person.objects.create, _create_action, _create_cohort)):  # type: ignore
-    pass

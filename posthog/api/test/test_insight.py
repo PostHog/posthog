@@ -573,7 +573,3 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(response_invalid_token.status_code, 401)
 
     return TestInsight
-
-
-class TestInsight(insight_test_factory(Event.objects.create, Person.objects.create)):  # type: ignore
-    pass
