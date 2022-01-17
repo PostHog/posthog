@@ -74,6 +74,12 @@ describe('eventsTableLogic', () => {
 
             expect(api.get).not.toHaveBeenCalled()
         })
+
+        it('limits events by date using the after param for fetch events', async () => {
+            const apiCalls = (api.get as jest.Mock).mock.calls
+            await expectLogic(logic, () => logic.actions.fetchEvents())
+            expect(apiCalls[apiCalls.length - 1][0]).toContain('&after=')
+        })
     })
 
     describe('when loaded on a different page', () => {
@@ -128,6 +134,12 @@ describe('eventsTableLogic', () => {
                 automaticLoadEnabled: false,
                 sceneIsEventsPage: true,
             })
+        })
+
+        it('does not limit events by date using the after param for fetch events', async () => {
+            const apiCalls = (api.get as jest.Mock).mock.calls
+            await expectLogic(logic, () => logic.actions.fetchEvents())
+            expect(apiCalls[apiCalls.length - 1][0]).not.toContain('&after=')
         })
 
         describe('reducers', () => {

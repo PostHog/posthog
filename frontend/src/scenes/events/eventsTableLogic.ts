@@ -312,7 +312,10 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                     ...(nextParams || {}),
                     ...(values.eventFilter ? { event: values.eventFilter } : {}),
                     orderBy: [values.orderBy],
-                    after: values.afterParam,
+                }
+
+                if (props.disableActions) {
+                    params.after = values.afterParam
                 }
 
                 let apiResponse = null
