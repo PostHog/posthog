@@ -157,7 +157,7 @@ jobs:
             - name: Start stack with Docker Compose
               run: |
                   docker-compose -f docker-compose.dev.yml down
-                  docker-compose -f docker-compose.dev.yml up -d ${{ matrix.foss && 'db' || 'db clickhouse zookeeper kafka' }} &
+                  docker-compose -f docker-compose.dev.yml up -d db clickhouse zookeeper kafka &
 
             - name: Set up Python
               uses: actions/setup-python@v2
