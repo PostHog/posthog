@@ -120,34 +120,6 @@ class TestUpdateCache(APIBaseTest):
         self.assertEqual(updated_dashboard_item.last_refresh, now())
 
     @freeze_time("2012-01-15")
-    @patch("posthog.tasks.update_cache.Funnel")
-    def test_update_cache_item_calls_right_funnel_class(self, funnel_mock: MagicMock) -> None:
-        #  basic funnel
-        filter = Filter(
-            data={
-                "insight": "FUNNELS",
-                "events": [
-                    {"id": "$pageview", "order": 0, "type": "events"},
-                    {"id": "$pageview", "order": 1, "type": "events"},
-                ],
-            }
-        )
-        dashboard_item = self._create_dashboard(filter)
-
-        funnel_mock.return_value.run.return_value = {}
-
-        update_cache_item(
-            generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
-            CacheType.FUNNEL,
-            {"filter": filter.toJSON(), "team_id": self.team.pk,},
-        )
-
-        updated_dashboard_item = Insight.objects.get(pk=dashboard_item.pk)
-        self.assertEqual(updated_dashboard_item.refreshing, False)
-        self.assertEqual(updated_dashboard_item.last_refresh, now())
-        funnel_mock.assert_called_once()
-
-    @freeze_time("2012-01-15")
     @patch("posthog.tasks.update_cache.ClickhouseFunnelUnordered", create=True)
     @patch("posthog.tasks.update_cache.ClickhouseFunnelStrict", create=True)
     @patch("posthog.tasks.update_cache.ClickhouseFunnelTimeToConvert", create=True)

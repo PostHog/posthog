@@ -269,7 +269,3 @@ def factory_test_action_api(event_factory):
             self.assertEqual(response, {"count": 1})
 
     return TestActionApi
-
-
-class TestAction(factory_test_action_api(Event.objects.create)):  # type: ignore
-    pass
