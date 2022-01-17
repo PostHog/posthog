@@ -58,6 +58,7 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
         validated_data["public_jobs"] = json.get("publicJobs", {})
         validated_data["source"] = None
         posthog_version = json.get("posthogVersion", None)
+        validated_data["is_stateless"] = json.get("stateless", False)
     else:
         parsed_url = parse_url(url, get_latest_if_none=True)
         if parsed_url:
@@ -73,6 +74,10 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
             validated_data["public_jobs"] = plugin_json.get("publicJobs", {})
             validated_data["source"] = None
             posthog_version = plugin_json.get("posthogVersion", None)
+            validated_data["is_stateless"] = plugin_json.get("stateless", False)
+
+            if validated_data["is_stateless"] and len(validated_data["config_schema"]) > 0:
+                raise ValidationError("Stateless plugins cannot have a config!")
         else:
             raise ValidationError("Must be a GitHub/GitLab repository or a npm package URL!")
 
@@ -122,6 +127,8 @@ class Plugin(models.Model):
     )
     is_global: models.BooleanField = models.BooleanField(default=False)  # Whether plugin is installed for all orgs
     is_preinstalled: models.BooleanField = models.BooleanField(default=False)
+    is_stateless: models.BooleanField = models.BooleanField(default=False)  # Whether plugin can run one VM across teams
+
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     description: models.TextField = models.TextField(null=True, blank=True)
     url: models.CharField = models.CharField(max_length=800, null=True, blank=True)

@@ -9,10 +9,11 @@ import { DateTime } from 'luxon'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
+import { LazyPluginVM } from 'worker/vm/lazy'
 
 import { defaultConfig } from '../../config/config'
 import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
-import { Hub, PluginsServerConfig } from '../../types'
+import { Hub, PluginId, PluginsServerConfig } from '../../types'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { HookCommander } from '../../worker/ingestion/hooks'
@@ -97,6 +98,7 @@ export async function createHub(
     let clickhouse: ClickHouse | undefined
     let kafka: Kafka | undefined
     let kafkaProducer: KafkaProducerWrapper | undefined
+
     if (serverConfig.KAFKA_ENABLED) {
         status.info('🤔', `ClickHouse`)
         if (!serverConfig.KAFKA_HOSTS) {
