@@ -355,7 +355,6 @@ export function LemonTable<T extends Record<string, any>>({
                                     : `${currentStartIndex + 1}-${currentEndIndex} of ${entryCount} ${nouns[1]}`}
                             </span>
                             <LemonButton
-                                compact
                                 icon={<IconChevronLeft />}
                                 type="stealth"
                                 disabled={!isPreviousAvailable}
@@ -369,7 +368,6 @@ export function LemonTable<T extends Record<string, any>>({
                                 }
                             />
                             <LemonButton
-                                compact
                                 icon={<IconChevronRight />}
                                 type="stealth"
                                 disabled={!isNextAvailable}

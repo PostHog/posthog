@@ -2,14 +2,14 @@ import React, { useMemo, useState } from 'react'
 
 import { keyMappingKeys, PropertyKeyInfo } from './PropertyKeyInfo'
 import { Dropdown, Input, Menu, Popconfirm } from 'antd'
-import { DeleteOutlined } from '@ant-design/icons'
 import { isURL } from 'lib/utils'
-import { IconOpenInNew } from 'lib/components/icons'
+import { IconClose, IconOpenInNew } from 'lib/components/icons'
 import './PropertiesTable.scss'
 import { LemonTable, LemonTableColumns } from './LemonTable'
 import { CopyToClipboardInline } from './CopyToClipboard'
 import { useValues } from 'kea'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { LemonButton } from './LemonButton'
 
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
@@ -188,18 +188,29 @@ export function PropertiesTable({
                 return (
                     <div className="properties-table-key">
                         <PropertyKeyInfo value={item[0]} />
-                        {onDelete && nestingLevel <= 1 && !keyMappingKeys.includes(item[0]) && (
-                            <Popconfirm
-                                onConfirm={() => onDelete(item[0])}
-                                title={
-                                    <>
-                                        Are you sure you want to delete this property? <b>This cannot be undone.</b>
-                                    </>
-                                }
-                            >
-                                <DeleteOutlined className="cursor-pointer" />
-                            </Popconfirm>
-                        )}
+                        {onDelete &&
+                            nestingLevel <= 1 &&
+                            !keyMappingKeys.includes(item[0]) &&
+                            !String(item[0]).startsWith('$initial_') && (
+                                <Popconfirm
+                                    onConfirm={() => onDelete(item[0])}
+                                    okButtonProps={{ danger: true }}
+                                    okText="Delete"
+                                    title={
+                                        <>
+                                            Are you sure you want to delete property <code>{item[0]}</code>?{' '}
+                                            <b>This cannot be undone.</b>
+                                        </>
+                                    }
+                                >
+                                    <LemonButton
+                                        icon={<IconClose />}
+                                        compact
+                                        status="danger"
+                                        style={{ marginLeft: 4 }}
+                                    />
+                                </Popconfirm>
+                            )}
                     </div>
                 )
             },

@@ -64,7 +64,6 @@ function CurrentProjectButton(): JSX.Element | null {
             status="highlighted"
             sideIcon={
                 <LemonButton
-                    compact
                     onClick={() => {
                         hideProjectSwitcher()
                         push(urls.projectSettings())

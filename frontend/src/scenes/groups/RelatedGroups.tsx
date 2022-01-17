@@ -52,14 +52,13 @@ export function RelatedGroups({ groupTypeIndex, id }: Props): JSX.Element {
         },
     ]
 
-    return relatedActors.length ? (
+    return (
         <LemonTable
             dataSource={relatedActors}
             columns={columns}
             rowKey="id"
             pagination={{ pageSize: 30, hideOnSinglePage: true }}
+            emptyState="No related groups found"
         />
-    ) : (
-        <i>No related groups found</i>
     )
 }
