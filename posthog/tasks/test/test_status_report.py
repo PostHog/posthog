@@ -13,7 +13,7 @@ from posthog.test.base import APIBaseTest
 from posthog.version import VERSION
 
 
-def factory_status_report(_create_event: Callable, _create_person: Callable):
+def factory_status_report(_create_event: Callable, _create_person: Callable):  # type: ignore
     class TestStatusReport(APIBaseTest):
         def create_new_org_and_team(self, for_internal_metrics: bool = False) -> Team:
             org = Organization.objects.create(name="New Org", for_internal_metrics=for_internal_metrics)
@@ -147,4 +147,4 @@ def factory_status_report(_create_event: Callable, _create_person: Callable):
             self.assertEqual(report["plugins_installed"], {"Installed but not enabled": 1, "Installed and enabled": 1})
             self.assertEqual(report["plugins_enabled"], {"Installed and enabled": 1})
 
-    return TestStatusReport  # type: ignore
+    return TestStatusReport
