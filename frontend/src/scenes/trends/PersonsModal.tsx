@@ -99,7 +99,7 @@ export function PersonsModal({
         clickhouseFeaturesEnabled &&
         (view === InsightType.TRENDS ||
             view === InsightType.STICKINESS ||
-            (flaggedInsights && (view === InsightType.FUNNELS || view === InsightType.PATHS))) &&
+            (!!flaggedInsights && (view === InsightType.FUNNELS || view === InsightType.PATHS))) && // make sure flaggedInsights isn't evaluated as undefined
         showModalActions
 
     const colorList = getChartColors('white', people?.crossDataset?.length)
@@ -111,7 +111,6 @@ export function PersonsModal({
             <Modal
                 title={title}
                 visible={visible}
-                onOk={hidePeople}
                 onCancel={hidePeople}
                 footer={
                     people &&
