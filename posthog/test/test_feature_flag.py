@@ -79,9 +79,9 @@ class TestFeatureFlagMatcher(BaseTest):
         self.assertIsNone(FeatureFlagMatcher(feature_flag, "false_id").get_match())
 
     def test_user_in_cohort(self):
-        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"$some_prop": "something"})
+        Person.objects.create(team=self.team, distinct_ids=["example_id_1"], properties={"$some_prop_1": "something_1"})
         cohort = Cohort.objects.create(
-            team=self.team, groups=[{"properties": {"$some_prop": "something"}}], name="cohort1"
+            team=self.team, groups=[{"properties": {"$some_prop_1": "something_1"}}], name="cohort1"
         )
         cohort.calculate_people_ch()
 
@@ -89,7 +89,7 @@ class TestFeatureFlagMatcher(BaseTest):
             filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],}]}
         )
 
-        self.assertEqual(FeatureFlagMatcher(feature_flag, "example_id").get_match(), FeatureFlagMatch())
+        self.assertEqual(FeatureFlagMatcher(feature_flag, "example_id_1").get_match(), FeatureFlagMatch())
         self.assertIsNone(FeatureFlagMatcher(feature_flag, "another_id").get_match())
 
     def test_legacy_rollout_percentage(self):
@@ -128,9 +128,9 @@ class TestFeatureFlagMatcher(BaseTest):
         self.assertIsNone(FeatureFlagMatcher(feature_flag, "id_number_3").get_match())
 
     def test_legacy_user_in_cohort(self):
-        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"$some_prop": "something"})
+        Person.objects.create(team=self.team, distinct_ids=["example_id_2"], properties={"$some_prop_2": "something_2"})
         cohort = Cohort.objects.create(
-            team=self.team, groups=[{"properties": {"$some_prop": "something"}}], name="cohort1"
+            team=self.team, groups=[{"properties": {"$some_prop_2": "something_2"}}], name="cohort2"
         )
         cohort.calculate_people_ch()
 
@@ -138,7 +138,7 @@ class TestFeatureFlagMatcher(BaseTest):
             filters={"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],}
         )
 
-        self.assertEqual(FeatureFlagMatcher(feature_flag, "example_id").get_match(), FeatureFlagMatch())
+        self.assertEqual(FeatureFlagMatcher(feature_flag, "example_id_2").get_match(), FeatureFlagMatch())
         self.assertIsNone(FeatureFlagMatcher(feature_flag, "another_id").get_match())
 
     def test_variants(self):
