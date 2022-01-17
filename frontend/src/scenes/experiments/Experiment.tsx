@@ -32,6 +32,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { getSeriesColor } from 'scenes/funnels/funnelUtils'
+import { SecondaryMetrics } from './SecondaryMetrics'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -56,6 +57,7 @@ export function Experiment(): JSX.Element {
         experimentResultsLoading,
         areCountResultsSignificant,
         areConversionResultsSignificant,
+        parsedSecondaryMetrics,
     } = useValues(experimentLogic)
     const {
         setNewExperimentData,
@@ -67,6 +69,7 @@ export function Experiment(): JSX.Element {
         addExperimentGroup,
         updateExperimentGroup,
         removeExperimentGroup,
+        setSecondaryMetrics,
         setExperimentInsightType,
     } = useActions(experimentLogic)
 
@@ -486,6 +489,13 @@ export function Experiment(): JSX.Element {
                                     )}
                                 </Row>
                             </Card>
+                            <Row>
+                                Choose any secondary metrics to track:
+                                <SecondaryMetrics
+                                    onMetricsChange={(metrics) => setSecondaryMetrics(metrics)}
+                                    initialMetrics={parsedSecondaryMetrics}
+                                />
+                            </Row>
                         </div>
                         <Button icon={<SaveOutlined />} className="float-right" type="primary" htmlType="submit">
                             Save

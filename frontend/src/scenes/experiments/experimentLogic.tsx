@@ -22,6 +22,7 @@ import {
     ChartDisplayType,
     TrendResult,
     FunnelStep,
+    SecondaryExperimentMetric,
 } from '~/types'
 import { experimentLogicType } from './experimentLogicType'
 import { router } from 'kea-router'
@@ -50,6 +51,7 @@ export const experimentLogic = kea<experimentLogicType>({
         removeExperimentGroup: (idx: number) => ({ idx }),
         setExperimentInsightType: (insightType: InsightType) => ({ insightType }),
         setEditExperiment: (editing: boolean) => ({ editing }),
+        setSecondaryMetrics: (secondaryMetrics: SecondaryExperimentMetric[]) => ({ secondaryMetrics }),
         resetNewExperiment: true,
         launchExperiment: true,
         endExperiment: true,
@@ -127,6 +129,13 @@ export const experimentLogic = kea<experimentLogicType>({
                             ...state.parameters,
                             feature_flag_variants: updatedVariants,
                         },
+                    }
+                },
+                setSecondaryMetrics: (state, { secondaryMetrics }) => {
+                    const metrics = secondaryMetrics.map((metric) => metric.filters)
+                    return {
+                        ...state,
+                        parameters: { ...state?.parameters, secondary_metrics: metrics },
                     }
                 },
                 resetNewExperiment: () => ({
@@ -255,6 +264,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 `api/projects/${teamLogic.values.currentTeamId}/insights`,
                 newInsight
             )
+            console.log('main insightID: ', createdInsight.short_id)
             actions.setExperimentInsightId(createdInsight.short_id)
             actions.setNewExperimentData({ filters: { ...newInsight.filters } })
         },
@@ -371,6 +381,16 @@ export const experimentLogic = kea<experimentLogicType>({
                 )
             },
         ],
+        parsedSecondaryMetrics: [
+            (s) => [s.newExperimentData, s.experimentData],
+            (newExperimentData, experimentData): SecondaryExperimentMetric[] => {
+                const secondaryMetrics: Partial<FilterType>[] =
+                    newExperimentData?.parameters?.secondary_metrics ||
+                    experimentData?.parameters?.secondary_metrics ||
+                    []
+                return secondaryMetrics.map((metric) => ({ filters: metric }))
+            },
+        ],
         minimumDetectableChange: [
             (s) => [s.newExperimentData],
             (newExperimentData): number => {
@@ -403,6 +423,7 @@ export const experimentLogic = kea<experimentLogicType>({
 
                     // background rates:
                     // roughly matches significance for https://www.evanmiller.org/ab-testing/poisson-means.html
+                    // https://www.evanmiller.org/statistical-formulas-for-programmers.html#count_test
                     return Math.ceil(2 * Math.sqrt(2) * Math.sqrt(controlCountData))
                 },
         ],

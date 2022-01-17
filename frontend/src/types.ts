@@ -1378,6 +1378,10 @@ export interface ExperimentResults {
     noData?: boolean
 }
 
+export interface SecondaryExperimentMetric {
+    filters: Partial<FilterType>
+}
+
 export interface SelectOption {
     value: string
     label?: string
