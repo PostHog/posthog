@@ -7,6 +7,7 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.constants import FILTER_TEST_ACCOUNTS
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters import Filter
@@ -70,29 +71,6 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
         )
 
         return p1, p2, p3
-
-    @snapshot_clickhouse_queries
-    def test_retention_test_account_filters(self):
-        _, _, p3 = self._create_groups_and_events()
-
-        self.team.test_account_filters = [
-            {"key": "email", "type": "person", "value": "posthog.com", "operator": "not_icontains"}
-        ]
-        self.team.save()
-
-        filter = RetentionFilter(
-            data={"date_to": self._date(10, month=1, hour=0), "period": "Week", "total_intervals": 7,}, team=self.team,
-        )
-
-        result = ClickhouseRetention().run(filter, self.team,)
-
-        self.assertEqual(
-            self.pluck(result, "values", "count"),
-            [[1, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0], [0, 0], [0],],
-        )
-
-        actor_result = ClickhouseRetention().actors_in_period(filter.with_data({"selected_interval": 0}), self.team)
-        assert [actor["id"] for actor in actor_result] == [p3.uuid]
 
     @snapshot_clickhouse_queries
     def test_groups_filtering(self):
