@@ -2,13 +2,22 @@ import { initKeaTestLogic } from '~/test/init'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { expectLogic } from 'kea-test-utils'
 import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
-import { PropertyDefinition } from '~/types'
+import { DateTimePropertyTypeFormat, PropertyDefinition, PropertyType, UnixTimestampPropertyTypeFormat } from '~/types'
 
 jest.mock('lib/api')
 
 describe('the property definitions model', () => {
     let logic: ReturnType<typeof propertyDefinitionsModel.build>
 
+    const timestampPropertyDefinition = {
+        id: 'an id',
+        name: '$timestamp',
+        description: 'a description',
+        volume_30_day: null,
+        query_usage_30_day: null,
+        property_type: PropertyType.DateTime,
+        property_type_format: DateTimePropertyTypeFormat.FULL_DATE,
+    }
     const propertyDefinitions: PropertyDefinition[] = [
         {
             id: 'an id',
@@ -23,7 +32,7 @@ describe('the property definitions model', () => {
             description: 'a description',
             volume_30_day: null,
             query_usage_30_day: null,
-            property_type: 'String',
+            property_type: PropertyType.String,
             property_type_format: undefined,
         },
         {
@@ -32,18 +41,10 @@ describe('the property definitions model', () => {
             description: 'a description',
             volume_30_day: null,
             query_usage_30_day: null,
-            property_type: 'DateTime',
-            property_type_format: 'unix_timestamp',
+            property_type: PropertyType.DateTime,
+            property_type_format: UnixTimestampPropertyTypeFormat.UNIX_TIMESTAMP,
         },
-        {
-            id: 'an id',
-            name: '$timestamp',
-            description: 'a description',
-            volume_30_day: null,
-            query_usage_30_day: null,
-            property_type: 'DateTime',
-            property_type_format: 'YYYY-MM-DD hh:mm:ss',
-        },
+        timestampPropertyDefinition,
     ]
 
     mockAPI(async (url) => {
@@ -124,5 +125,13 @@ describe('the property definitions model', () => {
             '2022-01-05 07:45:52',
             '2022-01-05 07:45:52',
         ])
+    })
+
+    it('can find a property definition by name', () => {
+        expect(logic.values.findProperty('$timestamp')).toEqual(timestampPropertyDefinition)
+    })
+
+    it('can try to find a property definition by name that does not exist', () => {
+        expect(logic.values.findProperty('not a definition')).toEqual(undefined)
     })
 })

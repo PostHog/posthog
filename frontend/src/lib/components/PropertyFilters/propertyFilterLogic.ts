@@ -6,10 +6,14 @@ import { propertyFilterLogicType } from './propertyFilterLogicType'
 import { AnyPropertyFilter, EmptyPropertyFilter, PropertyFilter } from '~/types'
 import { isValidPropertyFilter, parseProperties } from 'lib/components/PropertyFilters/utils'
 import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 export const propertyFilterLogic = kea<propertyFilterLogicType>({
     path: (key) => ['lib', 'components', 'PropertyFilters', 'propertyFilterLogic', key],
     props: {} as PropertyFilterLogicProps,
+    connect: {
+        values: [propertyDefinitionsModel, ['findProperty']],
+    },
     key: (props) => props.pageKey,
 
     actions: () => ({
@@ -21,17 +25,17 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
             operator: PropertyFilter['operator'],
             type: PropertyFilter['type'],
             group_type_index?: PropertyFilter['group_type_index']
-        ) => ({ index, key, value, operator, type, group_type_index }),
+        ) => ({ index, property: { key, value, operator, type, group_type_index } as PropertyFilter }),
         setFilters: (filters: AnyPropertyFilter[]) => ({ filters }),
         newFilter: true,
         remove: (index: number) => ({ index }),
     }),
 
     reducers: ({ props }) => ({
-        filters: [
+        rawFilters: [
             props.propertyFilters ? parseProperties(props.propertyFilters) : ([] as AnyPropertyFilter[]),
             {
-                setFilter: (state, { index, ...property }) => {
+                setFilter: (state, { index, property }): AnyPropertyFilter[] => {
                     const newFilters = [...state]
                     newFilters[index] = property
                     return newFilters
@@ -56,8 +60,8 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
 
     listeners: ({ actions, props, values }) => ({
         // Only send update if value is set to something
-        setFilter: ({ value }) => {
-            value && actions.update()
+        setFilter: ({ property }) => {
+            property.value && actions.update()
         },
         remove: () => actions.update(),
         update: () => {
@@ -108,6 +112,22 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
 
     selectors: {
         filledFilters: [(s) => [s.filters], (filters) => filters.filter(isValidPropertyFilter)],
+        filters: [
+            (s) => [s.rawFilters, s.findProperty],
+            (rawFilters, findProperty) => {
+                return rawFilters.map((rawFilter) => {
+                    const processedFilter = { ...rawFilter }
+                    if (rawFilter.key && !rawFilter.property_type) {
+                        const propertyDefinition = findProperty(rawFilter.key)
+                        if (propertyDefinition?.property_type) {
+                            processedFilter.property_type = propertyDefinition.property_type
+                            processedFilter.property_type_format = propertyDefinition.property_type_format
+                        }
+                    }
+                    return processedFilter
+                })
+            },
+        ],
     },
 
     events: ({ actions }) => ({
