@@ -83,7 +83,7 @@ class TestFeatureFlagMatcher(BaseTest):
         cohort = Cohort.objects.create(
             team=self.team, groups=[{"properties": {"$some_prop": "something"}}], name="cohort1"
         )
-        cohort.calculate_people()
+        cohort.calculate_people_ch()
 
         feature_flag = self.create_feature_flag(
             filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],}]}
@@ -132,7 +132,7 @@ class TestFeatureFlagMatcher(BaseTest):
         cohort = Cohort.objects.create(
             team=self.team, groups=[{"properties": {"$some_prop": "something"}}], name="cohort1"
         )
-        cohort.calculate_people()
+        cohort.calculate_people_ch()
 
         feature_flag = self.create_feature_flag(
             filters={"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],}
