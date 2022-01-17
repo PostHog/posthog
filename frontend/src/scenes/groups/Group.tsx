@@ -11,7 +11,7 @@ import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
-import { Group, PersonsTabType } from '~/types'
+import { Group as IGroup, PersonsTabType } from '~/types'
 import { Loading } from 'lib/utils'
 import { PageHeader } from 'lib/components/PageHeader'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -23,7 +23,7 @@ export const scene: SceneExport = {
     logic: groupLogic,
 }
 
-function GroupCaption({ groupData, groupTypeName }: { groupData: Group; groupTypeName: string }): JSX.Element {
+function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; groupTypeName: string }): JSX.Element {
     return (
         <div style={{ display: 'flex', flexWrap: 'wrap' }}>
             <div className="mr">
