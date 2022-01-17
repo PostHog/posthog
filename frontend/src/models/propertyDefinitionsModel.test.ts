@@ -1,8 +1,10 @@
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTestLogic, initKeaTests } from '~/test/init'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { expectLogic } from 'kea-test-utils'
 import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
 import { PropertyDefinition } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 jest.mock('lib/api')
 
@@ -44,6 +46,22 @@ describe('the property definitions model', () => {
             property_type: 'DateTime',
             property_type_format: 'YYYY-MM-DD hh:mm:ss',
         },
+        {
+            id: 'an id',
+            name: '$performance_page_loaded',
+            description: 'a description',
+            volume_30_day: null,
+            query_usage_30_day: null,
+            property_type: 'Numeric',
+        },
+        {
+            id: 'an id',
+            name: '$performance_raw',
+            description: 'a description',
+            volume_30_day: null,
+            query_usage_30_day: null,
+            property_type: 'Numeric',
+        },
     ]
 
     mockAPI(async (url) => {
@@ -55,6 +73,15 @@ describe('the property definitions model', () => {
             }
         }
         return defaultAPIMocks(url)
+    })
+
+    beforeEach(() => {
+        initKeaTests()
+
+        featureFlagLogic().mount()
+
+        logic = propertyDefinitionsModel()
+        logic.mount()
     })
 
     initKeaTestLogic({
@@ -124,5 +151,27 @@ describe('the property definitions model', () => {
             '2022-01-05 07:45:52',
             '2022-01-05 07:45:52',
         ])
+    })
+
+    it('filters out APM properties if the flag is off', async () => {
+        const variants = {}
+        variants[FEATURE_FLAGS.APM] = false
+        featureFlagLogic.actions.setFeatureFlags([], variants)
+
+        const propertyNames = logic.values.propertyDefinitions.map((pd) => pd.name)
+
+        expect(propertyNames).not.toContain('$performance_page_loaded')
+        expect(propertyNames).not.toContain('$performance_raw')
+    })
+
+    it('includes APM properties if the flag is on', async () => {
+        const variants = {}
+        variants[FEATURE_FLAGS.APM] = true
+        featureFlagLogic.actions.setFeatureFlags([], variants)
+
+        const propertyNames = logic.values.propertyDefinitions.map((pd) => pd.name)
+
+        expect(propertyNames).toContain('$performance_page_loaded')
+        expect(propertyNames).toContain('$performance_raw')
     })
 })

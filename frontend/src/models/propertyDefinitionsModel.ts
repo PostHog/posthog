@@ -3,6 +3,8 @@ import api from 'lib/api'
 import { PropertyDefinition, PropertyFilterValue, SelectOption } from '~/types'
 import { propertyDefinitionsModelType } from './propertyDefinitionsModelType'
 import dayjs from 'dayjs'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface PropertySelectOption extends SelectOption {
     is_numerical?: boolean
@@ -86,15 +88,25 @@ export const propertyDefinitionsModel = kea<
             actions.loadPropertyDefinitions(true)
         },
     }),
-    selectors: {
+    selectors: () => ({
         loaded: [
             // Whether *all* the property definitions are fully loaded
             (s) => [s.propertyStorage, s.propertyStorageLoading],
             (propertyStorage, propertyStorageLoading): boolean => !propertyStorageLoading && !propertyStorage.next,
         ],
         propertyDefinitions: [
-            (s) => [s.propertyStorage],
-            (propertyStorage): PropertyDefinition[] => propertyStorage.results || [],
+            (s) => [s.propertyStorage, featureFlagLogic.selectors.featureFlags],
+            (propertyStorage: PropertyDefinitionStorage, featureFlags: FeatureFlagsSet): PropertyDefinition[] => {
+                const propertyDefinitions = propertyStorage.results || []
+
+                if (featureFlags[FEATURE_FLAGS.APM] === false) {
+                    console.log('in branch')
+                    return propertyDefinitions.filter(
+                        (pd: PropertyDefinition) => !['$performance_raw', '$performance_page_loaded'].includes(pd.name)
+                    )
+                }
+                return propertyDefinitions
+            },
         ],
         transformedPropertyDefinitions: [
             // Transformed propertyDefinitions to use in `Select` components
@@ -172,5 +184,5 @@ export const propertyDefinitionsModel = kea<
                 }
             },
         ],
-    },
+    }),
 })
