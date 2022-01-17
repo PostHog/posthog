@@ -32,7 +32,7 @@ export function ActionsHorizontalBar({
     const { insightProps, insight, hiddenLegendKeys } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
-    const { results } = useValues(logic)
+    const { results, aggregationGroupTypeIndex } = useValues(logic)
 
     function updateData(): void {
         const _data = [...results]
@@ -94,6 +94,7 @@ export function ActionsHorizontalBar({
                     )
                 },
             }}
+            aggregationGroupTypeIndex={aggregationGroupTypeIndex}
             datasets={data}
             labels={data[0].labels}
             insightId={insight.id}
