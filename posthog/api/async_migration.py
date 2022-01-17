@@ -96,16 +96,24 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
         trigger_migration(migration_instance, fresh_start=False)
         return response.Response({"success": True}, status=200)
 
-    # DANGEROUS! Can cause another task to be lost
-    @action(methods=["POST"], detail=True)
-    def force_stop(self, request, **kwargs):
+    def _force_stop(self, rollback: bool):
         migration_instance = self.get_object()
         if migration_instance.status != MigrationStatus.Running:
             return response.Response(
                 {"success": False, "error": "Can't stop a migration that isn't running.",}, status=400,
             )
-        force_stop_migration(migration_instance)
+        force_stop_migration(migration_instance, rollback=rollback)
         return response.Response({"success": True}, status=200)
+
+    # DANGEROUS! Can cause another task to be lost
+    @action(methods=["POST"], detail=True)
+    def force_stop(self, request, **kwargs):
+        return self._force_stop(rollback=True)
+
+    # DANGEROUS! Can cause another task to be lost
+    @action(methods=["POST"], detail=True)
+    def force_stop_without_rollback(self, request, **kwargs):
+        return self._force_stop(rollback=False)
 
     @action(methods=["POST"], detail=True)
     def rollback(self, request, **kwargs):
