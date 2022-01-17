@@ -23,7 +23,7 @@ export const asDisplay = (person: Partial<PersonType> | PersonActorType | null |
         displayId = null
     } else {
         const baseId = person.distinct_ids[0].replace(/\W/g, '')
-        displayId = baseId.substr(baseId.length - 5).toUpperCase()
+        displayId = baseId.slice(-5).toUpperCase()
     }
 
     return customIdentifier ? customIdentifier : `User ${displayId}`
