@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from rest_framework import exceptions, status
+from rest_framework import status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
@@ -100,23 +100,6 @@ def get_decide(request: HttpRequest):
             return cors_response(
                 request,
                 generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
-            )
-
-        if not "distinct_id" in data:
-            capture_exception(
-                exceptions.ValidationError(
-                    "The `properties`.`distinct_id` property is always required. This ID uniquely identifies the end user."
-                )
-            )
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "decide",
-                    "The `properties`.`distinct_id` property is always required. This ID uniquely identifies the end user.",
-                    code="required",
-                    type="validation_error",
-                    attr="distinct_id",
-                ),
             )
 
         token = get_token(data, request)
