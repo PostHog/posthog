@@ -51,11 +51,7 @@ export function Group(): JSX.Element {
     const { groupData, groupDataLoading, groupTypeName, groupKey, groupTypeIndex } = useValues(groupLogic)
 
     if (!groupData) {
-        return groupDataLoading ? (
-            <Loading />
-        ) : (
-            <PageHeader title="Person not found" caption="There's no matching group." />
-        )
+        return groupDataLoading ? <Loading /> : <PageHeader title="Group not found" />
     }
 
     return (
