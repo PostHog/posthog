@@ -31,7 +31,7 @@ export function PathCleanFilterInput(): JSX.Element {
                     setFilter({ local_path_cleaning_filters: newState })
                 }}
             />
-            <Row align="middle" justify="space-between">
+            <Row align="middle" justify="space-between" style={{ paddingLeft: 0 }}>
                 <Popup
                     visible={open}
                     placement={'bottom-end'}

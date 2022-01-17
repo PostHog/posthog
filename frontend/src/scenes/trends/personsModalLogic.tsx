@@ -129,6 +129,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         setSearchTerm: (term: string) => ({ term }),
         setCohortModalVisible: (visible: boolean) => ({ visible }),
         loadPeople: (peopleParams: PersonsModalParams) => ({ peopleParams }),
+        setUrl: (props: LoadPeopleFromUrlProps) => ({ props }),
         loadPeopleFromUrl: (props: LoadPeopleFromUrlProps) => props,
         switchToDataPoint: (seriesId: number) => ({ seriesId }), // Changes data point shown on PersonModal
         loadMorePeople: true,
@@ -145,7 +146,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         closeRecordingModal: () => true,
     }),
     connect: {
-        values: [groupsModel, ['groupTypes'], featureFlagLogic, ['featureFlags']],
+        values: [groupsModel, ['groupTypes', 'aggregationLabel'], featureFlagLogic, ['featureFlags']],
         actions: [eventUsageLogic, ['reportCohortCreatedFromPersonsModal']],
     },
     reducers: () => ({
@@ -232,6 +233,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             null as LoadPeopleFromUrlProps | null,
             {
                 loadPeopleFromUrl: (_, props) => props,
+                setUrl: (_, { props }) => props,
             },
         ],
     }),
@@ -246,12 +248,12 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         ],
         isGroupType: [(s) => [s.people], (people) => people?.people?.[0] && isGroupType(people.people[0])],
         actorLabel: [
-            (s) => [s.people, s.isGroupType, s.groupTypes],
-            (result, _isGroupType, groupTypes) => {
+            (s) => [s.people, s.isGroupType, s.groupTypes, s.aggregationLabel],
+            (result, _isGroupType, groupTypes, aggregationLabel) => {
                 if (_isGroupType) {
                     return result?.action?.math_group_type_index != undefined &&
                         groupTypes.length > result?.action.math_group_type_index
-                        ? `${groupTypes[result?.action.math_group_type_index].group_type}(s)`
+                        ? aggregationLabel(result?.action.math_group_type_index).plural
                         : ''
                 } else {
                     return pluralize(result?.count || 0, 'person', undefined, false)
@@ -326,7 +328,22 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     actors = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
                 } else if (filters.insight === InsightType.PATHS) {
                     const cleanedParams = cleanFilters(filters)
+                    const pathParams = toParams(cleanedParams)
                     actors = await api.create(`api/person/path/?${searchTermParam}`, cleanedParams)
+
+                    // Manually populate URL data so that cohort creation can use this information
+                    const pathsParams = {
+                        url: `api/person/path/paths/?${pathParams}`,
+                        funnelStep,
+                        breakdown_value,
+                        label,
+                        date_from,
+                        action,
+                        pathsDropoff,
+                        crossDataset,
+                        seriesId,
+                    }
+                    actions.setUrl(pathsParams)
                 } else {
                     actors = await api.actions.getPeople(
                         { label, action, date_from, date_to, breakdown_value },

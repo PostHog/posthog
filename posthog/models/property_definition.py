@@ -13,9 +13,15 @@ class PropertyType(models.TextChoices):
 
 
 class PropertyFormat(models.TextChoices):
-    UnixTimestamp = "unix_timestamp", "Unix Timestamp"
+    UnixTimestamp = "unix_timestamp", "Unix Timestamp in seconds"
+    UnixTimestampMilliseconds = "unix_timestamp_milliseconds", "Unix Timestamp in milliseconds"
+    ISO8601Date = "YYYY-MM-DDThh:mm:ssZ", "YYYY-MM-DDThh:mm:ssZ"
     FullDate = "YYYY-MM-DD hh:mm:ss", "YYYY-MM-DD hh:mm:ss"
+    FullDateIncreasing = "DD-MM-YYYY hh:mm:ss", "DD-MM-YYYY hh:mm:ss"
     Date = "YYYY-MM-DD", "YYYY-MM-DD"
+    RFC822 = "rfc_822", "day, DD MMM YYYY hh:mm:ss TZ"
+    WithSlashes = "YYYY/MM/DD hh:mm:ss", "YYYY/MM/DD hh:mm:ss"
+    WithSlashesIncreasing = "DD/MM/YYYY hh:mm:ss", "DD/MM/YYYY hh:mm:ss"
 
 
 class PropertyDefinition(UUIDModel):

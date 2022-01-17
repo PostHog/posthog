@@ -5,7 +5,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.events import EVENTS_TABLE
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
 from posthog.constants import AnalyticsDBMS
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, CLICKHOUSE_REPLICATION
 from posthog.version_requirement import ServiceVersionRequirement
 
 TEMPORARY_TABLE_NAME = f"{CLICKHOUSE_DATABASE}.temp_events_0002_events_sample_by"
@@ -128,10 +128,11 @@ class Migration(AsyncMigrationDefinition):
         )
 
     def precheck(self):
+        events_table = "sharded_events" if CLICKHOUSE_REPLICATION else "events"
         result = sync_execute(
             f"""
         SELECT (free_space.size / greatest(event_table_size.size, 1)) FROM 
-            (SELECT 1 as jc, 'event_table_size', sum(bytes) as size FROM system.parts WHERE table = 'sharded_events' AND database='{CLICKHOUSE_DATABASE}') event_table_size
+            (SELECT 1 as jc, 'event_table_size', sum(bytes) as size FROM system.parts WHERE table = '{events_table}' AND database='{CLICKHOUSE_DATABASE}') event_table_size
         JOIN 
             (SELECT 1 as jc, 'free_disk_space', free_space as size FROM system.disks WHERE name = 'default') free_space
         ON event_table_size.jc=free_space.jc 
@@ -146,7 +147,7 @@ class Migration(AsyncMigrationDefinition):
             result = sync_execute(
                 f"""
             SELECT formatReadableSize(free_space.size - (free_space.free_space - (1.5 * event_table_size.size ))) as required FROM 
-                (SELECT 1 as jc, 'event_table_size', sum(bytes) as size FROM system.parts WHERE table = 'sharded_events' AND database='{CLICKHOUSE_DATABASE}') event_table_size
+                (SELECT 1 as jc, 'event_table_size', sum(bytes) as size FROM system.parts WHERE table = '{events_table}' AND database='{CLICKHOUSE_DATABASE}') event_table_size
             JOIN 
                 (SELECT 1 as jc, 'free_disk_space', free_space, total_space as size FROM system.disks WHERE name = 'default') free_space
             ON event_table_size.jc=free_space.jc

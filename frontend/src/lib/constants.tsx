@@ -85,7 +85,10 @@ export const FEATURE_FLAGS = {
     UNSEEN_EVENT_PROPERTIES: 'unseen-event-properties', // owner: @mariusandra
     QUERY_EVENTS_BY_DATETIME: '6619-query-events-by-date', // owner @pauldambra
     MULTI_POINT_PERSON_MODAL: '7590-multi-point-person-modal', // owner: @paolodamico
+    EXPERIMENT_CORRELATION_DISCOVERY: 'experiment-correlation-discovery', // owner: @neilkakkar
     RECORDINGS_IN_TRENDS_PERSON_MODAL: '7852-recordings-in-trends-person-modal', // owner: @rcmarron
+    PATHS_ADVANCED_EXPERIMENT: 'paths-advanced-2101', // owner: @paolodamico; `control`, `direct` (A), `no-advanced` (B)
+    APM: 'hackathon-apm', //owner @pauldambra
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

@@ -191,12 +191,15 @@ export const eventUsageLogic = kea<
     >
 >({
     path: ['lib', 'utils', 'eventUsageLogic'],
-    connect: () => [preflightLogic],
+    connect: {
+        values: [preflightLogic, ['realm'], userLogic, ['user']],
+    },
     actions: {
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
         reportInsightCreated: (insight: InsightType | null) => ({ insight }),
         reportInsightViewed: (
+            insightModel: Partial<InsightModel>,
             filters: Partial<FilterType>,
             insightMode: ItemMode,
             isFirstLoad: boolean,
@@ -204,6 +207,7 @@ export const eventUsageLogic = kea<
             delay?: number,
             changedFilters?: Record<string, any>
         ) => ({
+            insightModel,
             filters,
             insightMode,
             isFirstLoad,
@@ -347,7 +351,7 @@ export const eventUsageLogic = kea<
         reportRecordingPlayerSpeedChanged: (newSpeed: number) => ({ newSpeed }),
         reportRecordingPlayerSkipInactivityToggled: (skipInactivity: boolean) => ({ skipInactivity }),
     },
-    listeners: {
+    listeners: ({ values }) => ({
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
             if (!annotations) {
                 // If value is `null` the component has been unmounted, don't report
@@ -405,7 +409,7 @@ export const eventUsageLogic = kea<
             posthog.capture('insight created', { insight })
         },
         reportInsightViewed: async (
-            { filters, insightMode, isFirstLoad, fromDashboard, delay, changedFilters },
+            { insightModel, filters, insightMode, isFirstLoad, fromDashboard, delay, changedFilters },
             breakpoint
         ) => {
             if (!delay) {
@@ -457,6 +461,11 @@ export const eventUsageLogic = kea<
             }
             properties.compare = filters.compare // "Compare previous" option
             properties.mode = insightMode // View or edit
+
+            properties.viewer_is_creator = insightModel.created_by?.uuid === values.user?.uuid ?? null // `null` means we couldn't determine this
+            properties.is_saved = insightModel.saved
+            properties.description_length = insightModel.description?.length ?? 0
+            properties.tags_count = insightModel.tags?.length ?? 0
 
             const eventName = delay ? 'insight analyzed' : 'insight viewed'
             posthog.capture(eventName, { ...properties, ...(changedFilters ? changedFilters : {}) })
@@ -645,7 +654,7 @@ export const eventUsageLogic = kea<
 
         reportEventSearched: async ({ searchTerm, extraProps }) => {
             // This event is only captured on PostHog Cloud
-            if (preflightLogic.values.realm === 'cloud') {
+            if (values.realm === 'cloud') {
                 // Triggered when a search is executed for an action/event (mainly for use on insights)
                 posthog.capture('event searched', { searchTerm, ...extraProps })
             }
@@ -767,5 +776,5 @@ export const eventUsageLogic = kea<
         reportRecordingPlayerSkipInactivityToggled: ({ skipInactivity }) => {
             posthog.capture('recording player skip inactivity toggled', { skip_inactivity: skipInactivity })
         },
-    },
+    }),
 })

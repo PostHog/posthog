@@ -111,6 +111,10 @@
     min-width: fit-content;
 }
 
+.LemonTable__empty-state {
+    color: var(--muted-alt);
+}
+
 .LemonTable__overlay {
     transition: opacity 200ms ease;
     position: absolute;

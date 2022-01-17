@@ -1,0 +1,16 @@
+{
+    "count": 1,
+    "next": null,
+    "previous": null,
+    "results": [
+        {
+            "id": "017dde0e-1cb5-0000-68b4-44835b7c894f",
+            "name": "$browser_version",
+            "is_numerical": true,
+            "query_usage_30_day": null,
+            "property_type": null,
+            "property_type_format": null,
+            "is_event_property": null
+        }
+    ]
+}
