@@ -7,7 +7,13 @@ import { getAppContext } from 'lib/utils/getAppContext'
 
 type PreflightMode = 'experimentation' | 'live'
 
-export const preflightLogic = kea<preflightLogicType<PreflightMode>>({
+export interface EnvironmentConfigOption {
+    key: string
+    metric: string
+    value: string
+}
+
+export const preflightLogic = kea<preflightLogicType<EnvironmentConfigOption, PreflightMode>>({
     path: ['scenes', 'PreflightCheck', 'preflightLogic'],
     loaders: {
         preflight: [
@@ -53,7 +59,7 @@ export const preflightLogic = kea<preflightLogicType<PreflightMode>>({
         ],
         configOptions: [
             (s) => [s.preflight],
-            (preflight): Record<string, string>[] => {
+            (preflight): EnvironmentConfigOption[] => {
                 // Returns the preflight config options to display in the /instance/status page
 
                 const RELEVANT_CONFIGS = [
@@ -61,14 +67,17 @@ export const preflightLogic = kea<preflightLogicType<PreflightMode>>({
                         key: 'site_url',
                         label: 'Site URL',
                     },
-                    { key: 'email_service_available', label: 'Email service available' },
                 ]
 
                 if (!preflight) {
                     return []
                 }
                 // @ts-ignore
-                return RELEVANT_CONFIGS.map((config) => ({ metric: config.label, value: preflight[config.key] }))
+                return RELEVANT_CONFIGS.map((config) => ({
+                    key: config.key,
+                    metric: config.label,
+                    value: preflight[config.key],
+                }))
             },
         ],
     },

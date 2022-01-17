@@ -10,6 +10,7 @@ import { IconOpenInNew } from 'lib/components/icons'
 import { OverviewTab } from 'scenes/instance/SystemStatus/OverviewTab'
 import { InternalMetricsTab } from 'scenes/instance/SystemStatus/InternalMetricsTab'
 import { SceneExport } from 'scenes/sceneTypes'
+import { InstanceConfigTab } from './InstanceConfigTab'
 
 export const scene: SceneExport = {
     component: SystemStatus,
@@ -24,8 +25,8 @@ export function SystemStatus(): JSX.Element {
     return (
         <div className="system-status-scene">
             <PageHeader
-                title="System Status"
-                caption="Here you can find all the critical runtime details about your PostHog installation."
+                title="Instance settings"
+                caption="Here you can find all the critical runtime details and settings of your PostHog instance."
             />
             {error && (
                 <Alert
@@ -66,18 +67,19 @@ export function SystemStatus(): JSX.Element {
                 />
             )}
 
-            {systemStatus?.internal_metrics.clickhouse ? (
-                <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={(key) => setTab(key as TabName)}>
-                    <Tabs.TabPane tab="Overview" key="overview">
-                        <OverviewTab />
-                    </Tabs.TabPane>
+            <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={(key) => setTab(key as TabName)}>
+                <Tabs.TabPane tab="System overview" key="overview">
+                    <OverviewTab />
+                </Tabs.TabPane>
+                <Tabs.TabPane tab="Configuration" key="configuration">
+                    <InstanceConfigTab />
+                </Tabs.TabPane>
+                {systemStatus?.internal_metrics.clickhouse && (
                     <Tabs.TabPane tab="Internal metrics" key="internal_metrics">
                         <InternalMetricsTab />
                     </Tabs.TabPane>
-                </Tabs>
-            ) : (
-                <OverviewTab />
-            )}
+                )}
+            </Tabs>
         </div>
     )
 }

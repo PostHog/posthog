@@ -3,7 +3,6 @@ import { Table, Tag, Card } from 'antd'
 import { systemStatusLogic } from './systemStatusLogic'
 import { useValues } from 'kea'
 import { SystemStatusSubrows } from '~/types'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { IconOpenInNew } from 'lib/components/icons'
 import { Link } from 'lib/components/Link'
 import { humanFriendlyDetailedTime } from 'lib/utils'
@@ -56,7 +55,6 @@ function RenderMetric(metricRow: MetricRow): JSX.Element {
 
 export function OverviewTab(): JSX.Element {
     const { overview, systemStatusLoading } = useValues(systemStatusLogic)
-    const { configOptions, preflightLoading } = useValues(preflightLogic)
 
     const columns = [
         {
@@ -89,28 +87,6 @@ export function OverviewTab(): JSX.Element {
                         rowExpandable: (row) => !!row.subrows && row.subrows.rows.length > 0,
                         expandRowByClick: true,
                     }}
-                />
-
-                <h3 className="l3" style={{ marginTop: 32 }}>
-                    Configuration options
-                </h3>
-                <p>
-                    <a
-                        href="https://posthog.com/docs/self-host#Configure?utm_medium=in-product"
-                        rel="noopener"
-                        target="_blank"
-                    >
-                        Learn more <IconOpenInNew style={{ verticalAlign: 'middle' }} />
-                    </a>
-                </p>
-                <Table
-                    className="system-config-table"
-                    size="small"
-                    rowKey="metric"
-                    pagination={false}
-                    dataSource={configOptions}
-                    columns={columns}
-                    loading={preflightLoading}
                 />
             </Card>
         </>

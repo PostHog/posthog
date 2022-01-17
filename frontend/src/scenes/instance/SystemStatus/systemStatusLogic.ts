@@ -10,6 +10,7 @@ import {
     OrganizationType,
     UserType,
     PreflightStatus,
+    InstanceSetting,
 } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -17,6 +18,13 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { isUserLoggedIn } from 'lib/utils'
 
 export type TabName = 'overview' | 'internal_metrics'
+
+/**
+ * We whitelist the specific instance settings that can be edited via the /instance/status page.
+ * Even if some settings are editable in the frontend according to the API, we may don't want to expose them here.
+ * For example: async migrations settings are handled in their own page.
+ */
+const EDITABLE_INSTANCE_SETTINGS = ['AUTO_START_ASYNC_MIGRATIONS']
 
 export const systemStatusLogic = kea<systemStatusLogicType<TabName>>({
     path: ['scenes', 'instance', 'SystemStatus', 'systemStatusLogic'],
@@ -42,6 +50,14 @@ export const systemStatusLogic = kea<systemStatusLogicType<TabName>>({
                     }
 
                     return (await api.get('api/instance_status')).results ?? null
+                },
+            },
+        ],
+        instanceSettings: [
+            [] as InstanceSetting[],
+            {
+                loadInstanceSettings: async () => {
+                    return (await api.get('api/instance_settings')).results ?? []
                 },
             },
         ],
@@ -115,6 +131,11 @@ export const systemStatusLogic = kea<systemStatusLogicType<TabName>>({
                 }
                 return !!org?.membership_level && org.membership_level >= OrganizationMembershipLevel.Admin
             },
+        ],
+        editableInstanceSettings: [
+            (s) => [s.instanceSettings],
+            (instanceSettings): InstanceSetting[] =>
+                instanceSettings.filter((item) => item.editable && EDITABLE_INSTANCE_SETTINGS.includes(item.key)),
         ],
     }),
 
