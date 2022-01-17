@@ -15,6 +15,12 @@ jest.mock('lib/api')
 
 window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
 
+const propertyDefinitions = mockPropertyDefinitions([
+    '$performance_raw',
+    '$performance_page_loaded',
+    '$performance_not_on_denylist',
+])
+
 describe('infiniteListLogic', () => {
     let logic: BuiltLogic<infiniteListLogicType>
 
@@ -29,11 +35,6 @@ describe('infiniteListLogic', () => {
             }
         }
         if (pathname === `api/projects/${MOCK_TEAM_ID}/property_definitions`) {
-            const propertyDefinitions = mockPropertyDefinitions([
-                '$performance_raw',
-                '$performance_page_loaded',
-                '$performance_not_on_denylist',
-            ])
             const results = searchParams.search
                 ? propertyDefinitions.filter((e) => e.name.includes(searchParams.search))
                 : propertyDefinitions
@@ -101,29 +102,7 @@ describe('infiniteListLogic', () => {
                     items: {
                         count: 3,
                         queryChanged: true,
-                        results: [
-                            {
-                                description: '0',
-                                id: 'uuid-0-foobar',
-                                name: '$performance_raw',
-                                query_usage_30_day: null,
-                                volume_30_day: null,
-                            },
-                            {
-                                description: '1',
-                                id: 'uuid-1-foobar',
-                                name: '$performance_page_loaded',
-                                query_usage_30_day: null,
-                                volume_30_day: null,
-                            },
-                            {
-                                description: '2',
-                                id: 'uuid-2-foobar',
-                                name: '$performance_not_on_denylist',
-                                query_usage_30_day: null,
-                                volume_30_day: null,
-                            },
-                        ],
+                        results: propertyDefinitions,
                         searchQuery: '$perfo',
                     },
                 })
