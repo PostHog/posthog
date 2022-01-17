@@ -24,6 +24,7 @@ describe('<Person /> ', () => {
         })
 
         cy.get('.page-title').contains('smith.nunez@gmail.com').should('be.visible')
+        cy.get('[data-attr="persons-events-tab"]').click()
 
         cy.wait('@api_event').map(helpers.getSearchParameters).should('eql', {
             orderBy: '["-timestamp"]',
