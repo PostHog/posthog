@@ -264,7 +264,7 @@ jobs:
             - name: Checkout master
               uses: actions/checkout@v2
               with:
-                  ref: 'master'
+                  ref: 'yeetcode'
                   path: 'deploy/'
             - name: Link posthog-cloud at master
               run: |
