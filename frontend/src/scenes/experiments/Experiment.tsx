@@ -12,7 +12,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import {
     ChartDisplayType,
-    Experiment,
     FilterType,
     FunnelStep,
     FunnelVizType,
@@ -689,7 +688,7 @@ export function CodeLanguageSelect(): JSX.Element {
 }
 
 interface ExperimentPreviewProps {
-    experiment: Partial<Experiment> | null
+    experiment: Partial<any> | null
     trendCount: number
     exposure: number
     conversionRate: number
