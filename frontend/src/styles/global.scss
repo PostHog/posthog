@@ -774,7 +774,7 @@ code.code {
 }
 
 .main-app-content {
-    position: relative;
+    position: relative; // So that scene-level <Loading/> is positioned correctly.
     min-width: 0;
     padding: 0 2rem 4rem;
 
