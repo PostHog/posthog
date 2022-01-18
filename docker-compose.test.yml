@@ -3,11 +3,11 @@ version: '3'
 services:
     test:
         build:
-            context: ../
+            context: .
             dockerfile: dev.Dockerfile
         command: ./ee/bin/docker-ch-test
         volumes:
-            - ..:/code
+            - .:/code
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             CLICKHOUSE_HOST: 'clickhouse'
