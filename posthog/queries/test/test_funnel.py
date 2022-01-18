@@ -1,14 +1,10 @@
-from datetime import datetime
 from unittest.mock import patch
 
-import pytz
 from freezegun import freeze_time
 
 from posthog.constants import FILTER_TEST_ACCOUNTS, INSIGHT_FUNNELS
-from posthog.models import Action, ActionStep, Element, Event, Person
+from posthog.models import Action, ActionStep, Element
 from posthog.models.filters import Filter
-from posthog.queries.funnel import Funnel
-from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
 from posthog.tasks.update_cache import update_cache_item
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
@@ -136,8 +132,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self._signup_event(distinct_id="a_user_that_got_deleted_or_doesnt_exist")
 
-            calculate_actions_from_last_calculation()
-
             result = funnel.run()
             self.assertEqual(result[0]["name"], "user signed up")
             self.assertEqual(result[0]["count"], 4)
@@ -190,8 +184,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             half_property = person_factory(distinct_ids=["half_property"], team_id=self.team.pk)
             self._signup_event(distinct_id="half_property", properties={"$browser": "Safari"})
             self._pay_event(distinct_id="half_property")
-
-            calculate_actions_from_last_calculation()
 
             result = funnel.run()
             self.assertEqual(result[0]["count"], 2)
@@ -254,8 +246,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._pay_event(distinct_id="half_property")
             self._movie_event(distinct_id="half_property")
 
-            calculate_actions_from_last_calculation()
-
             result = funnel.run()
 
             self.assertEqual(result[0]["count"], 1)
@@ -294,8 +284,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._signup_event(distinct_id="with_property")
             self._pay_event(distinct_id="with_property")
             self._movie_event(distinct_id="with_property")
-
-            calculate_actions_from_last_calculation()
 
             result = funnel.run()
             self.assertEqual(result[0]["count"], 1)
@@ -413,46 +401,3 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[0]["count"], 2)
 
     return TestGetFunnel
-
-
-class TestFunnel(funnel_test_factory(Funnel, Event.objects.create, Person.objects.create)):  # type: ignore
-    def test_funnel_with_display_set_to_trends_linear(self):
-        """
-        This is a limited regression test to ensure that the issue
-        highlighted by https://github.com/PostHog/posthog/issues/6530 is
-        resolved.
-
-        I am not attempting to evaluate the correctness of
-        `ActionsLineGraph` with this test, just that it is the same as
-        before https://github.com/PostHog/posthog/pull/5997#event-5326521193
-        was introduceed.
-        """
-        with freeze_time("2020-01-01"):
-            Person.objects.create(
-                distinct_ids=["person1"], team_id=self.team.pk, properties={"email": "test@posthog.com"}
-            )
-            Event.objects.create(distinct_id="person1", event="event1", team=self.team)
-            Event.objects.create(distinct_id="person1", event="event2", team=self.team)
-
-            result = Funnel(
-                filter=Filter(
-                    data={
-                        "events": [{"id": "event1"}, {"id": "event2"}],
-                        "insight": INSIGHT_FUNNELS,
-                        "display": "ActionsLineGraph",
-                        "interval": "day",
-                        # Just get today, so the response isn't massive
-                        "date_from": "-0days",
-                    }
-                ),
-                team=self.team,
-            ).run()
-
-        assert result == [
-            {
-                "count": 0,
-                "data": [100],
-                "days": [datetime(2020, 1, 1).replace(tzinfo=pytz.UTC)],
-                "labels": ["1-Jan-2020"],
-            }
-        ]

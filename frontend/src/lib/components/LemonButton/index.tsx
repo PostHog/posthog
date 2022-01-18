@@ -15,16 +15,9 @@ export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 
     popup?: LemonButtonPopup
 }
 
-/** Note that a LemonButton can be compact OR have a sideIcon, but not both at once. */
-export type LemonButtonProps =
-    | (LemonButtonPropsBase & {
-          sideIcon?: null
-          compact?: boolean
-      })
-    | (LemonButtonPropsBase & {
-          sideIcon?: React.ReactElement | null
-          compact?: false
-      })
+export interface LemonButtonProps extends LemonButtonPropsBase {
+    sideIcon?: React.ReactElement | null
+}
 
 /** Styled button. */
 function LemonButtonInternal(
@@ -37,7 +30,7 @@ function LemonButtonInternal(
         type: 'button',
         ...buttonProps,
     }
-    if (popup && !rowProps.compact && !rowProps.sideIcon) {
+    if (popup && (children || !buttonProps.icon) && !rowProps.sideIcon) {
         rowProps.sideIcon = <IconArrowDropDown />
     }
     let workingButton = (
@@ -57,7 +50,7 @@ export const LemonButton = React.forwardRef(LemonButtonInternal) as typeof Lemon
 
 export type SideAction = Pick<LemonButtonProps, 'onClick' | 'popup' | 'to' | 'icon' | 'type' | 'tooltip' | 'data-attr'>
 
-/** A LemonButtonWithSideAction can neither be compact nor have a sideIcon - instead it has a clickable sideAction. */
+/** A LemonButtonWithSideAction can't have a sideIcon - instead it has a clickable sideAction. */
 export interface LemonButtonWithSideActionProps extends LemonButtonPropsBase {
     sideAction: SideAction
 }
@@ -70,25 +63,15 @@ export function LemonButtonWithSideAction({ sideAction, ...buttonProps }: LemonB
     return (
         <div className="LemonButtonWithSideAction">
             {/* Bogus `sideIcon` div prevents overflow under the side button. */}
-            <LemonButton {...buttonProps} sideIcon={<div />} />{' '}
-            <LemonButton className="side-button" compact {...sideAction} />
+            <LemonButton {...buttonProps} sideIcon={<div />} /> <LemonButton className="side-button" {...sideAction} />
         </div>
     )
 }
 
-/** Note that a LemonButtonWithPopup can be compact OR have a sideIcon, but not both at once. */
-export type LemonButtonWithPopupProps =
-    | (LemonButtonPropsBase & {
-          popup: LemonButtonPopup
-          sideIcon?: null
-          compact?: boolean
-      })
-    | (LemonButtonPropsBase & {
-          popup: LemonButtonPopup
-
-          sideIcon?: React.ReactElement | null
-          compact?: false
-      })
+export interface LemonButtonWithPopupProps extends LemonButtonPropsBase {
+    popup: LemonButtonPopup
+    sideIcon?: React.ReactElement | null
+}
 
 /**
  * Styled button that opens a popup menu on click.
@@ -102,7 +85,7 @@ export function LemonButtonWithPopup({
     const parentPopupId = useContext(PopupContext)
     const [popupVisible, setPopupVisible] = useState(false)
 
-    if (!buttonProps.compact && !buttonProps.sideIcon) {
+    if (buttonProps.children && !buttonProps.sideIcon) {
         buttonProps.sideIcon = popupProps.placement?.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
     }
 

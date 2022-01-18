@@ -148,8 +148,7 @@ class User(AbstractUser, UUIDClassicModel):
     def team(self) -> Optional[Team]:
         if self.current_team is None and self.organization is not None:
             if (
-                not settings.EE_AVAILABLE
-                or AvailableFeature.PROJECT_BASED_PERMISSIONING not in self.organization.available_features
+                AvailableFeature.PROJECT_BASED_PERMISSIONING not in self.organization.available_features
                 or self.organization.memberships.get(user=self).level >= OrganizationMembership.Level.ADMIN
             ):
                 # If project access control is NOT applicable, simply prefer open projects just in case
@@ -176,8 +175,7 @@ class User(AbstractUser, UUIDClassicModel):
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
             self.current_organization = organization
             if (
-                not settings.EE_AVAILABLE
-                or AvailableFeature.PROJECT_BASED_PERMISSIONING not in organization.available_features
+                AvailableFeature.PROJECT_BASED_PERMISSIONING not in organization.available_features
                 or level >= OrganizationMembership.Level.ADMIN
             ):
                 # If project access control is NOT applicable, simply prefer open projects just in case
@@ -217,7 +215,6 @@ class User(AbstractUser, UUIDClassicModel):
 
         return {
             "realm": get_instance_realm(),
-            "is_ee_available": settings.EE_AVAILABLE,
             "email_opt_in": self.email_opt_in,
             "anonymize_data": self.anonymize_data,
             "email": self.email if not self.anonymize_data else None,

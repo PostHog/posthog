@@ -11,16 +11,11 @@ from posthog.constants import AnalyticsDBMS
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
 
 
-def execute_op(op: AsyncMigrationOperation, query_id: str, rollback: bool = False):
+def execute_op(op: AsyncMigrationOperation, uuid: str, rollback: bool = False):
     """
-    sync execute the migration against the analytics db (ClickHouse) and then
-    run the side effect if it is defined
+    Execute the fn or rollback_fn
     """
-    sql = op.rollback if rollback else op.sql
-    if op.database == AnalyticsDBMS.CLICKHOUSE:
-        execute_op_clickhouse(sql, query_id, op.timeout_seconds)
-    else:
-        execute_op_postgres(sql, query_id)
+    op.rollback_fn(uuid) if rollback else op.fn(uuid)
 
 
 def execute_op_clickhouse(sql: str, query_id: str, timeout_seconds: int):
@@ -74,12 +69,12 @@ def force_stop_migration(
     migration_instance: AsyncMigration, error: str = "Force stopped by user", rollback: bool = True
 ):
     """
-    In theory this is dangerous, as it can cause another task to be lost 
+    In theory this is dangerous, as it can cause another task to be lost
     `revoke` with `terminate=True` kills the process that's working on the task
     and there's no guarantee the task will not already be done by the time this happens.
     See: https://docs.celeryproject.org/en/stable/reference/celery.app.control.html#celery.app.control.Control.revoke
     However, this is generally ok for us because:
-    1. Given these are long-running migrations, it is statistically unlikely it will complete during in between 
+    1. Given these are long-running migrations, it is statistically unlikely it will complete during in between
     this call and the time the process is killed
     2. Our Celery tasks are not essential for the functioning of PostHog, meaning losing a task is not the end of the world
     """

@@ -31,7 +31,6 @@ function makeActionsComponent(
         return (
             <LemonButton
                 title="Cancel the invite"
-                compact
                 data-attr="invite-delete"
                 icon={<IconClose />}
                 status="danger"
