@@ -45,12 +45,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
         filter = Filter(request=request, team=self.team)
         entity = get_target_entity(filter)
 
-        # Used to keep feature behind feature flag. Can be removed once that's removed.
-        include_recordings = request.GET.get("include_recordings") == "true"
-
-        actors, serialized_actors = ClickhouseTrendsActors(
-            team, entity, filter, include_recordings=include_recordings
-        ).get_actors()
+        actors, serialized_actors = ClickhouseTrendsActors(team, entity, filter).get_actors()
 
         current_url = request.get_full_path()
         next_url: Optional[str] = request.get_full_path()
