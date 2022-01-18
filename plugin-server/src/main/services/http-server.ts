@@ -9,7 +9,7 @@ const HTTP_SERVER_PORT = 5000
 
 export function createHttpServer(hub: Hub | undefined, serverConfig: PluginsServerConfig): Server {
     const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-        if (req.url === '/health' && req.method === 'GET') {
+        if (req.url === '/_health' && req.method === 'GET') {
             const status = await healthcheck()
             const ok = status ? !stalenessCheck(hub, serverConfig.HEALTHCHECK_MAX_STALE_SECONDS).isServerStale : false
             if (ok) {
