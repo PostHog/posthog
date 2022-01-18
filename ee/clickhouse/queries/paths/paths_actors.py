@@ -66,7 +66,7 @@ class ClickhousePathsActors(ClickhousePaths, ActorBaseQuery):  # type: ignore
         conditions = []
 
         if self._filter.path_dropoff_key:
-            conditions.append("path_dropoff_key = %(path_dropoff_key)s")
+            conditions.append("path_dropoff_key = %(path_dropoff_key)s AND path_dropoff_key = path_key")
             self.params["path_dropoff_key"] = self._filter.path_dropoff_key
         else:
             if self._filter.path_start_key:

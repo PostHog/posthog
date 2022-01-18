@@ -2989,6 +2989,86 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             [actor["matched_recordings"] for actor in serialized_actors],
         )
 
+    @snapshot_clickhouse_queries
+    @test_with_materialized_columns(["$current_url", "$window_id", "$session_id"])
+    @freeze_time("2012-01-01T03:21:34.000Z")
+    def test_path_recording_for_dropoff(self):
+        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"])
+        events = [
+            _create_event(
+                properties={"$current_url": "/1", "$session_id": "s1", "$window_id": "w1"},
+                distinct_id="p1",
+                event="$pageview",
+                team=self.team,
+                timestamp=timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+                uuid="11111111-1111-1111-1111-111111111111",
+            ),
+            _create_event(
+                properties={"$current_url": "/2", "$session_id": "s1", "$window_id": "w1"},
+                distinct_id="p1",
+                event="$pageview",
+                team=self.team,
+                timestamp=(timezone.now() + timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                uuid="21111111-1111-1111-1111-111111111111",
+            ),
+            _create_event(
+                properties={"$current_url": "/3", "$session_id": "s1", "$window_id": "w1"},
+                distinct_id="p1",
+                event="$pageview",
+                team=self.team,
+                timestamp=(timezone.now() + timedelta(minutes=2)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                uuid="31111111-1111-1111-1111-111111111111",
+            ),
+        ]
+        _create_all_events(events)
+        self._create_session_recording_event("p1", "s1", timezone.now(), window_id="w1")
+
+        # No matching events for dropoff
+        filter = PathFilter(
+            data={
+                "include_event_types": ["$pageview"],
+                "date_from": "2012-01-01 00:00:00",
+                "date_to": "2012-01-02 00:00:00",
+                "path_dropoff_key": "2_/2",
+                "include_recordings": "true",
+            }
+        )
+        _, serialized_actors = ClickhousePathsActors(filter, self.team).get_actors()
+        self.assertEqual([], [actor["id"] for actor in serialized_actors])
+        self.assertEqual(
+            [], [actor["matched_recordings"] for actor in serialized_actors],
+        )
+
+        # Matching events for dropoff
+        filter = PathFilter(
+            data={
+                "include_event_types": ["$pageview"],
+                "date_from": "2012-01-01 00:00:00",
+                "date_to": "2012-01-02 00:00:00",
+                "path_dropoff_key": "3_/3",
+                "include_recordings": "true",
+            }
+        )
+        _, serialized_actors = ClickhousePathsActors(filter, self.team).get_actors()
+        self.assertEqual([p1.uuid], [actor["id"] for actor in serialized_actors])
+        self.assertEqual(
+            [
+                [
+                    {
+                        "session_id": "s1",
+                        "events": [
+                            {
+                                "uuid": UUID("31111111-1111-1111-1111-111111111111"),
+                                "timestamp": timezone.now() + timedelta(minutes=2),
+                                "window_id": "w1",
+                            },
+                        ],
+                    },
+                ]
+            ],
+            [actor["matched_recordings"] for actor in serialized_actors],
+        )
+
 
 class TestClickhousePathsEdgeValidation(TestCase):
 
