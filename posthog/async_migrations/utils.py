@@ -45,7 +45,7 @@ def process_error(migration_instance: AsyncMigration, error: Optional[str]):
         finished_at=datetime.now(),
     )
 
-    if async_migrations_emails_enabled:
+    if async_migrations_emails_enabled():
         from posthog.tasks.email import send_async_migration_errored_email
 
         send_async_migration_errored_email.delay(
