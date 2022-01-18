@@ -1,12 +1,14 @@
 const webpackPreprocessor = require('@cypress/webpack-preprocessor')
 
 const { createEntry } = require('../../webpack.config')
+const { initPlugin } = require('cypress-plugin-snapshots/plugin')
 
 module.exports = (on, config) => {
     const options = {
         webpackOptions: createEntry('cypress'),
         watchOptions: {},
     }
+    initPlugin(on, config)
 
     on('file:preprocessor', webpackPreprocessor(options))
     try {

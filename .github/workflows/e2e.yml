@@ -47,7 +47,7 @@ jobs:
               if: steps.cypress-node-modules-cache-3.outputs.cache-hit != 'true'
               run: |
                   yarn install --frozen-lockfile
-                  yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
+                  yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0 cypress-plugin-snapshots@1.4.4
                   cd plugin-server
                   yarn install --frozen-lockfile
 
@@ -111,7 +111,7 @@ jobs:
               # should still get some cache benefits.
               run: |
                   yarn install --frozen-lockfile
-                  yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
+                  yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0 cypress-plugin-snapshots@1.4.4
                   cd plugin-server
                   yarn install --frozen-lockfile
             - name: Yarn build

@@ -1,3 +1,4 @@
+import 'cypress-plugin-snapshots/commands'
 const patternHandler = {}
 
 Cypress.Commands.add('interceptLazy', (pattern, handler) => {

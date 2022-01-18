@@ -43,7 +43,7 @@ python manage.py migrate_clickhouse
 
 ## parallel block
 python manage.py setup_dev &
-yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0 & wait
+yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0 cypress-plugin-snapshots@1.4.4 & wait
 
 ## parallel block
 ./bin/plugin-server &
@@ -53,4 +53,4 @@ npx cypress open --config-file cypress.e2e.json &
 python manage.py runserver 8080
 
 ## Will be called once killed
-yarn remove cypress cypress-terminal-report @cypress/react @cypress/webpack-preprocessor
+yarn remove cypress cypress-terminal-report @cypress/react @cypress/webpack-preprocessor cypress-plugin-snapshots
