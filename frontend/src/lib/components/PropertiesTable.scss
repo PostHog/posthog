@@ -1,6 +1,7 @@
 @import '~/vars';
 
 .properties-table-key {
+    min-width: 12rem;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -27,6 +28,7 @@
 }
 
 .properties-table-value {
+    min-width: 12rem;
     max-width: fit-content;
     display: flex;
     align-items: center;
