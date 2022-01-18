@@ -1,6 +1,7 @@
 from typing import cast
 
 import pytest
+from constance.test import override_config
 from django.conf import settings
 from django.utils import timezone
 from rest_framework import status
@@ -170,13 +171,13 @@ class TestPreflight(APIBaseTest):
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
 
+    @override_config(EMAIL_HOST="localhost")
     @pytest.mark.ee
     def test_cloud_preflight_request_with_social_auth_providers(self):
         with self.settings(
             SOCIAL_AUTH_GOOGLE_OAUTH2_KEY="test_key",
             SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET="test_secret",
             MULTI_TENANCY=True,
-            EMAIL_HOST="localhost",
             PRIMARY_DB=AnalyticsDBMS.CLICKHOUSE,
             INSTANCE_PREFERENCES=self.instance_preferences(disable_paid_fs=True),
         ):
