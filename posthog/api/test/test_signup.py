@@ -6,8 +6,8 @@ from unittest.mock import ANY, patch
 
 import pytest
 import pytz
+from constance.test import override_config
 from django.core import mail
-from django.core.exceptions import ValidationError
 from django.urls.base import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -679,6 +679,7 @@ class TestInviteSignup(APIBaseTest):
 
         self.assertEqual(len(mail.outbox), 0)
 
+    @override_config(EMAIL_HOST="localhost")
     @patch("posthog.api.organization.settings.EE_AVAILABLE", False)
     def test_api_invite_sign_up_member_joined_email_is_sent_for_next_members(self):
         initial_user = User.objects.create_and_join(self.organization, "test+420@posthog.com", None)
@@ -687,7 +688,7 @@ class TestInviteSignup(APIBaseTest):
             target_email="test+100@posthog.com", organization=self.organization,
         )
 
-        with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
+        with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
             response = self.client.post(
                 f"/api/signup/{invite.id}/", {"first_name": "Alice", "password": "test_password", "email_opt_in": True},
             )
