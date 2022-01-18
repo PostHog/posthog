@@ -241,6 +241,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                     ...router.values.searchParams,
                     ...(Array.isArray(values.properties) && values.properties.length === 0
                         ? {
+                              // avoid `?properties=[]`
                               properties: undefined,
                           }
                         : {
@@ -288,6 +289,17 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         },
         setProperties: () => actions.fetchEvents(),
         setEventFilter: () => actions.fetchEvents(),
+        fetchNextEvents: async () => {
+            const { events } = values
+
+            if (events.length === 0) {
+                actions.fetchEvents()
+            } else {
+                actions.fetchEvents({
+                    before: events[events.length - 1].timestamp,
+                })
+            }
+        },
         fetchEvents: [
             async (_, breakpoint) => {
                 if (values.events.length > 0) {
@@ -336,17 +348,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 }
             },
         ],
-        fetchNextEvents: async () => {
-            const { events } = values
-
-            if (events.length === 0) {
-                actions.fetchEvents()
-            } else {
-                actions.fetchEvents({
-                    before: events[events.length - 1].timestamp,
-                })
-            }
-        },
         pollEvents: async (_, breakpoint) => {
             function setNextPoll(): void {
                 // uses window setTimeout because typegen had a hard time with NodeJS.Timeout
