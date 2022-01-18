@@ -4,6 +4,7 @@ import { Popover, Typography } from 'antd'
 import { KeyMapping, PropertyFilterValue } from '~/types'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { TooltipPlacement } from 'antd/lib/tooltip'
+import { Link } from './Link'
 
 export interface KeyMappingInterface {
     event: Record<string, KeyMapping>
@@ -619,7 +620,7 @@ export function getKeyMapping(
         if (featureFlagKey) {
             return {
                 label: `Feature: ${featureFlagKey}`,
-                description: `Value for the feature flag "${featureFlagKey}" when this event was sent.`,
+                description: <>Value for the feature flag "<Link to={`/feature_flags/${featureFlagKey}`}>{featureFlagKey}</Link>" when this event was sent.</>,
                 examples: ['true', 'variant-1a'],
             }
         }

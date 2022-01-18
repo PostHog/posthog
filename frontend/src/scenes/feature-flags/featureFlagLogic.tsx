@@ -351,6 +351,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
     urlToAction: ({ actions, values }) => ({
         '/feature_flags/*': ({ _: id }) => {
             if (id && id !== values.featureFlagId) {
+
+                if(isNaN(id) && id !== 'new') {
+                    const foundFlag = featureFlagsLogic
+                        .findMounted()
+                        ?.values.featureFlags.find((flag) => flag.key === id)
+                    // If we link via key, redirect to id instead
+                    if(foundFlag) {
+                        router.actions.push(`/feature_flags/${foundFlag.id}`)
+                    } else {
+                        router.actions.push(`/feature_flags/`)
+                    }
+                    return
+                }
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 actions.setFeatureFlagId(parsedId)
 
