@@ -1,4 +1,4 @@
-import React, { CSSProperties, useEffect } from 'react'
+import React, { CSSProperties } from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 import '../../../scenes/actions/Actions.scss'
@@ -9,12 +9,12 @@ import { PlusCircleOutlined } from '@ant-design/icons'
 import { FilterButton } from './components/PropertyFilterButton'
 import { CloseButton } from '../CloseButton'
 import { SimpleOption, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
-import { objectsEqual } from 'lib/utils'
+import { useSyncToLogicIfChanged } from 'lib/hooks/useSyncToLogicIfChanged'
 
 interface PropertyFiltersProps {
     endpoint?: string | null
     propertyFilters?: AnyPropertyFilter[] | null
-    onChange?: null | ((filters: AnyPropertyFilter[]) => void)
+    onChange: (filters: AnyPropertyFilter[]) => void
     pageKey: string
     style?: CSSProperties
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
@@ -22,22 +22,18 @@ interface PropertyFiltersProps {
 }
 
 export function PathItemFilters({
-    propertyFilters = null,
-    onChange = null,
+    propertyFilters,
+    onChange,
     pageKey,
     style = {},
     taxonomicGroupTypes,
     wildcardOptions,
 }: PropertyFiltersProps): JSX.Element {
-    const logicProps = { propertyFilters, onChange, pageKey, urlOverride: 'exclude_events' }
+    const logicProps = { propertyFilters, onChange, pageKey }
     const { filters } = useValues(propertyFilterLogic(logicProps))
     const { setFilter, remove, setFilters } = useActions(propertyFilterLogic(logicProps))
 
-    useEffect(() => {
-        if (propertyFilters && !objectsEqual(propertyFilters, filters)) {
-            setFilters([...propertyFilters, {}])
-        }
-    }, [propertyFilters])
+    useSyncToLogicIfChanged(filters ?? [], propertyFilters ?? [], setFilters)
 
     return (
         <div className="mb" style={style}>

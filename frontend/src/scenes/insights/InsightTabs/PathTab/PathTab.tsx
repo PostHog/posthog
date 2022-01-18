@@ -467,15 +467,12 @@ export function PathTab(): JSX.Element {
                             <PathItemFilters
                                 taxonomicGroupTypes={taxonomicGroupTypes}
                                 pageKey={'exclusion'}
-                                propertyFilters={
-                                    filter.exclude_events &&
-                                    filter.exclude_events.map((name) => ({
-                                        key: name,
-                                        value: name,
-                                        operator: null,
-                                        type: 'event',
-                                    }))
-                                }
+                                propertyFilters={filter.exclude_events?.map((name) => ({
+                                    key: name,
+                                    value: name,
+                                    operator: null,
+                                    type: 'event',
+                                }))}
                                 onChange={(values) => {
                                     const exclusion = values.length > 0 ? values.map((v) => v.value) : values
                                     updateExclusions(exclusion as string[])
