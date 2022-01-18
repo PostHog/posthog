@@ -240,6 +240,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                 })}
                 rowClassName="cursor-pointer"
                 data-attr="session-recording-table"
+                emptyState="No matching recordings found"
             />
             {(hasPrev || hasNext) && (
                 <Row className="pagination-control">
