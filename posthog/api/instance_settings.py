@@ -3,12 +3,9 @@ from typing import Any, Dict, Union
 
 from constance import config, settings
 from rest_framework import exceptions, mixins, serializers, viewsets
-from rest_framework.decorators import action
 
-from posthog.email import is_email_available
 from posthog.permissions import StaffUser
 from posthog.settings import SETTINGS_ALLOWING_API_OVERRIDE
-from posthog.tasks.email import send_canary_email
 from posthog.utils import str_to_bool
 
 
@@ -67,6 +64,8 @@ class InstanceSettingsSerializer(serializers.Serializer):
             instance.value = new_value_parsed
 
         if instance.key.startswith("EMAIL_") and "request" in self.context:
+            from posthog.tasks.email import send_canary_email
+
             send_canary_email.apply_async(kwargs={"user_email": self.context["request"].user.email})
 
         return instance
