@@ -79,7 +79,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
                 events=[
                     {
                         "id": "$pageview",
-                        "math": None,
+                        "math": None,  # this argument will now be removed from the request instead of becoming a string
                         "name": "$pageview",
                         "custom_name": None,
                         "type": "events",
