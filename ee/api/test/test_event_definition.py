@@ -189,7 +189,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_at"] == "2021-08-25T22:09:14.252000Z"
         assert response.json()["updated_at"] == "2021-08-25T22:09:14.252000Z"
 
-        with freeze_time("2022-10-25T22:09:14.252Z"):
+        with freeze_time("2021-10-26T22:09:14.252Z"):
             self.client.patch(f"/api/projects/@current/event_definitions/{event.id}", {"verified": True})
             response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -198,7 +198,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_by"]["id"] == self.user.id
         assert response.json()["verified_at"] == "2021-08-25T22:09:14.252000Z"  # Note `verified_at` did not change
         # updated_at automatically updates on every patch request
-        assert response.json()["updated_at"] == "2022-10-25T22:09:14.252000Z"
+        assert response.json()["updated_at"] == "2021-10-26T22:09:14.252000Z"
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_cannot_update_verified_meta_properties_directly(self):
