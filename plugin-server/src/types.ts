@@ -336,8 +336,31 @@ export type VMMethods = {
     onSnapshot?: (event: PluginEvent) => Promise<void>
     exportEvents?: (events: PluginEvent[]) => Promise<void>
     processEvent?: (event: PluginEvent) => Promise<PluginEvent>
+    handleAlert?: (alert: Alert) => Promise<void>
 }
 
+export enum AlertLevel {
+    P0 = 0,
+    P1 = 1,
+    P2 = 2,
+    P3 = 3,
+    P4 = 4
+}
+
+export enum Service {
+    PluginServer = 'plugin_server',
+    DjangoServer = 'django_server',
+    Redis = 'redis',
+    Postgres = 'postgres',
+    ClickHouse = 'clickhouse',
+    Kafka = 'kafka'
+}
+export interface Alert {
+    level: AlertLevel
+    name: string
+    description: string
+    servicesAffected: Service[]
+}
 export interface PluginConfigVMResponse {
     vm: VM
     methods: VMMethods

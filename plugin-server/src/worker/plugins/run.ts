@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { Hub, PluginConfig, PluginFunction, PluginTaskType, TeamId } from '../../types'
+import { Alert, Hub, PluginConfig, PluginFunction, PluginTaskType, TeamId } from '../../types'
 import { processError } from '../../utils/db/error'
 import { statusReport } from '../../utils/status-report'
 import { IllegalOperationError } from '../../utils/utils'
@@ -156,6 +156,29 @@ export async function runPluginTask(
     return response
 }
 
+// export async function runHandleAlert(server: Hub, alert: Alert): Promise<void> {
+//     const pluginsToRun = getPluginsForTeam(server, event.team_id)
+
+//     await Promise.all(
+//         pluginsToRun.map(async (pluginConfig) => {
+//             const handleAlert = await pluginConfig.vm?.getHandleAlert()
+//             if (onAction) {
+//                 const timer = new Date()
+//                 try {
+//                     await handleAlert(alert)
+//                 } catch (error) {
+//                     await processError(server, pluginConfig, error, event)
+//                     server.statsd?.increment(`plugin.${pluginConfig.plugin?.name}.on_action.ERROR`)
+//                 }
+//                 server.statsd?.timing(`plugin.${pluginConfig.plugin?.name}.on_action`, timer)
+//                 captureTimeSpentRunning(event.team_id, timer, 'onAction')
+//             }
+//         })
+//     )
+// }
+
 function getPluginsForTeam(server: Hub, teamId: number): PluginConfig[] {
     return server.pluginConfigsPerTeam.get(teamId) || []
 }
+
+
