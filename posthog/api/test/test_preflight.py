@@ -97,12 +97,13 @@ class TestPreflight(APIBaseTest):
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
 
+    @override_config(EMAIL_HOST="localhost")
     @pytest.mark.ee
     def test_cloud_preflight_request_unauthenticated(self):
 
         self.client.logout()  # make sure it works anonymously
 
-        with self.settings(MULTI_TENANCY=True, PRIMARY_DB=AnalyticsDBMS.CLICKHOUSE, EMAIL_HOST="localhost"):
+        with self.settings(MULTI_TENANCY=True, PRIMARY_DB=AnalyticsDBMS.CLICKHOUSE):
             response = self.client.get("/_preflight/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
