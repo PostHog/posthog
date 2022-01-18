@@ -57,6 +57,10 @@ export interface ApiError {
     statusText?: string
 }
 
+function monthsBeforeNow(months: number): string {
+    return now().subtract(months, 'months').toISOString()
+}
+
 export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess>>({
     path: (key) => ['scenes', 'events', 'eventsTableLogic', key],
     props: {} as EventsTableLogicProps,
@@ -91,7 +95,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 return { properties: [properties] }
             }
         },
-        fetchEvents: (nextParams = null) => ({ nextParams }),
+        fetchEvents: (nextParams = null, queryAfter: string | null = null) => ({ nextParams, queryAfter }),
         fetchEventsSuccess: (apiResponse: OnFetchEventsSuccess) => apiResponse,
         fetchNextEvents: true,
         fetchOrPollFailure: (error: ApiError) => ({ error }),
@@ -228,9 +232,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         afterParam: [
             () => [selectors.events, selectors.months],
             (events, months) =>
-                events?.length > 0 && events[0].timestamp
-                    ? events[0].timestamp
-                    : now().subtract(months, 'months').toISOString(),
+                events?.length > 0 && events[0].timestamp ? events[0].timestamp : monthsBeforeNow(months),
         ],
     }),
 
@@ -279,7 +281,19 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             successToast('The export is starting', 'It should finish soon.')
             window.location.href = values.exportUrl
         },
-        setProperties: () => actions.fetchEvents(),
+        /**
+         * if the properties now include a $timestamp key it is possible to combine
+         * a date filter and the timestamp from an existing event to create an impossible condition
+         *
+         * see the `afterParam` selector
+         */
+        setProperties: ({ properties }: { properties: AnyPropertyFilter[] }) => {
+            const hasTimeFilter = (Array.isArray(properties) ? properties : [properties]).find((property) => {
+                return property.key === '$time'
+            })
+            const queryAfter = hasTimeFilter ? monthsBeforeNow(12) : null
+            actions.fetchEvents(null, queryAfter)
+        },
         setEventFilter: () => actions.fetchEvents(),
         fetchNextEvents: async () => {
             const { events } = values
@@ -301,7 +315,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                     actions.setDelayedLoading()
                 }
             },
-            async ({ nextParams }, breakpoint) => {
+            async ({ nextParams, queryAfter }, breakpoint) => {
                 clearTimeout(values.pollTimeout)
 
                 const properties = [...values.properties, ...(props.fixedFilters?.properties || [])]
@@ -312,7 +326,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                     ...(nextParams || {}),
                     ...(values.eventFilter ? { event: values.eventFilter } : {}),
                     orderBy: [values.orderBy],
-                    after: values.afterParam,
+                    after: queryAfter ?? values.afterParam,
                 }
 
                 let apiResponse = null

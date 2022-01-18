@@ -6,17 +6,27 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { router } from 'kea-router'
 import * as utils from 'lib/utils'
-import { EmptyPropertyFilter, EventType, PropertyFilter } from '~/types'
+import {
+    AnyPropertyFilter,
+    DateTimePropertyTypeFormat,
+    EmptyPropertyFilter,
+    EventType,
+    PropertyFilter,
+    PropertyOperator,
+    PropertyType,
+} from '~/types'
 import { urls } from 'scenes/urls'
+import api from 'lib/api'
 
 const errorToastSpy = jest.spyOn(utils, 'errorToast')
 const successToastSpy = jest.spyOn(utils, 'successToast')
 
 jest.mock('lib/api')
-import api from 'lib/api'
+
+const nowForMock = '2021-05-05T00:00:00.000Z'
 jest.mock('lib/dayjs', () => {
     const dayjs = jest.requireActual('lib/dayjs')
-    return { ...dayjs, now: () => dayjs.dayjs('2021-05-05T00:00:00Z') }
+    return { ...dayjs, now: () => dayjs.dayjs(nowForMock) }
 })
 
 const randomBool = (): boolean => Math.random() < 0.5
@@ -130,6 +140,31 @@ describe('eventsTableLogic', () => {
             })
         })
 
+        describe('limiting the loaded data size with afterParams', () => {
+            const dateFilter = (value: string, operator = PropertyOperator.IsDateBefore): AnyPropertyFilter => ({
+                key: 'a property name',
+                type: 'event',
+                operator,
+                value,
+                property_type: PropertyType.DateTime,
+                property_type_format: DateTimePropertyTypeFormat.FULL_DATE,
+            })
+
+            it('starts a year before "now"', async () => {
+                await expectLogic(logic).toMatchValues({
+                    afterParam: nowForMock.replace('2021', '2020'),
+                })
+            })
+
+            it('when there is an afterParam queries a window of a year before now', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setProperties(dateFilter('2019-04-01T13:00:00Z'))
+                }).toMatchValues({
+                    afterParam: nowForMock.replace('2021', '2020'),
+                })
+            })
+        })
+
         describe('reducers', () => {
             it('can toggle autoloading on', async () => {
                 await expectLogic(logic, () => {
@@ -216,6 +251,32 @@ describe('eventsTableLogic', () => {
                 }).toMatchValues({
                     newEvents: [],
                 })
+            })
+
+            it('sets the query after parameter when setting properties and filtering by timestamp', async () => {
+                const apiResponse = [makeEvent('potato')]
+                await expectLogic(logic, () => {
+                    logic.actions.pollEventsSuccess(apiResponse)
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setProperties({
+                        key: '$time',
+                    })
+                }).toDispatchActions([logic.actionCreators.fetchEvents(null, '2020-05-05T00:00:00.000Z')])
+            })
+
+            it('does not set the query after parameter when setting properties and *not* filtering by timestamp', async () => {
+                const apiResponse = [makeEvent('potato')]
+                await expectLogic(logic, () => {
+                    logic.actions.pollEventsSuccess(apiResponse)
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setProperties({
+                        key: 'not our timestamp',
+                    })
+                }).toDispatchActions([logic.actionCreators.fetchEvents(null, null)])
             })
 
             it('clears new events when prepending new events', async () => {
