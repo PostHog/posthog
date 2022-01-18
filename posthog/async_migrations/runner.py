@@ -1,6 +1,5 @@
 from typing import List, Optional, Tuple
 
-from django.db.transaction import rollback
 from semantic_version.base import SimpleSpec
 
 from posthog.async_migrations.setup import (
@@ -18,6 +17,8 @@ from posthog.async_migrations.utils import (
 )
 from posthog.models.async_migration import AsyncMigration, MigrationStatus, get_all_running_async_migrations
 from posthog.models.utils import UUIDT
+from posthog.plugins.alert import AlertLevel, send_alert_to_plugins
+from posthog.redis import get_client
 from posthog.version_requirement import ServiceVersionRequirement
 
 """
@@ -186,6 +187,12 @@ def attempt_migration_rollback(migration_instance: AsyncMigration, force: bool =
                 migration_instance=migration_instance,
                 status=MigrationStatus.Errored,
                 last_error=f"Force rollback failed with error: {error}",
+            )
+
+            send_alert_to_plugins(
+                key="async_migration_errored",
+                description=f"Migration {migration_instance.name} failed with error {error}",
+                level=AlertLevel.P2,
             )
 
         return
