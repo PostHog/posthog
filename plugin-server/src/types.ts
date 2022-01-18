@@ -22,6 +22,7 @@ import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
 import { TeamManager } from './worker/ingestion/team-manager'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
+import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
 import { LazyPluginVM } from './worker/vm/lazy'
 
 export enum LogLevel {
@@ -135,6 +136,7 @@ export interface Hub extends PluginsServerConfig {
     teamManager: TeamManager
     organizationManager: OrganizationManager
     pluginsApiKeyManager: PluginsApiKeyManager
+    rootAccessManager: RootAccessManager
     actionManager: ActionManager
     actionMatcher: ActionMatcher
     hookCannon: HookCommander
@@ -338,8 +340,32 @@ export type VMMethods = {
     onSnapshot?: (event: PluginEvent) => Promise<void>
     exportEvents?: (events: PluginEvent[]) => Promise<void>
     processEvent?: (event: PluginEvent) => Promise<PluginEvent>
+    handleAlert?: (alert: Alert) => Promise<void>
 }
 
+export enum AlertLevel {
+    P0 = 0,
+    P1 = 1,
+    P2 = 2,
+    P3 = 3,
+    P4 = 4,
+}
+
+export enum Service {
+    PluginServer = 'plugin_server',
+    DjangoServer = 'django_server',
+    Redis = 'redis',
+    Postgres = 'postgres',
+    ClickHouse = 'clickhouse',
+    Kafka = 'kafka',
+}
+export interface Alert {
+    id: string
+    level: AlertLevel
+    key: string
+    description?: string
+    trigger_location: Service
+}
 export interface PluginConfigVMResponse {
     vm: VM
     methods: VMMethods
@@ -801,7 +827,7 @@ export interface EventPropertyType {
     team_id: number
 }
 
-export type PluginFunction = 'onEvent' | 'onAction' | 'processEvent' | 'onSnapshot' | 'pluginTask'
+export type PluginFunction = 'onEvent' | 'onAction' | 'processEvent' | 'onSnapshot' | 'pluginTask' | 'handleAlert'
 
 export enum CeleryTriggeredJobOperation {
     Start = 'start',
@@ -815,3 +841,10 @@ export enum PropertyUpdateOperation {
 }
 
 export type StatelessVmMap = Record<PluginId, LazyPluginVM>
+
+export enum OrganizationPluginsAccessLevel {
+    NONE = 0,
+    CONFIG = 3,
+    INSTALL = 6,
+    ROOT = 9,
+}

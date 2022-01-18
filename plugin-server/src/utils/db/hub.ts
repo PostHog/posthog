@@ -25,6 +25,7 @@ import { killProcess } from '../kill'
 import { status } from '../status'
 import { createPostgresPool, createRedis, logOrThrowJobQueueError, UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
+import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
 import { PluginMetricsManager } from './../plugin-metrics'
 import { DB } from './db'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
@@ -176,6 +177,7 @@ export async function createHub(
     const teamManager = new TeamManager(db, serverConfig, statsd)
     const organizationManager = new OrganizationManager(db)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
+    const rootAccessManager = new RootAccessManager(db)
     const actionManager = new ActionManager(db)
     await actionManager.prepare()
 
@@ -202,6 +204,7 @@ export async function createHub(
         teamManager,
         organizationManager,
         pluginsApiKeyManager,
+        rootAccessManager,
         actionManager,
         actionMatcher: new ActionMatcher(db, actionManager, statsd),
         hookCannon: new HookCommander(db, teamManager, organizationManager, statsd),
