@@ -92,6 +92,7 @@ export function Experiment(): JSX.Element {
     } = useValues(funnelLogic(insightProps))
     const { filters: trendsFilters, results: trendResults } = useValues(trendsLogic(insightProps))
 
+    // Parameters for creating experiment
     const conversionRate = conversionMetrics.totalRate * 100
     const sampleSizePerVariant = minimumSampleSizePerVariant(conversionRate)
     const sampleSize = sampleSizePerVariant * variants.length
@@ -99,6 +100,9 @@ export function Experiment(): JSX.Element {
     const entrants = results?.[0]?.count
     const runningTime = expectedRunningTime(entrants, sampleSize)
     const exposure = recommendedExposureForCountData(trendCount)
+
+    // Parameters for experiment results
+    // don't use creation variables in results
     const funnelResultsPersonsTotal =
         experimentInsightType === InsightType.FUNNELS &&
         experimentResults?.insight &&
@@ -108,8 +112,9 @@ export function Experiment(): JSX.Element {
         )
     const experimentProgressPercent =
         experimentInsightType === InsightType.FUNNELS
-            ? ((funnelResultsPersonsTotal || 0) / sampleSize) * 100
-            : (dayjs().diff(experimentData?.start_date, 'day') / exposure) * 100
+            ? ((funnelResultsPersonsTotal || 0) / experimentData?.parameters?.recommended_sample_size || 1) * 100
+            : (dayjs().diff(experimentData?.start_date, 'day') / experimentData?.parameters?.recommended_running_time ||
+                  1) * 100
 
     const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
     const status = (): string => {
@@ -530,7 +535,7 @@ export function Experiment(): JSX.Element {
                                 />
                                 <Col span={8} className="mt ml">
                                     <div className="mb-05">
-                                        <b>Experiment progress</b>
+                                        <b>Experiment progress</b>: {experimentProgressPercent.toFixed(1)}%
                                     </div>
                                     <Progress
                                         strokeWidth={20}
@@ -544,17 +549,18 @@ export function Experiment(): JSX.Element {
                                                 <b>{dayjs().diff(experimentData.start_date, 'day')}</b> days running
                                             </div>
                                             <div>
-                                                Goal: <b>{exposure}</b> days
+                                                Goal: <b>{experimentData?.parameters?.recommended_running_time}</b> days
                                             </div>
                                         </Row>
                                     )}
                                     {experimentInsightType === InsightType.FUNNELS && (
                                         <Row justify="space-between" className="mt-05">
                                             <div>
-                                                <b>{Math.floor(experimentProgressPercent)}</b> participants seen
+                                                <b>{funnelResultsPersonsTotal}</b> participants seen
                                             </div>
                                             <div>
-                                                Goal: <b>{sampleSize}</b> participants
+                                                Goal: <b>{experimentData?.parameters?.recommended_sample_size}</b>{' '}
+                                                participants
                                             </div>
                                         </Row>
                                     )}
