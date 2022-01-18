@@ -780,56 +780,54 @@ export function ExperimentPreview({
                                 )}
                             </>
                         )}
-                        <Col>
-                            <Row className="full-width mt">
-                                <Col className="mr">
-                                    <div className="card-secondary">Experiment variants</div>
-                                    <ul className="variants-list">
-                                        {experiment?.parameters?.feature_flag_variants?.map(
-                                            (variant: MultivariateFlagVariant, idx: number) => (
-                                                <li key={idx}>{variant.key}</li>
-                                            )
-                                        )}
-                                    </ul>
-                                </Col>
-                                <Col>
-                                    <div className="card-secondary">Participants</div>
-                                    <div>
-                                        {!!experiment?.filters?.properties?.length ? (
-                                            <div>
-                                                {experiment?.filters.properties.map((item: PropertyFilter) => {
-                                                    return (
-                                                        <PropertyFilterButton
-                                                            key={item.key}
-                                                            item={item}
-                                                            greyBadges={true}
-                                                        />
-                                                    )
-                                                })}
-                                            </div>
-                                        ) : (
-                                            '100% of users'
-                                        )}
-                                    </div>
-                                </Col>
-                            </Row>
-                            <Row>
-                                <Col className="mr">
-                                    <div className="card-secondary mt">Start date</div>
-                                    {experiment?.start_date ? (
-                                        <span>{dayjs(experiment?.start_date).format('D MMM YYYY')}</span>
-                                    ) : (
-                                        <span className="description">Not started yet</span>
+                        <Row className="full-width mt">
+                            <Col span={12}>
+                                <div className="card-secondary">Experiment variants</div>
+                                <ul className="variants-list">
+                                    {experiment?.parameters?.feature_flag_variants?.map(
+                                        (variant: MultivariateFlagVariant, idx: number) => (
+                                            <li key={idx}>{variant.key}</li>
+                                        )
                                     )}
-                                </Col>
-                                {experiment?.end_date && (
-                                    <Col className="ml">
-                                        <div className="card-secondary mt">Completed date</div>
-                                        <span>{dayjs(experiment?.end_date).format('D MMM YYYY')}</span>
-                                    </Col>
+                                </ul>
+                            </Col>
+                            <Col span={12}>
+                                <div className="card-secondary">Participants</div>
+                                <div>
+                                    {!!experiment?.filters?.properties?.length ? (
+                                        <div>
+                                            {experiment?.filters.properties.map((item: PropertyFilter) => {
+                                                return (
+                                                    <PropertyFilterButton
+                                                        key={item.key}
+                                                        item={item}
+                                                        greyBadges={true}
+                                                    />
+                                                )
+                                            })}
+                                        </div>
+                                    ) : (
+                                        '100% of users'
+                                    )}
+                                </div>
+                            </Col>
+                        </Row>
+                        <Row>
+                            <Col className="mr">
+                                <div className="card-secondary mt">Start date</div>
+                                {experiment?.start_date ? (
+                                    <span>{dayjs(experiment?.start_date).format('D MMM YYYY')}</span>
+                                ) : (
+                                    <span className="description">Not started yet</span>
                                 )}
-                            </Row>
-                        </Col>
+                            </Col>
+                            {experiment?.end_date && (
+                                <Col className="ml">
+                                    <div className="card-secondary mt">Completed date</div>
+                                    <span>{dayjs(experiment?.end_date).format('D MMM YYYY')}</span>
+                                </Col>
+                            )}
+                        </Row>
                     </Row>
                     {experimentId !== 'new' && (
                         <Row className="experiment-preview-row">
