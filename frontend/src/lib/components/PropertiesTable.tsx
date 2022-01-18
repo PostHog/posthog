@@ -3,7 +3,7 @@ import React, { useMemo, useState } from 'react'
 import { keyMappingKeys, PropertyKeyInfo } from './PropertyKeyInfo'
 import { Dropdown, Input, Menu, Popconfirm } from 'antd'
 import { isURL } from 'lib/utils'
-import { IconClose, IconOpenInNew } from 'lib/components/icons'
+import { IconDeleteForever, IconOpenInNew } from 'lib/components/icons'
 import './PropertiesTable.scss'
 import { LemonTable, LemonTableColumns } from './LemonTable'
 import { CopyToClipboardInline } from './CopyToClipboard'
@@ -243,7 +243,7 @@ export function PropertiesTable({
                             }
                             placement="left"
                         >
-                            <LemonButton icon={<IconClose />} status="danger" compact />
+                            <LemonButton icon={<IconDeleteForever />} status="danger" compact />
                         </Popconfirm>
                     )
                 )
