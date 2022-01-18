@@ -15,7 +15,6 @@ import {
     GraphDataset,
 } from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { TrendActors } from 'scenes/trends/types'
@@ -241,10 +240,6 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         isInitialLoad: [
             (s) => [s.peopleLoading, s.loadingMorePeople],
             (peopleLoading, loadingMorePeople) => peopleLoading && !loadingMorePeople,
-        ],
-        clickhouseFeaturesEnabled: [
-            () => [preflightLogic.selectors.preflight],
-            (preflight) => !!preflight?.is_clickhouse_enabled,
         ],
         isGroupType: [(s) => [s.people], (people) => people?.people?.[0] && isGroupType(people.people[0])],
         actorLabel: [

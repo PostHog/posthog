@@ -38,7 +38,6 @@ def factory_org_usage_report(
             self.assertEqual(all_reports[0]["posthog_version"], VERSION)
             self.assertEqual(all_reports[0]["deployment_infrastructure"], "tests")
             self.assertIsNotNone(all_reports[0]["realm"])
-            self.assertIsNotNone(all_reports[0]["is_clickhouse_enabled"])
             self.assertIsNotNone(all_reports[0]["site_url"])
             self.assertGreaterEqual(len(all_reports[0]["license_keys"]), 0)
             self.assertIsNotNone(all_reports[0]["product"])
@@ -164,5 +163,5 @@ def create_event_postgres(distinct_id: str, event: str, lib: str, created_at: da
     )
 
 
-class TestOrganizationUsageReport(factory_org_usage_report(create_person, create_event_postgres, send_all_org_usage_reports, {"EE_AVAILABLE": False, "USE_TZ": False})):  # type: ignore
+class TestOrganizationUsageReport(factory_org_usage_report(create_person, create_event_postgres, send_all_org_usage_reports, {"USE_TZ": False})):  # type: ignore
     pass

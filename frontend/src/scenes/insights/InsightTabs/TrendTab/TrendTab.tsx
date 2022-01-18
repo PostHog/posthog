@@ -10,7 +10,6 @@ import { trendsLogic } from '../../../trends/trendsLogic'
 import { FilterType, InsightType } from '~/types'
 import { Formula } from './Formula'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import './TrendTab.scss'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
@@ -27,7 +26,6 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const { insightProps, allEventNames } = useValues(insightLogic)
     const { filters } = useValues(trendsLogic(insightProps))
     const { setFilters, toggleLifecycle } = useActions(trendsLogic(insightProps))
-    const { preflight } = useValues(preflightLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const [isUsingFormulas, setIsUsingFormulas] = useState(filters.formula ? true : false)
     const lifecycles = [
@@ -43,7 +41,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
     const isTrends = !filters.insight || filters.insight === InsightType.TRENDS
-    const formulaAvailable = isTrends && preflight?.is_clickhouse_enabled
+    const formulaAvailable = isTrends
     const formulaEnabled = (filters.events?.length || 0) + (filters.actions?.length || 0) > 0
 
     return (

@@ -492,24 +492,3 @@ def paths_test_factory(paths, event_factory, person_factory, create_all_events):
             self.assertEqual(response[0]["value"], 2)
 
     return TestPaths
-
-
-def _create_all_events(events: List[MockEvent]):
-    for event in events:
-        Event.objects.create(
-            event=event.event,
-            distinct_id=event.distinct_id,
-            team=event.team,
-            timestamp=event.timestamp,
-            properties=event.properties,
-        )
-
-
-def _create_event(**kwargs):
-    data: Dict[str, Any] = {"timestamp": now()}  # default
-    data.update(kwargs)
-    return MockEvent(**data)
-
-
-class DjangoPathsTest(paths_test_factory(Paths, _create_event, Person.objects.create, _create_all_events)):  # type: ignore
-    pass

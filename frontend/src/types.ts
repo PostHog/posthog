@@ -1240,10 +1240,6 @@ export interface PreflightStatus {
     /** Whether this is a managed demo environment. */
     demo: boolean
     celery: boolean
-    /** Whether EE code is available (but not necessarily a license). */
-    ee_available?: boolean
-    /** Is ClickHouse used as the analytics database instead of Postgres. */
-    is_clickhouse_enabled?: boolean
     realm: Realm
     db_backend?: 'postgres' | 'clickhouse'
     available_social_auth_providers: AuthBackends

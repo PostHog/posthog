@@ -15,7 +15,6 @@ from posthog.settings import (
     CLICKHOUSE_VERIFY,
 )
 from posthog.test.base import TestMixin
-from posthog.utils import is_clickhouse_enabled
 
 
 def create_clickhouse_tables(num_tables: int):
@@ -92,39 +91,37 @@ def reset_clickhouse_tables():
         sync_execute(item)
 
 
-if is_clickhouse_enabled():
+@pytest.fixture(scope="package")
+def django_db_setup(django_db_setup, django_db_keepdb):
+    database = Database(
+        CLICKHOUSE_DATABASE,
+        db_url=CLICKHOUSE_HTTP_URL,
+        username=CLICKHOUSE_USER,
+        password=CLICKHOUSE_PASSWORD,
+        verify_ssl_cert=CLICKHOUSE_VERIFY,
+    )
 
-    @pytest.fixture(scope="package")
-    def django_db_setup(django_db_setup, django_db_keepdb):
-        database = Database(
-            CLICKHOUSE_DATABASE,
-            db_url=CLICKHOUSE_HTTP_URL,
-            username=CLICKHOUSE_USER,
-            password=CLICKHOUSE_PASSWORD,
-            verify_ssl_cert=CLICKHOUSE_VERIFY,
-        )
+    if not django_db_keepdb:
+        try:
+            database.drop_database()
+        except:
+            pass
 
-        if not django_db_keepdb:
-            try:
-                database.drop_database()
-            except:
-                pass
+    database.create_database()  # Create database if it doesn't exist
+    table_count = sync_execute(
+        "SELECT count() FROM system.tables WHERE database = %(database)s", {"database": CLICKHOUSE_DATABASE}
+    )[0][0]
+    create_clickhouse_tables(table_count)
 
-        database.create_database()  # Create database if it doesn't exist
-        table_count = sync_execute(
-            "SELECT count() FROM system.tables WHERE database = %(database)s", {"database": CLICKHOUSE_DATABASE}
-        )[0][0]
-        create_clickhouse_tables(table_count)
+    yield
 
-        yield
-
-        if django_db_keepdb:
-            reset_clickhouse_tables()
-        else:
-            try:
-                database.drop_database()
-            except:
-                pass
+    if django_db_keepdb:
+        reset_clickhouse_tables()
+    else:
+        try:
+            database.drop_database()
+        except:
+            pass
 
 
 @pytest.fixture
