@@ -156,8 +156,8 @@ jobs:
 
             - name: Start stack with Docker Compose
               run: |
-                  docker-compose -f ee/docker-compose.ch.yml down
-                  docker-compose -f ee/docker-compose.ch.yml up -d ${{ matrix.foss && 'db' || 'db clickhouse zookeeper kafka' }} &
+                  docker-compose -f docker-compose.dev.yml down
+                  docker-compose -f docker-compose.dev.yml up -d db clickhouse zookeeper kafka &
 
             - name: Set up Python
               uses: actions/setup-python@v2
@@ -209,26 +209,20 @@ jobs:
                   touch frontend/dist/shared_dashboard.html
 
             - name: Wait for Clickhouse & Kafka
-              if: ${{ !matrix.foss }}
               run: bin/check_kafka_clickhouse_up
 
             - name: Run FOSS tests
               if: ${{ matrix.foss }}
               run: |
-                  rm -rf ee/
                   pytest -m "not ee" posthog/ --cov  --cov-report=xml:coverage-postgres.xml
 
             - name: Run SAML tests
               if: ${{ matrix.saml }}
-              env:
-                  PRIMARY_DB: 'clickhouse'
               run: |
                   pytest ee -m "saml_only"
 
             - name: Run ee/ tests
               if: ${{ matrix.ee }}
-              env:
-                  PRIMARY_DB: 'clickhouse'
               run: |
                   pytest ee -m "not saml_only" \
                       --splits ${{ matrix.concurrency }} \
@@ -239,8 +233,6 @@ jobs:
 
             - name: Run pytest.mark.ee tests
               if: ${{ matrix.ee && matrix.group == '1' }}
-              env:
-                  PRIMARY_DB: 'clickhouse'
               run: |
                   pytest posthog -m "ee"
 
@@ -282,8 +274,8 @@ jobs:
                   cat requirements.txt >> deploy/requirements.txt
             - name: Start stack with Docker Compose
               run: |
-                  docker-compose -f deploy/ee/docker-compose.ch.yml down
-                  docker-compose -f deploy/ee/docker-compose.ch.yml up -d db clickhouse zookeeper kafka &
+                  docker-compose -f deploy/docker-compose.dev.yml down
+                  docker-compose -f deploy/docker-compose.dev.yml up -d db clickhouse zookeeper kafka &
             - name: Set up Python 3.8
               uses: actions/setup-python@v2
               with:
@@ -351,8 +343,6 @@ jobs:
                   touch frontend/dist/shared_dashboard.html
 
             - name: Run cloud tests (posthog-cloud)
-              env:
-                  PRIMARY_DB: 'clickhouse'
               run: |
                   source .env.template
                   cd deploy

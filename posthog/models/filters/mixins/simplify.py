@@ -1,7 +1,6 @@
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, TypeVar, cast
 
 from posthog.models.property import GroupTypeIndex
-from posthog.utils import is_clickhouse_enabled
 
 if TYPE_CHECKING:  # Avoid circular import
     from posthog.models import Property, Team
@@ -62,10 +61,8 @@ class SimplifyFilterMixin:
             simplified_properties.extend(self._simplify_property(team, prop, **kwargs))
         return simplified_properties
 
-    def _simplify_property(
-        self, team: "Team", property: "Property", is_clickhouse_enabled=is_clickhouse_enabled()
-    ) -> List["Property"]:
-        if property.type == "cohort" and is_clickhouse_enabled:
+    def _simplify_property(self, team: "Team", property: "Property", **kwargs) -> List["Property"]:
+        if property.type == "cohort":
             from ee.clickhouse.models.cohort import simplified_cohort_filter_properties
             from posthog.models import Cohort
 

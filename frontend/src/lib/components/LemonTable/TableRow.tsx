@@ -38,7 +38,6 @@ function TableRowRaw<T extends Record<string, any>>({
                                 onClick={() => setIsRowExpanded((state) => !state)}
                                 icon={isRowExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                 title={isRowExpanded ? 'Show less' : 'Show more'}
-                                compact
                             />
                         )}
                     </td>

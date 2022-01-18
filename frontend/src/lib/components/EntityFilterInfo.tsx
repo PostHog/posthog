@@ -8,6 +8,7 @@ import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 interface EntityFilterInfoProps {
     filter: EntityFilter | ActionFilter | FunnelStepRangeEntityFilter
     allowWrap?: boolean
+    showSingleName?: boolean
 }
 
 function TextWrapper(props: TextProps): JSX.Element {
@@ -18,7 +19,11 @@ function TextWrapper(props: TextProps): JSX.Element {
     )
 }
 
-export function EntityFilterInfo({ filter, allowWrap = false }: EntityFilterInfoProps): JSX.Element {
+export function EntityFilterInfo({
+    filter,
+    allowWrap = false,
+    showSingleName = false,
+}: EntityFilterInfoProps): JSX.Element {
     const title = getDisplayNameFromEntityFilter(filter, false)
 
     // No filter
@@ -47,14 +52,11 @@ export function EntityFilterInfo({ filter, allowWrap = false }: EntityFilterInfo
             <TextWrapper ellipsis={!allowWrap} title={customTitle ?? undefined}>
                 {customTitle}
             </TextWrapper>
-            <TextWrapper
-                ellipsis={!allowWrap}
-                type="secondary"
-                style={{ fontSize: 13, marginLeft: 4 }}
-                title={titleToDisplay}
-            >
-                ({titleToDisplay})
-            </TextWrapper>
+            {!showSingleName && (
+                <TextWrapper ellipsis={!allowWrap} type="secondary" style={{ marginLeft: 4 }} title={titleToDisplay}>
+                    ({titleToDisplay})
+                </TextWrapper>
+            )}
         </span>
     )
 }

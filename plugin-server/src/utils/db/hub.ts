@@ -9,10 +9,11 @@ import { DateTime } from 'luxon'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
+import { LazyPluginVM } from 'worker/vm/lazy'
 
 import { defaultConfig } from '../../config/config'
 import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
-import { Hub, PluginsServerConfig } from '../../types'
+import { Hub, PluginId, PluginsServerConfig } from '../../types'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { HookCommander } from '../../worker/ingestion/hooks'
@@ -24,6 +25,7 @@ import { killProcess } from '../kill'
 import { status } from '../status'
 import { createPostgresPool, createRedis, logOrThrowJobQueueError, UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
+import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
 import { PluginMetricsManager } from './../plugin-metrics'
 import { DB } from './db'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
@@ -97,6 +99,7 @@ export async function createHub(
     let clickhouse: ClickHouse | undefined
     let kafka: Kafka | undefined
     let kafkaProducer: KafkaProducerWrapper | undefined
+
     if (serverConfig.KAFKA_ENABLED) {
         status.info('🤔', `ClickHouse`)
         if (!serverConfig.KAFKA_HOSTS) {
@@ -174,6 +177,7 @@ export async function createHub(
     const teamManager = new TeamManager(db, serverConfig, statsd)
     const organizationManager = new OrganizationManager(db)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
+    const rootAccessManager = new RootAccessManager(db)
     const actionManager = new ActionManager(db)
     await actionManager.prepare()
 
@@ -200,6 +204,7 @@ export async function createHub(
         teamManager,
         organizationManager,
         pluginsApiKeyManager,
+        rootAccessManager,
         actionManager,
         actionMatcher: new ActionMatcher(db, actionManager, statsd),
         hookCannon: new HookCommander(db, teamManager, organizationManager, statsd),

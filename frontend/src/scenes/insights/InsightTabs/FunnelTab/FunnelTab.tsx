@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import { useValues, useActions, useMountedLogic } from 'kea'
 import clsx from 'clsx'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
@@ -30,15 +30,10 @@ import { FunnelStepReferencePicker } from './FunnelStepReferencePicker'
 export function FunnelTab(): JSX.Element {
     const { insightProps, allEventNames } = useValues(insightLogic)
     const { loadResults } = useActions(insightLogic)
-    const {
-        isStepsEmpty,
-        filters,
-        clickhouseFeaturesEnabled,
-        aggregationTargetLabel,
-        filterSteps,
-        advancedOptionsUsedCount,
-    } = useValues(funnelLogic(insightProps))
-    const { clearFunnel, setFilters, toggleAdvancedMode, setStepReference } = useActions(funnelLogic(insightProps))
+    const { isStepsEmpty, filters, aggregationTargetLabel, filterSteps, advancedOptionsUsedCount } = useValues(
+        funnelLogic(insightProps)
+    )
+    const { setFilters, toggleAdvancedMode, setStepReference } = useActions(funnelLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
     const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
     const screens = useBreakpoint()
@@ -60,7 +55,7 @@ export function FunnelTab(): JSX.Element {
                             <h4 className="secondary" style={{ marginBottom: 0 }}>
                                 Query steps
                             </h4>
-                            {clickhouseFeaturesEnabled && (
+                            {
                                 <div className="flex-center">
                                     <span
                                         style={{
@@ -74,7 +69,7 @@ export function FunnelTab(): JSX.Element {
                                     </span>
                                     <ToggleButtonChartFilter simpleMode />
                                 </div>
-                            )}
+                            }
                         </Row>
                         <Card className="action-filters-bordered" bodyStyle={{ padding: 0 }}>
                             <ActionFilter
@@ -100,23 +95,6 @@ export function FunnelTab(): JSX.Element {
                                 rowClassName="action-filters-bordered"
                             />
                             <div className="mb-05" />
-                            {!clickhouseFeaturesEnabled && (
-                                <>
-                                    <hr style={{ margin: '0', marginBottom: '0.5rem' }} />
-                                    <Row style={{ justifyContent: 'flex-end', paddingBottom: 8, paddingRight: 8 }}>
-                                        {!isStepsEmpty && (
-                                            <Button
-                                                type="link"
-                                                onClick={(): void => clearFunnel()}
-                                                data-attr="save-funnel-clear-button"
-                                            >
-                                                Clear
-                                            </Button>
-                                        )}
-                                        <CalculateFunnelButton style={{ marginLeft: 4 }} />
-                                    </Row>
-                                </>
-                            )}
                         </Card>
                     </form>
                 </div>
@@ -168,7 +146,7 @@ export function FunnelTab(): JSX.Element {
                     eventNames={allEventNames}
                 />
 
-                {clickhouseFeaturesEnabled && filters.funnel_viz_type === FunnelVizType.Steps && (
+                {filters.funnel_viz_type === FunnelVizType.Steps && (
                     <>
                         <hr />
                         <h4 className="secondary">
@@ -191,7 +169,7 @@ export function FunnelTab(): JSX.Element {
                     </>
                 )}
 
-                {clickhouseFeaturesEnabled && (
+                {
                     <>
                         <hr />
                         <div className="flex-center cursor-pointer" onClick={toggleAdvancedMode}>
@@ -281,50 +259,8 @@ export function FunnelTab(): JSX.Element {
                             </div>
                         )}
                     </>
-                )}
+                }
             </Col>
         </Row>
-    )
-}
-
-function CalculateFunnelButton({ style }: { style: React.CSSProperties }): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-    const { filters, areFiltersValid, filtersDirty, clickhouseFeaturesEnabled, isLoading } = useValues(
-        funnelLogic(insightProps)
-    )
-    const [tooltipOpen, setTooltipOpen] = useState(false)
-    const shouldRecalculate = filtersDirty && areFiltersValid && !isLoading && !clickhouseFeaturesEnabled
-
-    // Only show tooltip after 3s of inactivity
-    useEffect(() => {
-        if (shouldRecalculate) {
-            const rerenderInterval = setTimeout(() => {
-                setTooltipOpen(true)
-            }, 3000)
-
-            return () => {
-                clearTimeout(rerenderInterval)
-                setTooltipOpen(false)
-            }
-        } else {
-            setTooltipOpen(false)
-        }
-    }, [shouldRecalculate, filters])
-
-    return (
-        <Tooltip
-            visible={tooltipOpen}
-            title="Your query has changed. Calculate your changes to see updates in the visualization."
-        >
-            <Button
-                style={style}
-                type={shouldRecalculate ? 'primary' : 'default'}
-                htmlType="submit"
-                disabled={!areFiltersValid}
-                data-attr="save-funnel-button"
-            >
-                Calculate
-            </Button>
-        </Tooltip>
     )
 }

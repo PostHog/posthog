@@ -60,10 +60,21 @@ jobs:
                     --health-retries 5
         env:
             REDIS_URL: 'redis://localhost'
+            CLICKHOUSE_HOST: 'localhost'
+            CLICKHOUSE_DATABASE: 'posthog_test'
+            KAFKA_HOSTS: 'kafka:9092'
 
         steps:
             - name: Check out Django server for database setup
               uses: actions/checkout@v2
+
+            - name: Fix Kafka Hostname
+              run: |
+                  sudo bash -c 'echo "127.0.0.1 kafka zookeeper" >> /etc/hosts'
+                  ping -c 1 kafka
+                  ping -c 1 zookeeper
+            - name: Start Kafka, ClickHouse, Zookeeper
+              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse
 
             - name: Set up Python
               uses: actions/setup-python@v2
@@ -130,10 +141,21 @@ jobs:
                     --health-retries 5
         env:
             REDIS_URL: 'redis://localhost'
+            CLICKHOUSE_HOST: 'localhost'
+            CLICKHOUSE_DATABASE: 'posthog_test'
+            KAFKA_HOSTS: 'kafka:9092'
 
         steps:
             - name: Check out Django server for database setup
               uses: actions/checkout@v2
+
+            - name: Fix Kafka Hostname
+              run: |
+                  sudo bash -c 'echo "127.0.0.1 kafka zookeeper" >> /etc/hosts'
+                  ping -c 1 kafka
+                  ping -c 1 zookeeper
+            - name: Start Kafka, ClickHouse, Zookeeper
+              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse
 
             - name: Set up Python
               uses: actions/setup-python@v2
@@ -215,7 +237,7 @@ jobs:
                   ping -c 1 kafka
                   ping -c 1 zookeeper
             - name: Start Kafka, ClickHouse, Zookeeper
-              run: docker-compose -f ee/docker-compose.ch.yml up -d zookeeper kafka clickhouse
+              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse
 
             - name: Set up Python
               uses: actions/setup-python@v2
@@ -245,7 +267,6 @@ jobs:
               env:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/posthog'
-                  PRIMARY_DB: 'clickhouse'
                   TEST: 'true'
               run: python manage.py setup_test_environment
 
@@ -298,7 +319,7 @@ jobs:
                   ping -c 1 kafka
                   ping -c 1 zookeeper
             - name: Start Kafka, ClickHouse, Zookeeper
-              run: docker-compose -f ee/docker-compose.ch.yml up -d zookeeper kafka clickhouse
+              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse
 
             - name: Set up Python
               uses: actions/setup-python@v2
@@ -328,7 +349,6 @@ jobs:
               env:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/posthog'
-                  PRIMARY_DB: 'clickhouse'
                   TEST: 'true'
               run: python manage.py setup_test_environment
 
