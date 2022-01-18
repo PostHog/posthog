@@ -83,7 +83,7 @@ class ClickhouseFunnelExperimentResult:
         control_variant = None
         test_variants = []
         for result in funnel_results:
-            total = sum([step["count"] for step in result])
+            total = result[0]["count"]
             success = result[-1]["count"]
             failure = total - success
             breakdown_value = result[0]["breakdown_value"][0]
