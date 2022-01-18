@@ -44,6 +44,7 @@ test('empty plugins', async () => {
     expect(Object.keys(vm).sort()).toEqual(['methods', 'tasks', 'vm'])
     expect(Object.keys(vm.methods).sort()).toEqual([
         'exportEvents',
+        'handleAlert',
         'onAction',
         'onEvent',
         'onSnapshot',
