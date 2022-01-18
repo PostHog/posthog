@@ -43,6 +43,7 @@ from posthog.constants import (
 )
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
+from posthog.utils import encode_get_request_params
 
 
 class ClickhouseTrendsBreakdown:
@@ -238,7 +239,9 @@ class ClickhouseTrendsBreakdown:
                     "breakdown_value": result_descriptors["breakdown_value"],
                     "breakdown_type": filter.breakdown_type or "event",
                 }
-                parsed_params: Dict[str, Union[Any, int, str]] = {**filter_params, **extra_params}
+                parsed_params: Dict[str, Union[Any, int, str]] = encode_get_request_params(
+                    {**filter_params, **extra_params}, lambda x: x
+                )
                 parsed_result = {
                     "aggregated_value": stats[0],
                     "filter": filter_params,
@@ -289,7 +292,9 @@ class ClickhouseTrendsBreakdown:
                 "breakdown_value": breakdown_value,
                 "breakdown_type": filter.breakdown_type or "event",
             }
-            parsed_params: Dict[str, Union[Any, int, str]] = {**filter_params, **extra_params}
+            parsed_params: Dict[str, Union[Any, int, str]] = encode_get_request_params(
+                {**filter_params, **extra_params}, lambda x: x
+            )
             persons_url.append(
                 {
                     "filter": extra_params,
