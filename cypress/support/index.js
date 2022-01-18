@@ -23,24 +23,20 @@ beforeEach(() => {
     } else {
         if (Cypress.spec.name.includes('Premium')) {
             cy.intercept('/api/users/@me/', { fixture: 'api/user-enterprise' })
+
             cy.request('POST', '/api/login/', {
                 email: 'test@posthog.com',
                 password: '12345678',
             })
+            cy.visit('/?no-preloaded-app-context=true')
         } else {
             cy.request('POST', '/api/login/', {
                 email: 'test@posthog.com',
                 password: '12345678',
             })
+            cy.visit('/insights')
+            cy.get('.saved-insights').should('exist')
         }
-    }
-})
-
-beforeEach(() => {
-    if (Cypress.spec.specType !== 'component') {
-        // Make sure the insights page is actually loaded before running tests
-        cy.visit('/insights')
-        cy.get('.saved-insights').should('exist')
     }
 })
 
