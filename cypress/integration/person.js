@@ -25,6 +25,7 @@ describe('Merge person', () => {
     })
 
     it('Should merge person', () => {
+        cy.get('[role="tab"]').contains('Events').click()
         cy.get('.extra-ids').should('not.exist') // No extra IDs
         cy.contains('$create_alias').should('not.exist')
         cy.get('span:contains(Pageview)').should('have.length', 1)
