@@ -87,7 +87,6 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
                             />
                             <EventsTable
                                 fixedFilters={fixedFilters}
-                                disableActions
                                 sceneUrl={urls.action(id)}
                                 fetchMonths={3}
                                 pageKey="Action"

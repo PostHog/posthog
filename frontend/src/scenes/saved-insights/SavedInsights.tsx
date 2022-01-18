@@ -241,6 +241,7 @@ export function SavedInsights(): JSX.Element {
                                 <LemonButton
                                     type="stealth"
                                     to={urls.insightView(insight.short_id, insight.filters)}
+                                    compact
                                     fullWidth
                                 >
                                     View

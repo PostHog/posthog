@@ -3198,7 +3198,6 @@
         "events": {
             "eventsTableLogic": {
                 "all-/events": {
-                    "sceneIsEventsPage": true,
                     "properties": [],
                     "eventFilter": "",
                     "isLoading": false,
