@@ -11,5 +11,5 @@ export function useSyncToLogicIfChanged<T>(
         if (!objectsEqual(oldValueInLogic, newValueInReact)) {
             setValueInLogic(newValueInReact)
         }
-    }, [newValueInReact, oldValueInLogic])
+    }, [newValueInReact]) // only sync if new value changed
 }
