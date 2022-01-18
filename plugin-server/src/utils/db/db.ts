@@ -67,6 +67,7 @@ import {
     UUID,
     UUIDT,
 } from '../utils'
+import { OrganizationPluginsAccessLevel } from './../../types'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import { PostgresLogsWrapper } from './postgres-logs-wrapper'
 import {
@@ -1561,5 +1562,15 @@ export class DB {
         SELECT group_type_index, group_key, created_at, team_id, group_properties FROM groups FINAL
         `
         return (await this.clickhouseQuery(query)).data as ClickhouseGroup[]
+    }
+
+    public async getTeamsInOrganizationsWithRootPluginAccess(): Promise<TeamId[]> {
+        return (
+            await this.postgresQuery(
+                'SELECT * from posthog_team WHERE organization_id = (SELECT id from posthog_organization WHERE plugins_access_level = $1)',
+                [OrganizationPluginsAccessLevel.ROOT],
+                'getTeamsInOrganizationsWithRootPluginAccess'
+            )
+        ).rows as TeamId[]
     }
 }

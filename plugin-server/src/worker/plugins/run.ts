@@ -156,29 +156,36 @@ export async function runPluginTask(
     return response
 }
 
-// export async function runHandleAlert(server: Hub, alert: Alert): Promise<void> {
-//     const pluginsToRun = getPluginsForTeam(server, event.team_id)
+export async function runHandleAlert(server: Hub, alert: Alert): Promise<void> {
+    const rootAcessTeams = await server.rootAccessManager.getRootAccessTeams()
+    const pluginsToRun = getPluginsForTeams(server, rootAcessTeams)
 
-//     await Promise.all(
-//         pluginsToRun.map(async (pluginConfig) => {
-//             const handleAlert = await pluginConfig.vm?.getHandleAlert()
-//             if (onAction) {
-//                 const timer = new Date()
-//                 try {
-//                     await handleAlert(alert)
-//                 } catch (error) {
-//                     await processError(server, pluginConfig, error, event)
-//                     server.statsd?.increment(`plugin.${pluginConfig.plugin?.name}.on_action.ERROR`)
-//                 }
-//                 server.statsd?.timing(`plugin.${pluginConfig.plugin?.name}.on_action`, timer)
-//                 captureTimeSpentRunning(event.team_id, timer, 'onAction')
-//             }
-//         })
-//     )
-// }
+    await Promise.all(
+        pluginsToRun.map(async (pluginConfig) => {
+            const handleAlert = await pluginConfig.vm?.getHandleAlert()
+            if (handleAlert) {
+                const timer = new Date()
+                try {
+                    await handleAlert(alert)
+                } catch (error) {
+                    await processError(server, pluginConfig, error)
+                    server.statsd?.increment(`plugin.${pluginConfig.plugin?.name}.handle_alert.ERROR`)
+                }
+                server.statsd?.timing(`plugin.${pluginConfig.plugin?.name}.handle_alert`, timer)
+                captureTimeSpentRunning(pluginConfig.team_id, timer, 'handleAlert')
+            }
+        })
+    )
+}
 
 function getPluginsForTeam(server: Hub, teamId: number): PluginConfig[] {
     return server.pluginConfigsPerTeam.get(teamId) || []
 }
 
-
+function getPluginsForTeams(server: Hub, teamIds: TeamId[]) {
+    const plugins: PluginConfig[] = []
+    for (const teamId of teamIds) {
+        plugins.concat(getPluginsForTeam(server, teamId))
+    }
+    return plugins
+}

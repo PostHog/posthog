@@ -22,6 +22,7 @@ import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
 import { TeamManager } from './worker/ingestion/team-manager'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
+import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
 import { LazyPluginVM } from './worker/vm/lazy'
 
 export enum LogLevel {
@@ -135,6 +136,7 @@ export interface Hub extends PluginsServerConfig {
     teamManager: TeamManager
     organizationManager: OrganizationManager
     pluginsApiKeyManager: PluginsApiKeyManager
+    rootAccessManager: RootAccessManager
     actionManager: ActionManager
     actionMatcher: ActionMatcher
     hookCannon: HookCommander
@@ -344,7 +346,7 @@ export enum AlertLevel {
     P1 = 1,
     P2 = 2,
     P3 = 3,
-    P4 = 4
+    P4 = 4,
 }
 
 export enum Service {
@@ -353,7 +355,7 @@ export enum Service {
     Redis = 'redis',
     Postgres = 'postgres',
     ClickHouse = 'clickhouse',
-    Kafka = 'kafka'
+    Kafka = 'kafka',
 }
 export interface Alert {
     level: AlertLevel
@@ -822,7 +824,7 @@ export interface EventPropertyType {
     team_id: number
 }
 
-export type PluginFunction = 'onEvent' | 'onAction' | 'processEvent' | 'onSnapshot' | 'pluginTask'
+export type PluginFunction = 'onEvent' | 'onAction' | 'processEvent' | 'onSnapshot' | 'pluginTask' | 'handleAlert'
 
 export enum CeleryTriggeredJobOperation {
     Start = 'start',
@@ -833,4 +835,11 @@ export type GroupTypeToColumnIndex = Record<string, GroupTypeIndex>
 export enum PropertyUpdateOperation {
     Set = 'set',
     SetOnce = 'set_once',
+}
+
+export enum OrganizationPluginsAccessLevel {
+    NONE = 0,
+    CONFIG = 3,
+    INSTALL = 6,
+    ROOT = 9,
 }
