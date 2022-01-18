@@ -127,7 +127,9 @@ class Plugin(models.Model):
     )
     is_global: models.BooleanField = models.BooleanField(default=False)  # Whether plugin is installed for all orgs
     is_preinstalled: models.BooleanField = models.BooleanField(default=False)
-    is_stateless: models.BooleanField = models.BooleanField(default=False)  # Whether plugin can run one VM across teams
+    is_stateless: models.BooleanField = models.BooleanField(
+        default=False, null=True, blank=True
+    )  # Whether plugin can run one VM across teams
 
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     description: models.TextField = models.TextField(null=True, blank=True)

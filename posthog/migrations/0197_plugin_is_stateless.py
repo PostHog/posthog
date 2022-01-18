@@ -10,5 +10,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(model_name="plugin", name="is_stateless", field=models.BooleanField(default=False),),
+        migrations.AddField(
+            model_name="plugin", name="is_stateless", field=models.BooleanField(default=False, null=True, blank=True),
+        ),
     ]

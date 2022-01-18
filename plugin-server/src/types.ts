@@ -233,7 +233,7 @@ export interface Plugin {
     updated_at: string
     capabilities?: PluginCapabilities
     metrics?: StoredPluginMetrics
-    is_stateless: boolean
+    is_stateless?: boolean
 }
 
 export interface PluginCapabilities {
