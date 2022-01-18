@@ -145,6 +145,7 @@ export interface Hub extends PluginsServerConfig {
     // diagnostics
     lastActivity: number
     lastActivityType: string
+    statelessVms: StatelessVmMap
 }
 
 export interface Pausable {
@@ -234,6 +235,7 @@ export interface Plugin {
     updated_at: string
     capabilities?: PluginCapabilities
     metrics?: StoredPluginMetrics
+    is_stateless?: boolean
 }
 
 export interface PluginCapabilities {
@@ -837,6 +839,8 @@ export enum PropertyUpdateOperation {
     Set = 'set',
     SetOnce = 'set_once',
 }
+
+export type StatelessVmMap = Record<PluginId, LazyPluginVM>
 
 export enum OrganizationPluginsAccessLevel {
     NONE = 0,

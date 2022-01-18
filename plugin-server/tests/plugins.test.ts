@@ -113,6 +113,33 @@ test('setupPlugins and runProcessEvent', async () => {
     expect(returnedEvent!.properties!['processed']).toEqual(true)
 })
 
+test('stateless plugins', async () => {
+    const plugin = { ...plugin60, is_stateless: true }
+    getPluginRows.mockReturnValueOnce([plugin])
+    getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+    getPluginConfigRows.mockReturnValueOnce([pluginConfig39, { ...pluginConfig39, id: 40, team_id: 1 }])
+
+    await setupPlugins(hub)
+    const { plugins, pluginConfigs } = hub
+
+    expect(getPluginRows).toHaveBeenCalled()
+    expect(getPluginAttachmentRows).toHaveBeenCalled()
+    expect(getPluginConfigRows).toHaveBeenCalled()
+
+    expect(Array.from(pluginConfigs.keys())).toEqual([39, 40])
+
+    const pluginConfigTeam1 = pluginConfigs.get(40)!
+    const pluginConfigTeam2 = pluginConfigs.get(39)!
+
+    expect(pluginConfigTeam1.plugin).toEqual(plugin)
+    expect(pluginConfigTeam2.plugin).toEqual(plugin)
+
+    expect(pluginConfigTeam1.vm).toBeDefined()
+    expect(pluginConfigTeam2.vm).toBeDefined()
+
+    expect(pluginConfigTeam1.vm).toEqual(pluginConfigTeam2.vm)
+})
+
 test('plugin returns null', async () => {
     getPluginRows.mockReturnValueOnce([mockPluginWithArchive('function processEvent (event, meta) { return null }')])
     getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
