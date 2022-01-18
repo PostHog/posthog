@@ -472,9 +472,7 @@ function MathSelector({
     }`
     const { eventMathEntries, propertyMathEntries } = useValues(mathsLogic)
 
-    let math_entries = eventMathEntries
-
-    math_entries = math_entries.filter((item) => item[0] !== 'weekly_active' && item[0] !== 'monthly_active')
+    const math_entries = eventMathEntries
 
     return (
         <Select
