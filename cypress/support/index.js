@@ -22,16 +22,15 @@ beforeEach(() => {
         cy.clock(1578225600000, ['Date'])
     } else {
         if (Cypress.spec.name.includes('Premium')) {
-            cy.visit('/login?next=/?no-preloaded-app-context=true')
             cy.intercept('/api/users/@me/', { fixture: 'api/user-enterprise' })
-            cy.login()
+            cy.request('POST', '/api/login/', {
+                email: 'test@posthog.com',
+                password: '12345678',
+            })
         } else {
-            cy.visit('/')
-
-            cy.url().then((url) => {
-                if (url.includes('login')) {
-                    cy.login()
-                }
+            cy.request('POST', '/api/login/', {
+                email: 'test@posthog.com',
+                password: '12345678',
             })
         }
     }
@@ -40,6 +39,7 @@ beforeEach(() => {
 beforeEach(() => {
     if (Cypress.spec.specType !== 'component') {
         // Make sure the insights page is actually loaded before running tests
+        cy.visit('/insights')
         cy.get('.saved-insights').should('exist')
     }
 })
