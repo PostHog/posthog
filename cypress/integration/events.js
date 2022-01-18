@@ -1,6 +1,7 @@
 import decideResponse from '../fixtures/api/decide'
+import dayjs from 'dayjs'
 
-function interceptPropertyDefinitions() {
+const interceptPropertyDefinitions = () => {
     cy.intercept('api/projects/@current/property_definitions/?limit=5000', {
         fixture: 'api/event/property_definitions',
     })
@@ -16,6 +17,34 @@ function interceptPropertyDefinitions() {
     cy.intercept('/api/projects/1/property_definitions?search=%24browser*', {
         fixture: 'api/event/only_browser_version_property_definition',
     })
+}
+
+const searchForTimestampProperty = () => {
+    cy.get('[data-attr=new-prop-filter-EventsTable]').click()
+    cy.get('[data-attr=taxonomic-filter-searchfield]').type('$time')
+    cy.get('.taxonomic-list-row').should('have.length', 1).click()
+}
+
+const selectOperator = (operator) => {
+    cy.get('.taxonomic-operator').click()
+    cy.get('.operator-value-option').its('length').should('eql', 8)
+    cy.get('.operator-value-option').contains('< before').should('be.visible')
+    cy.get('.operator-value-option').contains('> after').should('be.visible')
+
+    cy.get('.operator-value-option').contains(operator).click()
+}
+
+const selectDateBeforeOperator = () => {
+    selectOperator('< before')
+}
+
+const selectDateAfterOperator = () => {
+    selectOperator('> after')
+}
+
+function chooseFirstDateInCalendar() {
+    cy.get('.ant-picker-cell-in-view').first().click()
+    cy.get('.ant-picker-ok').click()
 }
 
 describe('Events', () => {
@@ -57,28 +86,6 @@ describe('Events', () => {
         cy.get('[data-attr=events-table]').should('exist')
     })
 
-    it('has before and after for a DateTime property', () => {
-        cy.get('[data-attr=new-prop-filter-EventsTable]').click()
-        cy.get('[data-attr=taxonomic-filter-searchfield]').type('$time')
-        cy.get('.taxonomic-list-row').should('have.length', 1).click()
-
-        cy.get('.taxonomic-operator').click()
-        cy.get('.operator-value-option').its('length').should('eql', 8)
-        cy.get('.operator-value-option').contains('< before').should('be.visible')
-        cy.get('.operator-value-option').contains('> after').should('be.visible')
-
-        cy.get('.operator-value-option').contains('< before').click()
-        cy.get('.taxonomic-value-select').click()
-        cy.get('.ant-picker-cell-in-view').first().click()
-        cy.get('.ant-picker-ok').click()
-        cy.get('[data-attr="property-filter-0"]').should('include.text', 'Time < ')
-
-        cy.get('[data-attr="property-filter-0"] .property-filter').click()
-        cy.get('.taxonomic-operator').click()
-        cy.get('.operator-value-option').contains('> after').click()
-        cy.get('[data-attr="property-filter-0"]').should('include.text', 'Time > ')
-    })
-
     it('has less than and greater than for a numeric property', () => {
         cy.get('[data-attr=new-prop-filter-EventsTable]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').type('$browser_version')
@@ -88,5 +95,39 @@ describe('Events', () => {
         cy.get('.operator-value-option').its('length').should('eql', 10)
         cy.get('.operator-value-option').contains('< lower than').should('be.visible')
         cy.get('.operator-value-option').contains('> greater than').should('be.visible')
+    })
+
+    it('has before and after for a DateTime property', () => {
+        searchForTimestampProperty()
+        selectDateBeforeOperator()
+
+        cy.get('.taxonomic-value-select').click()
+
+        chooseFirstDateInCalendar()
+
+        cy.get('[data-attr="property-filter-0"]').should('include.text', 'Time < ')
+
+        cy.get('[data-attr="property-filter-0"] .property-filter').click()
+        cy.get('.taxonomic-operator').click()
+        cy.get('.operator-value-option').contains('> after').click()
+        cy.get('[data-attr="property-filter-0"]').should('include.text', 'Time > ')
+    })
+
+    /**
+     * The test setup creates a set of events within the last 14 days
+     */
+    it.only('can query before a date and then shift to querying after it', () => {
+        searchForTimestampProperty()
+        selectDateBeforeOperator()
+        cy.get('.taxonomic-value-select').click()
+
+        const sevenDaysAgo = dayjs().subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss')
+        cy.get('.filter-date-picker').type(sevenDaysAgo)
+        cy.get('.ant-picker-ok').click()
+
+        cy.get('tr.event-row').should('have.length.greaterThan', 0)
+
+        selectDateAfterOperator()
+        cy.get('tr.event-row').should('have.length.greaterThan', 0)
     })
 })

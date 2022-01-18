@@ -73,11 +73,17 @@ class WebDataGenerator(DataGenerator):
         start_day = random.randint(1, 7) if index > 0 else 0
         browser = random.choice(["Chrome", "Safari", "Firefox"])
 
+        startDate = now() - relativedelta(days=start_day)
         self.add_event(
             event="$pageview",
             distinct_id=distinct_id,
-            timestamp=now() - relativedelta(days=start_day),
-            properties={"$current_url": "http://hogflix.com", "$browser": browser, "$lib": "web"},
+            timestamp=startDate,
+            properties={
+                "$current_url": "http://hogflix.com",
+                "$browser": browser,
+                "$lib": "web",
+                "$time": startDate.time(),
+            },
         )
 
         self.add_event(
@@ -88,8 +94,9 @@ class WebDataGenerator(DataGenerator):
                 "$browser": browser,
                 "$lib": "web",
                 "$event_type": "click",
+                "$time": (startDate + relativedelta(seconds=14)).time(),
             },
-            timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=14),
+            timestamp=startDate + relativedelta(seconds=14),
             # elements=[
             #     Element(
             #         tag_name="a",
@@ -114,8 +121,9 @@ class WebDataGenerator(DataGenerator):
                     "$browser": browser,
                     "$lib": "web",
                     "$event_type": "click",
+                    "$time": (startDate + relativedelta(seconds=29)).time(),
                 },
-                timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=29),
+                timestamp=startDate + relativedelta(seconds=29),
                 # elements=[
                 #     Element(tag_name="button", attr_class=["btn", "btn-success"], text="Sign up!",),
                 #     Element(tag_name="form", attr_class=["form"]),
@@ -127,8 +135,13 @@ class WebDataGenerator(DataGenerator):
             self.add_event(
                 event="$pageview",
                 distinct_id=distinct_id,
-                properties={"$current_url": "http://hogflix.com/2", "$browser": browser, "$lib": "web",},
-                timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=30),
+                properties={
+                    "$current_url": "http://hogflix.com/2",
+                    "$browser": browser,
+                    "$lib": "web",
+                    "$time": (startDate + relativedelta(seconds=30)).time(),
+                },
+                timestamp=startDate + relativedelta(seconds=30),
             )
             if index % 5 == 0:
                 self.add_event(
@@ -139,8 +152,9 @@ class WebDataGenerator(DataGenerator):
                         "$browser": browser,
                         "$lib": "web",
                         "$event_type": "click",
+                        "$time": (startDate + relativedelta(seconds=59)).time(),
                     },
-                    timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=59),
+                    timestamp=startDate + relativedelta(seconds=59),
                     # elements=[
                     #     Element(tag_name="button", attr_class=["btn", "btn-success"], text="Pay $10",),
                     #     Element(tag_name="form", attr_class=["form"]),
@@ -152,14 +166,19 @@ class WebDataGenerator(DataGenerator):
                 self.add_event(
                     event="purchase",
                     distinct_id=distinct_id,
-                    properties={"price": 10},
-                    timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=60),
+                    properties={"price": 10, "$time": (startDate + relativedelta(seconds=60)).time()},
+                    timestamp=startDate + relativedelta(seconds=60),
                 )
                 self.add_event(
                     event="$pageview",
                     distinct_id=distinct_id,
-                    properties={"$current_url": "http://hogflix.com/3", "$browser": browser, "$lib": "web",},
-                    timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=60),
+                    properties={
+                        "$current_url": "http://hogflix.com/3",
+                        "$browser": browser,
+                        "$lib": "web",
+                        "$time": (startDate + relativedelta(seconds=60)).time(),
+                    },
+                    timestamp=startDate + relativedelta(seconds=60),
                 )
 
     def populate_session_recording(self, person: Person, distinct_id: str, index: int):
