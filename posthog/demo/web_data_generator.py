@@ -82,7 +82,7 @@ class WebDataGenerator(DataGenerator):
                 "$current_url": "http://hogflix.com",
                 "$browser": browser,
                 "$lib": "web",
-                "$time": startDate.time(),
+                "$time": startDate.timestamp(),
             },
         )
 
@@ -94,7 +94,7 @@ class WebDataGenerator(DataGenerator):
                 "$browser": browser,
                 "$lib": "web",
                 "$event_type": "click",
-                "$time": (startDate + relativedelta(seconds=14)).time(),
+                "$time": (startDate + relativedelta(seconds=14)).timestamp(),
             },
             timestamp=startDate + relativedelta(seconds=14),
             # elements=[
@@ -121,7 +121,7 @@ class WebDataGenerator(DataGenerator):
                     "$browser": browser,
                     "$lib": "web",
                     "$event_type": "click",
-                    "$time": (startDate + relativedelta(seconds=29)).time(),
+                    "$time": (startDate + relativedelta(seconds=29)).timestamp(),
                 },
                 timestamp=startDate + relativedelta(seconds=29),
                 # elements=[
@@ -139,7 +139,7 @@ class WebDataGenerator(DataGenerator):
                     "$current_url": "http://hogflix.com/2",
                     "$browser": browser,
                     "$lib": "web",
-                    "$time": (startDate + relativedelta(seconds=30)).time(),
+                    "$time": (startDate + relativedelta(seconds=30)).timestamp(),
                 },
                 timestamp=startDate + relativedelta(seconds=30),
             )
@@ -152,7 +152,7 @@ class WebDataGenerator(DataGenerator):
                         "$browser": browser,
                         "$lib": "web",
                         "$event_type": "click",
-                        "$time": (startDate + relativedelta(seconds=59)).time(),
+                        "$time": (startDate + relativedelta(seconds=59)).timestamp(),
                     },
                     timestamp=startDate + relativedelta(seconds=59),
                     # elements=[
@@ -166,7 +166,7 @@ class WebDataGenerator(DataGenerator):
                 self.add_event(
                     event="purchase",
                     distinct_id=distinct_id,
-                    properties={"price": 10, "$time": (startDate + relativedelta(seconds=60)).time()},
+                    properties={"price": 10, "$time": (startDate + relativedelta(seconds=60)).timestamp()},
                     timestamp=startDate + relativedelta(seconds=60),
                 )
                 self.add_event(
@@ -176,7 +176,7 @@ class WebDataGenerator(DataGenerator):
                         "$current_url": "http://hogflix.com/3",
                         "$browser": browser,
                         "$lib": "web",
-                        "$time": (startDate + relativedelta(seconds=60)).time(),
+                        "$time": (startDate + relativedelta(seconds=60)).timestamp(),
                     },
                     timestamp=startDate + relativedelta(seconds=60),
                 )

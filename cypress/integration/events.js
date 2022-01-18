@@ -25,7 +25,11 @@ const searchForTimestampProperty = () => {
     cy.get('.taxonomic-list-row').should('have.length', 1).click()
 }
 
-const selectOperator = (operator) => {
+const selectOperator = (operator, openPopUp) => {
+    if (openPopUp) {
+        cy.get('[data-attr="property-filter-0"] .property-filter .property-filter-button-label').click()
+    }
+
     cy.get('.taxonomic-operator').click()
     cy.get('.operator-value-option').its('length').should('eql', 8)
     cy.get('.operator-value-option').contains('< before').should('be.visible')
@@ -34,12 +38,16 @@ const selectOperator = (operator) => {
     cy.get('.operator-value-option').contains(operator).click()
 }
 
-const selectDateBeforeOperator = () => {
-    selectOperator('< before')
+const selectDateBefore = (date, openPopUp) => {
+    selectOperator('< before', openPopUp)
+    cy.get('.taxonomic-value-select').click()
+    cy.get('.filter-date-picker').type(date)
+    cy.get('.ant-picker-ok').click()
+    cy.get('[data-attr="property-filter-0"]').should('include.text', 'Time < ')
 }
 
-const selectDateAfterOperator = () => {
-    selectOperator('> after')
+const changeFirstPropertyFilterToDateAfter = () => {
+    selectOperator('> after', true)
 }
 
 function chooseFirstDateInCalendar() {
@@ -99,7 +107,7 @@ describe('Events', () => {
 
     it('has before and after for a DateTime property', () => {
         searchForTimestampProperty()
-        selectDateBeforeOperator()
+        selectDateBefore()
 
         cy.get('.taxonomic-value-select').click()
 
@@ -118,16 +126,9 @@ describe('Events', () => {
      */
     it.only('can query before a date and then shift to querying after it', () => {
         searchForTimestampProperty()
-        selectDateBeforeOperator()
-        cy.get('.taxonomic-value-select').click()
-
         const sevenDaysAgo = dayjs().subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss')
-        cy.get('.filter-date-picker').type(sevenDaysAgo)
-        cy.get('.ant-picker-ok').click()
+        selectDateBefore(sevenDaysAgo)
 
-        cy.get('tr.event-row').should('have.length.greaterThan', 0)
-
-        selectDateAfterOperator()
-        cy.get('tr.event-row').should('have.length.greaterThan', 0)
+        changeFirstPropertyFilterToDateAfter()
     })
 })
