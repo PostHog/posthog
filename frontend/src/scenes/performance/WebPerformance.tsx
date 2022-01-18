@@ -11,7 +11,7 @@ import { EyeOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { Tooltip } from 'lib/components/Tooltip'
 import { useActions, useValues } from 'kea'
-import { apmLogic } from 'scenes/apm/apmLogic'
+import { webPerformanceLogic } from 'scenes/performance/webPerformanceLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -66,7 +66,7 @@ function VerticalMarker({
 }
 
 function WaterfallChart(): JSX.Element {
-    const { eventToDisplay } = useValues(apmLogic)
+    const { eventToDisplay } = useValues(webPerformanceLogic)
     return (
         <>
             {eventToDisplay && (
@@ -134,8 +134,8 @@ function WaterfallChart(): JSX.Element {
 }
 
 function EventsWithPerformanceTable(): JSX.Element {
-    const { pageViewEventsLoading, pageViewEvents, eventToDisplay } = useValues(apmLogic)
-    const { setEventToDisplay } = useActions(apmLogic)
+    const { pageViewEventsLoading, pageViewEvents, eventToDisplay } = useValues(webPerformanceLogic)
+    const { setEventToDisplay } = useActions(webPerformanceLogic)
     const columns: LemonTableColumns<EventType> = [
         {
             title: 'URL / Screen',
@@ -215,13 +215,13 @@ function EventsWithPerformanceTable(): JSX.Element {
                     setEventToDisplay(pageViewEvent)
                 },
             })}
-            data-attr="apm-waterfall-events-table"
+            data-attr="waterfall-events-table"
         />
     )
 }
 
 function DebugPerfData(): JSX.Element {
-    const { currentEvent } = useValues(apmLogic)
+    const { currentEvent } = useValues(webPerformanceLogic)
     return (
         <pre>
             {currentEvent ? JSON.stringify(JSON.parse(currentEvent.properties.$performance_raw), undefined, 2) : null}
@@ -231,7 +231,7 @@ function DebugPerfData(): JSX.Element {
 
 export function WebPerformance(): JSX.Element {
     return (
-        <div className="apm-performance-waterfall">
+        <div className="performance-waterfall">
             <PageHeader
                 title={
                     <Row align="middle">
@@ -259,6 +259,6 @@ export function WebPerformance(): JSX.Element {
 
 export const scene: SceneExport = {
     component: WebPerformance,
-    logic: apmLogic,
+    logic: webPerformanceLogic,
     paramsToProps: () => ({ sceneUrl: urls.webPerformance() }),
 }

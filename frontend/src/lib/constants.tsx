@@ -88,7 +88,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENT_CORRELATION_DISCOVERY: 'experiment-correlation-discovery', // owner: @neilkakkar
     RECORDINGS_IN_TRENDS_PERSON_MODAL: '7852-recordings-in-trends-person-modal', // owner: @rcmarron
     PATHS_ADVANCED_EXPERIMENT: 'paths-advanced-2101', // owner: @paolodamico; `control`, `direct` (A), `no-advanced` (B)
-    APM: 'hackathon-apm', //owner @pauldambra
+    WEB_PERFORMANCE: 'hackathon-apm', //owner @pauldambra
     NEW_INSIGHT_COHORTS: '7569-insight-cohorts',
     COLLABORATIONS_TAXONOMY: 'collaborations-taxonomy', // owner @alexkim205
 }
