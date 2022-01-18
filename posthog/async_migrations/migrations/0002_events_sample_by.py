@@ -32,7 +32,7 @@ Migration Summary
 """
 
 
-def generate_insert_into_op(partition_gte: int, partition_lt=None) -> AsyncMigrationOperation.simple_op:
+def generate_insert_into_op(partition_gte: int, partition_lt=None) -> AsyncMigrationOperation:
     lt_expression = f"toYYYYMM(timestamp) < {partition_lt}" if partition_lt else ""
     op = AsyncMigrationOperation.simple_op(
         database=AnalyticsDBMS.CLICKHOUSE,
@@ -99,8 +99,6 @@ class Migration(AsyncMigrationDefinition):
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
                 rollback=f"ATTACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
-                side_effect=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
-                side_effect_rollback=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
             ),
         ]
 
