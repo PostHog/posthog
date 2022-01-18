@@ -6,7 +6,7 @@ import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 
 interface EntityFilterInfoProps {
-    filter: EntityFilter | ActionFilter | FunnelStepRangeEntityFilter | Record<string, any>
+    filter: EntityFilter | ActionFilter | FunnelStepRangeEntityFilter
     allowWrap?: boolean
 }
 
