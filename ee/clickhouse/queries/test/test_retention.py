@@ -7,7 +7,6 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
-from posthog.constants import FILTER_TEST_ACCOUNTS
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters import Filter
@@ -46,11 +45,9 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
         create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={})
         create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", properties={})
 
-        p1 = Person.objects.create(
-            team=self.team, distinct_ids=["person1", "alias1"], properties={"email": "posthog.com"}
-        )
-        p2 = Person.objects.create(team=self.team, distinct_ids=["person2"], properties={"email": "posthog.com"})
-        p3 = Person.objects.create(team=self.team, distinct_ids=["person3"])
+        Person.objects.create(team=self.team, distinct_ids=["person1", "alias1"])
+        Person.objects.create(team=self.team, distinct_ids=["person2"])
+        Person.objects.create(team=self.team, distinct_ids=["person3"])
 
         self._create_events(
             [
@@ -69,8 +66,6 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
                 ("person2", self._date(month=1, day=15), {"$group_0": "org:6", "$group_1": "company:1"}),
             ]
         )
-
-        return p1, p2, p3
 
     @snapshot_clickhouse_queries
     def test_groups_filtering(self):
