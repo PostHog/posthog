@@ -336,6 +336,17 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 }
             },
         ],
+        fetchNextEvents: async () => {
+            const { events } = values
+
+            if (events.length === 0) {
+                actions.fetchEvents()
+            } else {
+                actions.fetchEvents({
+                    before: events[events.length - 1].timestamp,
+                })
+            }
+        },
         pollEvents: async (_, breakpoint) => {
             function setNextPoll(): void {
                 // uses window setTimeout because typegen had a hard time with NodeJS.Timeout
