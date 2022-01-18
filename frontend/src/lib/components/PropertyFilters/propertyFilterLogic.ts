@@ -11,7 +11,6 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
     key: (props) => props.pageKey,
 
     actions: () => ({
-        update: true,
         setFilter: (
             index: number,
             key: PropertyFilter['key'],
@@ -51,16 +50,9 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
         ],
     },
 
-    listeners: ({ actions, props, values }) => ({
-        setFilter: ({ value }) => {
-            // Only send update if value is set to something
-            value && actions.update()
-        },
-        remove: () => {
-            actions.update()
-        },
-        update: () => {
-            props.onChange(values.filters)
-        },
+    listeners: ({ props, values }) => ({
+        setFilters: () => props.onChange(values.filters),
+        setFilter: () => props.onChange(values.filters),
+        remove: () => props.onChange(values.filters),
     }),
 })
