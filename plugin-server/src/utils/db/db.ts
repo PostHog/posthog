@@ -1564,13 +1564,13 @@ export class DB {
         return (await this.clickhouseQuery(query)).data as ClickhouseGroup[]
     }
 
-    public async getTeamsInOrganizationsWithRootPluginAccess(): Promise<TeamId[]> {
+    public async getTeamsInOrganizationsWithRootPluginAccess(): Promise<Team[]> {
         return (
             await this.postgresQuery(
                 'SELECT * from posthog_team WHERE organization_id = (SELECT id from posthog_organization WHERE plugins_access_level = $1)',
                 [OrganizationPluginsAccessLevel.ROOT],
                 'getTeamsInOrganizationsWithRootPluginAccess'
             )
-        ).rows as TeamId[]
+        ).rows as Team[]
     }
 }

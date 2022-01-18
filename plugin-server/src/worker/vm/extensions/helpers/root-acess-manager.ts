@@ -16,7 +16,9 @@ export class RootAccessManager {
 
     public async getRootAccessTeams(): Promise<TeamId[]> {
         if (Date.now() > this.rootAccessTeamsCacheExpiration) {
-            this.rootAcessTeamsCache = await this.db.getTeamsInOrganizationsWithRootPluginAccess()
+            this.rootAcessTeamsCache = (await this.db.getTeamsInOrganizationsWithRootPluginAccess()).map(
+                (team) => team.id
+            )
             this.rootAccessTeamsCacheExpiration = Date.now() + CACHE_TTL
         }
 

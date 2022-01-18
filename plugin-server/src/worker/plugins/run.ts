@@ -157,8 +157,8 @@ export async function runPluginTask(
 }
 
 export async function runHandleAlert(server: Hub, alert: Alert): Promise<void> {
-    const rootAcessTeams = await server.rootAccessManager.getRootAccessTeams()
-    const pluginsToRun = getPluginsForTeams(server, rootAcessTeams)
+    const rootAcessTeamIds = await server.rootAccessManager.getRootAccessTeams()
+    const pluginsToRun = getPluginsForTeams(server, rootAcessTeamIds)
 
     await Promise.all(
         pluginsToRun.map(async (pluginConfig) => {
@@ -183,9 +183,9 @@ function getPluginsForTeam(server: Hub, teamId: number): PluginConfig[] {
 }
 
 function getPluginsForTeams(server: Hub, teamIds: TeamId[]) {
-    const plugins: PluginConfig[] = []
+    let plugins: PluginConfig[] = []
     for (const teamId of teamIds) {
-        plugins.concat(getPluginsForTeam(server, teamId))
+        plugins = plugins.concat(getPluginsForTeam(server, teamId))
     }
     return plugins
 }

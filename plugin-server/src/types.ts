@@ -358,10 +358,11 @@ export enum Service {
     Kafka = 'kafka',
 }
 export interface Alert {
+    id: string
     level: AlertLevel
-    name: string
-    description: string
-    servicesAffected: Service[]
+    key: string
+    description?: string
+    trigger_location: Service
 }
 export interface PluginConfigVMResponse {
     vm: VM
