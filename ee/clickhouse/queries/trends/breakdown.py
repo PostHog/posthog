@@ -239,7 +239,7 @@ class ClickhouseTrendsBreakdown:
                     "breakdown_value": result_descriptors["breakdown_value"],
                     "breakdown_type": filter.breakdown_type or "event",
                 }
-                parsed_params: Dict[str, Union[Any, int, str]] = encode_get_request_params(
+                parsed_params: Dict[str, str] = encode_get_request_params(
                     {**filter_params, **extra_params}, lambda x: x
                 )
                 parsed_result = {
@@ -292,9 +292,7 @@ class ClickhouseTrendsBreakdown:
                 "breakdown_value": breakdown_value,
                 "breakdown_type": filter.breakdown_type or "event",
             }
-            parsed_params: Dict[str, Union[Any, int, str]] = encode_get_request_params(
-                {**filter_params, **extra_params}, lambda x: x
-            )
+            parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params}, lambda x: x)
             persons_url.append(
                 {
                     "filter": extra_params,
