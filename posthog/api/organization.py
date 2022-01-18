@@ -63,6 +63,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
         serializers.SerializerMethodField()
     )  # Information related to the current state of the onboarding/setup process
     teams = serializers.SerializerMethodField()
+    metadata = serializers.SerializerMethodField()
 
     class Meta:
         model = Organization
@@ -81,6 +82,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "available_features",
             "domain_whitelist",
             "is_member_join_email_enabled",
+            "metadata",
         ]
         read_only_fields = [
             "id",
@@ -138,6 +140,23 @@ class OrganizationSerializer(serializers.ModelSerializer):
         )
         visible_teams = [team for team in teams if team["effective_membership_level"] is not None]
         return visible_teams
+
+    def get_metadata(self, instance: Organization) -> Dict[str, int]:
+        output = {
+            "taxonomy_set_events_count": 0,
+            "taxonomy_set_properties_count": 0,
+        }
+
+        try:
+            from ee.models import EnterpriseEventDefinition, EnterprisePropertyDefinition
+        except ImportError:
+            return output
+
+        output["taxonomy_set_events_count"] = EnterpriseEventDefinition.objects.exclude(description="", tags=[]).count()
+        output["taxonomy_set_properties_count"] = EnterprisePropertyDefinition.objects.exclude(
+            description="", tags=[]
+        ).count()
+        return output
 
 
 class OrganizationViewSet(viewsets.ModelViewSet):

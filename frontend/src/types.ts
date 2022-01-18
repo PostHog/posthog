@@ -101,6 +101,10 @@ export interface OrganizationBasicType {
     membership_level: OrganizationMembershipLevel | null
 }
 
+interface OrganizationMetadata {
+    taxonomy_set_events_count: number
+    taxonomy_set_properties_count: number
+}
 export interface OrganizationType extends OrganizationBasicType {
     created_at: string
     updated_at: string
@@ -112,6 +116,7 @@ export interface OrganizationType extends OrganizationBasicType {
     available_features: AvailableFeature[]
     domain_whitelist: string[]
     is_member_join_email_enabled: boolean
+    metadata?: OrganizationMetadata
 }
 
 /** Member properties relevant at both organization and project level. */
@@ -1420,6 +1425,7 @@ export interface AppContext {
     preflight: PreflightStatus
     default_event_name: string
     persisted_feature_flags?: string[]
+    anonymous: boolean
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -1554,4 +1560,12 @@ export interface GraphPointPayload {
 export enum CompareLabelType {
     Current = 'current',
     Previous = 'previous',
+}
+
+export interface InstanceSetting {
+    key: string
+    value: boolean | string | number
+    value_type: 'bool' | 'str' | 'int'
+    description?: string
+    editable: boolean
 }

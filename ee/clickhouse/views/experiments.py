@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Type, Union
 
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
@@ -8,6 +8,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from ee.clickhouse.queries.experiments.funnel_experiment_result import ClickhouseFunnelExperimentResult
+from ee.clickhouse.queries.experiments.secondary_experiment_result import ClickhouseSecondaryExperimentResult
 from ee.clickhouse.queries.experiments.trend_experiment_result import ClickhouseTrendExperimentResult
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import StructuredViewSetMixin
@@ -175,12 +176,45 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
             raise ValidationError("Experiment has no target metric")
 
         filter = Filter(experiment.filters)
-        experiment_class = (
+        experiment_class: Union[Type[ClickhouseTrendExperimentResult], Type[ClickhouseFunnelExperimentResult]] = (
             ClickhouseTrendExperimentResult if filter.insight == INSIGHT_TRENDS else ClickhouseFunnelExperimentResult
         )
 
         result = experiment_class(
             filter, self.team, experiment.feature_flag, experiment.start_date, experiment.end_date,
-        ).get_results()  # type: ignore # TODO: Fix type once I introduce base class
+        ).get_results()
+
+        return Response(result)
+
+    # ******************************************
+    # /projects/:id/experiments/:experiment_id/secondary_results?id=<secondary_metric_id>
+    #
+    # Returns values for secondary experiment metrics, broken down by variants
+    # ******************************************
+    @action(methods=["GET"], detail=True)
+    def secondary_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        experiment: Experiment = self.get_object()
+
+        if not experiment.parameters.get("secondary_metrics"):
+            raise ValidationError("Experiment has no secondary metrics")
+
+        metric_id = request.query_params.get("id")
+
+        if not metric_id:
+            raise ValidationError("Secondary metric id is required")
+
+        try:
+            parsed_id = int(metric_id)
+        except ValueError:
+            raise ValidationError("Secondary metric id must be an integer")
+
+        if parsed_id > len(experiment.parameters.get("secondary_metrics")):
+            raise ValidationError("Invalid metric ID")
+
+        filter = Filter(experiment.parameters["secondary_metrics"][parsed_id])
+
+        result = ClickhouseSecondaryExperimentResult(
+            filter, self.team, experiment.feature_flag, experiment.start_date, experiment.end_date,
+        ).get_results()
 
         return Response(result)

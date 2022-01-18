@@ -1,10 +1,12 @@
 import { Properties } from '@posthog/plugin-scaffold'
+import { KafkaMessage, ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
-import { QueryResult } from 'pg'
+import { PoolClient, QueryResult } from 'pg'
 
 import {
     Group,
     GroupTypeIndex,
+    Person,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     PropertyUpdateOperation,
@@ -73,6 +75,49 @@ export async function updatePersonProperties(
         )
         await db.kafkaProducer.queueMessage(kafkaMessage)
     }
+}
+
+export async function mergePersonProperties(
+    db: DB,
+    client: PoolClient,
+    primaryPerson: Person,
+    secondaryPerson: Person,
+    timestamp: DateTime
+): Promise<ProducerRecord[]> {
+    // Assuming we have locked both person's rows for update
+    const propertiesUpdate: PropertiesUpdate = calculateUpdateForMerge(
+        primaryPerson.properties,
+        primaryPerson.properties_last_updated_at,
+        primaryPerson.properties_last_operation || {},
+        secondaryPerson.properties,
+        secondaryPerson.properties_last_updated_at,
+        secondaryPerson.properties_last_operation || {}
+    )
+
+    if (propertiesUpdate.updated) {
+        const version = await db.updatePerson(
+            client,
+            primaryPerson.id,
+            timestamp,
+            propertiesUpdate.properties,
+            propertiesUpdate.properties_last_updated_at,
+            propertiesUpdate.properties_last_operation
+        )
+
+        if (db.kafkaProducer && propertiesUpdate.updated) {
+            return [
+                generateKafkaPersonUpdateMessage(
+                    timestamp,
+                    propertiesUpdate.properties,
+                    primaryPerson.team_id,
+                    primaryPerson.is_identified || secondaryPerson.is_identified,
+                    primaryPerson.uuid,
+                    version
+                ),
+            ]
+        }
+    }
+    return []
 }
 
 export async function upsertGroup(
@@ -155,45 +200,115 @@ export async function upsertGroup(
     }
 }
 
+export function shouldUpdateProperty(
+    operation: PropertyUpdateOperation,
+    timestamp: DateTime,
+    lastOperation: PropertyUpdateOperation,
+    lastTimestamp: DateTime
+): boolean {
+    if (
+        operation == PropertyUpdateOperation.SetOnce &&
+        lastOperation === PropertyUpdateOperation.SetOnce &&
+        lastTimestamp > timestamp
+    ) {
+        return true
+    }
+    if (
+        operation == PropertyUpdateOperation.Set &&
+        (lastOperation === PropertyUpdateOperation.SetOnce || lastTimestamp < timestamp)
+    ) {
+        return true
+    }
+    return false
+}
+
+export function calculateUpdateSingleProperty(
+    result: PropertiesUpdate,
+    key: string,
+    value: any,
+    operation: PropertyUpdateOperation,
+    timestamp: DateTime,
+    currentPropertiesLastOperation: PropertiesLastOperation,
+    currentPropertiesLastUpdatedAt: PropertiesLastUpdatedAt
+): void {
+    if (
+        !(key in result.properties) ||
+        shouldUpdateProperty(
+            operation,
+            timestamp,
+            getPropertiesLastOperationOrSet(currentPropertiesLastOperation, key),
+            getPropertyLastUpdatedAtDateTimeOrEpoch(currentPropertiesLastUpdatedAt, key)
+        )
+    ) {
+        result.updated = true
+        result.properties[key] = value
+        result.properties_last_operation[key] = operation
+        result.properties_last_updated_at[key] = timestamp.toISO()
+    }
+}
+
+export function calculateUpdateForMerge(
+    currentProperties: Properties,
+    currentPropertiesLastUpdatedAt: PropertiesLastUpdatedAt,
+    currentPropertiesLastOperation: PropertiesLastOperation,
+    newProperties: Properties,
+    newPropertiesLastUpdatedAt: PropertiesLastUpdatedAt,
+    newPropertiesLastOperation: PropertiesLastOperation
+): PropertiesUpdate {
+    const result: PropertiesUpdate = {
+        updated: false,
+        properties: { ...currentProperties },
+        properties_last_updated_at: { ...currentPropertiesLastUpdatedAt },
+        properties_last_operation: { ...currentPropertiesLastOperation },
+    }
+
+    Object.entries(newProperties).forEach(([key, value]) => {
+        const operation = getPropertiesLastOperationOrSet(newPropertiesLastOperation, key)
+        const timestamp = getPropertyLastUpdatedAtDateTimeOrEpoch(newPropertiesLastUpdatedAt, key)
+        calculateUpdateSingleProperty(
+            result,
+            key,
+            value,
+            operation,
+            timestamp,
+            currentPropertiesLastOperation,
+            currentPropertiesLastUpdatedAt
+        )
+    })
+    return result
+}
+
 export function calculateUpdate(
     currentProperties: Properties,
     properties: Properties,
     propertiesOnce: Properties,
-    propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-    propertiesLastOperation: PropertiesLastOperation,
+    currentPropertiesLastUpdatedAt: PropertiesLastUpdatedAt,
+    currentPropertiesLastOperation: PropertiesLastOperation,
     timestamp: DateTime
 ): PropertiesUpdate {
     const result: PropertiesUpdate = {
         updated: false,
         properties: { ...currentProperties },
-        properties_last_updated_at: { ...propertiesLastUpdatedAt },
-        properties_last_operation: { ...propertiesLastOperation },
+        properties_last_updated_at: { ...currentPropertiesLastUpdatedAt },
+        properties_last_operation: { ...currentPropertiesLastOperation },
     }
 
-    Object.entries(propertiesOnce).forEach(([key, value]) => {
-        if (
-            !(key in result.properties) ||
-            (getPropertiesLastOperationOrSet(propertiesLastOperation, key) === PropertyUpdateOperation.SetOnce &&
-                getPropertyLastUpdatedAtDateTimeOrEpoch(propertiesLastUpdatedAt, key) > timestamp)
-        ) {
-            result.updated = true
-            result.properties[key] = value
-            result.properties_last_operation[key] = PropertyUpdateOperation.SetOnce
-            result.properties_last_updated_at[key] = timestamp.toISO()
-        }
-    })
-    // note that if the key appears twice we override it with set value here
-    Object.entries(properties).forEach(([key, value]) => {
-        if (
-            !(key in result.properties) ||
-            getPropertiesLastOperationOrSet(propertiesLastOperation, key) === PropertyUpdateOperation.SetOnce ||
-            getPropertyLastUpdatedAtDateTimeOrEpoch(propertiesLastUpdatedAt, key) < timestamp
-        ) {
-            result.updated = true
-            result.properties[key] = value
-            result.properties_last_operation[key] = PropertyUpdateOperation.Set
-            result.properties_last_updated_at[key] = timestamp.toISO()
-        }
+    const allProperties: [Properties, PropertyUpdateOperation][] = [
+        [propertiesOnce, PropertyUpdateOperation.SetOnce],
+        [properties, PropertyUpdateOperation.Set],
+    ]
+    allProperties.forEach(([props, operation]) => {
+        Object.entries(props).forEach(([key, value]) => {
+            calculateUpdateSingleProperty(
+                result,
+                key,
+                value,
+                operation,
+                timestamp,
+                currentPropertiesLastOperation,
+                currentPropertiesLastUpdatedAt
+            )
+        })
     })
     return result
 }
