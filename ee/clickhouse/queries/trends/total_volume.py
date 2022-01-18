@@ -92,7 +92,7 @@ class ClickhouseTrendsTotalVolume:
             time_range = enumerate_time_range(filter, seconds_in_interval)
             filter_params = filter.to_params()
             extra_params = {"entity_id": entity.id, "entity_type": entity.type, "entity_math": entity.math}
-            parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params}, lambda x: x)
+            parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
 
             return [
                 {
@@ -120,7 +120,7 @@ class ClickhouseTrendsTotalVolume:
                 "date_to": date,
             }
 
-            parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params}, lambda x: x)
+            parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
             persons_url.append(
                 {
                     "filter": extra_params,
