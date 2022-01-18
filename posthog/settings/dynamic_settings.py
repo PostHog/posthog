@@ -32,7 +32,7 @@ CONSTANCE_CONFIG = {
     ),
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS": (
         get_from_env("ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK", False, type_cast=str_to_bool),
-        "Used to disable automatic rollback of failed async migrations",
+        "Used to disable emails from async migrations service",
         bool,
     ),
 }
