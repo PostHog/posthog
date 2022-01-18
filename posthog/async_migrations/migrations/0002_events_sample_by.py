@@ -32,9 +32,9 @@ Migration Summary
 """
 
 
-def generate_insert_into_op(partition_gte: int, partition_lt=None) -> AsyncMigrationOperation:
-    lt_expression = f"toYYYYMM(timestamp) < {partition_lt} AND" if partition_lt else ""
-    op = AsyncMigrationOperation(
+def generate_insert_into_op(partition_gte: int, partition_lt=None) -> AsyncMigrationOperation.simple_op:
+    lt_expression = f"toYYYYMM(timestamp) < {partition_lt}" if partition_lt else ""
+    op = AsyncMigrationOperation.simple_op(
         database=AnalyticsDBMS.CLICKHOUSE,
         sql=f"""
         INSERT INTO {TEMPORARY_TABLE_NAME}
@@ -42,7 +42,6 @@ def generate_insert_into_op(partition_gte: int, partition_lt=None) -> AsyncMigra
         FROM {EVENTS_TABLE}
         WHERE 
             toYYYYMM(timestamp) >= {partition_gte} AND {lt_expression}
-            timestamp >= (SELECT max(timestamp) FROM {TEMPORARY_TABLE_NAME})
         """,
         rollback=f"TRUNCATE TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
         resumable=True,
@@ -69,16 +68,8 @@ class Migration(AsyncMigrationDefinition):
     @cached_property
     def operations(self):
 
-        last_partition_op = [generate_insert_into_op(self._partitions[-1])] if len(self._partitions) > 0 else []
-        old_partition_ops = []
-
-        previous_partition = self._partitions[0] if len(self._partitions) > 0 else None
-        for partition in self._partitions[1:]:
-            old_partition_ops.append(generate_insert_into_op(previous_partition, partition))
-            previous_partition = partition
-
         create_table_op = [
-            AsyncMigrationOperation(
+            AsyncMigrationOperation.simple_op(
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"""
                 CREATE TABLE IF NOT EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER} AS {EVENTS_TABLE_NAME}
@@ -92,18 +83,31 @@ class Migration(AsyncMigrationDefinition):
             )
         ]
 
-        detach_mv_op = [
+        old_partition_ops = []
+        previous_partition = self._partitions[0] if len(self._partitions) > 0 else None
+        for partition in self._partitions[1:]:
+            old_partition_ops.append(generate_insert_into_op(previous_partition, partition))
+            previous_partition = partition
+
+        detach_mv_ops = [
             AsyncMigrationOperation(
+                fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
+                rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
+                resumable=True,
+            ),
+            AsyncMigrationOperation.simple_op(
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
                 rollback=f"ATTACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
                 side_effect=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
                 side_effect_rollback=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
-            )
+            ),
         ]
 
+        last_partition_op = [generate_insert_into_op(self._partitions[-1] if len(self._partitions) > 0 else 0)]
+
         post_insert_ops = [
-            AsyncMigrationOperation(
+            AsyncMigrationOperation.simple_op(
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"""
                     RENAME TABLE
@@ -118,22 +122,25 @@ class Migration(AsyncMigrationDefinition):
                     ON CLUSTER {CLICKHOUSE_CLUSTER}
                 """,
             ),
-            AsyncMigrationOperation(
+            AsyncMigrationOperation.simple_op(
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL",
                 rollback="",
                 resumable=True,
             ),
-            AsyncMigrationOperation(
+            AsyncMigrationOperation.simple_op(
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"ATTACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
                 rollback=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
-                side_effect=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
-                side_effect_rollback=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
+            ),
+            AsyncMigrationOperation(
+                fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
+                rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
+                resumable=True,
             ),
         ]
 
-        return create_table_op + old_partition_ops + detach_mv_op + last_partition_op + post_insert_ops
+        return create_table_op + old_partition_ops + detach_mv_ops + last_partition_op + post_insert_ops
 
     def is_required(self):
         if settings.MULTI_TENANCY:

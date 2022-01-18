@@ -515,6 +515,94 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                         date: 'Wed, 02 Oct 2002 15:00:00 +0200',
                         patternDescription,
                     }
+                } else if (patternDescription === DateTimePropertyTypeFormat.ISO8601_DATE) {
+                    return [
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233056+00',
+                            date: '2022-01-15T11:18:49.233056+00:00',
+                            patternDescription,
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233056-00',
+                            date: '2022-01-15T11:18:49.233056-00:00',
+                            patternDescription,
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233056+04',
+                            date: '2022-01-15T11:18:49.233056+04:00',
+                            patternDescription,
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233056-04',
+                            date: '2022-01-15T11:18:49.233056-04:00',
+                            patternDescription,
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233056z',
+                            date: '2022-01-15T11:18:49.233056z',
+                            patternDescription,
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233+00:00',
+                            date: '2022-01-15T11:18:49.233+00:00',
+                            patternDescription,
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233-00:00',
+                            date: '2022-01-15T11:18:49.233-00:00',
+                            patternDescription,
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233+04:00',
+                            date: '2022-01-15T11:18:49.233+04:00',
+                            patternDescription,
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233-04:00',
+                            date: '2022-01-15T11:18:49.233-04:00',
+                            patternDescription,
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49.233z',
+                            date: '2022-01-15T11:18:49.233z',
+                            patternDescription,
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49+00:00',
+                            date: '2022-01-15T11:18:49+00:00',
+                            patternDescription,
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49-00:00',
+                            date: '2022-01-15T11:18:49-00:00',
+                            patternDescription,
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49+04:00',
+                            date: '2022-01-15T11:18:49+04:00',
+                            patternDescription,
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49-04:00',
+                            date: '2022-01-15T11:18:49-04:00',
+                            patternDescription,
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49z',
+                            date: '2022-01-15T11:18:49z',
+                            patternDescription,
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49+11',
+                            date: '2022-01-15T11:18:49+11',
+                            patternDescription,
+                        },
+                        {
+                            propertyKey: 'an_iso_8601_format_date_2022-01-15T11:18:49+0530',
+                            date: '2022-01-15T11:18:49+0530',
+                            patternDescription,
+                        },
+                    ]
                 } else {
                     const date = patternDescription
                         .replace('YYYY', '2021')
