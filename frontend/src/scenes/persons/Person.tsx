@@ -46,7 +46,7 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
                     <Dropdown
                         overlay={
                             <Menu>
-                                {person.distinct_ids.map((distinct_id: string) => (
+                                {person.distinct_ids.slice(1).map((distinct_id: string) => (
                                     <Menu.Item key={distinct_id}>
                                         <CopyToClipboardInline
                                             description="person distinct ID"
@@ -61,7 +61,7 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
                         trigger={['click']}
                     >
                         <Tag className="extra-ids">
-                            +{person.distinct_ids.length}
+                            +{person.distinct_ids.length - 1}
                             <DownOutlined />
                         </Tag>
                     </Dropdown>
