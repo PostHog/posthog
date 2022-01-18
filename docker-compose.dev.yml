@@ -43,11 +43,11 @@ services:
             KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
     worker: &worker
         build:
-            context: ../
+            context: .
             dockerfile: dev.Dockerfile
         command: ./bin/docker-worker-celery --with-scheduler
         volumes:
-            - ..:/code
+            - .:/code
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             CLICKHOUSE_HOST: 'clickhouse'
@@ -79,11 +79,11 @@ services:
             - '8234:8234'
     plugins:
         build:
-            context: ../
+            context: .
             dockerfile: dev.Dockerfile
         command: ./bin/plugin-server --no-restart-loop
         volumes:
-            - ..:/code
+            - .:/code
         restart: on-failure
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
