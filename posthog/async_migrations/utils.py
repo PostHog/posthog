@@ -106,7 +106,7 @@ def complete_migration(migration_instance: AsyncMigration):
         progress=100,
     )
 
-    if is_email_available():
+    if async_migrations_emails_enabled():
         from posthog.tasks.email import send_async_migration_complete_email
 
         send_async_migration_complete_email.delay(migration_key=migration_instance.name, time=now.isoformat())
