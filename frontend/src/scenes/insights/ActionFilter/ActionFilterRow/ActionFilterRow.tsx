@@ -48,7 +48,6 @@ const determineFilterLabel = (visible: boolean, filter: Partial<ActionFilter>): 
 }
 
 export interface ActionFilterRowProps {
-    logic: typeof entityFilterLogic
     filter: ActionFilter
     index: number
     hideMathSelector?: boolean
@@ -101,7 +100,6 @@ export interface ActionFilterRowProps {
 }
 
 export function ActionFilterRow({
-    logic,
     filter,
     index,
     hideMathSelector,
@@ -129,7 +127,7 @@ export function ActionFilterRow({
     disabled = false,
     renderRow,
 }: ActionFilterRowProps): JSX.Element {
-    const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
+    const { selectedFilter, entities, entityFilterVisible } = useValues(entityFilterLogic)
     const {
         updateFilter,
         selectFilter,
@@ -138,7 +136,7 @@ export function ActionFilterRow({
         updateFilterProperty,
         setEntityFilterVisibility,
         duplicateFilter,
-    } = useActions(logic)
+    } = useActions(entityFilterLogic)
     const { numericalPropertyNames } = useValues(propertyDefinitionsModel)
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)

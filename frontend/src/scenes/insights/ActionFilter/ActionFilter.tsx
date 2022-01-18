@@ -135,7 +135,6 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         }
 
         const commonProps = {
-            logic: logic as any,
             showSeriesIndicator,
             seriesIndicatorType,
             hideMathSelector,
@@ -158,66 +157,61 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
 
         return (
             <div ref={ref}>
-                {!hideRename && (
-                    <BindLogic
-                        logic={entityFilterLogic}
-                        props={{ setFilters, filters, typeKey, addFilterDefaultOptions }}
-                    >
-                        <RenameModal view={filters.insight} typeKey={typeKey} />
-                    </BindLogic>
-                )}
-                {localFilters ? (
-                    sortable ? (
-                        <SortableContainer onSortEnd={onSortEnd} lockAxis="y" distance={5}>
-                            {localFilters.map((filter, index) => (
-                                <SortableActionFilterRow
-                                    key={index}
+                <BindLogic logic={entityFilterLogic} props={{ setFilters, filters, typeKey, addFilterDefaultOptions }}>
+                    {!hideRename && <RenameModal view={filters.insight} typeKey={typeKey} />}
+                    {localFilters ? (
+                        sortable ? (
+                            <SortableContainer onSortEnd={onSortEnd} lockAxis="y" distance={5}>
+                                {localFilters.map((filter, index) => (
+                                    <SortableActionFilterRow
+                                        key={index}
+                                        filter={filter as ActionFilterType}
+                                        index={index}
+                                        filterIndex={index}
+                                        filterCount={localFilters.length}
+                                        showNestedArrow={showNestedArrow}
+                                        {...commonProps}
+                                    />
+                                ))}
+                            </SortableContainer>
+                        ) : (
+                            localFilters.map((filter, index) => (
+                                <ActionFilterRow
                                     filter={filter as ActionFilterType}
                                     index={index}
-                                    filterIndex={index}
+                                    key={index}
+                                    singleFilter={singleFilter}
+                                    showOr={showOr}
+                                    hideFilter={hideFilter}
+                                    horizontalUI={horizontalUI}
                                     filterCount={localFilters.length}
                                     showNestedArrow={showNestedArrow}
                                     {...commonProps}
                                 />
-                            ))}
-                        </SortableContainer>
-                    ) : (
-                        localFilters.map((filter, index) => (
-                            <ActionFilterRow
-                                filter={filter as ActionFilterType}
-                                index={index}
-                                key={index}
-                                singleFilter={singleFilter}
-                                showOr={showOr}
-                                hideFilter={hideFilter}
-                                horizontalUI={horizontalUI}
-                                filterCount={localFilters.length}
-                                showNestedArrow={showNestedArrow}
-                                {...commonProps}
-                            />
-                        ))
-                    )
-                ) : null}
-                {(!singleFilter || customActions) && (
-                    <div
-                        className={clsx(buttonType !== 'link' ? 'mt' : 'mt-05')}
-                        style={{ display: 'flex', alignItems: 'center' }}
-                    >
-                        {!singleFilter && (
-                            <Button
-                                type={buttonType}
-                                onClick={() => addFilter()}
-                                data-attr="add-action-event-button"
-                                icon={<PlusCircleOutlined />}
-                                disabled={disabled}
-                                className="add-action-event-button"
-                            >
-                                {buttonCopy || 'Action or event'}
-                            </Button>
-                        )}
-                        {customActions}
-                    </div>
-                )}
+                            ))
+                        )
+                    ) : null}
+                    {(!singleFilter || customActions) && (
+                        <div
+                            className={clsx(buttonType !== 'link' ? 'mt' : 'mt-05')}
+                            style={{ display: 'flex', alignItems: 'center' }}
+                        >
+                            {!singleFilter && (
+                                <Button
+                                    type={buttonType}
+                                    onClick={() => addFilter()}
+                                    data-attr="add-action-event-button"
+                                    icon={<PlusCircleOutlined />}
+                                    disabled={disabled}
+                                    className="add-action-event-button"
+                                >
+                                    {buttonCopy || 'Action or event'}
+                                </Button>
+                            )}
+                            {customActions}
+                        </div>
+                    )}
+                </BindLogic>
             </div>
         )
     }
