@@ -42,9 +42,9 @@ export function InsightTooltip({
     seriesData = [],
     altTitle,
     altRightTitle,
-    renderSeries = (value: React.ReactNode, _: SeriesDatum, idx: number) => (
+    renderSeries = (value: React.ReactNode, datum: SeriesDatum) => (
         <>
-            <SeriesLetter className="mr-025" hasBreakdown={false} seriesIndex={idx} />
+            <SeriesLetter className="mr-025" hasBreakdown={false} seriesIndex={datum?.action?.order ?? datum.id} />
             {value}
         </>
     ),
@@ -90,6 +90,7 @@ export function InsightTooltip({
                 truncatedCols.forEach((seriesColumn, colIdx) => {
                     columns.push({
                         key: `series-column-data-${colIdx}`,
+                        className: 'datum-counts-column',
                         align: 'right',
                         title:
                             (colIdx === 0 ? rightTitle : undefined) ||
@@ -100,6 +101,7 @@ export function InsightTooltip({
                                         action={seriesColumn.action}
                                         fallbackName={seriesColumn.label}
                                         hideBreakdown
+                                        showSingleName
                                         hideCompare
                                         hideIcon
                                         allowWrap
@@ -158,6 +160,7 @@ export function InsightTooltip({
                         action={datum.action}
                         fallbackName={datum.label}
                         hideBreakdown
+                        showSingleName
                         hideCompare
                         hideIcon
                         allowWrap
