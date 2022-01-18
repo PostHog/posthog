@@ -39,11 +39,11 @@ export const actionLogic = kea<actionLogicType<ActionLogicProps>>({
             (action): Breadcrumb[] => [
                 {
                     name: 'Events & Actions',
-                    path: urls.LEGACY_actions(),
+                    path: urls.actions(),
                 },
                 {
                     name: action?.name || 'Unnamed',
-                    path: action ? urls.LEGACY_action(action.id) : undefined,
+                    path: action ? urls.action(action.id) : undefined,
                 },
             ],
         ],

@@ -101,6 +101,10 @@ export interface OrganizationBasicType {
     membership_level: OrganizationMembershipLevel | null
 }
 
+interface OrganizationMetadata {
+    taxonomy_set_events_count: number
+    taxonomy_set_properties_count: number
+}
 export interface OrganizationType extends OrganizationBasicType {
     created_at: string
     updated_at: string
@@ -112,6 +116,7 @@ export interface OrganizationType extends OrganizationBasicType {
     available_features: AvailableFeature[]
     domain_whitelist: string[]
     is_member_join_email_enabled: boolean
+    metadata?: OrganizationMetadata
 }
 
 /** Member properties relevant at both organization and project level. */

@@ -4,10 +4,10 @@ import { Alert, Skeleton } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { UsageDisabledWarning } from './UsageDisabledWarning'
-import { EventTableType, VolumeTable } from './VolumeTable'
-import { DefinitionDrawer } from 'scenes/LEGACY_events/definitions/DefinitionDrawer'
+import { VolumeTable } from './VolumeTable'
+import { DefinitionDrawer } from 'scenes/events/definitions/DefinitionDrawer'
 import { SceneExport } from 'scenes/sceneTypes'
-import { EventsTab } from 'scenes/LEGACY_events/EventsTabs'
+import { EventsTab } from 'scenes/events/EventsTabs'
 import { EventPageHeader } from './EventPageHeader'
 
 export const scene: SceneExport = {
@@ -21,7 +21,7 @@ export function PropertiesVolumeTable(): JSX.Element | null {
 
     return (
         <div data-attr="manage-events-table">
-            <EventPageHeader activeTab={EventsTab.EventPropertiesStats} />
+            <EventPageHeader activeTab={EventsTab.EventPropertyStats} />
             {loaded ? (
                 <>
                     {preflight && !preflight?.is_event_property_usage_enabled ? (
@@ -37,7 +37,7 @@ export function PropertiesVolumeTable(): JSX.Element | null {
                             </>
                         ))
                     )}
-                    <VolumeTable data={propertyDefinitions} type={EventTableType.Property} />
+                    <VolumeTable data={propertyDefinitions} type="property" />
                 </>
             ) : (
                 <Skeleton active paragraph={{ rows: 5 }} />

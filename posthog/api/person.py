@@ -209,7 +209,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
                 status=400,
             )
-        filter = RetentionFilter(request=request)
+        filter = RetentionFilter(request=request, team=team)
         base_uri = request.build_absolute_uri("/")
 
         if display == TRENDS_TABLE:

@@ -15,10 +15,10 @@ import Fuse from 'fuse.js'
 import { userLogic } from 'scenes/userLogic'
 import { teamLogic } from '../teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { EventsTab } from 'scenes/LEGACY_events'
+import { EventsTab } from 'scenes/events'
 import api from 'lib/api'
 import { urls } from '../urls'
-import { EventPageHeader } from 'scenes/LEGACY_events/EventPageHeader'
+import { EventPageHeader } from 'scenes/events/EventPageHeader'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable/types'
 import { LemonTable } from 'lib/components/LemonTable'
@@ -56,7 +56,7 @@ export function ActionsTable(): JSX.Element {
             sorter: (a: ActionType, b: ActionType) => ('' + a.name).localeCompare(b.name),
             render: function RenderName(name, action: ActionType, index: number): JSX.Element {
                 return (
-                    <Link data-attr={'action-link-' + index} to={urls.LEGACY_action(action.id)} className="row-name">
+                    <Link data-attr={'action-link-' + index} to={urls.action(action.id)} className="row-name">
                         {name || <i>Unnnamed action</i>}
                     </Link>
                 )
@@ -136,7 +136,7 @@ export function ActionsTable(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton type="stealth" to={urls.LEGACY_action(action.id)} fullWidth>
+                                <LemonButton type="stealth" to={urls.action(action.id)} fullWidth>
                                     Edit
                                 </LemonButton>
                                 <LemonButton

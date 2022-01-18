@@ -14,7 +14,7 @@ export function ActionInfo({ item }: RenderInfoProps): JSX.Element {
         <>
             <AimOutlined /> Actions
             {item.id && (
-                <Link to={urls.LEGACY_action(item.id)} style={{ float: 'right' }} tabIndex={-1}>
+                <Link to={urls.action(item.id)} style={{ float: 'right' }} tabIndex={-1}>
                     edit
                 </Link>
             )}
