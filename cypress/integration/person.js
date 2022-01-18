@@ -22,6 +22,7 @@ describe('Merge person', () => {
         cy.get('[data-attr=persons-search]').type('deb').should('have.value', 'deb')
         cy.get('.ant-input-search-button').click()
         cy.contains('deborah.fernandez@gmail.com').click()
+        cy.wait(100)
     })
 
     it('Should merge person', () => {
@@ -38,6 +39,6 @@ describe('Merge person', () => {
         cy.contains('Merge persons').click()
 
         cy.contains('Automatically load new events').click()
-        cy.get('.extra-ids').should('contain', '+2')
+        cy.get('.extra-ids').should('contain', '+1')
     })
 })
