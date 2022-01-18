@@ -1,6 +1,6 @@
 import React from 'react'
 import { Button, Col, Row, Typography } from 'antd'
-import './PerformanceWaterfall.scss'
+import './WebPerformance.scss'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { PageHeader } from 'lib/components/PageHeader'
 import clsx from 'clsx'
@@ -229,7 +229,7 @@ function DebugPerfData(): JSX.Element {
     )
 }
 
-export function PerformanceWaterfall(): JSX.Element {
+export function WebPerformance(): JSX.Element {
     return (
         <div className="apm-performance-waterfall">
             <PageHeader
@@ -258,7 +258,7 @@ export function PerformanceWaterfall(): JSX.Element {
 }
 
 export const scene: SceneExport = {
-    component: PerformanceWaterfall,
+    component: WebPerformance,
     logic: apmLogic,
-    paramsToProps: () => ({ sceneUrl: urls.apm() }),
+    paramsToProps: () => ({ sceneUrl: urls.webPerformance() }),
 }

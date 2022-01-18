@@ -205,7 +205,12 @@ function Pages(): JSX.Element {
                 <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
             )}
             {featureFlags[FEATURE_FLAGS.APM] && (
-                <PageButton icon={<CoffeeOutlined />} identifier={Scene.APM} to={urls.apm()} />
+                <PageButton
+                    icon={<CoffeeOutlined />}
+                    identifier={Scene.WebPerformance}
+                    to={urls.webPerformance()}
+                    highlight={'beta'}
+                />
             )}
             <LemonSpacer />
             <PageButton icon={<IconGroupedEvents />} identifier={Scene.Events} to={urls.events()} />

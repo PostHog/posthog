@@ -2,10 +2,10 @@ import { Meta } from '@storybook/react'
 import { keaStory } from 'lib/storybook/kea-story'
 
 import eventsState from './events.json'
-import { PerformanceWaterfall } from 'scenes/apm/PerformanceWaterfall'
+import { WebPerformance } from 'scenes/apm/WebPerformance'
 
 export default {
-    title: 'PostHog/Scenes/APM',
+    title: 'PostHog/Scenes/WebPerformance',
 } as Meta
 
-export const PerformanceWaterfallView = keaStory(PerformanceWaterfall, eventsState)
+export const WebPerformanceStory = keaStory(WebPerformance, eventsState)
