@@ -1,19 +1,19 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { definitionPanelLogicType } from './definitionPanelLogicType'
-import { DefinitionShapeType, DefinitionType } from 'lib/components/DefinitionPanel/types'
-import { errorToast } from 'lib/utils'
+import { DefinitionShapeType } from 'lib/components/DefinitionPanel/types'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 // Logic for taxonomic-type agnostic panel that contains taxonomy UI
 export const definitionPanelLogic = kea<definitionPanelLogicType>({
     path: ['lib', 'components', 'DefinitionPanel', 'definitionPanelLogic'],
     actions: {
-        openDrawer: (id: string | number, type: DefinitionType) => ({ id, type }),
+        openDrawer: (id: string | number, type: TaxonomicFilterGroupType) => ({ id, type }),
         closeDrawer: true,
     },
     reducers: {
         type: [
-            null as DefinitionType | null,
+            null as TaxonomicFilterGroupType | null,
             {
                 openDrawer: (_, { type }) => type,
                 closeDrawer: () => null,
@@ -31,10 +31,10 @@ export const definitionPanelLogic = kea<definitionPanelLogicType>({
         typeToEndpoint: [
             (s) => [s.type],
             (type) => {
-                if (type === DefinitionType.Events) {
+                if (type === TaxonomicFilterGroupType.Events) {
                     return 'event_definitions'
                 }
-                if (type === DefinitionType.EventProperties) {
+                if (type === TaxonomicFilterGroupType.EventProperties) {
                     return 'property_definitions'
                 }
                 // TODO: Other definition type API's must be implemented.
@@ -46,8 +46,11 @@ export const definitionPanelLogic = kea<definitionPanelLogicType>({
         definition: [
             null as DefinitionShapeType | null,
             {
-                loadDefinition: async (id) => {
+                loadDefinition: async ({ id }) => {
                     return await api.get(`api/projects/@current/${values.typeToEndpoint}/${id}`)
+                },
+                saveDefinition: async ({ id, definition }) => {
+                    return await api.update(`api/projects/@current/${values.typeToEndpoint}/${id}`, definition)
                 },
                 closeDrawer: () => null,
             },
@@ -56,11 +59,8 @@ export const definitionPanelLogic = kea<definitionPanelLogicType>({
     listeners: ({ actions }) => ({
         openDrawer: ({ id }) => {
             if (id) {
-                actions.loadDefinition(id)
+                actions.loadDefinition({ id })
             }
-        },
-        loadDefinitionFailure: ({ error }) => {
-            errorToast('Error fetching definition', error)
         },
     }),
 })

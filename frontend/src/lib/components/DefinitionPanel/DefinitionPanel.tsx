@@ -7,7 +7,7 @@ export function DefinitionPanel(): JSX.Element {
     const { visible, definition } = useValues(definitionPanelLogic)
     const { closeDrawer } = useActions(definitionPanelLogic)
     return (
-        <Modal title="Definition Panel" visible={visible} onCancel={closeDrawer}>
+        <Modal className="click-outside-block" title="Definition Panel" visible={visible} onCancel={closeDrawer}>
             {JSON.stringify(definition)}
         </Modal>
     )
