@@ -883,7 +883,7 @@ def encode_value_as_param(value: Union[str, list, dict]) -> str:
 
 def encode_get_request_params(data: Dict[str, Any], func: Callable = encode_value_as_param) -> Dict[str, str]:
     return {
-        key: func(value=value)
+        key: func(value)
         for key, value in data.items()
         # NOTE: we cannot encode `None` as a GET parameter, so we simply omit it
         if value is not None
