@@ -38,14 +38,6 @@ const selectOperator = (operator, openPopUp) => {
     cy.get('.operator-value-option').contains(operator).click()
 }
 
-const selectDateBefore = (date, openPopUp) => {
-    selectOperator('< before', openPopUp)
-    cy.get('.taxonomic-value-select').click()
-    cy.get('.filter-date-picker').type(date)
-    cy.get('.ant-picker-ok').click()
-    cy.get('[data-attr="property-filter-0"]').should('include.text', 'Time < ')
-}
-
 const changeFirstPropertyFilterToDateAfter = () => {
     selectOperator('> after', true)
 }
@@ -107,7 +99,8 @@ describe('Events', () => {
 
     it('has before and after for a DateTime property', () => {
         searchForTimestampProperty()
-        selectDateBefore()
+
+        selectOperator('< before', undefined)
 
         cy.get('.taxonomic-value-select').click()
 
@@ -129,8 +122,12 @@ describe('Events', () => {
 
         searchForTimestampProperty()
 
-        const sevenDaysAgo = dayjs().hour(19).minute(1).subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss')
-        selectDateBefore(sevenDaysAgo)
+        const oneDayAgo = dayjs().hour(19).minute(1).subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss')
+        selectOperator('< before', undefined)
+        cy.get('.taxonomic-value-select').click()
+        cy.get('.filter-date-picker').type(oneDayAgo)
+        cy.get('.ant-picker-ok').click()
+        cy.get('[data-attr="property-filter-0"]').should('include.text', 'Time < ')
 
         cy.wait('@getEvents').then(() => {
             cy.get('tr.event-row:first-child').should('contain.text', 'a day ago')
