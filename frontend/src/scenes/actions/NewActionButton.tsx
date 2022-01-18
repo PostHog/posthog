@@ -56,7 +56,7 @@ export function NewActionButton(): JSX.Element {
                             <Card
                                 title="From event or pageview"
                                 onClick={() => {
-                                    router.actions.push(urls.LEGACY_createAction())
+                                    router.actions.push(urls.createAction())
                                 }}
                                 size="small"
                             >

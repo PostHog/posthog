@@ -27,6 +27,7 @@ export function loadPostHogJS(): void {
                 rageclick: true,
                 debug: window.JS_POSTHOG_SELF_CAPTURE,
                 persistence: 'localStorage+cookie',
+                _capture_performance: true,
             })
         )
         // Make sure we have access to the object in window for debugging

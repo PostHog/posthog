@@ -462,6 +462,9 @@ export const eventUsageLogic = kea<
             properties.mode = insightMode // View or edit
 
             properties.viewer_is_creator = insightModel.created_by?.uuid === values.user?.uuid ?? null // `null` means we couldn't determine this
+            properties.is_saved = insightModel.saved
+            properties.description_length = insightModel.description?.length ?? 0
+            properties.tags_count = insightModel.tags?.length ?? 0
 
             const eventName = delay ? 'insight analyzed' : 'insight viewed'
             posthog.capture(eventName, { ...properties, ...(changedFilters ? changedFilters : {}) })

@@ -3,7 +3,12 @@ from rest_framework.decorators import action
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.async_migrations.runner import MAX_CONCURRENT_ASYNC_MIGRATIONS, is_posthog_version_compatible
-from posthog.async_migrations.utils import force_stop_migration, rollback_migration, trigger_migration
+from posthog.async_migrations.utils import (
+    can_resume_migration,
+    force_stop_migration,
+    rollback_migration,
+    trigger_migration,
+)
 from posthog.models.async_migration import AsyncMigration, MigrationStatus, get_all_running_async_migrations
 from posthog.permissions import StaffUser
 
@@ -78,16 +83,37 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
         trigger_migration(migration_instance)
         return response.Response({"success": True}, status=200)
 
-    # DANGEROUS! Can cause another task to be lost
     @action(methods=["POST"], detail=True)
-    def force_stop(self, request, **kwargs):
+    def resume(self, request, **kwargs):
+        migration_instance = self.get_object()
+        if migration_instance.status != MigrationStatus.Errored:
+            return response.Response(
+                {"success": False, "error": "Can't resume a migration that isn't in errored state",}, status=400,
+            )
+        resumable, error = can_resume_migration(migration_instance)
+        if not resumable:
+            return response.Response({"success": False, "error": error,}, status=400,)
+        trigger_migration(migration_instance, fresh_start=False)
+        return response.Response({"success": True}, status=200)
+
+    def _force_stop(self, rollback: bool):
         migration_instance = self.get_object()
         if migration_instance.status != MigrationStatus.Running:
             return response.Response(
                 {"success": False, "error": "Can't stop a migration that isn't running.",}, status=400,
             )
-        force_stop_migration(migration_instance)
+        force_stop_migration(migration_instance, rollback=rollback)
         return response.Response({"success": True}, status=200)
+
+    # DANGEROUS! Can cause another task to be lost
+    @action(methods=["POST"], detail=True)
+    def force_stop(self, request, **kwargs):
+        return self._force_stop(rollback=True)
+
+    # DANGEROUS! Can cause another task to be lost
+    @action(methods=["POST"], detail=True)
+    def force_stop_without_rollback(self, request, **kwargs):
+        return self._force_stop(rollback=False)
 
     @action(methods=["POST"], detail=True)
     def rollback(self, request, **kwargs):

@@ -27,7 +27,7 @@ export function GroupsTabs(): JSX.Element {
             ) : (
                 groupTypes.map((groupType) => (
                     <Tabs.TabPane
-                        tab={capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).singular)}
+                        tab={capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural)}
                         key={groupType.group_type_index}
                     />
                 ))

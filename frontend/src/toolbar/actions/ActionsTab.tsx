@@ -23,7 +23,7 @@ export function ActionsTab(): JSX.Element {
                     <>
                         <ActionsList />
                         <div style={{ textAlign: 'right' }}>
-                            <a href={`${apiURL}${urls.LEGACY_actions()}`} target="_blank" rel="noopener noreferrer">
+                            <a href={`${apiURL}${urls.actions()}`} target="_blank" rel="noopener noreferrer">
                                 View &amp; edit all actions <ExportOutlined />
                             </a>
                         </div>

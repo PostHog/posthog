@@ -36,7 +36,7 @@ def execute_op_postgres(sql: str, query_id: str):
         cursor.execute(f"/* {query_id} */ " + sql)
 
 
-def process_error(migration_instance: AsyncMigration, error: Optional[str]):
+def process_error(migration_instance: AsyncMigration, error: Optional[str], rollback: bool = True):
     update_async_migration(
         migration_instance=migration_instance,
         status=MigrationStatus.Errored,
@@ -44,12 +44,20 @@ def process_error(migration_instance: AsyncMigration, error: Optional[str]):
         finished_at=datetime.now(),
     )
 
-    if getattr(config, "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK"):
+    if not rollback or getattr(config, "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK"):
         return
 
     from posthog.async_migrations.runner import attempt_migration_rollback
 
     attempt_migration_rollback(migration_instance)
+
+
+def can_resume_migration(migration_instance: AsyncMigration):
+    from posthog.async_migrations.runner import is_current_operation_resumable
+
+    if not is_current_operation_resumable(migration_instance):
+        return False, "Can't resume a migration because the current operation isn't resumable"
+    return True, ""
 
 
 def trigger_migration(migration_instance: AsyncMigration, fresh_start: bool = True):
@@ -62,7 +70,9 @@ def trigger_migration(migration_instance: AsyncMigration, fresh_start: bool = Tr
     )
 
 
-def force_stop_migration(migration_instance: AsyncMigration, error: str = "Force stopped by user"):
+def force_stop_migration(
+    migration_instance: AsyncMigration, error: str = "Force stopped by user", rollback: bool = True
+):
     """
     In theory this is dangerous, as it can cause another task to be lost 
     `revoke` with `terminate=True` kills the process that's working on the task
@@ -75,7 +85,7 @@ def force_stop_migration(migration_instance: AsyncMigration, error: str = "Force
     """
 
     app.control.revoke(migration_instance.celery_task_id, terminate=True)
-    process_error(migration_instance, error)
+    process_error(migration_instance, error, rollback=rollback)
 
 
 def rollback_migration(migration_instance: AsyncMigration, force: bool = False):

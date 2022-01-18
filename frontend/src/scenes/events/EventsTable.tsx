@@ -15,12 +15,14 @@ import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TableConfig } from 'lib/components/ResizableTable'
 import { ActionType, AnyPropertyFilter, ChartDisplayType, EventsTableRowItem, FilterType, InsightType } from '~/types'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { EventName } from 'scenes/events/EventName'
+import { EventName } from 'scenes/actions/EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
+import { EventsTab } from 'scenes/events/EventsTabs'
 import { urls } from 'scenes/urls'
+import { EventPageHeader } from './EventPageHeader'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { TableCellRepresentation } from 'lib/components/LemonTable/types'
 import { IconSync } from 'lib/components/icons'
@@ -30,7 +32,6 @@ import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { teamLogic } from 'scenes/teamLogic'
 import { createActionFromEvent } from './createActionFromEvent'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
-import { PageHeader } from '../../lib/components/PageHeader'
 
 export interface FixedFilters {
     action_id?: ActionType['id']
@@ -64,7 +65,7 @@ export function EventsTable({
     const logic = eventsTableLogic({
         fixedFilters,
         key: pageKey,
-        sceneUrl: sceneUrl || urls.LEGACY_events(),
+        sceneUrl: sceneUrl || urls.events(),
         disableActions,
         fetchMonths,
     })
@@ -79,6 +80,7 @@ export function EventsTable({
         automaticLoadEnabled,
         exportUrl,
         highlightEvents,
+        sceneIsEventsPage,
         months,
     } = useValues(logic)
     const { tableWidth, selectedColumns } = useValues(tableConfigLogic)
@@ -340,13 +342,7 @@ export function EventsTable({
     return (
         <div data-attr="manage-events-table">
             <div className="events" data-attr="events-table">
-                {!disableActions && (
-                    <PageHeader
-                        title="Events & Actions"
-                        caption="See events being sent to this project in real time."
-                        tabbedPage
-                    />
-                )}
+                {!disableActions && <EventPageHeader activeTab={EventsTab.Events} hideTabs={!sceneIsEventsPage} />}
                 {!disableActions && (
                     <div
                         className="mb"
