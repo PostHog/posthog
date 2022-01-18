@@ -119,7 +119,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         self.assertIn("This feature is part of the premium PostHog offering.", response.json()["detail"])
 
     @freeze_time("2021-08-25T22:09:14.252Z")
-    def test_can_set_and_query_event_verified(self):
+    def test_can_get_event_verification_data(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
@@ -149,6 +149,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_by"] == None
         assert response.json()["verified_at"] == None
 
+        # Verify the event
         self.client.patch(f"/api/projects/@current/event_definitions/{event.id}", {"verified": True})
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -157,6 +158,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_by"]["id"] == self.user.id
         assert response.json()["verified_at"] == "2021-08-25T22:09:14.252000Z"
 
+        # Unverify the event
         self.client.patch(f"/api/projects/@current/event_definitions/{event.id}", {"verified": False})
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -187,19 +189,19 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_at"] == "2021-08-25T22:09:14.252000Z"
         assert response.json()["updated_at"] == "2021-08-25T22:09:14.252000Z"
 
-        with freeze_time("2021-10-25T22:09:14.252Z"):
+        with freeze_time("2022-10-25T22:09:14.252Z"):
             self.client.patch(f"/api/projects/@current/event_definitions/{event.id}", {"verified": True})
             response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         assert response.json()["verified"] == True
         assert response.json()["verified_by"]["id"] == self.user.id
-        assert response.json()["verified_at"] == "2021-08-25T22:09:14.252000Z"
+        assert response.json()["verified_at"] == "2021-08-25T22:09:14.252000Z"  # Note `verified_at` did not change
         # updated_at automatically updates on every patch request
-        assert response.json()["updated_at"] == "2021-10-25T22:09:14.252000Z"
+        assert response.json()["updated_at"] == "2022-10-25T22:09:14.252000Z"
 
     @freeze_time("2021-08-25T22:09:14.252Z")
-    def test_cannot_update_verified_meta_properties_separately(self):
+    def test_cannot_update_verified_meta_properties_directly(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
@@ -214,7 +216,10 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         with freeze_time("2021-08-25T22:09:14.252Z"):
             self.client.patch(
                 f"/api/projects/@current/event_definitions/{event.id}",
-                {"verified_by": self.user.id, "verified_at": timezone.now()},
+                {
+                    "verified_by": self.user.id,
+                    "verified_at": timezone.now(),
+                },  # These properties are ignored by the serializer
             )
             response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
