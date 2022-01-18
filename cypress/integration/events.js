@@ -124,11 +124,24 @@ describe('Events', () => {
     /**
      * The test setup creates a set of events within the last 14 days
      */
-    it.only('can query before a date and then shift to querying after it', () => {
+    it('can query before a date and then shift to querying after it', () => {
+        cy.intercept(/api\/projects\/\d+\/events\/.*/).as('getEvents')
+
         searchForTimestampProperty()
-        const sevenDaysAgo = dayjs().subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss')
+
+        const sevenDaysAgo = dayjs().hour(19).minute(1).subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss')
         selectDateBefore(sevenDaysAgo)
 
-        changeFirstPropertyFilterToDateAfter()
+        cy.wait('@getEvents').then(() => {
+            cy.get('tr.event-row:first-child').should('contain.text', 'a day ago')
+            cy.get('tr.event-row').should('have.length', 99)
+
+            changeFirstPropertyFilterToDateAfter()
+
+            cy.wait('@getEvents').then(() => {
+                cy.get('tr.event-row:first-child').should('contain.text', '7 hours ago')
+                cy.get('tr.event-row').should('have.length', 7)
+            })
+        })
     })
 })
