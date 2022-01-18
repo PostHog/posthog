@@ -528,9 +528,9 @@ export function Experiment(): JSX.Element {
                                 <ExperimentPreview
                                     experiment={experimentData}
                                     trendCount={trendCount}
-                                    exposure={exposure}
-                                    sampleSize={sampleSize}
-                                    runningTime={runningTime}
+                                    exposure={experimentData?.parameters.recommended_running_time}
+                                    sampleSize={experimentData?.parameters.recommended_sample_size}
+                                    runningTime={experimentData?.parameters.recommended_running_time}
                                     conversionRate={conversionRate}
                                 />
                                 {experimentResults && (
@@ -714,7 +714,7 @@ export function ExperimentPreview({
     runningTime,
     sampleSize,
 }: ExperimentPreviewProps): JSX.Element {
-    const { experimentInsightType, experimentId, experimentResults } = useValues(experimentLogic)
+    const { experimentInsightType, experimentId } = useValues(experimentLogic)
     const [currentVariant, setCurrentVariant] = useState('control')
 
     return (
@@ -743,7 +743,7 @@ export function ExperimentPreview({
                     <Row className="experiment-preview-row">
                         {experimentInsightType === InsightType.TRENDS ? (
                             <>
-                                {!experimentResults && (
+                                {!experiment?.start_date && (
                                     <Col span={12}>
                                         <div className="card-secondary">Baseline Count</div>
                                         <div className="l4">{trendCount}</div>
@@ -758,7 +758,7 @@ export function ExperimentPreview({
                             </>
                         ) : (
                             <>
-                                {!experimentResults && (
+                                {!experiment?.start_date && (
                                     <Col span={8}>
                                         <div className="card-secondary">Baseline Conversion Rate</div>
                                         <div className="l4">{conversionRate.toFixed(1)}%</div>
@@ -770,7 +770,7 @@ export function ExperimentPreview({
                                         <span className="l4">~{sampleSize}</span> persons
                                     </div>
                                 </Col>
-                                {!experimentResults && (
+                                {!experiment?.start_date && (
                                     <Col span={8}>
                                         <div className="card-secondary">Recommended running time</div>
                                         <div>
