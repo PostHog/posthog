@@ -533,38 +533,41 @@ export function Experiment(): JSX.Element {
                                     runningTime={runningTime}
                                     conversionRate={conversionRate}
                                 />
-                                <Col span={8} className="mt ml">
-                                    <div className="mb-05">
-                                        <b>Experiment progress</b>: {experimentProgressPercent.toFixed(1)}%
-                                    </div>
-                                    <Progress
-                                        strokeWidth={20}
-                                        showInfo={false}
-                                        percent={experimentProgressPercent}
-                                        strokeColor="var(--success)"
-                                    />
-                                    {experimentInsightType === InsightType.TRENDS && experimentData.start_date && (
-                                        <Row justify="space-between" className="mt-05">
-                                            <div>
-                                                <b>{dayjs().diff(experimentData.start_date, 'day')}</b> days running
-                                            </div>
-                                            <div>
-                                                Goal: <b>{experimentData?.parameters?.recommended_running_time}</b> days
-                                            </div>
-                                        </Row>
-                                    )}
-                                    {experimentInsightType === InsightType.FUNNELS && (
-                                        <Row justify="space-between" className="mt-05">
-                                            <div>
-                                                <b>{funnelResultsPersonsTotal}</b> participants seen
-                                            </div>
-                                            <div>
-                                                Goal: <b>{experimentData?.parameters?.recommended_sample_size}</b>{' '}
-                                                participants
-                                            </div>
-                                        </Row>
-                                    )}
-                                </Col>
+                                {experimentResults && (
+                                    <Col span={8} className="mt ml">
+                                        <div className="mb-05">
+                                            <b>Experiment progress</b>
+                                        </div>
+                                        <Progress
+                                            strokeWidth={20}
+                                            showInfo={false}
+                                            percent={experimentProgressPercent}
+                                            strokeColor="var(--success)"
+                                        />
+                                        {experimentInsightType === InsightType.TRENDS && experimentData.start_date && (
+                                            <Row justify="space-between" className="mt-05">
+                                                <div>
+                                                    <b>{dayjs().diff(experimentData.start_date, 'day')}</b> days running
+                                                </div>
+                                                <div>
+                                                    Goal: <b>{experimentData?.parameters?.recommended_running_time}</b>{' '}
+                                                    days
+                                                </div>
+                                            </Row>
+                                        )}
+                                        {experimentInsightType === InsightType.FUNNELS && (
+                                            <Row justify="space-between" className="mt-05">
+                                                <div>
+                                                    <b>{funnelResultsPersonsTotal}</b> participants seen
+                                                </div>
+                                                <div>
+                                                    Goal: <b>{experimentData?.parameters?.recommended_sample_size}</b>{' '}
+                                                    participants
+                                                </div>
+                                            </Row>
+                                        )}
+                                    </Col>
+                                )}
                             </Collapse.Panel>
                         </Collapse>
                     </Row>
@@ -711,7 +714,7 @@ export function ExperimentPreview({
     runningTime,
     sampleSize,
 }: ExperimentPreviewProps): JSX.Element {
-    const { experimentInsightType, experimentId } = useValues(experimentLogic)
+    const { experimentInsightType, experimentId, experimentResults } = useValues(experimentLogic)
     const [currentVariant, setCurrentVariant] = useState('control')
 
     return (
@@ -740,10 +743,12 @@ export function ExperimentPreview({
                     <Row className="experiment-preview-row">
                         {experimentInsightType === InsightType.TRENDS ? (
                             <>
-                                <Col span={12}>
-                                    <div className="card-secondary">Baseline Count</div>
-                                    <div className="l4">{trendCount}</div>
-                                </Col>
+                                {!experimentResults && (
+                                    <Col span={12}>
+                                        <div className="card-secondary">Baseline Count</div>
+                                        <div className="l4">{trendCount}</div>
+                                    </Col>
+                                )}
                                 <Col span={12}>
                                     <div className="card-secondary">Recommended running time</div>
                                     <div>
@@ -753,22 +758,26 @@ export function ExperimentPreview({
                             </>
                         ) : (
                             <>
-                                <Col span={8}>
-                                    <div className="card-secondary">Baseline Conversion Rate</div>
-                                    <div className="l4">{conversionRate.toFixed(1)}%</div>
-                                </Col>
+                                {!experimentResults && (
+                                    <Col span={8}>
+                                        <div className="card-secondary">Baseline Conversion Rate</div>
+                                        <div className="l4">{conversionRate.toFixed(1)}%</div>
+                                    </Col>
+                                )}
                                 <Col span={8}>
                                     <div className="card-secondary">Recommended Sample Size</div>
                                     <div className="pb">
                                         <span className="l4">~{sampleSize}</span> persons
                                     </div>
                                 </Col>
-                                <Col span={8}>
-                                    <div className="card-secondary">Recommended running time</div>
-                                    <div>
-                                        <span className="l4">~{runningTime}</span> days
-                                    </div>
-                                </Col>
+                                {!experimentResults && (
+                                    <Col span={8}>
+                                        <div className="card-secondary">Recommended running time</div>
+                                        <div>
+                                            <span className="l4">~{runningTime}</span> days
+                                        </div>
+                                    </Col>
+                                )}
                             </>
                         )}
                         <Col>
@@ -822,10 +831,12 @@ export function ExperimentPreview({
                             </Row>
                         </Col>
                     </Row>
-                    {experimentInsightType === InsightType.FUNNELS && experimentId !== 'new' && (
+                    {experimentId !== 'new' && (
                         <Row className="experiment-preview-row">
                             <Col>
-                                <div className="card-secondary mb-05">Conversion goal</div>
+                                <div className="card-secondary mb-05">
+                                    {experimentInsightType === InsightType.FUNNELS ? 'Conversion goal' : 'Trend goal'}
+                                </div>
                                 {experiment?.filters?.events?.map((event: ActionFilterType, idx: number) => (
                                     <Col key={idx} className="mb-05">
                                         <Row style={{ marginBottom: 4 }}>
