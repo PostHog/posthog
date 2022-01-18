@@ -4,7 +4,6 @@ import { combineUrl } from 'kea-router'
 
 export const urls = {
     default: () => '/',
-    notFound: () => '404',
     dashboards: () => '/dashboard',
     dashboard: (id: string | number) => `/dashboard/${id}`,
     createAction: () => `/action`, // TODO: For consistency, this should be `/action/new`

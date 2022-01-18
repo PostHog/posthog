@@ -84,9 +84,8 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
             }),
         },
         person: {
-            setPerson: (_, { person }): PersonType | null => {
-                return person
-            },
+            loadPerson: () => null,
+            setPerson: (_, { person }): PersonType | null => person,
         },
     },
     selectors: {
@@ -203,13 +202,11 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
             null as PersonType | null,
             {
                 loadPerson: async ({ id }): Promise<PersonType | null> => {
-                    actions.setPerson(null)
                     const response = await api.get(`api/person/?distinct_id=${id}`)
-                    if (!response.results.length) {
-                        router.actions.push(urls.notFound())
+                    const person = response.results[0] || (null as PersonType | null)
+                    if (person) {
+                        actions.reportPersonDetailViewed(person)
                     }
-                    const person = response.results[0] as PersonType
-                    person && actions.reportPersonDetailViewed(person)
                     return person
                 },
             },
@@ -265,7 +262,7 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
                 }
             }
         },
-        '/person/*': ({ _: person }, { sessionRecordingId }, { activeTab }) => {
+        '/person/*': ({ _: personDistinctId }, { sessionRecordingId }, { activeTab }) => {
             if (props.syncWithUrl) {
                 if (sessionRecordingId) {
                     if (values.showSessionRecordings) {
@@ -277,8 +274,8 @@ export const personsLogic = kea<personsLogicType<Filters, PersonLogicProps, Pers
                     actions.navigateToTab(activeTab as PersonsTabType)
                 }
 
-                if (person) {
-                    actions.loadPerson(person) // underscore contains the wildcard
+                if (personDistinctId && (!values.person || !values.person.distinct_ids.includes(personDistinctId))) {
+                    actions.loadPerson(personDistinctId) // underscore contains the wildcard
                 }
             }
         },
