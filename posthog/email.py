@@ -10,6 +10,7 @@ from django.core.mail.backends.smtp import EmailBackend
 from django.db import transaction
 from django.template.loader import get_template
 from django.utils import timezone
+from django.utils.module_loading import import_string
 from sentry_sdk import capture_exception
 
 from posthog.celery import app
@@ -84,7 +85,8 @@ def _send_email(
 
         connection = None
         try:
-            connection = EmailBackend(
+            klass = import_string(settings.EMAIL_BACKEND) if settings.EMAIL_BACKEND else EmailBackend
+            connection = klass(
                 host=config.EMAIL_HOST,
                 port=config.EMAIL_PORT,
                 username=config.EMAIL_HOST_USER,
