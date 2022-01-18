@@ -12,6 +12,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import {
     ChartDisplayType,
+    ActionFilter as ActionFilterType,
     FilterType,
     FunnelStep,
     FunnelVizType,
@@ -819,7 +820,7 @@ export function ExperimentPreview({
                         <Row className="experiment-preview-row">
                             <Col>
                                 <div className="card-secondary mb-05">Conversion goal</div>
-                                {experiment?.filters?.events?.map((event: Record<string, any>, idx: number) => (
+                                {experiment?.filters?.events?.map((event: ActionFilterType, idx: number) => (
                                     <Col key={idx} className="mb-05">
                                         <Row style={{ marginBottom: 4 }}>
                                             <div className="preview-conversion-goal-num">{idx + 1}</div>
