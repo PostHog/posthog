@@ -14,6 +14,7 @@ import { teamLogic } from './teamLogic'
 import { LoadedScene } from 'scenes/sceneTypes'
 import { appScenes } from 'scenes/appScenes'
 import { Navigation } from '~/layout/navigation/Navigation'
+import { DefinitionPanel } from 'lib/components/DefinitionPanel/DefinitionPanel'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],
@@ -129,6 +130,7 @@ function AppScene(): JSX.Element | null {
             </Navigation>
             {toastContainer}
             <UpgradeModal />
+            <DefinitionPanel />
         </>
     )
 }
