@@ -90,6 +90,7 @@ export function InsightTooltip({
                 truncatedCols.forEach((seriesColumn, colIdx) => {
                     columns.push({
                         key: `series-column-data-${colIdx}`,
+                        className: 'datum-counts-column',
                         align: 'right',
                         title:
                             (colIdx === 0 ? rightTitle : undefined) ||
