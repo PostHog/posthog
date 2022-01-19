@@ -7,9 +7,9 @@ CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
 # Warning: Dynamically updating these settings should only be done through the API.
 CONSTANCE_CONFIG = {
     "RECORDINGS_TTL_WEEKS": (
-        get_from_env("RECORDINGS_TTL_WEEKS", 3, type_cast=int),
+        3,
         "Number of weeks recordings will be kept before removing them (for all projects). Storing recordings for a shorter timeframe can help reduce Clickhouse disk usage.",
-        bool,
+        int,
     ),
     "MATERIALIZED_COLUMNS_ENABLED": (
         get_from_env("MATERIALIZED_COLUMNS_ENABLED", True, type_cast=str_to_bool),
