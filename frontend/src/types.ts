@@ -316,6 +316,12 @@ export enum SavedInsightsTabs {
     Favorites = 'favorites',
 }
 
+export enum ExperimentsTabs {
+    All = 'all',
+    Yours = 'yours',
+    Archived = 'archived'
+}
+
 /** Sync with plugin-server/src/types.ts */
 interface BasePropertyFilter {
     key: string

@@ -159,7 +159,13 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     def get_queryset(self):
-        return super().get_queryset()
+        filters = self.request.GET.dict()
+        if "user" in filters:
+            return super().get_queryset().filter(created_by=self.request.user)
+        if "archived" in filters:
+            return super().get_queryset().filter(parameters__contains={'archived':True})
+
+        return super().get_queryset().exclude(parameters__contains={'archived':True})
 
     # ******************************************
     # /projects/:id/experiments/:experiment_id/results

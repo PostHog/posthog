@@ -54,6 +54,7 @@ export const experimentLogic = kea<experimentLogicType>({
         launchExperiment: true,
         endExperiment: true,
         addExperimentGroup: true,
+        archiveExperiment: true,
     },
     reducers: {
         experimentId: [
@@ -275,25 +276,14 @@ export const experimentLogic = kea<experimentLogicType>({
                 actions.loadExperimentResults()
             }
         },
-        launchExperiment: async () => {
-            const response: Experiment = await api.update(
-                `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
-                {
-                    start_date: dayjs(),
-                }
-            )
-            actions.setExperimentId(response.id || 'new')
-            actions.loadExperiment()
+        launchExperiment: () => {
+            actions.updateExperiment({ start_date: dayjs() })
         },
         endExperiment: async () => {
-            const response: Experiment = await api.update(
-                `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
-                {
-                    end_date: dayjs(),
-                }
-            )
-            actions.setExperimentId(response.id || 'new')
-            actions.loadExperiment()
+            actions.updateExperiment({ end_date: dayjs() })
+        },
+        archiveExperiment: async () => {
+            actions.updateExperiment({ parameters: { ...values.experimentData?.parameters, archived: true } })
         },
         setExperimentInsightType: () => {
             if (values.experimentId === 'new') {
@@ -303,7 +293,7 @@ export const experimentLogic = kea<experimentLogicType>({
             }
         },
     }),
-    loaders: ({ values }) => ({
+    loaders: ({ values, actions }) => ({
         experimentData: [
             null as Experiment | null,
             {
@@ -316,6 +306,14 @@ export const experimentLogic = kea<experimentLogicType>({
                     }
                     return null
                 },
+                updateExperiment: async (update) => {
+                    const response: Experiment = await api.update(
+                        `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
+                        update
+                    )
+                    actions.setExperimentId(response.id || 'new')
+                    actions.loadExperiment()
+                }
             },
         ],
         experimentResults: [
