@@ -106,11 +106,13 @@ export function DashboardItems(): JSX.Element {
                             apiError={refreshStatus[item.short_id]?.error || false}
                             highlighted={highlightedInsightId && item.short_id === highlightedInsightId}
                             updateColor={(color) => updateItemColor(item.id, color)}
-                            removeItem={() => removeItem(item.id)}
+                            removeFromDashboard={() => removeItem(item.id)}
                             refresh={() => refreshAllDashboardItems([item])}
                             rename={() => renameInsight(item)}
                             duplicate={() => duplicateInsight(item)}
-                            moveTo={(dashboardId: DashboardType['id']) => duplicateInsight(item, dashboardId, true)}
+                            moveToDashboard={(dashboardId: DashboardType['id']) =>
+                                duplicateInsight(item, dashboardId, true)
+                            }
                         />
                     ) : (
                         <div key={item.short_id} className="dashboard-item-wrapper">

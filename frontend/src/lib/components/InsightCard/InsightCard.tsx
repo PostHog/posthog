@@ -29,31 +29,25 @@ export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     highlighted: boolean
     /** Layout of the card on a grid. */
     layout?: Layout
-    /** Callback for updating insight color. */
     updateColor: (newColor: InsightModel['color']) => void
-    /** Callback for updating which dashboard ID the insight belongs to. */
-    removeItem: () => void
-    /** Callback for refreshing insight. */
+    removeFromDashboard: () => void
     refresh: () => void
-    /** Callback for renaming insight. */
     rename: () => void
-    /** Callback for duplicating insight. */
     duplicate: () => void
-    /** Callback for moving insight to another dashboard. */
-    moveTo: (dashboardId: DashboardType['id']) => void
+    moveToDashboard: (dashboardId: DashboardType['id']) => void
 }
 
 function InsightMeta({
     insight,
     updateColor,
-    removeItem,
+    removeFromDashboard,
     refresh,
     rename,
     duplicate,
-    moveTo,
+    moveToDashboard,
 }: Pick<
     InsightCardProps,
-    'insight' | 'updateColor' | 'removeItem' | 'refresh' | 'rename' | 'duplicate' | 'moveTo'
+    'insight' | 'updateColor' | 'removeFromDashboard' | 'refresh' | 'rename' | 'duplicate' | 'moveToDashboard'
 >): JSX.Element {
     const { short_id, name, description, tags, color, filters, dashboard } = insight
 
@@ -124,7 +118,7 @@ function InsightMeta({
                                                     <LemonButton
                                                         key={otherDashboard.id}
                                                         type="stealth"
-                                                        onClick={() => moveTo(otherDashboard.id)}
+                                                        onClick={() => moveToDashboard(otherDashboard.id)}
                                                         fullWidth
                                                     >
                                                         {otherDashboard.name || <i>Untitled</i>}
@@ -152,7 +146,7 @@ function InsightMeta({
                                     <LemonButton
                                         type="stealth"
                                         style={{ color: 'var(--danger)' }}
-                                        onClick={removeItem}
+                                        onClick={removeFromDashboard}
                                         fullWidth
                                     >
                                         Remove from dashboard
@@ -197,11 +191,11 @@ function InsightCardInternal(
         apiError,
         highlighted,
         updateColor,
-        removeItem,
+        removeFromDashboard,
         refresh,
         rename,
         duplicate,
-        moveTo,
+        moveToDashboard,
         className,
         children,
         ...divProps
@@ -227,11 +221,11 @@ function InsightCardInternal(
             <InsightMeta
                 insight={insight}
                 updateColor={updateColor}
-                removeItem={removeItem}
+                removeFromDashboard={removeFromDashboard}
                 refresh={refresh}
                 rename={rename}
                 duplicate={duplicate}
-                moveTo={moveTo}
+                moveToDashboard={moveToDashboard}
             />
             <BindLogic logic={insightLogic} props={insightLogicProps}>
                 <InsightViz insight={insight} loading={loading} apiError={apiError} />
