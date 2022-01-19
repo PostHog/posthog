@@ -1,37 +1,32 @@
 @import '~/vars';
 
-.editable-field {
-    transition: none !important;
+.EditableField {
     display: flex;
     flex-direction: row;
     align-items: center;
-    width: 100%;
-    min-height: 40px;
-
-    &.edit-mode {
-        max-width: 640px;
+    white-space: pre-wrap;
+    &--multiline .input-area {
+        width: 100%;
     }
-
-    .btn-cancel {
-        color: $primary;
+    input,
+    textarea {
+        border: none;
+        background: transparent;
+        font: inherit;
     }
-
-    .edit-container {
-        transition: none !important;
-        padding: 8px;
-        margin-bottom: 8px;
-        textarea {
-            padding: 0 !important;
-            border: none;
-            outline: none;
-            transition: none !important;
-            font-size: 16px;
-
-            &:focus {
-                border: none;
-                outline: none;
-                box-shadow: none;
-            }
+    input {
+        padding: 0.25rem; // Some padding to give the focus outline more breathing space
+        margin: -0.25rem;
+    }
+    textarea {
+        width: 100%;
+        padding: 0 0.25rem; // Since the text area is height-controlled, only the sides are padded
+        margin: 0 -0.25rem;
+    }
+    button {
+        &:first-of-type {
+            margin-left: 0.75rem;
         }
+        margin-left: 0.5rem;
     }
 }

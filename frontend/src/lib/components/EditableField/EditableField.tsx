@@ -1,99 +1,94 @@
-import { Button, Input } from 'antd'
-import { EditOutlined, LockOutlined } from '@ant-design/icons'
 import React, { useEffect, useState } from 'react'
 import './EditableField.scss'
-import { Tooltip } from '../Tooltip'
+import { IconClose, IconEdit, IconSave } from '../icons'
+import { LemonButton } from '../LemonButton'
+import AutosizeInput from 'react-input-autosize'
+import TextareaAutosize from 'react-textarea-autosize'
+import clsx from 'clsx'
 
 interface EditableFieldProps {
+    /** What this field stands for. */
     name: string
+    /** Current value. */
     value: string
-    placeholder?: string
-    /** Whether editing is locked due to this being a premium feature. */
-    locked?: boolean
-    className: string
-    dataAttr: string
+    /** Value change callback. */
     onChange: (value: string) => void
+    placeholder?: string
     multiline?: boolean
+    compactButtons?: boolean
+    className?: string
+    'data-attr'?: string
 }
 
 export function EditableField({
     name,
     value,
     onChange,
-    className,
-    dataAttr,
     placeholder,
-    locked,
-    multiline,
+    multiline = false,
+    compactButtons = false,
+    className,
+    'data-attr': dataAttr,
 }: EditableFieldProps): JSX.Element {
     const [isEditing, setIsEditing] = useState(false)
-    const [editedValue, setEditedValue] = useState(value)
+    const [tentativeValue, setTentativeValue] = useState(value)
 
     useEffect(() => {
-        setEditedValue(value)
+        setTentativeValue(value)
     }, [value])
 
     return (
-        <div
-            className={`editable-field${className ? ` ${className}` : ''} ${isEditing ? 'edit-mode' : 'view-mode'}`}
-            data-attr={dataAttr}
-        >
+        <div className={clsx('EditableField', multiline && 'EditableField--multiline', className)} data-attr={dataAttr}>
             {isEditing ? (
-                <div className="edit-container ant-input-affix-wrapper ant-input-affix-wrapper-lg editable-textarea-wrapper">
-                    <Input.TextArea
-                        autoFocus
-                        placeholder={placeholder}
-                        value={multiline ? editedValue : editedValue.split('\n').join('')}
-                        onChange={(e) => setEditedValue(e.target.value)}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                                onChange(editedValue)
-                                setIsEditing(false)
-                            }
-                        }}
-                        autoSize={{ minRows: 1, maxRows: 5 }}
-                    />
-
-                    <Button className="btn-cancel" size="small" onClick={() => setIsEditing(false)}>
-                        Cancel
-                    </Button>
-                    <Button
-                        className="ml-025"
-                        type="primary"
-                        size="small"
+                <>
+                    {multiline ? (
+                        <TextareaAutosize
+                            name={name}
+                            value={tentativeValue}
+                            onChange={(e) => setTentativeValue(e.target.value)}
+                            placeholder={placeholder}
+                            autoFocus
+                        />
+                    ) : (
+                        <AutosizeInput
+                            name={name}
+                            value={tentativeValue}
+                            onChange={(e) => setTentativeValue(e.target.value)}
+                            placeholder={placeholder}
+                            autoFocus
+                            injectStyles={false}
+                        />
+                    )}
+                    <LemonButton
+                        title="Cancel editing"
+                        icon={<IconClose />}
+                        status="danger"
+                        compact={compactButtons}
                         onClick={() => {
-                            onChange(editedValue)
+                            setIsEditing(false)
+                            setTentativeValue(value)
+                        }}
+                    />
+                    <LemonButton
+                        title="Save"
+                        icon={<IconSave />}
+                        compact={compactButtons}
+                        onClick={() => {
+                            onChange(tentativeValue)
                             setIsEditing(false)
                         }}
-                    >
-                        Done
-                    </Button>
-                </div>
+                    />
+                </>
             ) : (
-                <div className="view-container">
-                    <span className="field">{value || <i>{placeholder}</i>}</span>
-                    {!locked ? (
-                        <Button
-                            type="link"
-                            onClick={() => {
-                                setEditedValue(value)
-                                setIsEditing(true)
-                            }}
-                            className="btn-edit"
-                            data-attr={`edit-prop-${name}`}
-                            title={`Edit ${name}`}
-                        >
-                            <EditOutlined />
-                        </Button>
-                    ) : (
-                        <Tooltip
-                            title="This field is part of PostHog's team-oriented feature set and requires a premium plan. Check PostHog pricing."
-                            isDefaultTooltip
-                        >
-                            <LockOutlined style={{ marginLeft: 6, color: 'var(--text-muted)' }} />
-                        </Tooltip>
-                    )}
-                </div>
+                <>
+                    {value || <i>{placeholder}</i>}
+                    <LemonButton
+                        title="Edit"
+                        icon={<IconEdit />}
+                        compact={compactButtons}
+                        onClick={() => setIsEditing(true)}
+                    />
+                </>
             )}
         </div>
     )

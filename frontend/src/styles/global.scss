@@ -336,6 +336,12 @@ code.code {
     align-items: center;
 }
 
+// Vendor-specific adjustments
+
+input::-ms-clear {
+    display: none; // Hide IE/Edge's clear button that can mess input sizing up
+}
+
 // Color styles
 .bg-primary {
     background-color: $primary;
