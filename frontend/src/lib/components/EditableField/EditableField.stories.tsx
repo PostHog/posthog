@@ -16,14 +16,12 @@ export function TitleAndDescription(): JSX.Element {
 
     return (
         <PageHeader
-            title={
-                <EditableFieldComponent name="title" value={savedTitle} onChange={(value) => setSavedTitle(value)} />
-            }
+            title={<EditableFieldComponent name="title" value={savedTitle} onSave={(value) => setSavedTitle(value)} />}
             caption={
                 <EditableFieldComponent
                     name="description"
                     value={savedDescription}
-                    onChange={(value) => setSavedDescription(value)}
+                    onSave={(value) => setSavedDescription(value)}
                     multiline
                 />
             }

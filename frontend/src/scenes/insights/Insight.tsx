@@ -104,8 +104,8 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                         name="name"
                         value={insight.name || ''}
                         placeholder={UNNAMED_INSIGHT_NAME}
-                        onChange={(value) => setInsightMetadata({ name: value })}
-                        className="insight-metadata-name"
+                        onSave={(value) => setInsightMetadata({ name: value })}
+                        minLength={1}
                         data-attr="insight-name"
                     />
                 }
@@ -148,8 +148,8 @@ export function Insight({ shortId }: { shortId?: InsightShortId } = {}): JSX.Ele
                                 name="description"
                                 value={insight.description || ''}
                                 placeholder="Description (optional)"
-                                onChange={(value) => setInsightMetadata({ description: value })}
-                                className="insight-metadata-description"
+                                onSave={(value) => setInsightMetadata({ description: value })}
+                                className="text-muted"
                                 data-attr="insight-description"
                                 compactButtons
                             />

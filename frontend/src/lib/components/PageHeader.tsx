@@ -4,7 +4,7 @@ import React from 'react'
 
 interface PageHeaderProps {
     title: string | JSX.Element
-    caption?: string | JSX.Element
+    caption?: string | JSX.Element | null | false
     buttons?: JSX.Element | false
     style?: React.CSSProperties
     tabbedPage?: boolean // Whether the page has tabs for secondary navigation
