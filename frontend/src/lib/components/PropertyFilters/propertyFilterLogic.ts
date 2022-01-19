@@ -12,7 +12,7 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
     path: (key) => ['lib', 'components', 'PropertyFilters', 'propertyFilterLogic', key],
     props: {} as PropertyFilterLogicProps,
     connect: {
-        values: [propertyDefinitionsModel, ['findProperty']],
+        values: [propertyDefinitionsModel, ['findPropertyDefinitionsByName']],
     },
     key: (props) => props.pageKey,
 
@@ -113,12 +113,12 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
     selectors: {
         filledFilters: [(s) => [s.filters], (filters) => filters.filter(isValidPropertyFilter)],
         filters: [
-            (s) => [s.rawFilters, s.findProperty],
-            (rawFilters, findProperty) => {
+            (s) => [s.rawFilters, s.findPropertyDefinitionsByName],
+            (rawFilters, findPropertyDefinitionsByName) => {
                 return rawFilters.map((rawFilter) => {
                     const processedFilter = { ...rawFilter }
                     if (rawFilter.key && !rawFilter.property_type) {
-                        const propertyDefinition = findProperty(rawFilter.key)
+                        const propertyDefinition = findPropertyDefinitionsByName(rawFilter.key)
                         if (propertyDefinition?.property_type) {
                             processedFilter.property_type = propertyDefinition.property_type
                             processedFilter.property_type_format = propertyDefinition.property_type_format

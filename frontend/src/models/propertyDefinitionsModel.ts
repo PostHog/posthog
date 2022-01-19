@@ -96,11 +96,11 @@ export const propertyDefinitionsModel = kea<
             (s) => [s.propertyStorage],
             (propertyStorage): PropertyDefinition[] => propertyStorage.results || [],
         ],
-        findProperty: [
+        findPropertyDefinitionsByName: [
             (s) => [s.propertyDefinitions],
-            (propertyDefinitions: PropertyDefinition[]): ((key: string) => PropertyDefinition | undefined) =>
-                (key: string) =>
-                    propertyDefinitions.find((pd) => pd.name === key),
+            (propertyDefinitions: PropertyDefinition[]): ((name: string) => PropertyDefinition | undefined) =>
+                (name: string) =>
+                    propertyDefinitions.find((pd) => pd.name === name),
         ],
         transformedPropertyDefinitions: [
             // Transformed propertyDefinitions to use in `Select` components
