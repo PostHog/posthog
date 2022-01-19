@@ -59,6 +59,7 @@ export function Experiment(): JSX.Element {
         areCountResultsSignificant,
         areConversionResultsSignificant,
         experimentId,
+        conversionRateForVariant,
     } = useValues(experimentLogic)
     const {
         setNewExperimentData,
@@ -582,7 +583,7 @@ export function Experiment(): JSX.Element {
                                                 <div>
                                                     <b>{capitalizeFirstLetter(variant)}</b>
                                                 </div>
-                                                {experimentInsightType === InsightType.TRENDS && (
+                                                {experimentInsightType === InsightType.TRENDS ? (
                                                     <Row>
                                                         <b style={{ paddingRight: 4 }}>Count:</b>{' '}
                                                         {countDataForVariant(variant)}{' '}
@@ -594,6 +595,11 @@ export function Experiment(): JSX.Element {
                                                                 s
                                                             </Row>
                                                         )}
+                                                    </Row>
+                                                ) : (
+                                                    <Row>
+                                                        <b style={{ paddingRight: 4 }}>Conversion rate:</b>{' '}
+                                                        {conversionRateForVariant(variant)}%
                                                     </Row>
                                                 )}
                                                 <Progress
