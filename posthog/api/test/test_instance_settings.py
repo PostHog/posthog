@@ -23,14 +23,14 @@ class TestInstanceSettings(APIBaseTest):
         self.assertEqual(json_response["count"], len(CONSTANCE_CONFIG))
 
         # Check an example attribute
-        self.assertEqual(json_response["results"][0]["key"], "MATERIALIZED_COLUMNS_ENABLED")
-        self.assertEqual(json_response["results"][0]["value"], True)
+        self.assertEqual(json_response["results"][0]["key"], "RECORDINGS_TTL_WEEKS")
+        self.assertEqual(json_response["results"][0]["value"], 3)
         self.assertEqual(
             json_response["results"][0]["description"],
-            "Whether materialized columns should be created or used at query time",
+            "Number of weeks recordings will be kept before removing them (for all projects). Storing recordings for a shorter timeframe can help reduce Clickhouse disk usage.",
         )
-        self.assertEqual(json_response["results"][0]["value_type"], "bool")
-        self.assertEqual(json_response["results"][0]["editable"], False)
+        self.assertEqual(json_response["results"][0]["value_type"], "int")
+        self.assertEqual(json_response["results"][0]["editable"], True)
 
         # Check an editable attribute
         for item in json_response["results"]:
@@ -47,7 +47,7 @@ class TestInstanceSettings(APIBaseTest):
         self.assertEqual(json_response["value"], False)
         self.assertEqual(
             json_response["description"],
-            "Whether the earliest unapplied async migration should be triggered automatically on server startup",
+            "Whether the earliest unapplied async migration should be triggered automatically on server startup.",
         )
         self.assertEqual(json_response["value_type"], "bool")
         self.assertEqual(json_response["editable"], True)
