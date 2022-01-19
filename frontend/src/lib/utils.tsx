@@ -3,16 +3,16 @@ import api from './api'
 import { toast } from 'react-toastify'
 import { Button } from 'antd'
 import {
-    EventType,
-    FilterType,
     ActionFilter,
-    IntervalType,
-    ItemMode,
+    ActionType,
+    ActorType,
     DashboardMode,
     dateMappingOption,
+    EventType,
+    FilterType,
     GroupActorType,
-    ActorType,
-    ActionType,
+    IntervalType,
+    ItemMode,
     PropertyFilterValue,
 } from '~/types'
 import { tagColors } from 'lib/colors'
@@ -721,6 +721,24 @@ export function determineDifferenceType(
 }
 
 const DATE_FORMAT = 'D MMM YYYY'
+
+export const reverseDateMapping: Record<string, string> = {
+    dStart: 'Today',
+    '-1d': 'Yesterday',
+    '-24h': 'Last 24 hours',
+    '-48h': 'Last 48 hours',
+    '-7d': 'Last 7 days',
+    '-14d': 'Last 14 days',
+    '-30d': 'Last 30 days',
+    '-90d': 'Last 90 days',
+    '-180d': 'Last 180 days',
+    '-365d': 'Last 365 days',
+    mStart: 'This month',
+    '-1mStart': 'Previous month',
+    '-1mEnd': 'Previous month',
+    yStart: 'Year to date',
+    all: 'All time',
+}
 
 export const dateMapping: Record<string, dateMappingOption> = {
     Custom: { values: [] },

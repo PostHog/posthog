@@ -1,6 +1,15 @@
 import posthog from 'posthog-js'
 import { parsePeopleParams, PeopleParamType } from '../scenes/trends/personsModalLogic'
-import { ActionType, ActorType, CohortType, EventType, FilterType, PluginLogEntry, TeamType } from '../types'
+import {
+    ActionType,
+    ActorType,
+    CohortType,
+    EventType,
+    FilterType,
+    PluginLogEntry,
+    PropertyDefinition,
+    TeamType,
+} from '../types'
 import { getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 import { LOGS_PORTION_LIMIT } from 'scenes/plugins/plugin/pluginLogsLogic'
@@ -102,6 +111,10 @@ class ApiRequest {
 
     public events(teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('events')
+    }
+
+    public propertyDefinitions(teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('property_definitions')
     }
 
     public cohorts(teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
@@ -215,6 +228,18 @@ const api = {
         ): Promise<PaginatedResponse<EventType[]>> {
             const params: Record<string, any> = { ...filters, limit }
             return new ApiRequest().events(teamId).withQueryString(toParams(params)).get()
+        },
+    },
+
+    propertyDefinitions: {
+        async search(
+            name: string,
+            teamId: TeamType['id'] = getCurrentTeamId()
+        ): Promise<PaginatedResponse<PropertyDefinition>> {
+            return new ApiRequest()
+                .propertyDefinitions(teamId)
+                .withQueryString(toParams({ search: name }))
+                .get()
         },
     },
 

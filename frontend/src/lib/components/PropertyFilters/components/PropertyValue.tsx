@@ -58,6 +58,16 @@ function getValidationError(operator: PropertyOperator, value: any): string | nu
     return null
 }
 
+function parseDate(value: string | number | undefined): dayjs.Dayjs {
+    const date = dayjs(value)
+
+    if (!date.isValid() && value === '-365d') {
+        return dayjs().subtract(1, 'y')
+    }
+
+    return date
+}
+
 export function PropertyValue({
     propertyKey,
     type,
@@ -242,7 +252,7 @@ export function PropertyValue({
                         format="YYYY-MM-DD HH:mm:ss"
                         showTime={true}
                         showNow={false}
-                        value={dayJSMightParse(value) ? dayjs(value) : null}
+                        value={dayJSMightParse(value) ? parseDate(value) : null}
                         onOk={(selectedDate) => {
                             setValue(selectedDate.format('YYYY-MM-DD HH:MM:ss'))
                         }}

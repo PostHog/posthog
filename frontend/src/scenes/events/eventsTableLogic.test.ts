@@ -12,14 +12,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { router } from 'kea-router'
 import * as utils from 'lib/utils'
-import {
-    DateTimePropertyTypeFormat,
-    EmptyPropertyFilter,
-    EventType,
-    PropertyFilter,
-    PropertyOperator,
-    PropertyType,
-} from '~/types'
+import { EmptyPropertyFilter, EventType, PropertyFilter, PropertyOperator } from '~/types'
 import { urls } from 'scenes/urls'
 import api from 'lib/api'
 
@@ -148,8 +141,7 @@ describe('eventsTableLogic', () => {
         describe('limiting the loaded data size with URL params', () => {
             const firstEvent = makeEvent('1', 'the first timestamp')
             const secondEvent = makeEvent('1', 'the second timestamp')
-            const eventsUrlWithIsDateAfterFilter =
-                'api/projects/997/events/?properties=%5B%7B%22key%22%3A%22%24time%22%2C%22operator%22%3A%22is_date_after%22%2C%22type%22%3A%22event%22%2C%22value%22%3A%222020-05-05%2001%3A00%3A00%22%2C%22property_type%22%3A%22DateTime%22%2C%22property_type_format%22%3A%22YYYY-MM-DD%20hh%3Amm%3Ass%22%7D%5D&orderBy=%5B%22-timestamp%22%5D'
+            const eventsUrlWithIsDateAfterFilter = `api/projects/${MOCK_TEAM_ID}/events/?properties=%5B%7B%22key%22%3A%22%24time%22%2C%22operator%22%3A%22is_date_after%22%2C%22type%22%3A%22event%22%2C%22value%22%3A%22-365d%22%7D%5D&orderBy=%5B%22-timestamp%22%5D`
 
             it('starts a year before "now"', async () => {
                 await expectLogic(logic)
@@ -160,9 +152,7 @@ describe('eventsTableLogic', () => {
                                 key: '$time',
                                 operator: PropertyOperator.IsDateAfter,
                                 type: 'event',
-                                value: nowForMock.replace('2021', '2020'),
-                                property_type: PropertyType.DateTime,
-                                property_type_format: DateTimePropertyTypeFormat.FULL_DATE,
+                                value: '-365d',
                             },
                         ],
                     })
@@ -471,16 +461,6 @@ describe('eventsTableLogic', () => {
             })
 
             describe('the properties', () => {
-                it('can set the properties when empty', async () => {
-                    await expectLogic(logic, () => {
-                        logic.actions.setProperties([])
-                    }).toMatchValues({ properties: [] })
-
-                    await expectLogic(logic, () => {
-                        logic.actions.setProperties([{} as any])
-                    }).toMatchValues({ properties: [] })
-                })
-
                 it('can set an object inside the array', async () => {
                     const propertyFilter = makePropertyFilter()
                     await expectLogic(logic, () => {
@@ -526,7 +506,7 @@ describe('eventsTableLogic', () => {
 
             it('can build the export URL when there are no properties or filters', async () => {
                 await expectLogic(logic, () => {}).toMatchValues({
-                    exportUrl: `/api/projects/${MOCK_TEAM_ID}/events.csv?properties=%5B%7B%22key%22%3A%22%24time%22%2C%22operator%22%3A%22is_date_after%22%2C%22type%22%3A%22event%22%2C%22value%22%3A%222020-05-05%2001%3A00%3A00%22%2C%22property_type%22%3A%22DateTime%22%2C%22property_type_format%22%3A%22YYYY-MM-DD%20hh%3Amm%3Ass%22%7D%5D&orderBy=%5B%22-timestamp%22%5D&after=2020-05-05T00%3A00%3A00.000Z`,
+                    exportUrl: `/api/projects/${MOCK_TEAM_ID}/events.csv?properties=%5B%7B%22key%22%3A%22%24time%22%2C%22operator%22%3A%22is_date_after%22%2C%22type%22%3A%22event%22%2C%22value%22%3A%22-365d%22%7D%5D&orderBy=%5B%22-timestamp%22%5D&after=2020-05-05T00%3A00%3A00.000Z`,
                 })
             })
 

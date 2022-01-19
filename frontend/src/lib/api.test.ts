@@ -31,6 +31,16 @@ describe('API helper', () => {
         })
     })
 
+    describe('property definitions', () => {
+        it('can search by name', async () => {
+            await api.propertyDefinitions.search('needle', 10)
+
+            expect(fakeFetch).toHaveBeenCalledWith('/api/projects/10/property_definitions?search=needle', {
+                signal: undefined,
+            })
+        })
+    })
+
     describe('getting URLs', () => {
         const testCases = [
             {

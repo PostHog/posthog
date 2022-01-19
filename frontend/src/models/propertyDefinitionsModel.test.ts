@@ -126,12 +126,4 @@ describe('the property definitions model', () => {
             '2022-01-05 07:45:52',
         ])
     })
-
-    it('can find a property definition by name', () => {
-        expect(logic.values.findPropertyDefinitionsByName('$timestamp')).toEqual(timestampPropertyDefinition)
-    })
-
-    it('can try to find a property definition by name that does not exist', () => {
-        expect(logic.values.findPropertyDefinitionsByName('not a definition')).toEqual(undefined)
-    })
 })

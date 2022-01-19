@@ -260,7 +260,21 @@ export const eventsTableLogic = kea<
 
     urlToAction: ({ actions, values, props }) => ({
         [props.sceneUrl]: (_: Record<string, any>, searchParams: Record<string, any>): void => {
-            actions.setProperties(searchParams.properties || values.properties || {})
+            let chosenProperties: PropertyFilter[] = [
+                {
+                    key: '$time',
+                    operator: PropertyOperator.IsDateAfter,
+                    type: 'event',
+                    value: '-365d',
+                },
+            ]
+            if (searchParams.properties?.length > 0) {
+                chosenProperties = searchParams.properties
+            } else if (values.properties?.length > 0) {
+                chosenProperties = values.properties
+            }
+
+            actions.setProperties(chosenProperties)
 
             if (searchParams.eventFilter) {
                 actions.setEventFilter(searchParams.eventFilter)
@@ -268,19 +282,8 @@ export const eventsTableLogic = kea<
         },
     }),
 
-    events: ({ values, actions }) => ({
+    events: ({ values }) => ({
         beforeUnmount: () => clearTimeout(values.pollTimeout || undefined),
-        afterMount: () => {
-            actions.setProperties([
-                ...values.properties,
-                {
-                    key: '$time',
-                    operator: PropertyOperator.IsDateAfter,
-                    type: 'event',
-                    value: '-365d',
-                },
-            ])
-        },
     }),
 
     listeners: ({ actions, values, props }) => ({
