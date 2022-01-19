@@ -104,7 +104,8 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
         membership = OrganizationMembership.objects.filter(
-            organization=organization, user=self.context["request"].user,
+            organization=organization,
+            user=self.context["request"].user,
         ).first()
         return membership.level if membership is not None else None
 
@@ -117,7 +118,8 @@ class OrganizationSerializer(serializers.ModelSerializer):
         non_demo_team_id = next((team.pk for team in instance.teams.filter(is_demo=False)), None)
         any_project_ingested_events = instance.teams.filter(is_demo=False, ingested_event=True).exists()
         any_project_completed_snippet_onboarding = instance.teams.filter(
-            is_demo=False, completed_snippet_onboarding=True,
+            is_demo=False,
+            completed_snippet_onboarding=True,
         ).exists()
 
         current_section = 1
@@ -208,6 +210,7 @@ class OrganizationOnboardingViewset(StructuredViewSetMixin, viewsets.GenericView
         permissions.IsAuthenticated,
         OrganizationMemberPermissions,
     ]
+    include_in_docs = False
 
     def create(self, request, *args, **kwargs):
         # Complete onboarding

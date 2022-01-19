@@ -92,7 +92,8 @@ class ExplicitTeamMemberSerializer(serializers.ModelSerializer):
 
 
 class ExplicitTeamMemberViewSet(
-    StructuredViewSetMixin, viewsets.ModelViewSet,
+    StructuredViewSetMixin,
+    viewsets.ModelViewSet,
 ):
     permission_classes = [IsAuthenticated, TeamMemberStrictManagementPermission]
     pagination_class = None
@@ -100,6 +101,7 @@ class ExplicitTeamMemberViewSet(
     lookup_field = "parent_membership__user__uuid"
     ordering = ["level", "-joined_at"]
     serializer_class = ExplicitTeamMemberSerializer
+    include_in_docs = False
 
     def get_serializer_context(self) -> Dict[str, Any]:
         serializer_context = super().get_serializer_context()

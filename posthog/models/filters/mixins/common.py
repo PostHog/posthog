@@ -1,7 +1,7 @@
 import datetime
 import json
 import re
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union, get_args
 
 from dateutil.relativedelta import relativedelta
 from django.db.models.query_utils import Q
@@ -19,7 +19,9 @@ from posthog.constants import (
     COMPARE,
     DATE_FROM,
     DATE_TO,
+    DEPRECATED_DISPLAY_TYPES,
     DISPLAY,
+    DISPLAY_TYPES,
     EVENTS,
     EXCLUSIONS,
     FILTER_TEST_ACCOUNTS,
@@ -181,16 +183,7 @@ class DisplayDerivedMixin(InsightMixin):
     @cached_property
     def display(
         self,
-    ) -> Literal[
-        "ActionsLineGraphLinear",
-        "ActionsLineGraphCumulative",
-        "ActionsTable",
-        "ActionsPieChart",
-        "ActionsBarChart",
-        "ActionsBarChartValue",
-        "PathsViz",
-        "FunnelViz",
-    ]:
+    ) -> Literal[DISPLAY_TYPES]:
         return self._data.get(DISPLAY, INSIGHT_TO_DISPLAY[self.insight])
 
     @include_dict

@@ -113,7 +113,9 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         instance = super().create(validated_data)
 
         report_user_action(
-            request.user, "feature flag created", instance.get_analytics_metadata(),
+            request.user,
+            "feature flag created",
+            instance.get_analytics_metadata(),
         )
 
         return instance
@@ -127,7 +129,9 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         instance = super().update(instance, validated_data)
 
         report_user_action(
-            request.user, "feature flag updated", instance.get_analytics_metadata(),
+            request.user,
+            "feature flag updated",
+            instance.get_analytics_metadata(),
         )
         return instance
 
@@ -137,6 +141,10 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
 
 
 class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
+    """
+    Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/user-guides/feature-flags) for more information on feature flags.
+    """
+
     queryset = FeatureFlag.objects.all()
     serializer_class = FeatureFlagSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
@@ -221,11 +229,15 @@ class FeatureFlagOverrideSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         if created:
             report_user_action(
-                request.user, self._analytics_created_event_name, feature_flag_override.get_analytics_metadata(),
+                request.user,
+                self._analytics_created_event_name,
+                feature_flag_override.get_analytics_metadata(),
             )
         else:
             report_user_action(
-                request.user, self._analytics_updated_event_name, feature_flag_override.get_analytics_metadata(),
+                request.user,
+                self._analytics_updated_event_name,
+                feature_flag_override.get_analytics_metadata(),
             )
         return feature_flag_override
 
@@ -251,6 +263,7 @@ class FeatureFlagOverrideViewset(StructuredViewSetMixin, AnalyticsDestroyModelMi
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]
+    include_in_docs = False
 
     def get_queryset(self) -> QuerySet:
         return super().get_queryset().filter(user=self.request.user)
@@ -260,7 +273,8 @@ class FeatureFlagOverrideViewset(StructuredViewSetMixin, AnalyticsDestroyModelMi
         if request.method == "POST":
             user = request.user
             serializer = FeatureFlagOverrideSerializer(
-                data={**request.data, "user": user.id}, context={**self.get_serializer_context()},
+                data={**request.data, "user": user.id},
+                context={**self.get_serializer_context()},
             )
             serializer.is_valid(raise_exception=True)
             serializer.save()

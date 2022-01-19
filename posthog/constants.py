@@ -1,4 +1,5 @@
 from enum import Enum
+from typing import Literal
 
 INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
 
@@ -53,6 +54,21 @@ INSIGHT_TO_DISPLAY = {
     # :KLUDGE: Sessions insight is no longer supported, but this is needed to make updating these insights possible.
     "SESSIONS": TRENDS_LINEAR,
 }
+
+DISPLAY_TYPES = Literal[
+    "ActionsLineGraphLinear",
+    "ActionsLineGraphCumulative",
+    "ActionsTable",
+    "ActionsPieChart",
+    "ActionsBarChart",
+    "ActionsBarValue",
+    "ActionsBarChartValue",
+]
+
+DEPRECATED_DISPLAY_TYPES = Literal[
+    "PathsViz",
+    "FunnelViz",
+]
 
 
 TRENDS_STICKINESS = "Stickiness"
@@ -115,6 +131,7 @@ FUNNEL_LAYOUT = "layout"
 FUNNEL_ORDER_TYPE = "funnel_order_type"
 FUNNEL_VIZ_TYPE = "funnel_viz_type"
 FUNNEL_CORRELATION_TYPE = "funnel_correlation_type"
+FUNNEL_WINDOW_INTERVAL_TYPES = Literal["DAY", "MINUTE", "HOUR", "WEEK", "MONTH"]
 # Funnel Correlation Properties
 FUNNEL_CORRELATION_NAMES = "funnel_correlation_names"
 FUNNEL_CORRELATION_EXCLUDE_NAMES = "funnel_correlation_exclude_names"
@@ -147,6 +164,8 @@ PATH_EDGE_LIMIT = "edge_limit"
 PATH_MIN_EDGE_WEIGHT = "min_edge_weight"
 PATH_MAX_EDGE_WEIGHT = "max_edge_weight"
 AGGREGATION_GROUP_TYPE_INDEX = "aggregation_group_type_index"
+
+BREAKDOWN_TYPES = Literal["event", "person", "cohort", "group"]
 
 
 class FunnelOrderType(str, Enum):

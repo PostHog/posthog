@@ -52,6 +52,7 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = AsyncMigration.objects.all()
     permission_classes = [StaffUser]
     serializer_class = AsyncMigrationSerializer
+    include_in_docs = False
 
     @action(methods=["POST"], detail=True)
     def trigger(self, request, **kwargs):
@@ -88,11 +89,21 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
         migration_instance = self.get_object()
         if migration_instance.status != MigrationStatus.Errored:
             return response.Response(
-                {"success": False, "error": "Can't resume a migration that isn't in errored state",}, status=400,
+                {
+                    "success": False,
+                    "error": "Can't resume a migration that isn't in errored state",
+                },
+                status=400,
             )
         resumable, error = can_resume_migration(migration_instance)
         if not resumable:
-            return response.Response({"success": False, "error": error,}, status=400,)
+            return response.Response(
+                {
+                    "success": False,
+                    "error": error,
+                },
+                status=400,
+            )
         trigger_migration(migration_instance, fresh_start=False)
         return response.Response({"success": True}, status=200)
 
@@ -100,7 +111,11 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
         migration_instance = self.get_object()
         if migration_instance.status != MigrationStatus.Running:
             return response.Response(
-                {"success": False, "error": "Can't stop a migration that isn't running.",}, status=400,
+                {
+                    "success": False,
+                    "error": "Can't stop a migration that isn't running.",
+                },
+                status=400,
             )
         force_stop_migration(migration_instance, rollback=rollback)
         return response.Response({"success": True}, status=200)
@@ -120,7 +135,11 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
         migration_instance = self.get_object()
         if migration_instance.status != MigrationStatus.Errored:
             return response.Response(
-                {"success": False, "error": "Can't rollback a migration that isn't in errored state.",}, status=400,
+                {
+                    "success": False,
+                    "error": "Can't rollback a migration that isn't in errored state.",
+                },
+                status=400,
             )
 
         rollback_migration(migration_instance)
@@ -131,7 +150,10 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
         migration_instance = self.get_object()
         if migration_instance.status != MigrationStatus.CompletedSuccessfully:
             return response.Response(
-                {"success": False, "error": "Can't force rollback a migration that did not complete successfully.",},
+                {
+                    "success": False,
+                    "error": "Can't force rollback a migration that did not complete successfully.",
+                },
                 status=400,
             )
 

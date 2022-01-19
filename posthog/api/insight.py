@@ -1,15 +1,26 @@
+from re import I
 from typing import Any, Dict, Type
 
 from django.core.cache import cache
 from django.db.models import QuerySet
 from django.db.models.query_utils import Q
+from django.forms import BooleanField
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import OpenApiResponse
+from pytest import param
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.documentation import extend_schema
+from posthog.api.insight_serializers import (
+    FunnelSerializer,
+    FunnelStepsResultsSerializer,
+    TrendResultsSerializer,
+    TrendSerializer,
+)
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import format_paginated_url
@@ -157,6 +168,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
+    include_in_docs = True
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
 
@@ -230,8 +242,18 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # - shown_as: (string: Volume, Stickiness) specifies the trend aggregation type
     # - **shared filter types
     # ******************************************
-    @action(methods=["GET"], detail=False)
+    @extend_schema(
+        request=TrendSerializer,
+        methods=["POST"],
+        tags=["analytics"],
+        operation_id="Trends",
+        responses=TrendResultsSerializer,
+    )
+    @action(methods=["GET", "POST"], detail=False)
     def trend(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        serializer = TrendSerializer(request=request)
+        serializer.is_valid(raise_exception=True)
+
         result = self.calculate_trends(request)
         filter = Filter(request=request, team=self.team)
         next = format_paginated_url(request, filter.offset, 20) if len(result["result"]) > 20 else None
@@ -264,8 +286,21 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # - from_dashboard: (dict) determines funnel is being retrieved from dashboard item to update dashboard_item metadata
     # - **shared filter types
     # ******************************************
+    @extend_schema(
+        request=FunnelSerializer,
+        responses=OpenApiResponse(
+            response=FunnelStepsResultsSerializer,
+            description="Note, if funnel_viz_type is set the response will be different.",
+        ),
+        methods=["POST"],
+        tags=["analytics"],
+        operation_id="Funnels",
+    )
     @action(methods=["GET", "POST"], detail=False)
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        serializer = FunnelSerializer(request=request)
+        serializer.is_valid(raise_exception=True)
+
         funnel = self.calculate_funnel(request)
 
         funnel["result"] = protect_old_clients_from_multi_property_default(request.data, funnel["result"])

@@ -46,12 +46,19 @@ class AnnotationSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         project = Team.objects.get(id=self.context["team_id"])
         annotation = Annotation.objects.create(
-            organization=project.organization, team=project, created_by=request.user, **validated_data,
+            organization=project.organization,
+            team=project,
+            created_by=request.user,
+            **validated_data,
         )
         return annotation
 
 
 class AnnotationsViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
+    """
+    Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/user-guides/annotations) for more information on annotations.
+    """
+
     queryset = Annotation.objects.all()
     serializer_class = AnnotationSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]

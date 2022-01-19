@@ -45,7 +45,10 @@ def authorize_and_redirect(request):
     return render_template(
         "authorize_and_redirect.html",
         request=request,
-        context={"domain": urlparse(url).hostname, "redirect_url": url,},
+        context={
+            "domain": urlparse(url).hostname,
+            "redirect_url": url,
+        },
     )
 
 
@@ -63,7 +66,13 @@ def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> UR
     return re_path(fr"^{route}/?(?:[?#].*)?$", view, name=name)  # type: ignore
 
 
+from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
+
 urlpatterns = [
+    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    # Optional UI:
+    path("api/schema/swagger-ui/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+    path("api/schema/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
     # internals
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),
