@@ -10,7 +10,7 @@ import posthog from 'posthog-js'
 import { successToast } from 'lib/utils'
 
 const FEEDBACK_CALL_LOCALSTORAGE_KEY = 'call-cta-exp-2201'
-const APPEAR_TIMEOUT = 1000
+const APPEAR_TIMEOUT = 15000
 
 const COPY = [
     {
