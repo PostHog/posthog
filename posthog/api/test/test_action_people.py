@@ -7,7 +7,7 @@ from rest_framework import status
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
-from ee.clickhouse.util import snapshot_clickhouse_queries
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE, TRENDS_CUMULATIVE
 from posthog.models import Action, ActionStep, Cohort, Organization, Person
 from posthog.test.base import APIBaseTest
@@ -51,7 +51,7 @@ def _create_session_recording_event(team_id, distinct_id, session_id, timestamp,
     )
 
 
-class TestActionPeople(APIBaseTest):
+class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
     def _create_events(self, use_time=False):
         _create_action(team=self.team, name="no events")
 

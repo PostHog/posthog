@@ -5,6 +5,7 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from ee.clickhouse.models.event import create_event
+from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models import Action, ActionStep, Element, Event, Organization
 from posthog.test.base import APIBaseTest
 
@@ -14,7 +15,7 @@ def _create_event(uuid=None, **kwargs):
     create_event(**kwargs)
 
 
-class TestActionApi(APIBaseTest):
+class TestActionApi(ClickhouseTestMixin, APIBaseTest):
     @patch("posthog.api.action.report_user_action")
     def test_create_action(self, patch_capture, *args):
         Event.objects.create(
