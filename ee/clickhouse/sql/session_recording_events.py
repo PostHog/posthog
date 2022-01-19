@@ -1,5 +1,3 @@
-from constance import config
-
 from ee.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
@@ -48,7 +46,7 @@ SETTINGS index_granularity=512
     materialized_columns=SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMNS,
     extra_fields=KAFKA_COLUMNS,
     engine=table_engine(SESSION_RECORDING_EVENTS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
-    ttl_period=ttl_period(weeks=config.RECORDINGS_TTL_WEEKS),
+    ttl_period=ttl_period(),
 )
 
 KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL = SESSION_RECORDING_EVENTS_TABLE_BASE_SQL.format(
