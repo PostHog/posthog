@@ -16,8 +16,10 @@ export const experimentsLogic = kea<experimentsLogicType>({
         experiments: [
             [] as Experiment[],
             {
-                loadExperiments: async (filter?: Record<string, any>) => {
-                    const response = await api.get(`api/projects/${values.currentTeamId}/experiments?${filter}`)
+                loadExperiments: async (filter?: string) => {
+                    const response = await api.get(
+                        `api/projects/${values.currentTeamId}/experiments?${filter ? filter : ''}`
+                    )
                     return response.results as Experiment[]
                 },
                 deleteExperiment: async (id: number) => {
