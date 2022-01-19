@@ -3,29 +3,21 @@ from rest_framework import decorators, exceptions
 from posthog.api.routing import DefaultRouterPlusPlus
 
 from . import (
-    action,
     annotation,
     async_migration,
     authentication,
-    cohort,
     dashboard,
-    element,
-    event,
     event_definition,
     feature_flag,
-    insight,
     instance_settings,
     instance_status,
     organization,
     organization_invite,
     organization_member,
-    paths,
-    person,
     personal_api_key,
     plugin,
     plugin_log_entry,
     property_definition,
-    session_recording,
     team,
     user,
 )
@@ -91,8 +83,8 @@ projects_router.register(
 # General endpoints (shared across CH & PG)
 router.register(r"login", authentication.LoginViewSet)
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
-router.register(r"users/staff", user.UserStaffViewSet)
 router.register(r"users", user.UserViewSet)
+router.register(r"staff_users", user.UserStaffViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
 router.register(r"shared_dashboards", dashboard.SharedDashboardsViewSet)

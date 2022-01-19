@@ -193,7 +193,9 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.G
         )
 
 
-class UserStaffViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
+class UserStaffViewSet(
+    mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet
+):
     serializer_class = UserStaffSerializer
     permission_classes = [
         permissions.IsAuthenticated,
@@ -203,6 +205,9 @@ class UserStaffViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, views
     lookup_field = "uuid"
 
     def get_queryset(self):
+        if self.action == "partial_update":
+            # Because you can make anyone a staff user
+            return User.objects.all()
         return User.objects.filter(is_staff=True)
 
 

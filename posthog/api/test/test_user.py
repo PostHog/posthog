@@ -10,6 +10,15 @@ from posthog.models.organization import Organization
 from posthog.test.base import APIBaseTest
 
 
+def create_user(email: str, password: str, organization: Organization):
+    """
+    Helper that just creates a user. It currently uses the orm, but we
+    could use either the api, or django admin to create, to get better parity
+    with real world scenarios.
+    """
+    return User.objects.create_and_join(organization, email, password)
+
+
 class TestUserAPI(APIBaseTest):
     new_org: Organization = None  # type: ignore
     new_project: Team = None  # type: ignore
@@ -543,10 +552,59 @@ class TestLoginViews(APIBaseTest):
         self.assertRedirects(response, "/preflight")
 
 
-def create_user(email: str, password: str, organization: Organization):
-    """
-    Helper that just creates a user. It currently uses the orm, but we
-    could use either the api, or django admin to create, to get better parity
-    with real world scenarios.
-    """
-    return User.objects.create_and_join(organization, email, password)
+class TestStaffUserAPI(APIBaseTest):
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.user.is_staff = True
+        cls.user.save()
+
+    def test_can_list_staff_users(self):
+
+        response = self.client.get("/api/staff_users/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(response_data["count"], 1)
+        self.assertEqual(response_data["results"][0]["is_staff"], True)
+        self.assertEqual(response_data["results"][0]["email"], self.CONFIG_EMAIL)
+
+    def test_only_staff_can_list_staff_users(self):
+        self.user.is_staff = False
+        self.user.save()
+
+        response = self.client.get("/api/staff_users")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response())
+
+    def test_update_staff_user(self):
+        user = self._create_user("newuser@posthog.com", password="12345678")
+        self.assertEqual(user.is_staff, False)
+
+        # User becomes staff
+        response = self.client.patch(f"/api/staff_users/{user.uuid}/", {"is_staff": True})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(response_data["is_staff"], True)
+        user.refresh_from_db()
+        self.assertEqual(user.is_staff, True)
+
+        # User is no longer staff
+        response = self.client.patch(f"/api/staff_users/{user.uuid}/", {"is_staff": False})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(response_data["is_staff"], False)
+        user.refresh_from_db()
+        self.assertEqual(user.is_staff, False)
+
+    def test_only_staff_user_can_update_staff(self):
+        user = self._create_user("newuser@posthog.com", password="12345678")
+
+        self.user.is_staff = False
+        self.user.save()
+
+        response = self.client.patch(f"/api/staff_users/{user.uuid}/", {"is_staff": True})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response())
+
+        user.refresh_from_db()
+        self.assertEqual(user.is_staff, False)
