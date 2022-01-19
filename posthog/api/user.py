@@ -8,14 +8,17 @@ import requests
 from django.conf import settings
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import models
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_http_methods
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, permissions, serializers, viewsets
+from rest_framework.request import Request
+from rest_framework.response import Response
 
+from posthog.api import organization
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.auth import authenticate_secondarily
@@ -157,6 +160,22 @@ class UserSerializer(serializers.ModelSerializer):
         return super().to_representation(instance)
 
 
+class UserStaffSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = [
+            "uuid",
+            "first_name",
+            "email",
+            "is_staff",
+        ]
+        extra_kwargs = {
+            "uuid": {"read_only": True},
+            "first_name": {"read_only": True},
+            "email": {"read_only": True},
+        }
+
+
 class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
     serializer_class = UserSerializer
     permission_classes = [
@@ -172,6 +191,19 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.G
         raise serializers.ValidationError(
             "Currently this endpoint only supports retrieving `@me` instance.", code="invalid_parameter",
         )
+
+
+class UserStaffViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
+    serializer_class = UserStaffSerializer
+    permission_classes = [
+        permissions.IsAuthenticated,
+        permissions.IsAdminUser,
+    ]
+    queryset = User.objects.none()
+    lookup_field = "uuid"
+
+    def get_queryset(self):
+        return User.objects.filter(is_staff=True)
 
 
 @authenticate_secondarily
