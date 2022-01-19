@@ -675,7 +675,6 @@ class TestInviteSignup(APIBaseTest):
         self.assertEqual(len(mail.outbox), 0)
 
     @override_config(EMAIL_HOST="localhost")
-    @patch("posthog.api.organization.settings.EE_AVAILABLE", False)
     def test_api_invite_sign_up_member_joined_email_is_sent_for_next_members(self):
         initial_user = User.objects.create_and_join(self.organization, "test+420@posthog.com", None)
 
