@@ -204,7 +204,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return Response({"results": actions_list})
 
     @action(methods=["GET"], detail=False)
-    def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:  # type: ignore
+    def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         team = self.team
         filter = Filter(request=request, team=self.team)
         entity = get_target_entity(filter)
@@ -249,7 +249,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         )
 
     @action(methods=["GET"], detail=True)
-    def count(self, request: request.Request, **kwargs) -> Response:  # type: ignore
+    def count(self, request: request.Request, **kwargs) -> Response:
         action = self.get_object()
         query, params = format_action_filter(action)
         if query == "":
