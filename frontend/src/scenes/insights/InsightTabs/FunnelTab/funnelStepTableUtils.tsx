@@ -30,7 +30,7 @@ export function getStepColor(step: FlattenedFunnelStep, isBreakdown?: boolean): 
 export function isBreakdownChildType(
     stepBreakdown: FlattenedFunnelStep['breakdown'] | Array<string | number>
 ): stepBreakdown is string | number | undefined | Array<string | number> {
-    return Array.isArray(stepBreakdown) || ['string', 'number', 'undefined'].includes(typeof stepBreakdown)
+    return Array.isArray(stepBreakdown) || ['string', 'number'].includes(typeof stepBreakdown)
 }
 
 export const renderSubColumnTitle = (title: string | JSX.Element): JSX.Element => (

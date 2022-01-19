@@ -37,7 +37,7 @@ import {
     TrendResult,
 } from '~/types'
 import { BinCountAuto, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+
 import {
     aggregateBreakdownResult,
     formatDisplayPercentage,
@@ -485,11 +485,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             (filters, lastFilters): boolean => !equal(cleanFilters(filters), cleanFilters(lastFilters)),
         ],
         barGraphLayout: [() => [selectors.filters], ({ layout }): FunnelLayout => layout || FunnelLayout.vertical],
-        clickhouseFeaturesEnabled: [
-            () => [preflightLogic.selectors.preflight],
-            // Controls auto-calculation of results and ability to break down values
-            (preflight): boolean => !!preflight?.is_clickhouse_enabled,
-        ],
         histogramGraphData: [
             () => [selectors.timeConversionResults],
             (timeConversionResults: FunnelsTimeConversionBins) => {
@@ -1043,9 +1038,8 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
             },
         ],
         correlationAnalysisAvailable: [
-            (s) => [s.hasAvailableFeature, s.clickhouseFeaturesEnabled],
-            (hasAvailableFeature, clickhouseFeaturesEnabled): boolean =>
-                clickhouseFeaturesEnabled && hasAvailableFeature(AvailableFeature.CORRELATION_ANALYSIS),
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature): boolean => hasAvailableFeature(AvailableFeature.CORRELATION_ANALYSIS),
         ],
         allProperties: [
             (s) => [s.inversePropertyNames, s.excludedPropertyNames],
@@ -1136,10 +1130,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 return count
             },
         ],
-        isModalActive: [
-            (s) => [s.clickhouseFeaturesEnabled, s.isViewedOnDashboard],
-            (clickhouseFeaturesEnabled, isViewedOnDashboard) => clickhouseFeaturesEnabled && !isViewedOnDashboard,
-        ],
+        isModalActive: [(s) => [s.isViewedOnDashboard], (isViewedOnDashboard) => !isViewedOnDashboard],
         incompletenessOffsetFromEnd: [
             (s) => [s.steps, s.conversionWindow],
             (steps, conversionWindow) => {
@@ -1173,13 +1164,6 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                         actions.setHiddenById({ [getVisibilityIndex(step, b.breakdown_value)]: true })
                     })
             })
-
-            // load the old people table
-            if (!values.clickhouseFeaturesEnabled) {
-                if ((values.stepsWithCount[0]?.people?.length ?? 0) > 0) {
-                    actions.loadPeople(values.stepsWithCount)
-                }
-            }
 
             // load correlation table after funnel. Maybe parallel?
             if (

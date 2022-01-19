@@ -1,6 +1,5 @@
 from typing import List, Optional, Tuple
 
-from django.db.transaction import rollback
 from semantic_version.base import SimpleSpec
 
 from posthog.async_migrations.setup import (
@@ -18,6 +17,8 @@ from posthog.async_migrations.utils import (
 )
 from posthog.models.async_migration import AsyncMigration, MigrationStatus, get_all_running_async_migrations
 from posthog.models.utils import UUIDT
+from posthog.plugins.alert import AlertLevel, send_alert_to_plugins
+from posthog.redis import get_client
 from posthog.version_requirement import ServiceVersionRequirement
 
 """
@@ -121,7 +122,6 @@ def run_async_migration_next_op(migration_name: str, migration_instance: Optiona
 
     try:
         execute_op(op, current_query_id)
-        op.side_effect()
         update_async_migration(
             migration_instance=migration_instance,
             current_query_id=current_query_id,
@@ -155,9 +155,7 @@ def update_migration_progress(migration_instance: AsyncMigration):
 
     migration_instance.refresh_from_db()
     try:
-        progress = get_async_migration_definition(migration_instance.name).progress(
-            migration_instance  # type: ignore
-        )
+        progress = get_async_migration_definition(migration_instance.name).progress(migration_instance)  # type: ignore
         update_async_migration(migration_instance=migration_instance, progress=progress)
     except:
         pass
@@ -172,16 +170,11 @@ def attempt_migration_rollback(migration_instance: AsyncMigration, force: bool =
 
     try:
         ops = get_async_migration_definition(migration_instance.name).operations
-
-        i = len(ops) - 1
-        for op in reversed(ops[: migration_instance.current_operation_index + 1]):
-            if not op.rollback:
-                if op.rollback == "":
-                    continue
-                raise Exception(f"No rollback provided for operation at index {i}: {op.sql}")
+        # if the migration was completed the index is set 1 after, normally we should try rollback for current op
+        current_index = min(migration_instance.current_operation_index, len(ops) - 1)
+        for op_index in range(current_index, -1, -1):
+            op = ops[op_index]
             execute_op(op, str(UUIDT()), rollback=True)
-            op.side_effect_rollback()
-            i -= 1
     except Exception as e:
         error = str(e)
 
@@ -194,6 +187,12 @@ def attempt_migration_rollback(migration_instance: AsyncMigration, force: bool =
                 migration_instance=migration_instance,
                 status=MigrationStatus.Errored,
                 last_error=f"Force rollback failed with error: {error}",
+            )
+
+            send_alert_to_plugins(
+                key="async_migration_errored",
+                description=f"Migration {migration_instance.name} failed with error {error}",
+                level=AlertLevel.P2,
             )
 
         return

@@ -1,6 +1,15 @@
 import { PluginAttachment } from '@posthog/plugin-scaffold'
 
-import { Hub, Plugin, PluginConfig, PluginConfigId, PluginId, PluginTaskType, TeamId } from '../../types'
+import {
+    Hub,
+    Plugin,
+    PluginConfig,
+    PluginConfigId,
+    PluginId,
+    PluginTaskType,
+    StatelessVmMap,
+    TeamId,
+} from '../../types'
 import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows } from '../../utils/db/sql'
 import { status } from '../../utils/status'
 import { LazyPluginVM } from '../vm/lazy'
@@ -10,6 +19,8 @@ import { teardownPlugins } from './teardown'
 export async function setupPlugins(server: Hub): Promise<void> {
     const { plugins, pluginConfigs, pluginConfigsPerTeam } = await loadPluginsFromDB(server)
     const pluginVMLoadPromises: Array<Promise<any>> = []
+    const statelessVms = {} as StatelessVmMap
+
     for (const [id, pluginConfig] of pluginConfigs) {
         const plugin = plugins.get(pluginConfig.plugin_id)
         const prevConfig = server.pluginConfigs.get(id)
@@ -21,12 +32,18 @@ export async function setupPlugins(server: Hub): Promise<void> {
             plugin?.updated_at == prevPlugin?.updated_at
         ) {
             pluginConfig.vm = prevConfig.vm
+        } else if (plugin?.is_stateless && statelessVms[plugin.id]) {
+            pluginConfig.vm = statelessVms[plugin.id]
         } else {
             pluginConfig.vm = new LazyPluginVM()
             pluginVMLoadPromises.push(loadPlugin(server, pluginConfig))
 
             if (prevConfig) {
                 void teardownPlugins(server, prevConfig)
+            }
+
+            if (plugin?.is_stateless) {
+                statelessVms[plugin.id] = pluginConfig.vm
             }
         }
     }

@@ -15,12 +15,11 @@ class TestUser(BaseTest):
             organization_name="Test Org", email="test_org@posthog.com", password="12345678", anonymize_data=True,
         )
 
-        with self.settings(EE_AVAILABLE=True, MULTI_TENANCY=True):
+        with self.settings(MULTI_TENANCY=True):
             self.assertEqual(
                 user.get_analytics_metadata(),
                 {
                     "realm": "cloud",
-                    "is_ee_available": True,
                     "email_opt_in": False,
                     "anonymize_data": True,
                     "email": None,
@@ -48,12 +47,11 @@ class TestUser(BaseTest):
         user_2: User = User.objects.create(email="test_org_2@posthog.com", email_opt_in=True)
         user_2.join(organization=self.organization)
 
-        with self.settings(EE_AVAILABLE=False, MULTI_TENANCY=False):
+        with self.settings(MULTI_TENANCY=False):
             self.assertEqual(
                 user_2.get_analytics_metadata(),
                 {
-                    "realm": "hosted",
-                    "is_ee_available": False,
+                    "realm": "hosted-clickhouse",
                     "email_opt_in": True,
                     "anonymize_data": False,
                     "email": "test_org_2@posthog.com",

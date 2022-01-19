@@ -6,7 +6,6 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { PushpinOutlined } from '@ant-design/icons'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import {
-    IconArrowDropDown,
     IconBarChart,
     IconCohort,
     IconComment,
@@ -151,7 +150,6 @@ function Pages(): JSX.Element {
                 identifier={Scene.Dashboards}
                 to={urls.dashboards()}
                 sideAction={{
-                    icon: <IconArrowDropDown />,
                     identifier: 'pinned-dashboards',
                     tooltip: 'Pinned dashboards',
                     onClick: () => setArePinnedDashboardsShown((state) => !state),

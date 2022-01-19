@@ -32,7 +32,6 @@ class TestSignupAPI(APIBaseTest):
         pass
 
     @pytest.mark.skip_on_multitenancy
-    @patch("posthog.api.organization.settings.EE_AVAILABLE", False)
     @patch("posthoganalytics.capture")
     def test_api_sign_up(self, mock_capture):
 
@@ -563,7 +562,6 @@ class TestInviteSignup(APIBaseTest):
     # Signup (using invite)
 
     @patch("posthoganalytics.capture")
-    @patch("posthog.api.organization.settings.EE_AVAILABLE", True)
     def test_api_invite_sign_up(self, mock_capture):
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+99@posthog.com", organization=self.organization,
@@ -620,7 +618,6 @@ class TestInviteSignup(APIBaseTest):
         self.assertTrue(user.check_password("test_password"))
 
     @pytest.mark.ee
-    @patch("posthog.api.organization.settings.EE_AVAILABLE", True)
     def test_api_invite_sign_up_where_there_are_no_default_non_private_projects(self):
         self.client.logout()
         invite: OrganizationInvite = OrganizationInvite.objects.create(
@@ -645,7 +642,6 @@ class TestInviteSignup(APIBaseTest):
         )  # User is not assigned to a project, as there are no non-private projects
         self.assertEqual(user.team, None)
 
-    @patch("posthog.api.organization.settings.EE_AVAILABLE", True)
     def test_api_invite_sign_up_where_default_project_is_private(self):
         self.client.logout()
         self.team.access_control = True
@@ -664,7 +660,6 @@ class TestInviteSignup(APIBaseTest):
         self.assertEqual(user.current_team, team)
         self.assertEqual(user.team, team)
 
-    @patch("posthog.api.organization.settings.EE_AVAILABLE", False)
     def test_api_invite_sign_up_member_joined_email_is_not_sent_for_initial_member(self):
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+100@posthog.com", organization=self.organization,
@@ -698,7 +693,6 @@ class TestInviteSignup(APIBaseTest):
         self.assertEqual(len(mail.outbox), 1)
         self.assertListEqual(mail.outbox[0].to, [initial_user.email])
 
-    @patch("posthog.api.organization.settings.EE_AVAILABLE", False)
     def test_api_invite_sign_up_member_joined_email_is_not_sent_if_disabled(self):
         self.organization.is_member_join_email_enabled = False
         self.organization.save()
@@ -720,7 +714,6 @@ class TestInviteSignup(APIBaseTest):
 
     @patch("posthoganalytics.identify")
     @patch("posthoganalytics.capture")
-    @patch("posthog.api.organization.settings.EE_AVAILABLE", False)
     def test_existing_user_can_sign_up_to_a_new_organization(self, mock_capture, mock_identify):
         user = self._create_user("test+159@posthog.com", "test_password")
         new_org = Organization.objects.create(name="TestCo")

@@ -1,6 +1,7 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import uuid4
 
+from django.utils.timezone import now
 from freezegun.api import freeze_time
 
 from ee.clickhouse.models.event import create_event
@@ -126,3 +127,95 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(Clickh
                 {"status": "returning", "data": [0, 0, 1, 0, 0, 1, 0, 0]},
             ],
         )
+
+    @snapshot_clickhouse_queries
+    def test_interval_dates_days(self):
+        with freeze_time("2021-05-05T12:00:00Z"):
+            self._setup_returning_lifecycle_data(20)
+
+            result = self._run_lifecycle({"date_from": "-7d", "interval": "day"})
+
+        self.assertLifecycleResults(
+            result,
+            [
+                {"status": "dormant", "data": [0] * 8},
+                {"status": "new", "data": [0] * 8},
+                {"status": "resurrecting", "data": [0] * 8},
+                {"status": "returning", "data": [1] * 8},
+            ],
+        )
+        self.assertEqual(
+            result[0]["days"],
+            [
+                "2021-04-28",
+                "2021-04-29",
+                "2021-04-30",
+                "2021-05-01",
+                "2021-05-02",
+                "2021-05-03",
+                "2021-05-04",
+                "2021-05-05",
+            ],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_interval_dates_weeks(self):
+        with freeze_time("2021-05-06T12:00:00Z"):
+            self._setup_returning_lifecycle_data(50)
+
+            result = self._run_lifecycle({"date_from": "-30d", "interval": "week"})
+
+        self.assertLifecycleResults(
+            result,
+            [
+                {"status": "dormant", "data": [0] * 5},
+                {"status": "new", "data": [0] * 5},
+                {"status": "resurrecting", "data": [0] * 5},
+                {"status": "returning", "data": [1] * 5},
+            ],
+        )
+        self.assertEqual(
+            result[0]["days"], ["2021-04-05", "2021-04-12", "2021-04-19", "2021-04-26", "2021-05-03",],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_interval_dates_months(self):
+        with freeze_time("2021-05-05T12:00:00Z"):
+            self._setup_returning_lifecycle_data(120)
+
+            result = self._run_lifecycle({"date_from": "-90d", "interval": "month"})
+
+        self.assertLifecycleResults(
+            result,
+            [
+                {"status": "dormant", "data": [0] * 4},
+                {"status": "new", "data": [0] * 4},
+                {"status": "resurrecting", "data": [0] * 4},
+                {"status": "returning", "data": [1] * 4},
+            ],
+        )
+        self.assertEqual(
+            result[0]["days"], ["2021-02-01", "2021-03-01", "2021-04-01", "2021-05-01",],
+        )
+
+    def _setup_returning_lifecycle_data(self, days):
+        with freeze_time("2019-01-01T12:00:00Z"):
+            Person.objects.create(distinct_ids=["person1"], team_id=self.team.pk)
+
+        journeys_for(
+            {
+                "person1": [
+                    {"event": "$pageview", "timestamp": (now() - timedelta(days=n)).strftime("%Y-%m-%d %H:%M:%S.%f")}
+                    for n in range(days)
+                ],
+            },
+            self.team,
+            create_people=False,
+        )
+
+    def _run_lifecycle(self, data):
+        filter = Filter(
+            data={"events": [{"id": "$pageview", "type": "events", "order": 0}], "shown_as": TRENDS_LIFECYCLE, **data,},
+            team=self.team,
+        )
+        return ClickhouseTrends().run(filter, self.team,)

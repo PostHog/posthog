@@ -13,7 +13,7 @@ from posthog.test.base import APIBaseTest
 
 class TestCohort(APIBaseTest):
     @patch("posthog.api.cohort.report_user_action")
-    @patch("posthog.tasks.calculate_cohort.calculate_cohort.delay")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_creating_update_and_calculating(self, patch_calculate_cohort, patch_capture):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
@@ -141,7 +141,7 @@ User ID,
         self.assertEqual(Cohort.objects.get(pk=response.json()["id"]).name, "test2")
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
-    @patch("posthog.tasks.calculate_cohort.calculate_cohort.delay")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_static_cohort_to_dynamic_cohort(self, patch_calculate_cohort, patch_calculate_cohort_from_list):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
@@ -189,10 +189,8 @@ email@example.org,
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()
-
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual(response["results"][0]["name"], "whatever")
-        self.assertEqual(response["results"][0]["count"], 1)
         self.assertEqual(response["results"][0]["created_by"]["id"], self.user.id)
 
 
