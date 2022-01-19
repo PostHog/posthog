@@ -8,7 +8,10 @@ from sentry_sdk import capture_exception
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.util import cast_timestamp_or_now
-from ee.clickhouse.sql.session_recording_events import INSERT_SESSION_RECORDING_EVENT_SQL
+from ee.clickhouse.sql.session_recording_events import (
+    INSERT_SESSION_RECORDING_EVENT_SQL,
+    UPDATE_RECORDINGS_TABLE_TTL_SQL,
+)
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 
@@ -49,3 +52,7 @@ def create_session_recording_event(
         capture_exception(Exception(f"Session recording event data too large - {len(snapshot_data_json)}"))
 
     return str(uuid)
+
+
+def update_recordings_ttl(weeks: int) -> None:
+    sync_execute(UPDATE_RECORDINGS_TABLE_TTL_SQL.format(weeks=weeks))

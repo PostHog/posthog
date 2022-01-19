@@ -63,6 +63,12 @@ class InstanceSettingsSerializer(serializers.Serializer):
             new_value_parsed = cast_str_to_desired_type(validated_data["value"], target_type)
             setattr(config, instance.key, new_value_parsed)
             instance.value = new_value_parsed
+
+        if instance.key == "RECORDINGS_TTL_WEEKS":
+            from ee.clickhouse.models.session_recording_event import update_recordings_ttl
+
+            update_recordings_ttl(new_value_parsed)
+
         return instance
 
 
