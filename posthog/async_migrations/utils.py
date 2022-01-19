@@ -9,7 +9,8 @@ from posthog.async_migrations.setup import DEPENDENCY_TO_ASYNC_MIGRATION
 from posthog.celery import app
 from posthog.constants import AnalyticsDBMS
 from posthog.email import is_email_available
-from posthog.models.async_migration import AsyncMigration, MigrationStatus
+from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
+from posthog.plugins.alert import AlertLevel, send_alert_to_plugins
 
 
 def execute_op(op: AsyncMigrationOperation, uuid: str, rollback: bool = False):
@@ -32,19 +33,16 @@ def execute_op_postgres(sql: str, query_id: str):
         cursor.execute(f"/* {query_id} */ " + sql)
 
 
-def process_error(migration_instance: AsyncMigration, error: Optional[str], rollback: bool = True):
+def process_error(migration_instance: AsyncMigration, error: str, rollback: bool = True):
     update_async_migration(
-        migration_instance=migration_instance,
-        status=MigrationStatus.Errored,
-        last_error=error or "",
-        finished_at=datetime.now(),
+        migration_instance=migration_instance, status=MigrationStatus.Errored, error=error, finished_at=datetime.now(),
     )
 
     if async_migrations_emails_enabled():
         from posthog.tasks.email import send_async_migration_errored_email
 
         send_async_migration_errored_email.delay(
-            migration_key=migration_instance.name, time=datetime.now().isoformat(), error=error or ""
+            migration_key=migration_instance.name, time=datetime.now().isoformat(), error=error
         )
 
     if not rollback or getattr(config, "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK"):
@@ -91,10 +89,10 @@ def force_stop_migration(
     process_error(migration_instance, error, rollback=rollback)
 
 
-def rollback_migration(migration_instance: AsyncMigration, force: bool = False):
+def rollback_migration(migration_instance: AsyncMigration):
     from posthog.async_migrations.runner import attempt_migration_rollback
 
-    attempt_migration_rollback(migration_instance, force=force)
+    attempt_migration_rollback(migration_instance)
 
 
 def complete_migration(migration_instance: AsyncMigration):
@@ -121,7 +119,6 @@ def complete_migration(migration_instance: AsyncMigration):
 def mark_async_migration_as_running(migration_instance: AsyncMigration):
     update_async_migration(
         migration_instance=migration_instance,
-        last_error="",
         current_query_id="",
         progress=0,
         current_operation_index=0,
@@ -133,7 +130,7 @@ def mark_async_migration_as_running(migration_instance: AsyncMigration):
 
 def update_async_migration(
     migration_instance: AsyncMigration,
-    last_error: Optional[str] = None,
+    error: Optional[str] = None,
     current_query_id: Optional[str] = None,
     celery_task_id: Optional[str] = None,
     progress: Optional[int] = None,
@@ -149,8 +146,8 @@ def update_async_migration(
             instance = AsyncMigration.objects.select_for_update().get(pk=migration_instance.pk)
         else:
             instance.refresh_from_db()
-        if last_error is not None:
-            instance.last_error = last_error
+        if error is not None:
+            AsyncMigrationError.objects.create(async_migration=instance, description=error).save()
         if current_query_id is not None:
             instance.current_query_id = current_query_id
         if celery_task_id is not None:
