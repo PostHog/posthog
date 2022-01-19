@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from constance import config
 from rest_framework import status
 
@@ -85,6 +87,22 @@ class TestInstanceSettings(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["value"], 48343943943)
         self.assertEqual(getattr(config, "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT"), 48343943943)
+
+    @patch("ee.clickhouse.models.session_recording_event.sync_execute")
+    def test_update_recordings_ttl_setting(self, mock_ch_query):
+        response = self.client.get(f"/api/instance_settings/RECORDINGS_TTL_WEEKS")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["value"], 3)
+
+        response = self.client.patch(f"/api/instance_settings/RECORDINGS_TTL_WEEKS", {"value": 5})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["value"], 5)
+
+        self.assertEqual(config.RECORDINGS_TTL_WEEKS, 5)
+
+        mock_ch_query.assert_called_with(
+            "ALTER TABLE session_recording_events TTL toDate(created_at) + INTERVAL 5 WEEK"
+        )
 
     def test_cant_update_setting_that_is_not_overridable(self):
         response = self.client.patch(f"/api/instance_settings/MATERIALIZED_COLUMNS_ENABLED", {"value": False},)
