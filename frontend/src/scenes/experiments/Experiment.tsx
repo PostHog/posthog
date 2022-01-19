@@ -506,6 +506,10 @@ export function Experiment(): JSX.Element {
                         </Row>
                     </Row>
                     <Row>
+                        {/* {[1].map(variant => {
+                            console.log(showWarning, experimentInsightType, areCountResultsSignificant, areConversionResultsSignificant, experimentResults)
+                            return (<div>k</div>)
+                            })} */}
                         {showWarning &&
                             experimentResults &&
                             ((experimentInsightType === InsightType.TRENDS && areCountResultsSignificant) ||
