@@ -136,7 +136,8 @@ describe('Events', () => {
             changeFirstPropertyFilterToDateAfter()
 
             cy.wait('@getEvents').then(() => {
-                cy.get('tr.event-row:first-child').should('contain.text', '7 hours ago')
+                // as the seeded events are random(-ish) we can't assert on how long ago they will be
+                cy.get('tr.event-row:first-child').should('not.contain.text', 'a day ago')
                 cy.get('tr.event-row').should('have.length', 7)
             })
         })
