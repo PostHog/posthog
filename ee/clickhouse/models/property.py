@@ -240,6 +240,7 @@ def prop_filter_json_extract(
         )
     elif operator == "is_date_after":
         # introducing duplication in these branches now rather than refactor too early
+        assert isinstance(prop.value, str)
         prop_value_param_key = "v{}_{}".format(prepend, idx)
         query = f"AND parseDateTimeBestEffortOrNull({property_expr}) > %({prop_value_param_key})s"
 
@@ -255,10 +256,14 @@ def prop_filter_json_extract(
 
         return (
             query,
-            {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value},
+            {
+                "k{}_{}".format(prepend, idx): prop.key,
+                prop_value_param_key: relative_date_parse(prop.value).strftime("%Y-%m-%d %H:%M:%S"),
+            },
         )
     elif operator == "is_date_before":
         # introducing duplication in these branches now rather than refactor too early
+        assert isinstance(prop.value, str)
         prop_value_param_key = "v{}_{}".format(prepend, idx)
         query = f"AND parseDateTimeBestEffortOrNull({property_expr}) < %({prop_value_param_key})s"
 
@@ -274,7 +279,10 @@ def prop_filter_json_extract(
 
         return (
             query,
-            {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value},
+            {
+                "k{}_{}".format(prepend, idx): prop.key,
+                prop_value_param_key: relative_date_parse(prop.value).strftime("%Y-%m-%d %H:%M:%S"),
+            },
         )
     elif operator == "gt":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}

@@ -4,15 +4,7 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { eventsTableLogicType } from './eventsTableLogicType'
 import { FixedFilters } from 'scenes/events/EventsTable'
-import {
-    AnyPropertyFilter,
-    DateTimePropertyTypeFormat,
-    EventsTableRowItem,
-    EventType,
-    PropertyFilter,
-    PropertyOperator,
-    PropertyType,
-} from '~/types'
+import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter, PropertyOperator } from '~/types'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
@@ -285,10 +277,7 @@ export const eventsTableLogic = kea<
                     key: '$time',
                     operator: PropertyOperator.IsDateAfter,
                     type: 'event',
-                    // clickhouse can't (by default) parse an ISO-8601 DATE in this position
-                    value: now().subtract(values.months, 'months').format('YYYY-MM-DD hh:mm:ss'),
-                    property_type: PropertyType.DateTime,
-                    property_type_format: DateTimePropertyTypeFormat.FULL_DATE,
+                    value: '-365d',
                 },
             ])
         },
