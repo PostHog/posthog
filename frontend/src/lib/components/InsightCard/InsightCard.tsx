@@ -4,11 +4,11 @@ import { BindLogic } from 'kea'
 import { capitalizeFirstLetter, dateFilterToText, Loading } from 'lib/utils'
 import React from 'react'
 import { Layout } from 'react-grid-layout'
+import { displayMap, getDisplayedType } from 'scenes/dashboard/DashboardItem'
 import { UNNAMED_INSIGHT_NAME } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { ActionsLineGraph } from 'scenes/trends/viz'
 import { urls } from 'scenes/urls'
-import { InsightColor, InsightLogicProps, InsightModel } from '~/types'
+import { InsightColor, InsightLogicProps, InsightModel, InsightType } from '~/types'
 import { Splotch, SplotchColor } from '../icons/Splotch'
 import { LemonButton, LemonButtonWithPopup } from '../LemonButton'
 import { More } from '../LemonButton/More'
@@ -53,7 +53,7 @@ function InsightMeta({
                 <div className="InsightMeta__main">
                     <div className="InsightMeta__top">
                         <h5>
-                            {filters.insight} •{' '}
+                            {filters.insight || InsightType.TRENDS} •{' '}
                             {dateFilterToText(
                                 filters.date_from,
                                 filters.date_to,
@@ -135,11 +135,14 @@ function InsightMeta({
 function InsightViz({ insight, loading }: Pick<InsightCardProps, 'insight' | 'loading' | 'apiError'>): JSX.Element {
     const { short_id, filters, result: cachedResults } = insight
 
+    const displayedType = getDisplayedType(filters)
+    const VizComponent = displayMap[displayedType].element
+
     return (
         <div className="InsightViz">
             {loading && <Loading />}
             <Alert.ErrorBoundary message="Insight visualization errored">
-                <ActionsLineGraph dashboardItemId={short_id} cachedResults={cachedResults} filters={filters} />
+                <VizComponent dashboardItemId={short_id} cachedResults={cachedResults} filters={filters} />
             </Alert.ErrorBoundary>
         </div>
     )
