@@ -3,17 +3,17 @@ import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { experimentsLogic } from './experimentsLogic'
 import { PlusOutlined } from '@ant-design/icons'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '../../lib/components/LemonTable'
 import { createdAtColumn, createdByColumn } from '../../lib/components/LemonTable/columnUtils'
-import { Experiment } from '~/types'
+import { Experiment, ExperimentsTabs, ExperimentsTabs } from '~/types'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { Link } from 'lib/components/Link'
 import { LinkButton } from 'lib/components/LinkButton'
 import dayjs from 'dayjs'
-import { Tag } from 'antd'
+import { Tabs, Tag } from 'antd'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -21,7 +21,8 @@ export const scene: SceneExport = {
 }
 
 export function Experiments(): JSX.Element {
-    const { experiments, experimentsLoading } = useValues(experimentsLogic)
+    const { experiments, experimentsLoading, tab } = useValues(experimentsLogic)
+    const { setExperimentsFilters } = useActions(experimentsLogic)
 
     const columns: LemonTableColumns<Experiment> = [
         {
@@ -49,8 +50,8 @@ export function Experiments(): JSX.Element {
                 const duration = experiment.end_date
                     ? dayjs(experiment.end_date).diff(dayjs(experiment.start_date), 'day')
                     : experiment.start_date
-                    ? dayjs().diff(dayjs(experiment.start_date), 'day')
-                    : undefined
+                        ? dayjs().diff(dayjs(experiment.start_date), 'day')
+                        : undefined
 
                 return <div>{duration !== undefined ? `${duration} day${duration > 1 ? 's' : ''}` : 'N.A'}</div>
             },
@@ -92,6 +93,15 @@ export function Experiments(): JSX.Element {
                     </LinkButton>
                 }
             />
+            <Tabs
+                activeKey={tab}
+                style={{ borderColor: '#D9D9D9' }}
+                onChange={(t) => setExperimentsFilters({ tab: t as ExperimentsTabs })}
+            >
+                <Tabs.TabPane tab="All Experiments" key={ExperimentsTabs.All} />
+                <Tabs.TabPane tab="Your Experiments" key={ExperimentsTabs.Yours} />
+                <Tabs.TabPane tab="Archived Experiments" key={ExperimentsTabs.Archived} />
+            </Tabs>
             <LemonTable
                 dataSource={experiments}
                 columns={columns}
