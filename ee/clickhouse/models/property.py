@@ -55,18 +55,12 @@ def parse_prop_clauses(
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_SUBQUERY,
     person_id_joined_alias: str = "person_id",
     group_properties_joined: bool = True,
-    include_and=True,
 ) -> Tuple[str, Dict]:
-    final = []
-    params: Dict[str, Any] = {}
-    if table_name != "":
-        table_name += "."
-
     if isinstance(filters, list) and len(filters) > 0 and isinstance(filters[0], list):
         or_groups = []
         or_params = {}
         for idx, filter_group in enumerate(filters):
-            clause, params = parse_prop_clauses(
+            clause, params = parse_prop_and_clauses(
                 filter_group,
                 prepend + f"_{idx}",
                 table_name,
@@ -75,23 +69,51 @@ def parse_prop_clauses(
                 person_properties_mode,
                 person_id_joined_alias,
                 group_properties_joined,
-                include_and=False,
             )
-            or_groups.append(f"({clause})")
+            formatted_clause = clause.replace("AND", "", 1)
+            or_groups.append(f"{formatted_clause}")
             or_params.update(params)
+
         return f"AND ({' OR '.join(or_groups)})", or_params
+    else:
+        return parse_prop_and_clauses(
+            filters,
+            prepend,
+            table_name,
+            allow_denormalized_props,
+            has_person_id_joined,
+            person_properties_mode,
+            person_id_joined_alias,
+            group_properties_joined,
+        )
+
+
+def parse_prop_and_clauses(
+    filters: List[Property],
+    prepend: str = "global",
+    table_name: str = "",
+    allow_denormalized_props: bool = True,
+    has_person_id_joined: bool = True,
+    person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_SUBQUERY,
+    person_id_joined_alias: str = "person_id",
+    group_properties_joined: bool = True,
+) -> Tuple[str, Dict]:
+    final = []
+    params: Dict[str, Any] = {}
+    if table_name != "":
+        table_name += "."
 
     for idx, prop in enumerate(filters):
         if prop.type == "cohort":
             try:
                 cohort = Cohort.objects.get(pk=prop.value)
             except Cohort.DoesNotExist:
-                final.append("0 = 13")  # If cohort doesn't exist, nothing can match
+                final.append("AND 0 = 13")  # If cohort doesn't exist, nothing can match
             else:
                 person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
                 params = {**params, **cohort_filter_params}
                 final.append(
-                    "{table_name}distinct_id IN ({clause})".format(table_name=table_name, clause=person_id_query)
+                    "AND {table_name}distinct_id IN ({clause})".format(table_name=table_name, clause=person_id_query)
                 )
         elif prop.type == "person" and person_properties_mode != PersonPropertiesMode.EXCLUDE:
             # :TODO: Clean this up by using ClickhousePersonQuery over GET_DISTINCT_IDS_BY_PROPERTY_SQL to have access
@@ -110,7 +132,7 @@ def parse_prop_clauses(
                 params.update(filter_params)
             else:
                 final.append(
-                    "{table_name}distinct_id IN ({filter_query})".format(
+                    "AND {table_name}distinct_id IN ({filter_query})".format(
                         filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(
                             filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
                         ),
@@ -123,7 +145,7 @@ def parse_prop_clauses(
                 {prop.key: prop.value}, operator=prop.operator, prepend="{}_".format(idx)
             )
             if query:
-                final.append(f"{query}")
+                final.append(f" AND {query}")
                 params.update(filter_params)
         elif prop.type == "event":
             filter_query, filter_params = prop_filter_json_extract(
@@ -156,7 +178,7 @@ def parse_prop_clauses(
                 groups_subquery = GET_GROUP_IDS_BY_PROPERTY_SQL.format(
                     filters=filter_query, group_type_index_var=group_type_index_var
                 )
-                final.append(f"{table_name}$group_{prop.group_type_index} IN ({groups_subquery})")
+                final.append(f"AND {table_name}$group_{prop.group_type_index} IN ({groups_subquery})")
                 params.update(filter_params)
                 params[group_type_index_var] = prop.group_type_index
         elif prop.type in ("static-cohort", "precalculated-cohort"):
@@ -165,16 +187,17 @@ def parse_prop_clauses(
             method = format_static_cohort_query if prop.type == "static-cohort" else format_precalculated_cohort_query
             filter_query, filter_params = method(cohort_id, idx, prepend=prepend, custom_match_field=person_id_joined_alias)  # type: ignore
             if has_person_id_joined:
-                final.append(f"{filter_query}")
+                final.append(f" AND {filter_query}")
             else:
                 # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
                 # :TODO: Use get_team_distinct_ids_query instead when possible instead of GET_TEAM_PERSON_DISTINCT_IDS
                 subquery = GET_DISTINCT_IDS_BY_PERSON_ID_FILTER.format(
                     filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
                 )
-                final.append(f"{table_name}distinct_id IN ({subquery})")
+                final.append(f"AND {table_name}distinct_id IN ({subquery})")
             params.update(filter_params)
-    return f"{'AND' if include_and else ''}{' AND '.join(final)}", params
+
+    return " ".join(final), params
 
 
 def prop_filter_json_extract(
@@ -202,31 +225,31 @@ def prop_filter_json_extract(
     if operator == "is_not":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): box_value(prop.value)}
         return (
-            "NOT has(%(v{prepend}_{idx})s, {left})".format(idx=idx, prepend=prepend, left=property_expr),
+            "AND NOT has(%(v{prepend}_{idx})s, {left})".format(idx=idx, prepend=prepend, left=property_expr),
             params,
         )
     elif operator == "icontains":
         value = "%{}%".format(prop.value)
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): value}
         return (
-            "{left} ILIKE %(v{prepend}_{idx})s".format(idx=idx, prepend=prepend, left=property_expr),
+            "AND {left} ILIKE %(v{prepend}_{idx})s".format(idx=idx, prepend=prepend, left=property_expr),
             params,
         )
     elif operator == "not_icontains":
         value = "%{}%".format(prop.value)
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): value}
         return (
-            "NOT ({left} ILIKE %(v{prepend}_{idx})s)".format(idx=idx, prepend=prepend, left=property_expr),
+            "AND NOT ({left} ILIKE %(v{prepend}_{idx})s)".format(idx=idx, prepend=prepend, left=property_expr),
             params,
         )
     elif operator in ("regex", "not_regex"):
         if not is_valid_regex(prop.value):
-            return "1 = 2", {}
+            return "AND 1 = 2", {}
 
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
 
         return (
-            "{regex_function}({left}, %(v{prepend}_{idx})s)".format(
+            "AND {regex_function}({left}, %(v{prepend}_{idx})s)".format(
                 regex_function="match" if operator == "regex" else "NOT match",
                 idx=idx,
                 prepend=prepend,
@@ -238,22 +261,22 @@ def prop_filter_json_extract(
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         if is_denormalized:
             return (
-                "notEmpty({left})".format(left=property_expr),
+                "AND notEmpty({left})".format(left=property_expr),
                 params,
             )
         return (
-            "JSONHas({prop_var}, %(k{prepend}_{idx})s)".format(idx=idx, prepend=prepend, prop_var=prop_var),
+            "AND JSONHas({prop_var}, %(k{prepend}_{idx})s)".format(idx=idx, prepend=prepend, prop_var=prop_var),
             params,
         )
     elif operator == "is_not_set":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         if is_denormalized:
             return (
-                "empty({left})".format(left=property_expr),
+                "AND empty({left})".format(left=property_expr),
                 params,
             )
         return (
-            "(isNull({left}) OR NOT JSONHas({prop_var}, %(k{prepend}_{idx})s))".format(
+            "AND (isNull({left}) OR NOT JSONHas({prop_var}, %(k{prepend}_{idx})s))".format(
                 idx=idx, prepend=prepend, prop_var=prop_var, left=property_expr
             ),
             params,
@@ -261,7 +284,7 @@ def prop_filter_json_extract(
     elif operator == "is_date_after":
         # introducing duplication in these branches now rather than refactor too early
         prop_value_param_key = "v{}_{}".format(prepend, idx)
-        query = f"parseDateTimeBestEffortOrNull({property_expr}) > %({prop_value_param_key})s"
+        query = f"AND parseDateTimeBestEffortOrNull({property_expr}) > %({prop_value_param_key})s"
 
         if (
             prop.property_definition is not None
@@ -280,7 +303,7 @@ def prop_filter_json_extract(
     elif operator == "is_date_before":
         # introducing duplication in these branches now rather than refactor too early
         prop_value_param_key = "v{}_{}".format(prepend, idx)
-        query = f"parseDateTimeBestEffortOrNull({property_expr}) < %({prop_value_param_key})s"
+        query = f"AND parseDateTimeBestEffortOrNull({property_expr}) < %({prop_value_param_key})s"
 
         if (
             prop.property_definition is not None
@@ -299,7 +322,7 @@ def prop_filter_json_extract(
     elif operator == "gt":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         return (
-            "toFloat64OrNull(trim(BOTH '\"' FROM replaceRegexpAll({left}, ' ', ''))) > %(v{prepend}_{idx})s".format(
+            "AND toFloat64OrNull(trim(BOTH '\"' FROM replaceRegexpAll({left}, ' ', ''))) > %(v{prepend}_{idx})s".format(
                 idx=idx, prepend=prepend, left=property_expr,
             ),
             params,
@@ -307,20 +330,20 @@ def prop_filter_json_extract(
     elif operator == "lt":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         return (
-            "toFloat64OrNull(trim(BOTH '\"' FROM replaceRegexpAll({left}, ' ', ''))) < %(v{prepend}_{idx})s".format(
+            "AND toFloat64OrNull(trim(BOTH '\"' FROM replaceRegexpAll({left}, ' ', ''))) < %(v{prepend}_{idx})s".format(
                 idx=idx, prepend=prepend, left=property_expr,
             ),
             params,
         )
     else:
         if is_json(prop.value) and not is_denormalized:
-            clause = "has(%(v{prepend}_{idx})s, replaceRegexpAll(visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s),' ', ''))"
+            clause = "AND has(%(v{prepend}_{idx})s, replaceRegexpAll(visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s),' ', ''))"
             params = {
                 "k{}_{}".format(prepend, idx): prop.key,
                 "v{}_{}".format(prepend, idx): box_value(prop.value, remove_spaces=True),
             }
         else:
-            clause = "has(%(v{prepend}_{idx})s, {left})"
+            clause = "AND has(%(v{prepend}_{idx})s, {left})"
             params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): box_value(prop.value)}
         return (
             clause.format(left=property_expr, idx=idx, prepend=prepend, prop_var=prop_var),
