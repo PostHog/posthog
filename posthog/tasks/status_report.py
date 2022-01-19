@@ -25,7 +25,7 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
     period_start, period_end = get_previous_week()
     report: Dict[str, Any] = {
         "posthog_version": VERSION,
-        "clickhouse_version": version_requirement.get_clickhouse_version(),
+        "clickhouse_version": str(version_requirement.get_clickhouse_version()),
         "deployment": os.getenv("DEPLOYMENT", "unknown"),
         "realm": get_instance_realm(),
         "period": {"start_inclusive": period_start.isoformat(), "end_inclusive": period_end.isoformat()},
