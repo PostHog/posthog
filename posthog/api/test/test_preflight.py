@@ -24,7 +24,7 @@ class TestPreflight(APIBaseTest):
         For security purposes, the information contained in an unauthenticated preflight request is minimal.
         """
         self.client.logout()
-        with self.settings(PRIMARY_DB=AnalyticsDBMS.POSTGRES, MULTI_TENANCY=False):
+        with self.settings(PRIMARY_DB=AnalyticsDBMS.CLICKHOUSE, MULTI_TENANCY=False):
             response = self.client.get("/_preflight/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -39,7 +39,7 @@ class TestPreflight(APIBaseTest):
                 "initiated": True,
                 "cloud": False,
                 "demo": False,
-                "realm": "hosted",
+                "realm": "hosted-clickhouse",
                 "available_social_auth_providers": {
                     "google-oauth2": False,
                     "github": False,
@@ -53,7 +53,7 @@ class TestPreflight(APIBaseTest):
 
     def test_preflight_request(self):
         with self.settings(
-            PRIMARY_DB=AnalyticsDBMS.POSTGRES,
+            PRIMARY_DB=AnalyticsDBMS.CLICKHOUSE,
             MULTI_TENANCY=False,
             INSTANCE_PREFERENCES=self.instance_preferences(debug_queries=True),
         ):
@@ -73,10 +73,8 @@ class TestPreflight(APIBaseTest):
                     "initiated": True,
                     "cloud": False,
                     "demo": False,
-                    "realm": "hosted",
-                    "ee_available": settings.EE_AVAILABLE,
-                    "is_clickhouse_enabled": False,
-                    "db_backend": "postgres",
+                    "realm": "hosted-clickhouse",
+                    "db_backend": "clickhouse",
                     "available_social_auth_providers": {
                         "google-oauth2": False,
                         "github": False,
@@ -87,7 +85,7 @@ class TestPreflight(APIBaseTest):
                     "posthog_version": VERSION,
                     "email_service_available": False,
                     "is_debug": False,
-                    "is_event_property_usage_enabled": False,
+                    "is_event_property_usage_enabled": True,
                     "licensed_users_available": None,
                     "site_url": "http://localhost:8000",
                     "can_create_org": False,
@@ -148,8 +146,6 @@ class TestPreflight(APIBaseTest):
                     "cloud": True,
                     "demo": False,
                     "realm": "cloud",
-                    "ee_available": True,
-                    "is_clickhouse_enabled": True,
                     "db_backend": "clickhouse",
                     "available_social_auth_providers": {
                         "google-oauth2": False,
@@ -161,7 +157,7 @@ class TestPreflight(APIBaseTest):
                     "posthog_version": VERSION,
                     "email_service_available": False,
                     "is_debug": False,
-                    "is_event_property_usage_enabled": False,
+                    "is_event_property_usage_enabled": True,
                     "licensed_users_available": None,
                     "site_url": "https://app.posthog.com",
                     "can_create_org": True,
@@ -197,8 +193,6 @@ class TestPreflight(APIBaseTest):
                     "cloud": True,
                     "demo": False,
                     "realm": "cloud",
-                    "ee_available": True,
-                    "is_clickhouse_enabled": True,
                     "db_backend": "clickhouse",
                     "available_social_auth_providers": {
                         "google-oauth2": True,
@@ -210,7 +204,7 @@ class TestPreflight(APIBaseTest):
                     "posthog_version": VERSION,
                     "email_service_available": True,
                     "is_debug": False,
-                    "is_event_property_usage_enabled": False,
+                    "is_event_property_usage_enabled": True,
                     "licensed_users_available": None,
                     "site_url": "http://localhost:8000",
                     "can_create_org": True,

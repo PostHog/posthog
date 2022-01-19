@@ -5,7 +5,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.events import EVENTS_TABLE
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
 from posthog.constants import AnalyticsDBMS
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, CLICKHOUSE_REPLICATION
 from posthog.version_requirement import ServiceVersionRequirement
 
 TEMPORARY_TABLE_NAME = f"{CLICKHOUSE_DATABASE}.temp_events_0002_events_sample_by"
@@ -46,7 +46,7 @@ class Migration(AsyncMigrationDefinition):
     ]
 
     operations = [
-        AsyncMigrationOperation(
+        AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"""
             CREATE TABLE IF NOT EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER} AS {EVENTS_TABLE_NAME}
@@ -58,7 +58,7 @@ class Migration(AsyncMigrationDefinition):
             rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER {CLICKHOUSE_CLUSTER}",
             resumable=True,
         ),
-        AsyncMigrationOperation(
+        AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"""
             INSERT INTO {TEMPORARY_TABLE_NAME}
@@ -71,13 +71,16 @@ class Migration(AsyncMigrationDefinition):
             timeout_seconds=7 * 24 * 60 * 60,  # one week
         ),
         AsyncMigrationOperation(
+            fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
+            rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
+            resumable=True,
+        ),
+        AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
             rollback=f"ATTACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
-            side_effect=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
-            side_effect_rollback=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
         ),
-        AsyncMigrationOperation(
+        AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"""
             INSERT INTO {TEMPORARY_TABLE_NAME}
@@ -88,7 +91,7 @@ class Migration(AsyncMigrationDefinition):
             resumable=True,
             timeout_seconds=3 * 24 * 60 * 60,  # three days
         ),
-        AsyncMigrationOperation(
+        AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"""
                 RENAME TABLE
@@ -103,18 +106,18 @@ class Migration(AsyncMigrationDefinition):
                 ON CLUSTER {CLICKHOUSE_CLUSTER}
             """,
         ),
-        AsyncMigrationOperation(
-            database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL",
-            rollback="",
-            resumable=True,
+        AsyncMigrationOperation.simple_op(
+            database=AnalyticsDBMS.CLICKHOUSE, sql=f"OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL", resumable=True,
         ),
-        AsyncMigrationOperation(
+        AsyncMigrationOperation.simple_op(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"ATTACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
             rollback=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}",
-            side_effect=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
-            side_effect_rollback=lambda: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
+        ),
+        AsyncMigrationOperation(
+            fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
+            rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
+            resumable=True,
         ),
     ]
 
@@ -128,10 +131,11 @@ class Migration(AsyncMigrationDefinition):
         )
 
     def precheck(self):
+        events_table = "sharded_events" if CLICKHOUSE_REPLICATION else "events"
         result = sync_execute(
             f"""
         SELECT (free_space.size / greatest(event_table_size.size, 1)) FROM 
-            (SELECT 1 as jc, 'event_table_size', sum(bytes) as size FROM system.parts WHERE table = 'sharded_events' AND database='{CLICKHOUSE_DATABASE}') event_table_size
+            (SELECT 1 as jc, 'event_table_size', sum(bytes) as size FROM system.parts WHERE table = '{events_table}' AND database='{CLICKHOUSE_DATABASE}') event_table_size
         JOIN 
             (SELECT 1 as jc, 'free_disk_space', free_space as size FROM system.disks WHERE name = 'default') free_space
         ON event_table_size.jc=free_space.jc 
@@ -146,7 +150,7 @@ class Migration(AsyncMigrationDefinition):
             result = sync_execute(
                 f"""
             SELECT formatReadableSize(free_space.size - (free_space.free_space - (1.5 * event_table_size.size ))) as required FROM 
-                (SELECT 1 as jc, 'event_table_size', sum(bytes) as size FROM system.parts WHERE table = 'sharded_events' AND database='{CLICKHOUSE_DATABASE}') event_table_size
+                (SELECT 1 as jc, 'event_table_size', sum(bytes) as size FROM system.parts WHERE table = '{events_table}' AND database='{CLICKHOUSE_DATABASE}') event_table_size
             JOIN 
                 (SELECT 1 as jc, 'free_disk_space', free_space, total_space as size FROM system.disks WHERE name = 'default') free_space
             ON event_table_size.jc=free_space.jc

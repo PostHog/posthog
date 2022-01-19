@@ -15,10 +15,8 @@ import { FunnelStepsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelS
 
 export function FunnelCanvasLabel(): JSX.Element | null {
     const { insightProps, filters, activeView } = useValues(insightLogic)
-    const { conversionMetrics, clickhouseFeaturesEnabled, aggregationTargetLabel } = useValues(
-        funnelLogic(insightProps)
-    )
-    const { setChartFilter } = useActions(chartFilterLogic)
+    const { conversionMetrics, aggregationTargetLabel } = useValues(funnelLogic(insightProps))
+    const { setChartFilter } = useActions(chartFilterLogic(insightProps))
 
     if (activeView !== InsightType.FUNNELS) {
         return null
@@ -57,9 +55,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                       <Button
                           type="link"
                           onClick={() => setChartFilter(FunnelVizType.TimeToConvert)}
-                          disabled={
-                              !clickhouseFeaturesEnabled || filters.funnel_viz_type === FunnelVizType.TimeToConvert
-                          }
+                          disabled={filters.funnel_viz_type === FunnelVizType.TimeToConvert}
                       >
                           <span className="l4">{humanFriendlyDuration(conversionMetrics.averageTime)}</span>
                       </Button>

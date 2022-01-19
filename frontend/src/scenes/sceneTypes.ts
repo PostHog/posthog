@@ -49,6 +49,7 @@ export enum Scene {
     Ingestion = 'IngestionWizard',
     OnboardingSetup = 'OnboardingSetup',
     Personalization = 'Personalization',
+    WebPerformance = 'WebPerformance',
 }
 
 export type SceneProps = Record<string, any>

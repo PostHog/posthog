@@ -106,7 +106,6 @@
                     },
                     "can_create_org": false,
                     "ee_available": true,
-                    "is_clickhouse_enabled": false,
                     "db_backend": "postgres",
                     "available_timezones": {},
                     "opt_out_capture": false,
@@ -320,7 +319,6 @@
                 "timezone": "UTC",
                 "data_attributes": ["data-attr"],
                 "session_recording_opt_in": false,
-                "session_recording_retention_period_days": null,
                 "effective_membership_level": 15
             },
             "currentTeamLoading": false,

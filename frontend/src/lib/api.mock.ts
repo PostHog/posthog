@@ -10,6 +10,14 @@ type APIMockReturnType = {
     >
 }
 
+enum APIMethod {
+    Create = 'create',
+    Get = 'get',
+    Update = 'update',
+    Delete = 'delete',
+}
+const apiMethods = [APIMethod.Create, APIMethod.Get, APIMethod.Update, APIMethod.Delete]
+
 type APIRoute = {
     pathname: string
     search: string
@@ -18,11 +26,7 @@ type APIRoute = {
     hashParams: Record<string, any>
     url: string
     data?: Record<string, any>
-    method: string
-}
-
-interface APIMockOptions {
-    availableFeatures: AvailableFeature[]
+    method: APIMethod
 }
 
 export const MOCK_TEAM_ID: TeamType['id'] = 997
@@ -42,24 +46,38 @@ export const MOCK_DEFAULT_ORGANIZATION: Partial<OrganizationType> = {
     membership_level: OrganizationMembershipLevel.Admin,
 }
 
-export const mockAPI = (cb: (url: APIRoute) => any): void => {
+export const mockAPI = (
+    urlCallback?: (url: APIRoute) => any,
+    apiCallback?: (apiCallPath: string, args: any[]) => void,
+    availableFeatures: AvailableFeature[] = []
+): void => {
     beforeEach(async () => {
-        const methods = ['get', 'update', 'create', 'delete']
-        for (const method of methods) {
+        for (const method of apiMethods) {
             api[method as keyof typeof api].mockImplementation(async (url: string, data?: Record<string, any>) => {
-                return cb({ ...combineUrl(url), data, method })
+                const urlParams = { ...combineUrl(url), data, method }
+                return (await urlCallback?.(urlParams)) ?? defaultAPIMocks(urlParams, availableFeatures)
             })
+        }
+
+        for (const chain of ['actions', 'cohorts', 'pluginLogs']) {
+            api[chain] = new Proxy(
+                {},
+                {
+                    get: function (_, property) {
+                        const path = [chain, property].join('.')
+                        return async (...args: any[]) =>
+                            (await apiCallback?.(path, args)) ?? defaultAPICallMocks(path, args)
+                    },
+                }
+            )
         }
     })
 }
 
-export function defaultAPIMocks(
-    { pathname, searchParams }: APIRoute,
-    { availableFeatures }: Partial<APIMockOptions> = {}
-): any {
-    const organization = { ...MOCK_DEFAULT_ORGANIZATION, available_features: availableFeatures || [] }
+export function defaultAPIMocks({ pathname, searchParams }: APIRoute, availableFeatures: AvailableFeature[] = []): any {
+    const organization = { ...MOCK_DEFAULT_ORGANIZATION, available_features: availableFeatures }
     if (pathname === '_preflight/') {
-        return { is_clickhouse_enabled: true }
+        return {}
     } else if (pathname === 'api/users/@me/') {
         return {
             organization,
@@ -84,5 +102,17 @@ export function defaultAPIMocks(
     ) {
         return { results: [], next: null }
     }
-    throw new Error(`Unmocked fetch to: ${pathname} with params: ${JSON.stringify(searchParams)}`)
+    throwLog(`Unmocked fetch to: ${pathname} with params: ${JSON.stringify(searchParams)}`)
+}
+
+export function defaultAPICallMocks(path: string, args: any[]): any {
+    if (['actions.list', 'cohorts.list'].includes(path)) {
+        return { results: [], next: null }
+    }
+    throwLog(`Unmocked API call on: api.${path}() with args: ${JSON.stringify(args)}`)
+}
+
+function throwLog(string: string): void {
+    console.error(string)
+    throw new Error(string)
 }

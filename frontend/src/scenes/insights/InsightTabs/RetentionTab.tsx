@@ -1,11 +1,9 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { retentionTableLogic, dateOptions, retentionOptionDescriptions } from 'scenes/retention/retentionTableLogic'
 import { Select, Row, Col } from 'antd'
-
 import { FilterType, RetentionType } from '~/types'
 import { TestAccountFilter } from '../TestAccountFilter'
 import './RetentionTab.scss'
@@ -24,7 +22,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function RetentionTab(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { insightProps, clickhouseFeaturesEnabled, allEventNames } = useValues(insightLogic)
+    const { insightProps, allEventNames } = useValues(insightLogic)
     const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
     const { filters, actionFilterTargetEntity, actionFilterReturningEntity } = useValues(
         retentionTableLogic(insightProps)
@@ -173,8 +171,7 @@ export function RetentionTab(): JSX.Element {
                     />
                     <TestAccountFilter filters={filters} onChange={setFilters} />
 
-                    {clickhouseFeaturesEnabled &&
-                    featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
+                    {featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
                     filters.display !== ACTIONS_LINE_GRAPH_LINEAR ? (
                         <>
                             <hr />

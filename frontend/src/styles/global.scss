@@ -28,6 +28,7 @@ NOTE: $medium is a SCSS var; not a keyword
     --bg-charcoal: #{$bg_charcoal};
     --bg-bridge: #{$bg_bridge};
     --bg-shaded: #{$bg_shaded};
+    --bg-light: #{$bg_light};
     --text-default: #{$text_default};
     --text-muted: #{$text_muted};
     --text-light: #{$text_light};
@@ -67,6 +68,8 @@ NOTE: $medium is a SCSS var; not a keyword
     --lifecycle-returning-hover: #{darken($lifecycle_returning, 20%)};
     --lifecycle-resurrecting-hover: #{darken($lifecycle_resurrecting, 20%)};
     --lifecycle-dormant-hover: #{darken($lifecycle_dormant, 20%)};
+    // Insights
+    --z-graph-tooltip: #{$z_graph_tooltip};
 }
 
 // Text styles
@@ -100,20 +103,20 @@ body strong {
 }
 
 .page-title-row {
-    margin-top: 0.5rem;
+    margin: 1.5rem 0 0.75rem;
 }
 
 .page-title {
     font-size: 28px;
     line-height: 34px;
-    margin-top: 0.5em;
-    font-weight: bold;
+    margin: 0;
+    font-weight: 600;
 }
 
 .page-caption {
     @extend .text-default;
-    max-width: 640px;
-    margin-bottom: 16px;
+    max-width: 48rem;
+    margin-bottom: 1rem;
 }
 
 .subtitle-row {
@@ -570,6 +573,7 @@ code.code {
     align-items: center;
     justify-content: center;
     pointer-events: none;
+    flex-shrink: 0;
 
     // variants
     &.funnel-step-glyph {
@@ -770,6 +774,7 @@ code.code {
 }
 
 .main-app-content {
+    position: relative; // So that scene-level <Loading/> is positioned correctly.
     min-width: 0;
     padding: 0 2rem 4rem;
 

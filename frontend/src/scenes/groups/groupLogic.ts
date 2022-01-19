@@ -7,13 +7,13 @@ import { Breadcrumb, Group } from '~/types'
 import { groupLogicType } from './groupLogicType'
 import { urls } from 'scenes/urls'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 
 export const groupLogic = kea<groupLogicType>({
     path: ['groups', 'groupLogic'],
-    connect: { values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes']] },
+    connect: { values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes', 'aggregationLabel']] },
     actions: () => ({
         setGroup: (groupTypeIndex: number, groupKey: string) => ({ groupTypeIndex, groupKey }),
-        setActiveCardTab: (tab: 'properties' | 'related') => ({ tab }),
     }),
     loaders: ({ values }) => ({
         groupData: [
@@ -40,28 +40,21 @@ export const groupLogic = kea<groupLogicType>({
                 setGroup: (_, { groupKey }) => groupKey,
             },
         ],
-        activeCardTab: [
-            'properties' as 'properties' | 'related',
-            {
-                setActiveCardTab: (_, { tab }) => tab,
-                setGroup: () => 'properties',
-            },
-        ],
     },
     selectors: {
         groupTypeName: [
-            (s) => [s.groupTypes, s.groupTypeIndex],
-            (groupTypes, index): string => groupTypes[index]?.group_type || '',
+            (s) => [s.aggregationLabel, s.groupTypeIndex],
+            (aggregationLabel, index): string => aggregationLabel(index).singular,
         ],
         breadcrumbs: [
-            (s) => [s.groupTypeName, s.groupTypeIndex, s.groupKey],
-            (groupTypeName, groupTypeIndex, groupKey): Breadcrumb[] => [
+            (s) => [s.groupTypeName, s.groupTypeIndex, s.groupKey, s.groupData],
+            (groupTypeName, groupTypeIndex, groupKey, groupData): Breadcrumb[] => [
                 {
                     name: capitalizeFirstLetter(groupTypeName),
                     path: urls.groups(String(groupTypeIndex)),
                 },
                 {
-                    name: groupKey,
+                    name: groupDisplayId(groupKey, groupData?.group_properties || {}),
                     path: urls.group(String(groupTypeIndex), groupKey),
                 },
             ],

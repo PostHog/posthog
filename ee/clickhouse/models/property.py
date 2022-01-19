@@ -35,6 +35,7 @@ from posthog.models.event import Selector
 from posthog.models.property import (
     NEGATED_OPERATORS,
     UNIX_TIMESTAMP,
+    UNIX_TIMESTAMP_MILLISECONDS,
     OperatorType,
     Property,
     PropertyIdentifier,
@@ -245,8 +246,11 @@ def prop_filter_json_extract(
         if (
             prop.property_definition is not None
             and prop.property_definition.format is not None
-            and prop.property_definition.format == UNIX_TIMESTAMP
+            and prop.property_definition.format in [UNIX_TIMESTAMP, UNIX_TIMESTAMP_MILLISECONDS]
         ):
+            # ClickHouse can only parse 9 or 10 digit unix timestamps.
+            # So we drop the fractional seconds from millisecond timestamps
+            # or from after decimal place in seconds timestamps
             query = f"AND parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10)) > %({prop_value_param_key})s"
 
         return (
@@ -261,8 +265,11 @@ def prop_filter_json_extract(
         if (
             prop.property_definition is not None
             and prop.property_definition.format is not None
-            and prop.property_definition.format == UNIX_TIMESTAMP
+            and prop.property_definition.format in [UNIX_TIMESTAMP, UNIX_TIMESTAMP_MILLISECONDS]
         ):
+            # ClickHouse can only parse 9 or 10 digit unix timestamps.
+            # So we drop the fractional seconds from millisecond timestamps
+            # or from after decimal place in seconds timestamps
             query = f"AND parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10)) < %({prop_value_param_key})s"
 
         return (
@@ -353,10 +360,12 @@ def get_property_string_expr(
     var: str,
     column: str,
     allow_denormalized_props: bool = True,
+    table_alias: Optional[str] = None,
 ) -> Tuple[str, bool]:
     """
 
     :param table:
+        the full name of the table in the database. used to look up which properties have been materialized
     :param property_name:
     :param var:
         the value to template in from the data structure for the query e.g. %(key)s or a flat value e.g. ["Safari"].
@@ -364,14 +373,18 @@ def get_property_string_expr(
     :param column:
         the table column where JSON is stored or the name of a materialized column
     :param allow_denormalized_props:
+    :param table_alias:
+        (optional) alias of the table being queried
     :return:
     """
     materialized_columns = get_materialized_columns(table) if allow_denormalized_props else {}
 
-    if allow_denormalized_props and property_name in materialized_columns:
-        return materialized_columns[property_name], True
+    table_string = f"{table_alias}." if table_alias != None else ""
 
-    return f"trim(BOTH '\"' FROM JSONExtractRaw({column}, {var}))", False
+    if allow_denormalized_props and property_name in materialized_columns:
+        return f"{table_string}{materialized_columns[property_name]}", True
+
+    return f"trim(BOTH '\"' FROM JSONExtractRaw({table_string}{column}, {var}))", False
 
 
 def box_value(value: Any, remove_spaces=False) -> List[Any]:
@@ -498,7 +511,7 @@ def build_selector_regex(selector: Selector) -> str:
             regex += ".*?"
             for key, value in sorted(tag.ch_attributes.items()):
                 regex += '{}="{}".*?'.format(key, value)
-        regex += r"([-_a-zA-Z0-9\.]*?)?($|;|:([^;^\s]*(;|$|\s)))"
+        regex += r'([-_a-zA-Z0-9\.:"= ]*?)?($|;|:([^;^\s]*(;|$|\s)))'
         if tag.direct_descendant:
             regex += ".*"
     return regex

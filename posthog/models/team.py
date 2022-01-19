@@ -105,9 +105,6 @@ class Team(UUIDClassicModel):
     completed_snippet_onboarding: models.BooleanField = models.BooleanField(default=False)
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
-    session_recording_retention_period_days: models.IntegerField = models.IntegerField(
-        null=True, default=None, blank=True
-    )
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
     access_control: models.BooleanField = models.BooleanField(default=False)
@@ -123,6 +120,10 @@ class Team(UUIDClassicModel):
     # thrown at us. Correlation code can handle schema related issues.
     correlation_config = models.JSONField(default=dict, null=True, blank=True)
 
+    # DEPRECATED, DISUSED: recordings on CH are cleared with Clickhouse's TTL
+    session_recording_retention_period_days: models.IntegerField = models.IntegerField(
+        null=True, default=None, blank=True
+    )
     # DEPRECATED, DISUSED: plugins are enabled for everyone now
     plugins_opt_in: models.BooleanField = models.BooleanField(default=False)
     # DEPRECATED, DISUSED: replaced with env variable OPT_OUT_CAPTURE and User.anonymized_data
@@ -150,8 +151,7 @@ class Team(UUIDClassicModel):
         except OrganizationMembership.DoesNotExist:
             return None
         if (
-            not settings.EE_AVAILABLE
-            or not requesting_parent_membership.organization.is_feature_available(
+            not requesting_parent_membership.organization.is_feature_available(
                 AvailableFeature.PROJECT_BASED_PERMISSIONING
             )
             or not self.access_control

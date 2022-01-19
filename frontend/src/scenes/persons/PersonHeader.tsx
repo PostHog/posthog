@@ -15,7 +15,7 @@ export const asDisplay = (person: Partial<PersonType> | PersonActorType | null |
     let displayId
     const propertyIdentifier = person?.properties
         ? person.properties.email || person.properties.name || person.properties.username
-        : 'with no IDs'
+        : 'ID-less user'
     const customIdentifier =
         typeof propertyIdentifier === 'object' ? JSON.stringify(propertyIdentifier) : propertyIdentifier
 
@@ -23,7 +23,7 @@ export const asDisplay = (person: Partial<PersonType> | PersonActorType | null |
         displayId = null
     } else {
         const baseId = person.distinct_ids[0].replace(/\W/g, '')
-        displayId = baseId.substr(baseId.length - 5).toUpperCase()
+        displayId = baseId.slice(-5).toUpperCase()
     }
 
     return customIdentifier ? customIdentifier : `User ${displayId}`
@@ -33,6 +33,8 @@ export const asLink = (person: Partial<PersonType> | null | undefined): string |
     person?.distinct_ids?.length ? urls.person(person.distinct_ids[0]) : undefined
 
 export function PersonHeader(props: PersonHeaderProps): JSX.Element {
+    const href = asLink(props.person)
+
     const content = (
         <div className="flex-center">
             {props.withIcon && (
@@ -41,7 +43,7 @@ export function PersonHeader(props: PersonHeaderProps): JSX.Element {
                         props.person?.properties?.email ||
                         props.person?.properties?.name ||
                         props.person?.properties?.username ||
-                        'U'
+                        (href ? 'U' : '?')
                     }
                     size="md"
                 />
@@ -52,10 +54,10 @@ export function PersonHeader(props: PersonHeaderProps): JSX.Element {
 
     return (
         <div className="person-header">
-            {props.noLink ? (
+            {props.noLink || !href ? (
                 content
             ) : (
-                <Link to={asLink(props.person)} data-attr={`goto-person-email-${props.person?.distinct_ids?.[0]}`}>
+                <Link to={href} data-attr={`goto-person-email-${props.person?.distinct_ids?.[0]}`}>
                     {content}
                 </Link>
             )}

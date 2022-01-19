@@ -8,7 +8,6 @@
     "cloud": false,
     "available_social_auth_providers": { "google-oauth2": false, "github": false, "gitlab": false },
     "ee_available": true,
-    "is_clickhouse_enabled": false,
     "db_backend": "postgres",
     "available_timezones": {
         "Africa/Abidjan": 0.0,

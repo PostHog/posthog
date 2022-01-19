@@ -1,6 +1,7 @@
 import uuid
 from unittest.mock import ANY, patch
 
+import pytest
 from django.utils.text import slugify
 from rest_framework import status
 
@@ -80,6 +81,39 @@ class TestUserAPI(APIBaseTest):
                 },
             ],
         )
+
+    @pytest.mark.ee
+    def test_organization_metadata_on_user_serializer(self):
+
+        from ee.models import EnterpriseEventDefinition, EnterprisePropertyDefinition
+
+        EnterpriseEventDefinition.objects.create(
+            team=self.team, name="enterprise event", owner=self.user, tags=["deprecated"]
+        )
+        EnterpriseEventDefinition.objects.create(
+            team=self.team, name="a new event", owner=self.user  # I shouldn't be counted
+        )
+        EnterprisePropertyDefinition.objects.create(
+            team=self.team,
+            name="a timestamp",
+            property_type="DateTime",
+            property_type_format="unix_timestamp",
+            description="This is a cool timestamp.",
+            tags=["test", "official"],
+        )
+        EnterprisePropertyDefinition.objects.create(
+            team=self.team, name="plan", description="The current membership plan the user has active.",
+        )
+        EnterprisePropertyDefinition.objects.create(
+            team=self.team, name="some_prop",  # I shouldn't be counted
+        )
+
+        response = self.client.get("/api/users/@me/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(response_data["organization"]["metadata"]["taxonomy_set_events_count"], 1)
+        self.assertEqual(response_data["organization"]["metadata"]["taxonomy_set_properties_count"], 2)
 
     def test_cannot_retrieve_or_list_other_users(self):
         """

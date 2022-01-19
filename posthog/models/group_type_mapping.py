@@ -16,3 +16,6 @@ class GroupTypeMapping(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     group_type: models.CharField = models.CharField(max_length=400, null=False, blank=False)
     group_type_index: models.IntegerField = models.IntegerField(null=False, blank=False)
+    # Used to display in UI
+    name_singular: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    name_plural: models.CharField = models.CharField(max_length=400, null=True, blank=True)

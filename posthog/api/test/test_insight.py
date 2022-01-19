@@ -20,7 +20,6 @@ from posthog.models import (
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.update_cache import update_dashboard_item_cache
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
-from posthog.utils import is_clickhouse_enabled
 
 
 def insight_test_factory(event_factory, person_factory):
@@ -501,14 +500,11 @@ def insight_test_factory(event_factory, person_factory):
             ).json()
 
             # clickhouse funnels don't have a loading system
-            if is_clickhouse_enabled():
-                self.assertEqual(len(response["result"]), 2)
-                self.assertEqual(response["result"][0]["name"], "user signed up")
-                self.assertEqual(response["result"][0]["count"], 1)
-                self.assertEqual(response["result"][1]["name"], "user did things")
-                self.assertEqual(response["result"][1]["count"], 1)
-            else:
-                self.assertEqual(response["result"]["loading"], True)
+            self.assertEqual(len(response["result"]), 2)
+            self.assertEqual(response["result"][0]["name"], "user signed up")
+            self.assertEqual(response["result"][0]["count"], 1)
+            self.assertEqual(response["result"][1]["name"], "user did things")
+            self.assertEqual(response["result"][1]["count"], 1)
 
         # Tests backwards-compatibility when we changed GET to POST | GET
         def test_insight_funnels_basic_get(self):
@@ -519,12 +515,9 @@ def insight_test_factory(event_factory, person_factory):
             ).json()
 
             # clickhouse funnels don't have a loading system
-            if is_clickhouse_enabled():
-                self.assertEqual(len(response["result"]), 2)
-                self.assertEqual(response["result"][0]["name"], "user signed up")
-                self.assertEqual(response["result"][1]["name"], "user did things")
-            else:
-                self.assertEqual(response["result"]["loading"], True)
+            self.assertEqual(len(response["result"]), 2)
+            self.assertEqual(response["result"][0]["name"], "user signed up")
+            self.assertEqual(response["result"][1]["name"], "user did things")
 
         def test_insight_retention_basic(self):
             person_factory(team=self.team, distinct_ids=["person1"], properties={"email": "person1@test.com"})
@@ -580,7 +573,3 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(response_invalid_token.status_code, 401)
 
     return TestInsight
-
-
-class TestInsight(insight_test_factory(Event.objects.create, Person.objects.create)):  # type: ignore
-    pass

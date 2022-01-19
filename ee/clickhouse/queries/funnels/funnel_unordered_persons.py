@@ -11,18 +11,18 @@ class ClickhouseFunnelUnorderedActors(ClickhouseFunnelUnordered, ActorBaseQuery)
     _filter: Filter
 
     @cached_property
-    def is_aggregating_by_groups(self) -> bool:
-        return self._filter.aggregation_group_type_index is not None
+    def aggregation_group_type_index(self):
+        return self._filter.aggregation_group_type_index
 
-    def actor_query(self, extra_fields: Optional[List[str]] = None):
+    def actor_query(self, limit_actors: Optional[bool] = True, extra_fields: Optional[List[str]] = None):
         extra_fields_string = ", ".join([self._get_timestamp_outer_select()] + (extra_fields or []))
         return (
             FUNNEL_PERSONS_BY_STEP_SQL.format(
-                offset=self._filter.offset,
                 steps_per_person_query=self.get_step_counts_query(),
                 persons_steps=self._get_funnel_person_step_condition(),
                 extra_fields=extra_fields_string,
-                limit="" if self._no_person_limit else "LIMIT %(limit)s",
+                limit="LIMIT %(limit)s" if limit_actors else "",
+                offset="OFFSET %(offset)s" if limit_actors else "",
             ),
             self.params,
         )

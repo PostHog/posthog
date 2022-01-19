@@ -61,7 +61,6 @@ services:
             KAFKA_URL: 'kafka://kafka'
             REDIS_URL: 'redis://redis:6379/'
             SECRET_KEY: ${POSTHOG_SECRET}
-            PRIMARY_DB: 'clickhouse'
             PGHOST: db
             PGUSER: posthog
             PGPASSWORD: posthog

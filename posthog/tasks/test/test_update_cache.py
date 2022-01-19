@@ -109,44 +109,15 @@ class TestUpdateCache(APIBaseTest):
         filter = Filter(data={"insight": "TRENDS", "events": [{"id": "$pageview"}]})
         dashboard_item = self._create_dashboard(filter)
 
-        with self.settings(EE_AVAILABLE=False):
-            update_cache_item(
-                generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
-                CacheType.TRENDS,
-                {"filter": filter.toJSON(), "team_id": self.team.pk,},
-            )
-
-        updated_dashboard_item = Insight.objects.get(pk=dashboard_item.pk)
-        self.assertEqual(updated_dashboard_item.refreshing, False)
-        self.assertEqual(updated_dashboard_item.last_refresh, now())
-
-    @freeze_time("2012-01-15")
-    @patch("posthog.tasks.update_cache.Funnel")
-    def test_update_cache_item_calls_right_funnel_class(self, funnel_mock: MagicMock) -> None:
-        #  basic funnel
-        filter = Filter(
-            data={
-                "insight": "FUNNELS",
-                "events": [
-                    {"id": "$pageview", "order": 0, "type": "events"},
-                    {"id": "$pageview", "order": 1, "type": "events"},
-                ],
-            }
+        update_cache_item(
+            generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
+            CacheType.TRENDS,
+            {"filter": filter.toJSON(), "team_id": self.team.pk,},
         )
-        dashboard_item = self._create_dashboard(filter)
-
-        funnel_mock.return_value.run.return_value = {}
-        with self.settings(EE_AVAILABLE=False):
-            update_cache_item(
-                generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
-                CacheType.FUNNEL,
-                {"filter": filter.toJSON(), "team_id": self.team.pk,},
-            )
 
         updated_dashboard_item = Insight.objects.get(pk=dashboard_item.pk)
         self.assertEqual(updated_dashboard_item.refreshing, False)
         self.assertEqual(updated_dashboard_item.last_refresh, now())
-        funnel_mock.assert_called_once()
 
     @freeze_time("2012-01-15")
     @patch("posthog.tasks.update_cache.ClickhouseFunnelUnordered", create=True)
@@ -173,7 +144,7 @@ class TestUpdateCache(APIBaseTest):
             }
         )
 
-        with self.settings(EE_AVAILABLE=True, PRIMARY_DB="clickhouse"):
+        with self.settings(PRIMARY_DB="clickhouse"):
             filter = base_filter
             funnel_mock.return_value.run.return_value = {}
             update_cache_item(
@@ -404,3 +375,25 @@ class TestUpdateCache(APIBaseTest):
             generate_cache_key("{}_{}".format(Filter(data=filter).toJSON(), self.team.pk)),
         )
         self.assertEquals(Insight.objects.get().last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00")
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    @patch("posthog.tasks.update_cache.dashboard_item_update_task_params")
+    def test_broken_insights(self, dashboard_item_update_task_params: MagicMock) -> None:
+        # sometimes we have broken insights, add a test to catch
+        dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
+        item = Insight.objects.create(dashboard=dashboard, filters={}, team=self.team)
+
+        update_cached_items()
+
+        self.assertEqual(dashboard_item_update_task_params.call_count, 0)
+
+    @patch("posthog.tasks.update_cache.dashboard_item_update_task_params")
+    def test_broken_exception_insights(self, dashboard_item_update_task_params: MagicMock) -> None:
+        dashboard_item_update_task_params.side_effect = Exception()
+        dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
+        filter = {"events": [{"id": "$pageview"}]}
+        item = Insight.objects.create(dashboard=dashboard, filters=filter, team=self.team)
+
+        update_cached_items()
+
+        self.assertEquals(Insight.objects.get().refresh_attempt, 1)

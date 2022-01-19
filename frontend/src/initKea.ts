@@ -28,13 +28,30 @@ interface InitKeaProps {
     beforePlugins?: KeaPlugin[]
 }
 
+// Used in some tests to make life easier
+let errorsSilenced = false
+export function silenceKeaLoadersErrors(): void {
+    errorsSilenced = true
+}
+export function resumeKeaLoadersErrors(): void {
+    errorsSilenced = false
+}
+
 export function initKea({ state, routerHistory, routerLocation, beforePlugins }: InitKeaProps = {}): void {
     resetContext({
         plugins: [
             ...(beforePlugins || []),
             localStoragePlugin,
             windowValuesPlugin({ window: window }),
-            routerPlugin({ history: routerHistory, location: routerLocation }),
+            routerPlugin({
+                history: routerHistory,
+                location: routerLocation,
+                urlPatternOptions: {
+                    // :TRICKY: We override default url segment matching characters.
+                    // This list includes all characters which are not escaped by encodeURIComponent
+                    segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'",
+                },
+            }),
             loadersPlugin({
                 onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
                     // Toast if it's a fetch error or a specific API update error
@@ -52,7 +69,9 @@ export function initKea({ state, routerHistory, routerLocation, beforePlugins }:
                             error.code
                         )
                     }
-                    console.error(error)
+                    if (!errorsSilenced) {
+                        console.error(error)
+                    }
                     ;(window as any).Sentry?.captureException(error)
                 },
             }),

@@ -716,21 +716,6 @@ export function InsightsFunnelsIcon({ color = 'white', ...props }: InsightIconIn
     )
 }
 
-export function InsightsSessionsIcon({ color = 'white', ...props }: InsightIconInstanceProps): JSX.Element {
-    return (
-        <InsightIcon {...props}>
-            <path
-                d="M9 8H23C24.11 8 25 8.9 25 10V14H23V12H9V22H11V24H9C7.89 24 7 23.1 7 22V10C7 8.9 7.89 8 9 8Z"
-                fill={color}
-            />
-            <path
-                d="M19.5267 15C16.4094 15 13.8817 17.5277 13.8817 20.645H12L14.4399 23.0849L14.4838 23.1727L17.0178 20.645H15.1361C15.1361 18.2177 17.0993 16.2544 19.5267 16.2544C21.954 16.2544 23.9172 18.2177 23.9172 20.645C23.9172 23.0724 21.954 25.0356 19.5267 25.0356C18.3161 25.0356 17.2185 24.5401 16.4282 23.7435L15.5375 24.6341C16.5599 25.6565 17.9649 26.29 19.5267 26.29C22.644 26.29 25.1717 23.7623 25.1717 20.645C25.1717 17.5277 22.644 15 19.5267 15ZM18.8994 18.1361V21.2722L21.5651 22.8528L22.0481 22.05L19.8403 20.7391V18.1361H18.8994Z"
-                fill={color}
-            />
-        </InsightIcon>
-    )
-}
-
 export function InsightsRetentionIcon({ color = 'white', ...props }: InsightIconInstanceProps): JSX.Element {
     return (
         <InsightIcon {...props}>
@@ -875,6 +860,30 @@ export function IconClose(props: React.SVGProps<SVGSVGElement>): JSX.Element {
         <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
             <path
                 d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Delete icon. */
+export function IconDelete(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m16 9v10h-8v-10zm-1.5-6h-5l-1 1h-3.5v2h14v-2h-3.5zm3.5 4h-12v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+/** Material Design Delete Forever icon. */
+export function IconDeleteForever(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m14.12 10.47-2.12 2.12-2.13-2.12-1.41 1.41 2.13 2.12-2.12 2.12 1.41 1.41 2.12-2.12 2.12 2.12 1.41-1.41-2.12-2.12 2.12-2.12zm1.38-6.47-1-1h-5l-1 1h-3.5v2h14v-2zm-9.5 15c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2v-12h-12zm2-10h8v10h-8z"
                 fill="currentColor"
             />
         </svg>

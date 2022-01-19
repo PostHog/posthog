@@ -45,6 +45,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     expandable?: ExpandableConfig<T>
     /** Whether the header should be shown. The default value is `true`. */
     showHeader?: boolean
+    /** Whether header titles should be uppercased. The default value is `true`. */
+    uppercaseHeader?: boolean
     /**
      * By default sorting goes: 0. unsorted > 1. ascending > 2. descending > GOTO 0 (loop).
      * With sorting cancellation disabled, GOTO 0 is replaced by GOTO 1. */
@@ -60,6 +62,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
     /** What to describe the entries as, singular and plural. The default value is `['entry', 'entries']`. */
     nouns?: [string, string]
     className?: string
+    style?: React.CSSProperties
     'data-attr'?: string
 }
 
@@ -76,6 +79,7 @@ export function LemonTable<T extends Record<string, any>>({
     pagination,
     expandable,
     showHeader = true,
+    uppercaseHeader = true,
     disableSortingCancellation = false,
     defaultSorting = null,
     sorting,
@@ -83,6 +87,7 @@ export function LemonTable<T extends Record<string, any>>({
     emptyState,
     nouns = ['entry', 'entries'],
     className,
+    style,
     'data-attr': dataAttr,
 }: LemonTableProps<T>): JSX.Element {
     /** Search param that will be used for storing and syncing the current page */
@@ -225,6 +230,7 @@ export function LemonTable<T extends Record<string, any>>({
                 isScrollable[1] && 'LemonTable--scrollable-right',
                 className
             )}
+            style={style}
             data-attr={dataAttr}
         >
             <div className="LemonTable__scroll" ref={scrollRef}>
@@ -237,7 +243,7 @@ export function LemonTable<T extends Record<string, any>>({
                             ))}
                         </colgroup>
                         {showHeader && (
-                            <thead>
+                            <thead style={uppercaseHeader ? { textTransform: 'uppercase' } : {}}>
                                 <tr>
                                     {expandable && <th />}
                                     {columns.map((column, columnIndex) => (
@@ -327,9 +333,9 @@ export function LemonTable<T extends Record<string, any>>({
                                     )
                                 })
                             ) : (
-                                <tr>
+                                <tr className="LemonTable__empty-state">
                                     <td colSpan={columns.length + Number(!!expandable)}>
-                                        {emptyState || `No ${nouns[1]}`}
+                                        {!loading ? emptyState || `No ${nouns[1]}` : `Loading ${nouns[1]}…`}
                                     </td>
                                 </tr>
                             )}
@@ -349,7 +355,6 @@ export function LemonTable<T extends Record<string, any>>({
                                     : `${currentStartIndex + 1}-${currentEndIndex} of ${entryCount} ${nouns[1]}`}
                             </span>
                             <LemonButton
-                                compact
                                 icon={<IconChevronLeft />}
                                 type="stealth"
                                 disabled={!isPreviousAvailable}
@@ -363,7 +368,6 @@ export function LemonTable<T extends Record<string, any>>({
                                 }
                             />
                             <LemonButton
-                                compact
                                 icon={<IconChevronRight />}
                                 type="stealth"
                                 disabled={!isNextAvailable}

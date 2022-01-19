@@ -1,6 +1,5 @@
 @import '~/vars.scss';
 
-.experiment-result,
 .experiment-form {
     .metrics-selection {
         border-top: 1px solid $border;
@@ -120,7 +119,7 @@
     }
 }
 
-.confirmation {
+.view-experiment {
     .draft-header {
         margin-bottom: $default_spacing;
         border-bottom: 1px solid $border;
@@ -129,5 +128,48 @@
     .stop-experiment {
         background-color: $danger;
         color: white;
+    }
+
+    .description {
+        font-style: italic;
+        color: $text_muted;
+    }
+
+    .participants {
+        background-color: white;
+        .ant-collapse-header {
+            padding-top: $default_spacing / 2;
+            padding-bottom: $default_spacing / 2;
+            padding-left: $default_spacing * 0.75;
+        }
+    }
+
+    .variants-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        li {
+            display: inline;
+        }
+        li:after {
+            content: ', ';
+        }
+        li:last-child:after {
+            content: '';
+        }
+    }
+
+    .experiment-result {
+        padding-top: $default_spacing;
+        border-top: 1px solid $border;
+    }
+
+    .significant-results {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        padding: 8px;
+        background: rgba(119, 185, 108, 0.1);
+        border-radius: 4px;
     }
 }

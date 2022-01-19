@@ -10,11 +10,10 @@ from posthog.models.plugin import PluginConfig
 from posthog.models.utils import UUIDT
 from posthog.tasks.status_report import status_report
 from posthog.test.base import APIBaseTest
-from posthog.utils import is_clickhouse_enabled
 from posthog.version import VERSION
 
 
-def factory_status_report(_create_event: Callable, _create_person: Callable) -> "TestStatusReport":
+def factory_status_report(_create_event: Callable, _create_person: Callable):  # type: ignore
     class TestStatusReport(APIBaseTest):
         def create_new_org_and_team(self, for_internal_metrics: bool = False) -> Team:
             org = Organization.objects.create(name="New Org", for_internal_metrics=for_internal_metrics)
@@ -148,23 +147,4 @@ def factory_status_report(_create_event: Callable, _create_person: Callable) -> 
             self.assertEqual(report["plugins_installed"], {"Installed but not enabled": 1, "Installed and enabled": 1})
             self.assertEqual(report["plugins_enabled"], {"Installed and enabled": 1})
 
-    return TestStatusReport  # type: ignore
-
-
-def create_person(distinct_id: str, team: Team) -> None:
-    Person.objects.create(team=team, distinct_ids=[distinct_id])
-
-
-def create_event(distinct_id: str, event: str, lib: str, created_at: datetime, team: Team) -> None:
-    Event.objects.create(
-        team=team,
-        distinct_id=distinct_id,
-        event=event,
-        timestamp=created_at,
-        created_at=created_at,
-        properties={"$lib": lib},
-    )
-
-
-class TestStatusReport(factory_status_report(create_event, create_person)):  # type: ignore
-    pass
+    return TestStatusReport

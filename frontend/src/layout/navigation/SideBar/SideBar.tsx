@@ -6,7 +6,6 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { PushpinOutlined } from '@ant-design/icons'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import {
-    IconArrowDropDown,
     IconBarChart,
     IconCohort,
     IconComment,
@@ -38,6 +37,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
+import { CoffeeOutlined } from '@ant-design/icons'
 
 function ProjectSwitcherInternal(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -150,7 +150,6 @@ function Pages(): JSX.Element {
                 identifier={Scene.Dashboards}
                 to={urls.dashboards()}
                 sideAction={{
-                    icon: <IconArrowDropDown />,
                     identifier: 'pinned-dashboards',
                     tooltip: 'Pinned dashboards',
                     onClick: () => setArePinnedDashboardsShown((state) => !state),
@@ -202,6 +201,9 @@ function Pages(): JSX.Element {
             <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
             {featureFlags[FEATURE_FLAGS.EXPERIMENTATION] && (
                 <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
+            )}
+            {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
+                <PageButton icon={<CoffeeOutlined />} identifier={Scene.WebPerformance} to={urls.webPerformance()} />
             )}
             <LemonSpacer />
             <PageButton icon={<IconGroupedEvents />} identifier={Scene.Events} to={urls.events()} />

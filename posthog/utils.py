@@ -245,6 +245,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
 
     posthog_app_context: Dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
+        "anonymous": not request.user or not request.user.is_authenticated,
     }
 
     # Set the frontend app context
@@ -595,22 +596,18 @@ def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]
     return new_string, named_params
 
 
-def is_clickhouse_enabled() -> bool:
-    return settings.EE_AVAILABLE and settings.PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE
-
-
 def get_instance_realm() -> str:
     """
-    Returns the realm for the current instance. `cloud` or 'demo' or `hosted` or `hosted-clickhouse`.
+    Returns the realm for the current instance. `cloud` or 'demo' or `hosted-clickhouse`.
+    
+    Historically this would also have returned `hosted` for hosted postgresql based installations
     """
     if settings.MULTI_TENANCY:
         return "cloud"
     elif settings.DEMO:
         return "demo"
-    elif is_clickhouse_enabled():
-        return "hosted-clickhouse"
     else:
-        return "hosted"
+        return "hosted-clickhouse"
 
 
 def get_can_create_org() -> bool:

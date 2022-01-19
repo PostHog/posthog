@@ -102,8 +102,6 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
         try:
             person = Person.objects.get(team_id=self.team_id, pk=pk)
-            events = Event.objects.filter(team_id=self.team_id, distinct_id__in=person.distinct_ids)
-            events.delete()
             person.delete()
             return response.Response(status=204)
         except Person.DoesNotExist:
@@ -211,7 +209,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
                 status=400,
             )
-        filter = RetentionFilter(request=request)
+        filter = RetentionFilter(request=request, team=team)
         base_uri = request.build_absolute_uri("/")
 
         if display == TRENDS_TABLE:
@@ -236,7 +234,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if not filter.limit:
             filter = filter.with_data({LIMIT: 100})
 
-        target_entity = get_target_entity(request)
+        target_entity = get_target_entity(filter)
 
         people = self.stickiness_class().people(target_entity, filter, team, request)
         next_url = paginated_result(people, request, filter.offset)
@@ -247,7 +245,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         from posthog.api.cohort import CohortSerializer
 
         person = self.get_queryset().get(id=str(request.GET["person_id"]))
-        cohorts = Cohort.objects.annotate(count=Count("people")).filter(people__id=person.id)
+        cohorts = Cohort.objects.annotate(count=Count("people")).filter(people__id=person.id, deleted=False)
 
         return response.Response({"results": CohortSerializer(cohorts, many=True).data})
 

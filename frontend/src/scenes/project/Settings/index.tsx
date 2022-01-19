@@ -32,6 +32,7 @@ import { CorrelationConfig } from './CorrelationConfig'
 import { urls } from 'scenes/urls'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { AuthorizedUrlsTable } from 'scenes/toolbar-launch/AuthorizedUrlsTable'
+import { GroupAnalytics } from 'scenes/project/Settings/GroupAnalytics'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -234,8 +235,8 @@ export function ProjectSettings(): JSX.Element {
                     in) and where we'll <b>record sessions</b> (if <a href="#session-recording">enabled</a>).
                 </p>
                 <p>
-                    <b>Wilcard subdomains are permitted</b>: <code>https://*.example.com</code>. You cannot wildcard
-                    domains or top-level domains as this could present a security risk.
+                    <b>Wilcard subdomains are permitted</b>: <code>https://*.example.com</code> You cannot use wildcard
+                    top-level domains as this could present a security risk.
                 </p>
                 <AuthorizedUrlsTable />
                 <Divider />
@@ -260,9 +261,6 @@ export function ProjectSettings(): JSX.Element {
                 <div id="session-recording" />
                 <h2 id="recordings" className="subtitle" style={{ display: 'flex', alignItems: 'center' }}>
                     Recordings
-                    <LemonTag type="warning" style={{ marginLeft: 8 }}>
-                        Beta
-                    </LemonTag>
                 </h2>
                 <p>
                     Watch recordings of how users interact with your web app to see what can be improved. Recordings are
@@ -289,6 +287,7 @@ export function ProjectSettings(): JSX.Element {
                 </p>
                 <SessionRecording />
                 <Divider />
+                <GroupAnalytics />
                 <RestrictedArea Component={AccessControl} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <Divider />
                 {currentTeam?.access_control && hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) && (

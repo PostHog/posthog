@@ -87,7 +87,6 @@
                 "timezone": "UTC",
                 "data_attributes": ["data-attr"],
                 "session_recording_opt_in": false,
-                "session_recording_retention_period_days": null,
                 "effective_membership_level": 15,
                 "access_control": false
             },
@@ -185,7 +184,6 @@
                     "can_create_org": true,
                     "email_service_available": false,
                     "ee_available": true,
-                    "is_clickhouse_enabled": true,
                     "db_backend": "clickhouse",
                     "available_timezones": {
                         "Africa/Abidjan": 0,

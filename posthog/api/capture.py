@@ -9,90 +9,88 @@ from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
-from sentry_sdk import capture_exception, configure_scope, push_scope
+from sentry_sdk import capture_exception, configure_scope
 from sentry_sdk.api import capture_exception
 from statshog.defaults.django import statsd
 
+from ee.kafka_client.client import KafkaProducer
+from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
+from ee.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.api.utils import get_data, get_team, get_token
-from posthog.celery import app as celery_app
 from posthog.exceptions import generate_exception_response
 from posthog.helpers.session_recording import preprocess_session_recording_events
 from posthog.models import Team
 from posthog.models.feature_flag import get_overridden_feature_flags
 from posthog.models.utils import UUIDT
-from posthog.utils import cors_response, get_ip_address, is_clickhouse_enabled
+from posthog.utils import cors_response, get_ip_address
 
-if is_clickhouse_enabled():
-    from ee.kafka_client.client import KafkaProducer
-    from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
-    from ee.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 
-    def parse_kafka_event_data(
-        distinct_id: str,
-        ip: Optional[str],
-        site_url: str,
-        data: Dict,
-        team_id: Optional[int],
-        now: datetime,
-        sent_at: Optional[datetime],
-        event_uuid: UUIDT,
-    ) -> Dict:
-        return {
-            "uuid": str(event_uuid),
-            "distinct_id": distinct_id,
-            "ip": ip,
-            "site_url": site_url,
-            "data": json.dumps(data),
-            "team_id": team_id,
-            "now": now.isoformat(),
-            "sent_at": sent_at.isoformat() if sent_at else "",
-        }
+def parse_kafka_event_data(
+    distinct_id: str,
+    ip: Optional[str],
+    site_url: str,
+    data: Dict,
+    team_id: Optional[int],
+    now: datetime,
+    sent_at: Optional[datetime],
+    event_uuid: UUIDT,
+) -> Dict:
+    return {
+        "uuid": str(event_uuid),
+        "distinct_id": distinct_id,
+        "ip": ip,
+        "site_url": site_url,
+        "data": json.dumps(data),
+        "team_id": team_id,
+        "now": now.isoformat(),
+        "sent_at": sent_at.isoformat() if sent_at else "",
+    }
 
-    def log_event(data: Dict, event_name: str) -> None:
+
+def log_event(data: Dict, event_name: str) -> None:
+    if settings.DEBUG:
+        print(f"Logging event {event_name} to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC}")
+
+    # TODO: Handle Kafka being unavailable with exponential backoff retries
+    try:
+        KafkaProducer().produce(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=data)
+    except Exception as e:
+        statsd.incr("capture_endpoint_log_event_error")
+        print(f"Failed to produce event to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC} with error:", e)
+        raise e
+
+
+def log_event_to_dead_letter_queue(
+    raw_payload: Dict,
+    event_name: str,
+    event: Dict,
+    error_message: str,
+    error_location: str,
+    topic: str = KAFKA_DEAD_LETTER_QUEUE,
+):
+    data = event.copy()
+
+    data["failure_timestamp"] = datetime.now().isoformat()
+    data["error_location"] = error_location
+    data["error"] = error_message
+    data["elements_chain"] = ""
+    data["id"] = str(UUIDT())
+    data["event"] = event_name
+    data["raw_payload"] = json.dumps(raw_payload)
+    data["now"] = datetime.fromisoformat(data["now"]).replace(tzinfo=None).isoformat() if data["now"] else None
+
+    data["event_uuid"] = event["uuid"]
+    del data["uuid"]
+
+    try:
+        KafkaProducer().produce(topic=topic, data=data)
+        statsd.incr(settings.EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC)
+    except Exception as e:
+        capture_exception(e)
+        statsd.incr("events_dead_letter_queue_produce_error")
+
         if settings.DEBUG:
-            print(f"Logging event {event_name} to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC}")
-
-        # TODO: Handle Kafka being unavailable with exponential backoff retries
-        try:
-            KafkaProducer().produce(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=data)
-        except Exception as e:
-            capture_exception(e, {"data": data})
-            statsd.incr("capture_endpoint_log_event_error")
-
-            if settings.DEBUG:
-                print(f"Failed to produce event to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC} with error:", e)
-
-    def log_event_to_dead_letter_queue(
-        raw_payload: Dict,
-        event_name: str,
-        event: Dict,
-        error_message: str,
-        error_location: str,
-        topic: str = KAFKA_DEAD_LETTER_QUEUE,
-    ):
-        data = event.copy()
-
-        data["failure_timestamp"] = datetime.now().isoformat()
-        data["error_location"] = error_location
-        data["error"] = error_message
-        data["elements_chain"] = ""
-        data["id"] = str(UUIDT())
-        data["event"] = event_name
-        data["raw_payload"] = json.dumps(raw_payload)
-        data["now"] = datetime.fromisoformat(data["now"]).replace(tzinfo=None).isoformat() if data["now"] else None
-
-        data["event_uuid"] = event["uuid"]
-        del data["uuid"]
-
-        try:
-            KafkaProducer().produce(topic=topic, data=data)
-            statsd.incr(settings.EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC)
-        except Exception as e:
-            capture_exception(e)
-            statsd.incr("events_dead_letter_queue_produce_error")
-
-            if settings.DEBUG:
-                print("Failed to produce to events dead letter queue with error:", e)
+            print("Failed to produce to events dead letter queue with error:", e)
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
@@ -175,7 +173,7 @@ def get_event(request):
         return error_response
 
     send_events_to_dead_letter_queue = False
-    if db_error and is_clickhouse_enabled():
+    if db_error:
         send_events_to_dead_letter_queue = True
 
     if isinstance(data, dict):
@@ -239,11 +237,28 @@ def get_event(request):
             continue
 
         statsd.incr("posthog_cloud_plugin_server_ingestion")
-        capture_internal(event, distinct_id, ip, site_url, now, sent_at, team.pk, event_uuid)  # type: ignore
+        try:
+            capture_internal(event, distinct_id, ip, site_url, now, sent_at, team.pk, event_uuid)  # type: ignore
+        except Exception as e:
+            timer.stop()
+            capture_exception(e, {"data": data})
+            statsd.incr(
+                "posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture",},
+            )
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "capture",
+                    "Unable to store event. Please try again. If you are the owner of this app you can check the logs for further details.",
+                    code="server_error",
+                    type="server_error",
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                ),
+            )
 
     timer.stop()
     statsd.incr(
-        f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture",},
+        "posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture",},
     )
     return cors_response(request, JsonResponse({"status": 1}))
 
@@ -280,23 +295,14 @@ def get_distinct_id(event):
 
 
 def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid=UUIDT()) -> None:
-    if is_clickhouse_enabled():
-        parsed_event = parse_kafka_event_data(
-            distinct_id=distinct_id,
-            ip=ip,
-            site_url=site_url,
-            data=event,
-            team_id=team_id,
-            now=now,
-            sent_at=sent_at,
-            event_uuid=event_uuid,
-        )
-        log_event(parsed_event, event["event"])
-    else:
-        task_name = "posthog.tasks.process_event.process_event_with_plugins"
-        celery_queue = settings.PLUGINS_CELERY_QUEUE
-        celery_app.send_task(
-            name=task_name,
-            queue=celery_queue,
-            args=[distinct_id, ip, site_url, event, team_id, now.isoformat(), sent_at,],
-        )
+    parsed_event = parse_kafka_event_data(
+        distinct_id=distinct_id,
+        ip=ip,
+        site_url=site_url,
+        data=event,
+        team_id=team_id,
+        now=now,
+        sent_at=sent_at,
+        event_uuid=event_uuid,
+    )
+    log_event(parsed_event, event["event"])

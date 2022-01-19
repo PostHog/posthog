@@ -24,7 +24,6 @@ import {
 } from 'scenes/insights/EmptyStates'
 import { Loading } from 'lib/utils'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import clsx from 'clsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
@@ -35,14 +34,17 @@ const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
     [`${InsightType.STICKINESS}`]: <TrendInsight view={InsightType.STICKINESS} />,
     [`${InsightType.LIFECYCLE}`]: <TrendInsight view={InsightType.LIFECYCLE} />,
-    [`${InsightType.SESSIONS}`]: <TrendInsight view={InsightType.SESSIONS} />,
     [`${InsightType.FUNNELS}`]: <FunnelInsight />,
     [`${InsightType.RETENTION}`]: <RetentionContainer />,
     [`${InsightType.PATHS}`]: <Paths />,
 }
 
-export function InsightContainer({ disableTable }: { disableTable?: boolean } = { disableTable: false }): JSX.Element {
-    const { preflight } = useValues(preflightLogic)
+export function InsightContainer(
+    { disableHeader, disableTable }: { disableHeader?: boolean; disableTable?: boolean } = {
+        disableHeader: false,
+        disableTable: false,
+    }
+): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const {
         insightProps,
@@ -64,7 +66,11 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
         if (activeView !== loadedView || isLoading) {
             return (
                 <>
-                    <div style={{ minHeight: 'min(calc(90vh - 16rem), 36rem)' }} />
+                    {
+                        filters.display !== ACTIONS_TABLE && (
+                            <div className="trends-insights-container" />
+                        ) /* Tables don't need this padding, but graphs do for sizing */
+                    }
                     <Loading />
                 </>
             )
@@ -95,7 +101,6 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
 
     function renderTable(): JSX.Element | null {
         if (
-            !preflight?.is_clickhouse_enabled &&
             !showErrorMessage &&
             !showTimeoutMessage &&
             areFiltersValid &&
@@ -106,7 +111,6 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
         }
 
         if (
-            preflight?.is_clickhouse_enabled &&
             activeView === InsightType.FUNNELS &&
             !showErrorMessage &&
             !showTimeoutMessage &&
@@ -120,7 +124,7 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
         if (
             (!filters.display ||
                 (filters?.display !== ACTIONS_TABLE && filters?.display !== ACTIONS_BAR_CHART_VALUE)) &&
-            (activeView === InsightType.TRENDS || activeView === InsightType.SESSIONS) &&
+            activeView === InsightType.TRENDS &&
             !disableTable
         ) {
             /* InsightsTable is loaded for all trend views (except below), plus the sessions view.
@@ -131,7 +135,8 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
             return (
                 <BindLogic logic={trendsLogic} props={insightProps}>
                     <InsightsTable
-                        showTotalCount={activeView !== InsightType.SESSIONS}
+                        isLegend
+                        showTotalCount
                         filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
                         canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}
                     />
@@ -147,12 +152,14 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
             <Card
                 title={
-                    <InsightDisplayConfig
-                        activeView={activeView as InsightType}
-                        insightMode={insightMode}
-                        filters={filters}
-                        disableTable={!!disableTable}
-                    />
+                    disableHeader ? null : (
+                        <InsightDisplayConfig
+                            activeView={activeView as InsightType}
+                            insightMode={insightMode}
+                            filters={filters}
+                            disableTable={!!disableTable}
+                        />
+                    )
                 }
                 data-attr="insights-graph"
                 className="insights-graph-container"
@@ -177,7 +184,7 @@ export function InsightContainer({ disableTable }: { disableTable?: boolean } = 
                         BlockingEmptyState
                     ) : featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS] &&
                       (activeView === InsightType.TRENDS || activeView === InsightType.STICKINESS) &&
-                      !filters.legend_hidden ? (
+                      filters.show_legend ? (
                         <Row className="insights-graph-container-row" wrap={false}>
                             <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>
                             <Col className="insights-graph-container-row-right">

@@ -101,8 +101,8 @@
                     "value": "True"
                 },
                 {
-                    "name": "ASYNC_EVENT_PROPERTY_USAGE",
-                    "value": "1"
+                    "name": "EVENT_PROPERTY_USAGE_INTERVAL_SECONDS",
+                    "value": "3600"
                 },
                 {
                     "name": "CAPTURE_INTERNAL_METRICS",

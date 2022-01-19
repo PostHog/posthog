@@ -19,6 +19,10 @@ describe('status report', () => {
         expect(posthog.capture).toHaveBeenCalledTimes(2)
 
         expect(posthog.capture).toHaveBeenNthCalledWith(1, '$plugin_running_duration', {
+            handleAlert_time_ms: 0,
+            handleAlert_time_seconds: 0,
+            onAction_time_ms: 0,
+            onAction_time_seconds: 0,
             onEvent_time_ms: 0,
             onEvent_time_seconds: 0,
             onSnapshot_time_ms: 0,
@@ -33,6 +37,10 @@ describe('status report', () => {
         })
 
         expect(posthog.capture).toHaveBeenNthCalledWith(2, '$plugin_running_duration', {
+            handleAlert_time_ms: 0,
+            handleAlert_time_seconds: 0,
+            onAction_time_ms: 0,
+            onAction_time_seconds: 0,
             onEvent_time_ms: 3000,
             onEvent_time_seconds: 3,
             onSnapshot_time_ms: 3000,

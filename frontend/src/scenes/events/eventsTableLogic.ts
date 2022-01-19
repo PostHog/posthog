@@ -7,10 +7,8 @@ import { FixedFilters } from 'scenes/events/EventsTable'
 import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter } from '~/types'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { teamLogic } from '../teamLogic'
-import { urls } from 'scenes/urls'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 const POLL_TIMEOUT = 5000
 
@@ -109,8 +107,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         startDownload: true,
     },
 
-    reducers: ({ props }) => ({
-        sceneIsEventsPage: [props.sceneUrl ? props.sceneUrl === urls.events() : false, {}],
+    reducers: {
         pollingIsActive: [
             true,
             {
@@ -201,7 +198,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 toggleAutomaticLoad: (_, { automaticLoadEnabled }) => automaticLoadEnabled,
             },
         ],
-    }),
+    },
 
     selectors: ({ selectors, props }) => ({
         eventsFormatted: [
@@ -306,14 +303,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 clearTimeout(values.pollTimeout)
 
                 const properties = [...values.properties, ...(props.fixedFilters?.properties || [])]
-                if (featureFlagLogic?.values.featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME]) {
-                    // hard coded property definitions until the API returns them
-                    properties.forEach((p: AnyPropertyFilter) => {
-                        if (p.key === '$time') {
-                            p['property_definition'] = { dataType: 'DateTime', format: 'unix_timestamp' }
-                        }
-                    })
-                }
 
                 const params = {
                     ...(props.fixedFilters || {}),
@@ -376,14 +365,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             }
 
             const properties = [...values.properties, ...(props.fixedFilters?.properties || [])]
-            if (featureFlagLogic?.values.featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME]) {
-                // hard coded property definitions until the API returns them
-                properties.forEach((p: AnyPropertyFilter) => {
-                    if (p.key === '$time') {
-                        p['property_definition'] = { dataType: 'DateTime', format: 'unix_timestamp' }
-                    }
-                })
-            }
 
             const params: Record<string, unknown> = {
                 ...(props.fixedFilters || {}),

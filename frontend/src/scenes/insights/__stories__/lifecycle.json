@@ -120,7 +120,6 @@
                     },
                     "can_create_org": false,
                     "ee_available": true,
-                    "is_clickhouse_enabled": false,
                     "db_backend": "postgres",
                     "available_timezones": {
                         "Africa/Abidjan": 0,
@@ -764,8 +763,7 @@
                 "is_demo": true,
                 "timezone": "UTC",
                 "data_attributes": ["data-attr"],
-                "session_recording_opt_in": false,
-                "session_recording_retention_period_days": null
+                "session_recording_opt_in": false
             },
             "currentTeamLoading": false,
             "teamBeingDeleted": null
@@ -1260,12 +1258,6 @@
                         }
                     ],
                     "toggledLifecycles": ["new", "resurrecting", "returning", "dormant"],
-                    "visibilityMap": {
-                        "0": true,
-                        "1": true,
-                        "2": true,
-                        "3": true
-                    },
                     "breakdownValuesLoading": false
                 }
             }
@@ -1341,10 +1333,6 @@
                                 },
                                 {
                                     "icon": {},
-                                    "display": "Go to Sessions"
-                                },
-                                {
-                                    "icon": {},
                                     "display": "Go to Funnels"
                                 },
                                 {
@@ -1362,10 +1350,6 @@
                                 {
                                     "icon": {},
                                     "display": "Go to Actions"
-                                },
-                                {
-                                    "icon": {},
-                                    "display": "Go to Live Sessions"
                                 },
                                 {
                                     "icon": {},
@@ -2859,12 +2843,6 @@
                         "query_usage_30_day": null
                     },
                     {
-                        "id": "0179fcb6-f7fa-0000-c78a-c7b289c94008",
-                        "name": "is_clickhouse_enabled",
-                        "is_numerical": false,
-                        "query_usage_30_day": null
-                    },
-                    {
                         "id": "0179fcb6-f7d6-0000-2314-06df9faddf58",
                         "name": "is_demo_project",
                         "is_numerical": false,
@@ -3191,12 +3169,6 @@
                     {
                         "id": "0179fcb7-50bc-0000-2244-7da438ab0f0e",
                         "name": "scene",
-                        "is_numerical": false,
-                        "query_usage_30_day": null
-                    },
-                    {
-                        "id": "017a9f32-b653-0001-303d-00cfe32e335c",
-                        "name": "session_distribution",
                         "is_numerical": false,
                         "query_usage_30_day": null
                     },

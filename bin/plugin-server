@@ -22,6 +22,8 @@ while test $# -gt 0; do
 done
 
 export BASE_DIR=$(dirname $(dirname "$PWD/${0#./}"))
+# Fall back to default KAFKA_URL value if not set - sync with settings/data_stores.py
+export KAFKA_URL=${KAFKA_URL:-'kafka://kafka:9092'}
 # Crudely extract netlocs by removing "kafka://" in a compatibility approach
 export KAFKA_HOSTS=${KAFKA_HOSTS:-$(echo $KAFKA_URL | sed -e "s/kafka\(\+ssl\)\{0,1\}:\/\///g")}
 # Check PRIMARY_DB in a compatibility approach
@@ -36,6 +38,8 @@ if [[ -n $DYNO_RAM ]]; then
   # One worker for 512MB of RAM, rounding up
   export WORKER_CONCURRENCY=$(( ($DYNO_RAM - 1) / 512 + 1 ))
 fi
+
+python manage.py migrate --check
 
 cd plugin-server
 

@@ -2,12 +2,15 @@ import React, { useMemo, useState } from 'react'
 
 import { keyMappingKeys, PropertyKeyInfo } from './PropertyKeyInfo'
 import { Dropdown, Input, Menu, Popconfirm } from 'antd'
-import { DeleteOutlined } from '@ant-design/icons'
 import { isURL } from 'lib/utils'
-import { IconOpenInNew } from 'lib/components/icons'
+import { IconDeleteForever, IconOpenInNew } from 'lib/components/icons'
 import './PropertiesTable.scss'
 import { LemonTable, LemonTableColumns } from './LemonTable'
 import { CopyToClipboardInline } from './CopyToClipboard'
+import { useValues } from 'kea'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { LemonButton } from './LemonButton'
+import { NewPropertyComponent } from 'scenes/persons/NewPropertyComponent'
 
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
@@ -40,6 +43,8 @@ function EditTextValueComponent({
 }
 
 function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType): JSX.Element {
+    const { describeProperty } = useValues(propertyDefinitionsModel)
+
     const [editing, setEditing] = useState(false)
     // Can edit if a key and edit callback is set, the property is custom (i.e. not PostHog), and the value is in the root of the object (i.e. no nested objects)
     const canEdit = rootKey && !keyMappingKeys.includes(rootKey) && (!nestingLevel || nestingLevel <= 1) && onEdit
@@ -47,7 +52,12 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
     const textBasedTypes = ['string', 'number', 'bigint'] // Values that are edited with a text box
     const boolNullTypes = ['boolean', 'null'] // Values that are edited with the boolNullSelect dropdown
 
+    let propertyType
+    if (rootKey) {
+        propertyType = describeProperty(rootKey)
+    }
     const valueType: Type = value === null ? 'null' : typeof value // typeof null returns 'object' ¯\_(ツ)_/¯
+
     const valueString: string = value === null ? 'null' : String(value) // typeof null returns 'object' ¯\_(ツ)_/¯
 
     const handleValueChange = (newValue: any, save: boolean): void => {
@@ -111,7 +121,7 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
                             {valueComponent}
                         </CopyToClipboardInline>
                     )}
-                    <div className="property-value-type">{valueType}</div>
+                    <div className="property-value-type">{propertyType || valueType}</div>
                 </>
             ) : (
                 <EditTextValueComponent value={value} onChange={handleValueChange} />
@@ -122,6 +132,9 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
 interface PropertiesTableType extends BasePropertyType {
     properties: any
     sortProperties?: boolean
+    searchable?: boolean
+    /** Whether this table should be style for being embedded. Default: true. */
+    embedded?: boolean
     onDelete?: (key: string) => void
     className?: string
 }
@@ -131,27 +144,39 @@ export function PropertiesTable({
     rootKey,
     onEdit,
     sortProperties = false,
+    searchable = false,
+    embedded = true,
     nestingLevel = 0,
     onDelete,
     className,
 }: PropertiesTableType): JSX.Element {
+    const [searchTerm, setSearchTerm] = useState('')
+
     const objectProperties = useMemo(() => {
         if (!(properties instanceof Object)) {
             return []
         }
-        const entries = Object.entries(properties)
-        if (!sortProperties) {
-            return entries
+        let entries = Object.entries(properties)
+        if (searchTerm) {
+            const normalizedSearchTerm = searchTerm.toLowerCase()
+            entries = entries.filter(
+                ([key, value]) =>
+                    key.toLowerCase().includes(normalizedSearchTerm) ||
+                    JSON.stringify(value).toLowerCase().includes(normalizedSearchTerm)
+            )
         }
-        return entries.sort((a, b) => {
-            if (a[0][0] === '$' && b[0][0] !== '$') {
-                return 1
-            } else if (a[0][0] !== '$' && b[0][0] === '$') {
-                return -1
-            }
-            return a[0].toLowerCase() < b[0].toLowerCase() ? -1 : 1
-        })
-    }, [properties, sortProperties])
+        if (sortProperties) {
+            entries.sort(([aKey], [bKey]) => {
+                if (aKey[0] === '$' && bKey[0] !== '$') {
+                    return 1
+                } else if (aKey[0] !== '$' && bKey[0] === '$') {
+                    return -1
+                }
+                return aKey.toLowerCase() < bKey.toLowerCase() ? -1 : 1
+            })
+        }
+        return entries
+    }, [properties, sortProperties, searchTerm])
 
     if (Array.isArray(properties)) {
         return (
@@ -169,30 +194,21 @@ export function PropertiesTable({
 
     const columns: LemonTableColumns<Record<string, any>> = [
         {
-            title: 'key',
-            width: '15rem',
+            key: 'key',
+            title: 'Key',
+            width: '20rem',
             render: function Key(_, item: any): JSX.Element {
                 return (
                     <div className="properties-table-key">
-                        {onDelete && nestingLevel <= 1 && !keyMappingKeys.includes(item[0]) && (
-                            <Popconfirm
-                                onConfirm={() => onDelete(item[0])}
-                                title={
-                                    <>
-                                        Are you sure you want to delete this property? <b>This cannot be undone.</b>
-                                    </>
-                                }
-                            >
-                                <DeleteOutlined className="cursor-pointer" />
-                            </Popconfirm>
-                        )}
                         <PropertyKeyInfo value={item[0]} />
                     </div>
                 )
             },
+            sorter: (a, b) => String(a[0]).localeCompare(String(b[0])),
         },
         {
-            title: 'value',
+            key: 'value',
+            title: 'Value',
             render: function Value(_, item: any): JSX.Element {
                 return (
                     <PropertiesTable
@@ -206,18 +222,65 @@ export function PropertiesTable({
         },
     ]
 
+    if (onDelete && nestingLevel === 0) {
+        columns.push({
+            key: 'delete',
+            title: '',
+            width: 0,
+            render: function Delete(_, item: any): JSX.Element | false {
+                return (
+                    !keyMappingKeys.includes(item[0]) &&
+                    !String(item[0]).startsWith('$initial_') && (
+                        <Popconfirm
+                            onConfirm={() => onDelete(item[0])}
+                            okButtonProps={{ danger: true }}
+                            okText="Delete"
+                            title={
+                                <>
+                                    Are you sure you want to delete property <code>{item[0]}</code>?{' '}
+                                    <b>This cannot be undone.</b>
+                                </>
+                            }
+                            placement="left"
+                        >
+                            <LemonButton icon={<IconDeleteForever />} status="danger" compact />
+                        </Popconfirm>
+                    )
+                )
+            },
+        })
+    }
+
     if (properties instanceof Object) {
         return (
-            <LemonTable
-                columns={columns}
-                showHeader={false}
-                size="small"
-                rowKey="0"
-                embedded
-                dataSource={objectProperties}
-                className={className}
-                emptyState="This property contains an empty object."
-            />
+            <>
+                {searchable && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+                        <Input.Search
+                            placeholder="Search for property keys and values"
+                            className="mb"
+                            allowClear
+                            enterButton
+                            style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
+                            value={searchTerm}
+                            onChange={(e) => {
+                                setSearchTerm(e.target.value)
+                            }}
+                        />
+                        {onEdit && <NewPropertyComponent editProperty={onEdit} />}
+                    </div>
+                )}
+                <LemonTable
+                    columns={columns}
+                    showHeader={!embedded}
+                    size="small"
+                    rowKey="0"
+                    embedded={embedded}
+                    dataSource={objectProperties}
+                    className={className}
+                    emptyState="This property value is an empty object."
+                />
+            </>
         )
     }
     // if none of above, it's a value

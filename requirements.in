@@ -54,3 +54,4 @@ statshog==1.0.6
 toronado==0.1.0
 whitenoise==5.2.0
 mimesis==5.2.1
+numpy==1.21.4

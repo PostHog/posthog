@@ -23,7 +23,6 @@ import {
 } from '@ant-design/icons'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { getEventNamesForAction, pluralize } from 'lib/utils'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
@@ -394,7 +393,7 @@ export function ActionFilterRow({
                         )}
                         {(horizontalUI || fullWidth) && !hideFilter && <Col>{propertyFiltersButton}</Col>}
                         {(horizontalUI || fullWidth) && !hideRename && <Col>{renameRowButton}</Col>}
-                        {(horizontalUI || fullWidth) && !hideFilter && <Col>{duplicateRowButton}</Col>}
+                        {(horizontalUI || fullWidth) && !hideFilter && !singleFilter && <Col>{duplicateRowButton}</Col>}
                         {!hideDeleteBtn && !horizontalUI && !singleFilter && (
                             <Col className="column-delete-btn">{deleteButton}</Col>
                         )}
@@ -471,14 +470,9 @@ function MathSelector({
     const numericalNotice = `This can only be used on properties that have at least one number type occurence in your events.${
         areEventPropertiesNumericalAvailable ? '' : ' None have been found yet!'
     }`
-    const { preflight } = useValues(preflightLogic)
     const { eventMathEntries, propertyMathEntries } = useValues(mathsLogic)
 
-    let math_entries = eventMathEntries
-
-    if (!preflight?.is_clickhouse_enabled) {
-        math_entries = math_entries.filter((item) => item[0] !== 'weekly_active' && item[0] !== 'monthly_active')
-    }
+    const math_entries = eventMathEntries
 
     return (
         <Select

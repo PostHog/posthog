@@ -8,7 +8,6 @@ import {
 import { getSeriesColor, humanizeOrder } from 'scenes/funnels/funnelUtils'
 import { RenderedCell } from 'rc-table/lib/interface'
 import React from 'react'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { zeroPad } from 'lib/utils'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { FunnelStepDropdown } from 'scenes/funnels/FunnelStepDropdown'
@@ -31,7 +30,7 @@ export function getStepColor(step: FlattenedFunnelStep, isBreakdown?: boolean): 
 export function isBreakdownChildType(
     stepBreakdown: FlattenedFunnelStep['breakdown'] | Array<string | number>
 ): stepBreakdown is string | number | undefined | Array<string | number> {
-    return Array.isArray(stepBreakdown) || ['string', 'number', 'undefined'].includes(typeof stepBreakdown)
+    return Array.isArray(stepBreakdown) || ['string', 'number'].includes(typeof stepBreakdown)
 }
 
 export const renderSubColumnTitle = (title: string | JSX.Element): JSX.Element => (
@@ -131,7 +130,7 @@ export const renderGraphAndHeader = (
                     children: (
                         <div className="funnel-step-title">
                             <span className="funnel-step-glyph">{zeroPad(humanizeOrder(stepIndex), 2)}</span>
-                            <PropertyKeyInfo value={step?.name ?? ''} disableIcon className="funnel-step-name" />
+                            {step && <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />}
                             <FunnelStepDropdown index={stepIndex} />
                         </div>
                     ),

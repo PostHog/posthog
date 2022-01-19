@@ -1,9 +1,8 @@
-from typing import Dict, Tuple, cast
+from typing import Dict, Optional, Tuple, cast
 
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from ee.clickhouse.queries.paths.paths import ClickhousePaths
 from posthog.models.filters.filter import Filter
-from posthog.models.filters.mixins.utils import cached_property
 
 
 class ClickhousePathsActors(ClickhousePaths, ActorBaseQuery):  # type: ignore
@@ -26,11 +25,7 @@ class ClickhousePathsActors(ClickhousePaths, ActorBaseQuery):  # type: ignore
         other path item between start and end key.
     """
 
-    @cached_property
-    def is_aggregating_by_groups(self) -> bool:
-        return False
-
-    def actor_query(self) -> Tuple[str, Dict]:
+    def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
         paths_per_person_query = self.get_paths_per_person_query()
         person_path_filter = self.get_person_path_filter()
         paths_funnel_cte = ""
@@ -38,20 +33,31 @@ class ClickhousePathsActors(ClickhousePaths, ActorBaseQuery):  # type: ignore
         if self.should_query_funnel():
             paths_funnel_cte = self.get_path_query_funnel_cte(cast(Filter, self._funnel_filter))
 
+        select_statement = "DISTINCT person_id AS actor_id"
+        group_statement = ""
+        if self._filter.include_recordings:
+            select_statement = """
+                person_id AS actor_id
+                , groupUniqArray(10)((uuid, timestamp, $session_id, $window_id)) as matching_events
+            """
+            group_statement = "GROUP BY person_id"
+
         self.params["limit"] = self._filter.limit
         self.params["offset"] = self._filter.offset
 
         return (
             f"""
             {paths_funnel_cte}
-            SELECT DISTINCT person_id
+            SELECT
+            {select_statement}
             FROM (
                 {paths_per_person_query}
             )
             WHERE {person_path_filter}
+            {group_statement}
             ORDER BY person_id
-            LIMIT %(limit)s
-            OFFSET %(offset)s
+            {"LIMIT %(limit)s" if limit_actors else ""}
+            {"OFFSET %(offset)s" if limit_actors else ""}
         """,
             self.params,
         )
@@ -60,7 +66,7 @@ class ClickhousePathsActors(ClickhousePaths, ActorBaseQuery):  # type: ignore
         conditions = []
 
         if self._filter.path_dropoff_key:
-            conditions.append("path_dropoff_key = %(path_dropoff_key)s")
+            conditions.append("path_dropoff_key = %(path_dropoff_key)s AND path_dropoff_key = path_key")
             self.params["path_dropoff_key"] = self._filter.path_dropoff_key
         else:
             if self._filter.path_start_key:

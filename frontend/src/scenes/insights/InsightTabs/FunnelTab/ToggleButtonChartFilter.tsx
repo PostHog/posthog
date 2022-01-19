@@ -21,9 +21,9 @@ export function ToggleButtonChartFilter({
     simpleMode,
 }: ToggleButtonChartFilterProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { clickhouseFeaturesEnabled, aggregationTargetLabel } = useValues(funnelLogic(insightProps))
-    const { chartFilter } = useValues(chartFilterLogic)
-    const { setChartFilter } = useActions(chartFilterLogic)
+    const { aggregationTargetLabel } = useValues(funnelLogic(insightProps))
+    const { chartFilter } = useValues(chartFilterLogic(insightProps))
+    const { setChartFilter } = useActions(chartFilterLogic(insightProps))
     const defaultDisplay = FunnelVizType.Steps
 
     const options = [
@@ -38,14 +38,14 @@ export function ToggleButtonChartFilter({
             label: 'Time to convert',
             description: `Track how long it takes for ${aggregationTargetLabel.plural} to convert`,
             icon: <ClockCircleOutlined />,
-            hidden: !clickhouseFeaturesEnabled,
+            hidden: false,
         },
         {
             key: FunnelVizType.Trends,
             label: 'Historical trends',
             description: "Track how this funnel's conversion rate is trending over time",
             icon: <LineChartOutlined />,
-            hidden: !clickhouseFeaturesEnabled,
+            hidden: false,
         },
     ]
 

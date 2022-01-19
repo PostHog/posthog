@@ -67,7 +67,3 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             self.assertEqual(len(people), 1)
 
     return TestCalculateCohort
-
-
-class TestDjangoCalculateCohort(calculate_cohort_test_factory(Event.objects.create, Person.objects.create)):  # type: ignore
-    pass

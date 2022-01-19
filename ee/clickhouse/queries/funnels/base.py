@@ -1,5 +1,5 @@
-import json
 import urllib.parse
+import uuid
 from abc import ABC
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
@@ -18,18 +18,22 @@ from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.breakdown_props import format_breakdown_cohort_join_query, get_breakdown_prop_values
 from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
-from posthog.constants import FUNNEL_WINDOW_INTERVAL, FUNNEL_WINDOW_INTERVAL_UNIT, LIMIT, TREND_FILTER_TYPE_ACTIONS
+from posthog.constants import (
+    FUNNEL_WINDOW_INTERVAL,
+    FUNNEL_WINDOW_INTERVAL_UNIT,
+    LIMIT,
+    OFFSET,
+    TREND_FILTER_TYPE_ACTIONS,
+)
 from posthog.models import Entity, Filter, Team
-from posthog.queries.funnel import Funnel
 from posthog.utils import relative_date_parse
 
 
-class ClickhouseFunnelBase(ABC, Funnel):
+class ClickhouseFunnelBase(ABC):
     _filter: Filter
     _team: Team
     _include_timestamp: Optional[bool]
     _include_preceding_timestamp: Optional[bool]
-    _no_person_limit: Optional[bool]  # used when paths are querying for filter people
 
     def __init__(
         self,
@@ -37,7 +41,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
         team: Team,
         include_timestamp: Optional[bool] = None,
         include_preceding_timestamp: Optional[bool] = None,
-        no_person_limit: Optional[bool] = False,
         base_uri: str = "/",
     ) -> None:
         self._filter = filter
@@ -66,9 +69,9 @@ class ClickhouseFunnelBase(ABC, Funnel):
         else:
             self.params.update({LIMIT: self._filter.limit})
 
-        self._update_filters()
+        self.params.update({OFFSET: self._filter.offset})
 
-        self._no_person_limit = no_person_limit
+        self._update_filters()
 
     def run(self, *args, **kwargs):
         if len(self._filter.entities) == 0:
@@ -76,6 +79,21 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         results = self._exec_query()
         return self._format_results(results)
+
+    def _serialize_step(self, step: Entity, count: int, people: Optional[List[uuid.UUID]] = None) -> Dict[str, Any]:
+        if step.type == TREND_FILTER_TYPE_ACTIONS:
+            name = step.get_action().name
+        else:
+            name = step.id
+        return {
+            "action_id": step.id,
+            "name": name,
+            "custom_name": step.custom_name,
+            "order": step.order,
+            "people": people if people else [],
+            "count": count,
+            "type": step.type,
+        }
 
     def _update_filters(self):
         # format default dates
