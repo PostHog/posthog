@@ -202,8 +202,8 @@ function Pages(): JSX.Element {
             {featureFlags[FEATURE_FLAGS.EXPERIMENTATION] && (
                 <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
             )}
-            {featureFlags[FEATURE_FLAGS.APM] && (
-                <PageButton icon={<CoffeeOutlined />} identifier={Scene.APM} to={urls.apm()} />
+            {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
+                <PageButton icon={<CoffeeOutlined />} identifier={Scene.WebPerformance} to={urls.webPerformance()} />
             )}
             <LemonSpacer />
             <PageButton icon={<IconGroupedEvents />} identifier={Scene.Events} to={urls.events()} />
