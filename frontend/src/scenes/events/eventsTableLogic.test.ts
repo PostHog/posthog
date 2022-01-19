@@ -1,6 +1,12 @@
 import { BuiltLogic } from 'kea'
 import { eventsTableLogicType } from 'scenes/events/eventsTableLogicType'
-import { ApiError, eventsTableLogic, EventsTableLogicProps, OnFetchEventsSuccess } from 'scenes/events/eventsTableLogic'
+import {
+    ApiError,
+    eventsTableLogic,
+    EventsTableLogicProps,
+    OnFetchEventsSuccess,
+    QueryLimits,
+} from 'scenes/events/eventsTableLogic'
 import { MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
@@ -44,7 +50,7 @@ const makePropertyFilter = (value: string = randomString()): PropertyFilter => (
 })
 
 describe('eventsTableLogic', () => {
-    let logic: BuiltLogic<eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess>>
+    let logic: BuiltLogic<eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess, QueryLimits>>
 
     mockAPI(async () => {
         // delay the API response so the default value test can complete before it
@@ -132,37 +138,85 @@ describe('eventsTableLogic', () => {
             })
         })
 
-        describe('limiting the loaded data size with afterParams', () => {
+        describe('limiting the loaded data size with URL params', () => {
+            const firstEvent = makeEvent('1', 'the first timestamp')
+            const secondEvent = makeEvent('1', 'the second timestamp')
+            const eventsUrl = 'api/projects/997/events/?properties=%5B%5D&orderBy=%5B%22-timestamp%22%5D'
+
             it('starts a year before "now"', async () => {
-                await expectLogic(logic).toMatchValues({
-                    afterParam: nowForMock.replace('2021', '2020'),
-                })
+                await expectLogic(logic).toDispatchActions([
+                    logic.actionCreators.fetchEvents({ after: '2020-05-05T00:00:00.000Z' }),
+                ])
             })
 
-            it('sets the query after parameter when setting properties and filtering by timestamp', async () => {
-                const apiResponse = [makeEvent('potato')]
-                await expectLogic(logic, () => {
-                    logic.actions.pollEventsSuccess(apiResponse)
-                }).toFinishAllListeners()
+            it('does not set the query after parameter when setting properties', async () => {
+                await expectLogic(logic).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
                     logic.actions.setProperties({
-                        key: '$time',
+                        key: 'any property',
                     })
-                }).toDispatchActions([logic.actionCreators.fetchEvents(null, '2020-05-05T00:00:00.000Z')])
+                }).toDispatchActions([logic.actionCreators.fetchEvents()])
             })
 
-            it('does not set the query after parameter when setting properties and *not* filtering by timestamp', async () => {
-                const apiResponse = [makeEvent('potato')]
-                await expectLogic(logic, () => {
-                    logic.actions.pollEventsSuccess(apiResponse)
-                }).toFinishAllListeners()
+            it('does not set the query after parameter when setting event filter', async () => {
+                await expectLogic(logic).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
-                    logic.actions.setProperties({
-                        key: 'not our timestamp',
+                    logic.actions.setEventFilter('any event')
+                }).toDispatchActions([logic.actionCreators.fetchEvents()])
+            })
+
+            it('sets the after parameter to a year ago when polling against an empty set of events', async () => {
+                await expectLogic(logic, () => {})
+                    .toFinishAllListeners()
+                    .toMatchValues({ events: [] })
+                ;(api.get as jest.Mock).mockClear()
+
+                logic.actions.pollEvents()
+
+                expect(api.get).toHaveBeenCalledWith(eventsUrl + '&after=2020-05-05T00%3A00%3A00.000Z')
+            })
+
+            it('sets the after parameter to the first timestamp when polling and holding events', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.fetchEventsSuccess({
+                        events: [firstEvent, secondEvent],
+                        hasNext: false,
+                        isNext: false,
                     })
-                }).toDispatchActions([logic.actionCreators.fetchEvents(null, null)])
+                }).toMatchValues({ events: [firstEvent, secondEvent] })
+                ;(api.get as jest.Mock).mockClear()
+
+                logic.actions.pollEvents()
+
+                expect(api.get).toHaveBeenCalledWith(eventsUrl + '&after=the%20first%20timestamp')
+            })
+
+            it('does not set the before parameter when fetching next events and holding no events', async () => {
+                await expectLogic(logic, () => {})
+                    .toFinishAllListeners()
+                    .toMatchValues({ events: [] })
+                ;(api.get as jest.Mock).mockClear()
+
+                logic.actions.fetchNextEvents()
+
+                expect(api.get).toHaveBeenCalledWith(eventsUrl)
+            })
+
+            it('sets the before parameter to the last event timestamp when fetching next events and holding events', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.fetchEventsSuccess({
+                        events: [firstEvent, secondEvent],
+                        hasNext: false,
+                        isNext: false,
+                    })
+                }).toMatchValues({ events: [firstEvent, secondEvent] })
+                ;(api.get as jest.Mock).mockClear()
+
+                logic.actions.fetchNextEvents()
+
+                expect(api.get).toHaveBeenCalledWith(eventsUrl + '&before=the%20second%20timestamp')
             })
         })
 
@@ -382,7 +436,7 @@ describe('eventsTableLogic', () => {
                 it('Fetch Events sets isLoading to true', async () => {
                     await expectLogic(logic, () => {
                         logic.actions.fetchEventsSuccess({ events: [], hasNext: randomBool(), isNext: randomBool() })
-                        logic.actions.fetchEvents({ events: [], hasNext: randomBool(), isNext: randomBool() })
+                        logic.actions.fetchEvents()
                     }).toMatchValues({ isLoading: true })
                 })
             })

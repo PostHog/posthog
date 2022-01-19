@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { BreakPointFunction, kea } from 'kea'
 import { errorToast, successToast, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
@@ -10,6 +10,11 @@ import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+export interface QueryLimits {
+    before?: string
+    after?: string
+}
 
 const POLL_TIMEOUT = 5000
 
@@ -57,11 +62,9 @@ export interface ApiError {
     statusText?: string
 }
 
-function monthsBeforeNow(months: number): string {
-    return now().subtract(months, 'months').toISOString()
-}
-
-export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess>>({
+export const eventsTableLogic = kea<
+    eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess, QueryLimits>
+>({
     path: (key) => ['scenes', 'events', 'eventsTableLogic', key],
     props: {} as EventsTableLogicProps,
     // Set a unique key based on the fixed filters.
@@ -95,7 +98,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 return { properties: [properties] }
             }
         },
-        fetchEvents: (nextParams = null, queryAfter: string | null = null) => ({ nextParams, queryAfter }),
+        fetchEvents: (queryLimits: QueryLimits = {}) => ({ queryLimits }),
         fetchEventsSuccess: (apiResponse: OnFetchEventsSuccess) => apiResponse,
         fetchNextEvents: true,
         fetchOrPollFailure: (error: ApiError) => ({ error }),
@@ -217,23 +220,18 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 selectors.eventFilter,
                 selectors.orderBy,
                 selectors.properties,
-                selectors.afterParam,
+                selectors.months,
             ],
-            (teamId, eventFilter, orderBy, properties, after) =>
+            (teamId, eventFilter, orderBy, properties, months) =>
                 `/api/projects/${teamId}/events.csv?${toParams({
                     ...(props.fixedFilters || {}),
                     properties: [...properties, ...(props.fixedFilters?.properties || [])],
                     ...(eventFilter ? { event: eventFilter } : {}),
                     orderBy: [orderBy],
-                    after,
+                    after: now().subtract(months, 'months').toISOString(),
                 })}`,
         ],
         months: [() => [], () => props.fetchMonths || 12],
-        afterParam: [
-            () => [selectors.events, selectors.months],
-            (events, months) =>
-                events?.length > 0 && events[0].timestamp ? events[0].timestamp : monthsBeforeNow(months),
-        ],
     }),
 
     actionToUrl: ({ values }) => ({
@@ -273,7 +271,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
 
     events: ({ values, actions }) => ({
         beforeUnmount: () => clearTimeout(values.pollTimeout || undefined),
-        afterMount: () => actions.fetchEvents(),
+        afterMount: () => actions.fetchEvents({ after: now().subtract(values.months, 'months').toISOString() }),
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -287,24 +285,14 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
          *
          * see the `afterParam` selector
          */
-        setProperties: ({ properties }: { properties: AnyPropertyFilter[] }) => {
-            const hasTimeFilter = (Array.isArray(properties) ? properties : [properties]).find(
-                (property) => property.key === '$time'
-            )
-            const queryAfter = hasTimeFilter ? monthsBeforeNow(12) : null
-            actions.fetchEvents(null, queryAfter)
-        },
+        setProperties: () => actions.fetchEvents(),
         setEventFilter: () => actions.fetchEvents(),
         fetchNextEvents: async () => {
             const { events } = values
 
-            if (events.length === 0) {
-                actions.fetchEvents()
-            } else {
-                actions.fetchEvents({
-                    before: events[events.length - 1].timestamp,
-                })
-            }
+            actions.fetchEvents({
+                before: events[events.length - 1]?.timestamp,
+            })
         },
         fetchEvents: [
             async (_, breakpoint) => {
@@ -315,7 +303,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                     actions.setDelayedLoading()
                 }
             },
-            async ({ nextParams, queryAfter }, breakpoint) => {
+            async ({ queryLimits }, breakpoint: BreakPointFunction) => {
                 clearTimeout(values.pollTimeout)
 
                 const properties = [...values.properties, ...(props.fixedFilters?.properties || [])]
@@ -323,10 +311,9 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 const params = {
                     ...(props.fixedFilters || {}),
                     properties,
-                    ...(nextParams || {}),
                     ...(values.eventFilter ? { event: values.eventFilter } : {}),
                     orderBy: [values.orderBy],
-                    after: queryAfter ?? values.afterParam,
+                    ...(queryLimits || {}),
                 }
 
                 let apiResponse = null
@@ -342,7 +329,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 actions.fetchEventsSuccess({
                     events: apiResponse.results,
                     hasNext: !!apiResponse.next,
-                    isNext: !!nextParams,
+                    isNext: !!queryLimits?.before,
                 })
 
                 if (!props.disableActions) {
@@ -387,8 +374,9 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 properties,
                 ...(values.eventFilter ? { event: values.eventFilter } : {}),
                 orderBy: [values.orderBy],
-                after: values.afterParam,
             }
+
+            params.after = values.events[0]?.timestamp ?? now().subtract(values.months, 'months').toISOString()
 
             const urlParams = toParams(params)
 
