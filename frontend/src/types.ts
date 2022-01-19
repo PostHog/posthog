@@ -277,13 +277,13 @@ export interface ToolbarProps extends EditorProps {
 
 export type PropertyFilterValue = string | number | (string | number)[] | null
 
-// duplicated from plugin server. Follow-up to de-duplicate
+// TODO duplicated from plugin server. Follow-up to de-duplicate
 export enum UnixTimestampPropertyTypeFormat {
     UNIX_TIMESTAMP = 'unix_timestamp',
     UNIX_TIMESTAMP_MILLISECONDS = 'unix_timestamp_milliseconds',
 }
 
-// duplicated from plugin server. Follow-up to de-duplicate
+// TODO duplicated from plugin server. Follow-up to de-duplicate
 export enum DateTimePropertyTypeFormat {
     ISO8601_DATE = 'YYYY-MM-DDThh:mm:ssZ',
     FULL_DATE = 'YYYY-MM-DD hh:mm:ss',
@@ -294,10 +294,10 @@ export enum DateTimePropertyTypeFormat {
     WITH_SLASHES_INCREASING = 'DD/MM/YYYY hh:mm:ss',
 }
 
-// duplicated from plugin server. Follow-up to de-duplicate
+// TODO duplicated from plugin server. Follow-up to de-duplicate
 export type PropertyTypeFormat = DateTimePropertyTypeFormat | UnixTimestampPropertyTypeFormat
 
-// duplicated from plugin server. Follow-up to de-duplicate
+// TODO duplicated from plugin server. Follow-up to de-duplicate
 export enum PropertyType {
     DateTime = 'DateTime',
     String = 'String',
