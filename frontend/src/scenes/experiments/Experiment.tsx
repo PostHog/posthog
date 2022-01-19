@@ -512,11 +512,28 @@ export function Experiment(): JSX.Element {
                                 (experimentInsightType === InsightType.FUNNELS && areConversionResultsSignificant)) && (
                                 <Row align="middle" className="significant-results">
                                     <Col span={19} style={{ color: '#497342' }}>
-                                        Experiment results are significant. You can end your experiment now or let it
-                                        run until completion.
+                                        Experiment results are <b>significant</b>. You can end your experiment now or
+                                        let it run until completion.
                                     </Col>
                                     <Col span={5}>
                                         <Button style={{ color: '#497342' }} onClick={() => setShowWarning(false)}>
+                                            Dismiss
+                                        </Button>
+                                    </Col>
+                                </Row>
+                            )}
+                        {showWarning &&
+                            experimentResults &&
+                            ((experimentInsightType === InsightType.TRENDS && !areCountResultsSignificant) ||
+                                (experimentInsightType === InsightType.FUNNELS &&
+                                    !areConversionResultsSignificant)) && (
+                                <Row align="middle" className="not-significant-results">
+                                    <Col span={19} style={{ color: '#f96132' }}>
+                                        Experiment results are <b>not significant</b>. You shouldn't end your experiment
+                                        yet.
+                                    </Col>
+                                    <Col span={5}>
+                                        <Button style={{ color: '#f96132' }} onClick={() => setShowWarning(false)}>
                                             Dismiss
                                         </Button>
                                     </Col>
