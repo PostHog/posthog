@@ -5,14 +5,21 @@ import {
     eventsTableLogic,
     EventsTableLogicProps,
     OnFetchEventsSuccess,
-    QueryLimits,
+    QueryLimit,
 } from 'scenes/events/eventsTableLogic'
 import { MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { router } from 'kea-router'
 import * as utils from 'lib/utils'
-import { EmptyPropertyFilter, EventType, PropertyFilter } from '~/types'
+import {
+    DateTimePropertyTypeFormat,
+    EmptyPropertyFilter,
+    EventType,
+    PropertyFilter,
+    PropertyOperator,
+    PropertyType,
+} from '~/types'
 import { urls } from 'scenes/urls'
 import api from 'lib/api'
 
@@ -50,7 +57,7 @@ const makePropertyFilter = (value: string = randomString()): PropertyFilter => (
 })
 
 describe('eventsTableLogic', () => {
-    let logic: BuiltLogic<eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess, QueryLimits>>
+    let logic: BuiltLogic<eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess, QueryLimit>>
 
     mockAPI(async () => {
         // delay the API response so the default value test can complete before it
@@ -141,12 +148,24 @@ describe('eventsTableLogic', () => {
         describe('limiting the loaded data size with URL params', () => {
             const firstEvent = makeEvent('1', 'the first timestamp')
             const secondEvent = makeEvent('1', 'the second timestamp')
-            const eventsUrl = 'api/projects/997/events/?properties=%5B%5D&orderBy=%5B%22-timestamp%22%5D'
+            const eventsUrlWithIsDateAfterFilter =
+                'api/projects/997/events/?properties=%5B%7B%22key%22%3A%22%24time%22%2C%22operator%22%3A%22is_date_after%22%2C%22type%22%3A%22event%22%2C%22value%22%3A%222020-05-05%2001%3A00%3A00%22%2C%22property_type%22%3A%22DateTime%22%2C%22property_type_format%22%3A%22YYYY-MM-DD%20hh%3Amm%3Ass%22%7D%5D&orderBy=%5B%22-timestamp%22%5D'
 
             it('starts a year before "now"', async () => {
-                await expectLogic(logic).toDispatchActions([
-                    logic.actionCreators.fetchEvents({ after: '2020-05-05T00:00:00.000Z' }),
-                ])
+                await expectLogic(logic)
+                    .toDispatchActions([logic.actionCreators.fetchEvents()])
+                    .toMatchValues({
+                        properties: [
+                            {
+                                key: '$time',
+                                operator: PropertyOperator.IsDateAfter,
+                                type: 'event',
+                                value: nowForMock.replace('2021', '2020'),
+                                property_type: PropertyType.DateTime,
+                                property_type_format: DateTimePropertyTypeFormat.FULL_DATE,
+                            },
+                        ],
+                    })
             })
 
             it('does not set the query after parameter when setting properties', async () => {
@@ -167,7 +186,7 @@ describe('eventsTableLogic', () => {
                 }).toDispatchActions([logic.actionCreators.fetchEvents()])
             })
 
-            it('sets the after parameter to a year ago when polling against an empty set of events', async () => {
+            it('does not set the after parameter when polling against an empty set of events', async () => {
                 await expectLogic(logic, () => {})
                     .toFinishAllListeners()
                     .toMatchValues({ events: [] })
@@ -175,7 +194,7 @@ describe('eventsTableLogic', () => {
 
                 logic.actions.pollEvents()
 
-                expect(api.get).toHaveBeenCalledWith(eventsUrl + '&after=2020-05-05T00%3A00%3A00.000Z')
+                expect(api.get).toHaveBeenCalledWith(eventsUrlWithIsDateAfterFilter)
             })
 
             it('sets the after parameter to the first timestamp when polling and holding events', async () => {
@@ -190,7 +209,7 @@ describe('eventsTableLogic', () => {
 
                 logic.actions.pollEvents()
 
-                expect(api.get).toHaveBeenCalledWith(eventsUrl + '&after=the%20first%20timestamp')
+                expect(api.get).toHaveBeenCalledWith(eventsUrlWithIsDateAfterFilter + '&after=the%20first%20timestamp')
             })
 
             it('does not set the before parameter when fetching next events and holding no events', async () => {
@@ -201,7 +220,7 @@ describe('eventsTableLogic', () => {
 
                 logic.actions.fetchNextEvents()
 
-                expect(api.get).toHaveBeenCalledWith(eventsUrl)
+                expect(api.get).toHaveBeenCalledWith(eventsUrlWithIsDateAfterFilter)
             })
 
             it('sets the before parameter to the last event timestamp when fetching next events and holding events', async () => {
@@ -216,7 +235,9 @@ describe('eventsTableLogic', () => {
 
                 logic.actions.fetchNextEvents()
 
-                expect(api.get).toHaveBeenCalledWith(eventsUrl + '&before=the%20second%20timestamp')
+                expect(api.get).toHaveBeenCalledWith(
+                    eventsUrlWithIsDateAfterFilter + '&before=the%20second%20timestamp'
+                )
             })
         })
 
@@ -505,7 +526,7 @@ describe('eventsTableLogic', () => {
 
             it('can build the export URL when there are no properties or filters', async () => {
                 await expectLogic(logic, () => {}).toMatchValues({
-                    exportUrl: `/api/projects/${MOCK_TEAM_ID}/events.csv?properties=%5B%5D&orderBy=%5B%22-timestamp%22%5D&after=2020-05-05T00%3A00%3A00.000Z`,
+                    exportUrl: `/api/projects/${MOCK_TEAM_ID}/events.csv?properties=%5B%7B%22key%22%3A%22%24time%22%2C%22operator%22%3A%22is_date_after%22%2C%22type%22%3A%22event%22%2C%22value%22%3A%222020-05-05%2001%3A00%3A00%22%2C%22property_type%22%3A%22DateTime%22%2C%22property_type_format%22%3A%22YYYY-MM-DD%20hh%3Amm%3Ass%22%7D%5D&orderBy=%5B%22-timestamp%22%5D&after=2020-05-05T00%3A00%3A00.000Z`,
                 })
             })
 
@@ -513,7 +534,7 @@ describe('eventsTableLogic', () => {
                 await expectLogic(logic, () => {
                     logic.actions.setProperties([makePropertyFilter('fixed value')])
                 }).toMatchValues({
-                    exportUrl: `/api/projects/997/events.csv?properties=%5B%7B%22key%22%3A%22fixed%20value%22%2C%22operator%22%3Anull%2C%22type%22%3A%22t%22%2C%22value%22%3A%22v%22%7D%5D&orderBy=%5B%22-timestamp%22%5D&after=2020-05-05T00%3A00%3A00.000Z`,
+                    exportUrl: `/api/projects/${MOCK_TEAM_ID}/events.csv?properties=%5B%7B%22key%22%3A%22fixed%20value%22%2C%22operator%22%3Anull%2C%22type%22%3A%22t%22%2C%22value%22%3A%22v%22%7D%5D&orderBy=%5B%22-timestamp%22%5D&after=2020-05-05T00%3A00%3A00.000Z`,
                 })
             })
         })

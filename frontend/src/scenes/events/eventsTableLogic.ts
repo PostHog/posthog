@@ -4,16 +4,23 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { eventsTableLogicType } from './eventsTableLogicType'
 import { FixedFilters } from 'scenes/events/EventsTable'
-import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter } from '~/types'
+import {
+    AnyPropertyFilter,
+    DateTimePropertyTypeFormat,
+    EventsTableRowItem,
+    EventType,
+    PropertyFilter,
+    PropertyOperator,
+    PropertyType,
+} from '~/types'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-export interface QueryLimits {
+export interface QueryLimit {
     before?: string
-    after?: string
 }
 
 const POLL_TIMEOUT = 5000
@@ -63,7 +70,7 @@ export interface ApiError {
 }
 
 export const eventsTableLogic = kea<
-    eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess, QueryLimits>
+    eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess, QueryLimit>
 >({
     path: (key) => ['scenes', 'events', 'eventsTableLogic', key],
     props: {} as EventsTableLogicProps,
@@ -98,7 +105,7 @@ export const eventsTableLogic = kea<
                 return { properties: [properties] }
             }
         },
-        fetchEvents: (queryLimits: QueryLimits = {}) => ({ queryLimits }),
+        fetchEvents: (queryLimits: QueryLimit = {}) => ({ queryLimits }),
         fetchEventsSuccess: (apiResponse: OnFetchEventsSuccess) => apiResponse,
         fetchNextEvents: true,
         fetchOrPollFailure: (error: ApiError) => ({ error }),
@@ -271,7 +278,20 @@ export const eventsTableLogic = kea<
 
     events: ({ values, actions }) => ({
         beforeUnmount: () => clearTimeout(values.pollTimeout || undefined),
-        afterMount: () => actions.fetchEvents({ after: now().subtract(values.months, 'months').toISOString() }),
+        afterMount: () => {
+            actions.setProperties([
+                ...values.properties,
+                {
+                    key: '$time',
+                    operator: PropertyOperator.IsDateAfter,
+                    type: 'event',
+                    // clickhouse can't (by default) parse an ISO-8601 DATE in this position
+                    value: now().subtract(values.months, 'months').format('YYYY-MM-DD hh:mm:ss'),
+                    property_type: PropertyType.DateTime,
+                    property_type_format: DateTimePropertyTypeFormat.FULL_DATE,
+                },
+            ])
+        },
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -279,12 +299,6 @@ export const eventsTableLogic = kea<
             successToast('The export is starting', 'It should finish soon.')
             window.location.href = values.exportUrl
         },
-        /**
-         * if the properties now include a timestamp ($time as the key) it is possible to combine
-         * a date filter and the timestamp from an existing event to create an impossible condition
-         *
-         * see the `afterParam` selector
-         */
         setProperties: () => actions.fetchEvents(),
         setEventFilter: () => actions.fetchEvents(),
         fetchNextEvents: async () => {
@@ -376,7 +390,9 @@ export const eventsTableLogic = kea<
                 orderBy: [values.orderBy],
             }
 
-            params.after = values.events[0]?.timestamp ?? now().subtract(values.months, 'months').toISOString()
+            if (values.events[0]?.timestamp) {
+                params.after = values.events[0]?.timestamp
+            }
 
             const urlParams = toParams(params)
 
