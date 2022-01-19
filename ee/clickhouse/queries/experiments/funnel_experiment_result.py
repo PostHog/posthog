@@ -20,7 +20,6 @@ class Variant:
     failure_count: int
 
 
-SIMULATION_COUNT = 100_000
 CONTROL_VARIANT_KEY = "control"
 
 
@@ -31,7 +30,7 @@ class ClickhouseFunnelExperimentResult:
     1. A Funnel Breakdown based on Feature Flag values
     2. Probability that Feature Flag value 1 has better conversion rate then FeatureFlag value 2
 
-    Currently, it only supports two feature flag values: control and test
+    Currently, we support a maximum of 4 feature flag values: control and 3 test variants
 
     The passed in Filter determines which funnel to create, along with the experiment start & end date values
 
@@ -83,7 +82,7 @@ class ClickhouseFunnelExperimentResult:
         control_variant = None
         test_variants = []
         for result in funnel_results:
-            total = sum([step["count"] for step in result])
+            total = result[0]["count"]
             success = result[-1]["count"]
             failure = total - success
             breakdown_value = result[0]["breakdown_value"][0]

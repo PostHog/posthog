@@ -1,7 +1,5 @@
 import React, { useState } from 'react'
 import { Input, Button, Radio } from 'antd'
-import { useActions } from 'kea'
-import { personsLogic } from './personsLogic'
 import { PlusOutlined, SaveOutlined, StopOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons'
 import Modal from 'antd/lib/modal/Modal'
 
@@ -12,10 +10,13 @@ interface NewPropertyInterface {
     value?: string | number | boolean | null
 }
 
-export const NewPropertyComponent = (): JSX.Element => {
+export interface NewPropertyComponentProps {
+    editProperty: (key: string, newValue?: string | number | boolean | null) => void
+}
+
+export function NewPropertyComponent({ editProperty }: NewPropertyComponentProps): JSX.Element {
     const initialState = { creating: false, propertyType: 'string' } as NewPropertyInterface
     const [state, setState] = useState(initialState)
-    const { editProperty } = useActions(personsLogic)
 
     const saveProperty = (): void => {
         if (state.key && state.value !== undefined) {

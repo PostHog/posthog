@@ -90,11 +90,6 @@
     .experiment-preview {
         margin-bottom: $default_spacing;
         border-bottom: 1px solid $border;
-        .preview-row {
-            border-bottom: 1px solid $border;
-            padding-bottom: $default_spacing;
-            margin-bottom: $default_spacing;
-        }
     }
 
     .feature-flag-variant {
@@ -161,6 +156,35 @@
 
     .experiment-result {
         padding-top: $default_spacing;
-        border-top: 1px solid $border;
+    }
+
+    .significant-results {
+        padding: $default_spacing / 2;
+        width: 100%;
+        background: rgba(119, 185, 108, 0.1);
+        border-radius: 4px;
+        text-align: center;
+        margin-bottom: $default_spacing;
+    }
+
+    .preview-conversion-goal-num {
+        height: 24px;
+        width: 24px;
+        text-align: center;
+        background-color: $bg_side;
+        color: $primary_alt;
+        font-weight: 700;
+        margin-right: $default_spacing / 2;
+    }
+}
+
+.experiment-preview-row {
+    border-bottom: 1px solid $border;
+    padding-bottom: $default_spacing;
+    margin-bottom: $default_spacing;
+    &:last-child {
+        border-bottom: none;
+        padding-bottom: 0;
+        margin-bottom: 0;
     }
 }

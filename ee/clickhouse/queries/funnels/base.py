@@ -1,5 +1,5 @@
-import json
 import urllib.parse
+import uuid
 from abc import ABC
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
@@ -26,11 +26,10 @@ from posthog.constants import (
     TREND_FILTER_TYPE_ACTIONS,
 )
 from posthog.models import Entity, Filter, Team
-from posthog.queries.funnel import Funnel
 from posthog.utils import relative_date_parse
 
 
-class ClickhouseFunnelBase(ABC, Funnel):
+class ClickhouseFunnelBase(ABC):
     _filter: Filter
     _team: Team
     _include_timestamp: Optional[bool]
@@ -80,6 +79,21 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         results = self._exec_query()
         return self._format_results(results)
+
+    def _serialize_step(self, step: Entity, count: int, people: Optional[List[uuid.UUID]] = None) -> Dict[str, Any]:
+        if step.type == TREND_FILTER_TYPE_ACTIONS:
+            name = step.get_action().name
+        else:
+            name = step.id
+        return {
+            "action_id": step.id,
+            "name": name,
+            "custom_name": step.custom_name,
+            "order": step.order,
+            "people": people if people else [],
+            "count": count,
+            "type": step.type,
+        }
 
     def _update_filters(self):
         # format default dates

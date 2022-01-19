@@ -1,4 +1,4 @@
-import { defaultAPIMocks, mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
+import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
 import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
@@ -8,45 +8,38 @@ import { InsightShortId, InsightType } from '~/types'
 jest.mock('lib/api')
 
 const Insight123 = '123' as InsightShortId
+const result = [
+    {
+        values: [
+            { count: 200, people: [] },
+            { count: 100, people: [] },
+            { count: 75, people: [] },
+        ],
+        label: 'Chrome::96',
+    },
+    {
+        values: [
+            { count: 400, people: [] },
+            { count: 200, people: [] },
+            { count: 150, people: [] },
+        ],
+        label: 'Safari::34',
+    },
+]
 
 describe('retentionTableLogic', () => {
     let logic: ReturnType<typeof retentionTableLogic.build>
 
-    mockAPI(async (url) => {
-        const { pathname } = url
-        if (
-            [
-                `api/projects/${MOCK_TEAM_ID}/insights/`,
-                `api/projects/${MOCK_TEAM_ID}/actions/`,
-                `api/projects/${MOCK_TEAM_ID}/insights/123`,
-                `api/projects/${MOCK_TEAM_ID}/insights`,
-            ].includes(pathname)
+    mockAPI(async ({ pathname, searchParams }) => {
+        if (String(searchParams.short_id) === Insight123) {
+            return { results: [result] }
+        } else if (
+            [`api/projects/${MOCK_TEAM_ID}/insights`, `api/projects/${MOCK_TEAM_ID}/insights/trend/`].includes(pathname)
         ) {
             return { results: [] }
         } else if (pathname === `api/projects/${MOCK_TEAM_ID}/insights/retention/`) {
-            return {
-                result: [
-                    {
-                        values: [
-                            { count: 200, people: [] },
-                            { count: 100, people: [] },
-                            { count: 75, people: [] },
-                        ],
-                        label: 'Chrome::96',
-                    },
-                    {
-                        values: [
-                            { count: 400, people: [] },
-                            { count: 200, people: [] },
-                            { count: 150, people: [] },
-                        ],
-                        label: 'Safari::34',
-                    },
-                ],
-            }
+            return { result }
         }
-
-        return defaultAPIMocks(url)
     })
 
     describe('syncs with insightLogic', () => {

@@ -118,7 +118,6 @@
                     },
                     "can_create_org": false,
                     "ee_available": true,
-                    "is_clickhouse_enabled": false,
                     "db_backend": "postgres",
                     "available_timezones": {
                         "Africa/Abidjan": 0,
@@ -1085,10 +1084,6 @@
                                 },
                                 {
                                     "icon": {},
-                                    "display": "Go to Sessions"
-                                },
-                                {
-                                    "icon": {},
                                     "display": "Go to Funnels"
                                 },
                                 {
@@ -1106,10 +1101,6 @@
                                 {
                                     "icon": {},
                                     "display": "Go to Actions"
-                                },
-                                {
-                                    "icon": {},
-                                    "display": "Go to Live Sessions"
                                 },
                                 {
                                     "icon": {},
@@ -2606,12 +2597,6 @@
                     {
                         "id": "017ab6c1-4e5c-0000-ed42-575b27505103",
                         "name": "isMobile",
-                        "is_numerical": false,
-                        "query_usage_30_day": null
-                    },
-                    {
-                        "id": "0179fcb6-f7fa-0000-c78a-c7b289c94008",
-                        "name": "is_clickhouse_enabled",
                         "is_numerical": false,
                         "query_usage_30_day": null
                     },

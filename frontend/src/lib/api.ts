@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 import { parsePeopleParams, PeopleParamType } from '../scenes/trends/personsModalLogic'
-import { ActionType, ActorType, CohortType, FilterType, PluginLogEntry, TeamType } from '../types'
+import { ActionType, ActorType, CohortType, EventType, FilterType, PluginLogEntry, TeamType } from '../types'
 import { getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 import { LOGS_PORTION_LIMIT } from 'scenes/plugins/plugin/pluginLogsLogic'
@@ -98,6 +98,10 @@ class ApiRequest {
 
     public actionsDetail(actionId: ActionType['id'], teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
         return this.actions(teamId).addPathComponent(actionId.toString())
+    }
+
+    public events(teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('events')
     }
 
     public cohorts(teamId: TeamType['id'] = getCurrentTeamId()): ApiRequest {
@@ -200,6 +204,17 @@ const api = {
                 .withAction('people.csv')
                 .withQueryString(parsePeopleParams(peopleParams, filters))
                 .assembleFullUrl(true)
+        },
+    },
+
+    events: {
+        async list(
+            filters: Partial<FilterType>,
+            limit: number = 10,
+            teamId: TeamType['id'] = getCurrentTeamId()
+        ): Promise<PaginatedResponse<EventType[]>> {
+            const params: Record<string, any> = { ...filters, limit }
+            return new ApiRequest().events(teamId).withQueryString(toParams(params)).get()
         },
     },
 

@@ -22,6 +22,7 @@ import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
 import { TeamManager } from './worker/ingestion/team-manager'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
+import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
 import { LazyPluginVM } from './worker/vm/lazy'
 
 export enum LogLevel {
@@ -135,6 +136,7 @@ export interface Hub extends PluginsServerConfig {
     teamManager: TeamManager
     organizationManager: OrganizationManager
     pluginsApiKeyManager: PluginsApiKeyManager
+    rootAccessManager: RootAccessManager
     actionManager: ActionManager
     actionMatcher: ActionMatcher
     hookCannon: HookCommander
@@ -143,6 +145,7 @@ export interface Hub extends PluginsServerConfig {
     // diagnostics
     lastActivity: number
     lastActivityType: string
+    statelessVms: StatelessVmMap
 }
 
 export interface Pausable {
@@ -232,6 +235,7 @@ export interface Plugin {
     updated_at: string
     capabilities?: PluginCapabilities
     metrics?: StoredPluginMetrics
+    is_stateless?: boolean
 }
 
 export interface PluginCapabilities {
@@ -336,8 +340,32 @@ export type VMMethods = {
     onSnapshot?: (event: PluginEvent) => Promise<void>
     exportEvents?: (events: PluginEvent[]) => Promise<void>
     processEvent?: (event: PluginEvent) => Promise<PluginEvent>
+    handleAlert?: (alert: Alert) => Promise<void>
 }
 
+export enum AlertLevel {
+    P0 = 0,
+    P1 = 1,
+    P2 = 2,
+    P3 = 3,
+    P4 = 4,
+}
+
+export enum Service {
+    PluginServer = 'plugin_server',
+    DjangoServer = 'django_server',
+    Redis = 'redis',
+    Postgres = 'postgres',
+    ClickHouse = 'clickhouse',
+    Kafka = 'kafka',
+}
+export interface Alert {
+    id: string
+    level: AlertLevel
+    key: string
+    description?: string
+    trigger_location: Service
+}
 export interface PluginConfigVMResponse {
     vm: VM
     methods: VMMethods
@@ -757,6 +785,30 @@ export interface EventDefinitionType {
     created_at: string // DateTime
 }
 
+export enum UnixTimestampPropertyTypeFormat {
+    UNIX_TIMESTAMP = 'unix_timestamp',
+    UNIX_TIMESTAMP_MILLISECONDS = 'unix_timestamp_milliseconds',
+}
+
+export enum DateTimePropertyTypeFormat {
+    ISO8601_DATE = 'YYYY-MM-DDThh:mm:ssZ',
+    FULL_DATE = 'YYYY-MM-DD hh:mm:ss',
+    FULL_DATE_INCREASING = 'DD-MM-YYYY hh:mm:ss',
+    DATE = 'YYYY-MM-DD',
+    RFC_822 = 'rfc_822',
+    WITH_SLASHES = 'YYYY/MM/DD hh:mm:ss',
+    WITH_SLASHES_INCREASING = 'DD/MM/YYYY hh:mm:ss',
+}
+
+export type PropertyTypeFormat = DateTimePropertyTypeFormat | UnixTimestampPropertyTypeFormat
+
+export enum PropertyType {
+    DateTime = 'DateTime',
+    String = 'String',
+    Numeric = 'Numeric',
+    Boolean = 'Boolean',
+}
+
 export interface PropertyDefinitionType {
     id: string
     name: string
@@ -764,6 +816,8 @@ export interface PropertyDefinitionType {
     volume_30_day: number | null
     query_usage_30_day: number | null
     team_id: number
+    property_type?: PropertyType
+    property_type_format?: PropertyTypeFormat
 }
 
 export interface EventPropertyType {
@@ -773,7 +827,7 @@ export interface EventPropertyType {
     team_id: number
 }
 
-export type PluginFunction = 'onEvent' | 'onAction' | 'processEvent' | 'onSnapshot' | 'pluginTask'
+export type PluginFunction = 'onEvent' | 'onAction' | 'processEvent' | 'onSnapshot' | 'pluginTask' | 'handleAlert'
 
 export enum CeleryTriggeredJobOperation {
     Start = 'start',
@@ -784,4 +838,13 @@ export type GroupTypeToColumnIndex = Record<string, GroupTypeIndex>
 export enum PropertyUpdateOperation {
     Set = 'set',
     SetOnce = 'set_once',
+}
+
+export type StatelessVmMap = Record<PluginId, LazyPluginVM>
+
+export enum OrganizationPluginsAccessLevel {
+    NONE = 0,
+    CONFIG = 3,
+    INSTALL = 6,
+    ROOT = 9,
 }

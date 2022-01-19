@@ -49,10 +49,10 @@ export const experimentLogic = kea<experimentLogicType>({
         updateExperimentGroup: (variant: MultivariateFlagVariant, idx: number) => ({ variant, idx }),
         removeExperimentGroup: (idx: number) => ({ idx }),
         setExperimentInsightType: (insightType: InsightType) => ({ insightType }),
+        setEditExperiment: (editing: boolean) => ({ editing }),
         resetNewExperiment: true,
         launchExperiment: true,
         endExperiment: true,
-        editExperiment: true,
         addExperimentGroup: true,
     },
     reducers: {
@@ -154,8 +154,7 @@ export const experimentLogic = kea<experimentLogicType>({
         editingExistingExperiment: [
             false,
             {
-                editExperiment: () => true,
-                createExperiment: () => false,
+                setEditExperiment: (_, { editing }) => editing,
             },
         ],
     },
@@ -177,6 +176,10 @@ export const experimentLogic = kea<experimentLogicType>({
                             ...(!draft && { start_date: dayjs() }),
                         }
                     )
+                    if (response?.id) {
+                        router.actions.push(urls.experiment(response.id))
+                        return
+                    }
                 } else {
                     response = await api.create(`api/projects/${values.currentTeamId}/experiments`, {
                         ...values.newExperimentData,
@@ -268,6 +271,8 @@ export const experimentLogic = kea<experimentLogicType>({
                 // loading a draft mode experiment
                 actions.setNewExperimentData({ ...experimentData })
                 actions.createNewExperimentInsight(experimentData?.filters)
+            } else {
+                actions.loadExperimentResults()
             }
         },
         launchExperiment: async () => {
@@ -401,6 +406,83 @@ export const experimentLogic = kea<experimentLogicType>({
                     return Math.ceil(2 * Math.sqrt(2) * Math.sqrt(controlCountData))
                 },
         ],
+        bestConversionVariant: [
+            (s) => [s.variants, s.conversionRateForVariant],
+            (variants, conversionRateForVariant): { variant: MultivariateFlagVariant; value: number } => {
+                const bestVariant = variants.reduce(
+                    (best, variant) => {
+                        const value = parseFloat(conversionRateForVariant(variant.key))
+                        if (value > best.value) {
+                            return { variant, value }
+                        }
+                        return best
+                    },
+                    { variant: { key: '', rollout_percentage: 0 }, value: 0 }
+                )
+                return bestVariant
+            },
+        ],
+        bestCountVariant: [
+            (s) => [s.variants, s.countDataForVariant],
+            (variants, countDataForVariant): { variant: MultivariateFlagVariant; value: number } => {
+                const bestVariant = variants.reduce(
+                    (best, variant) => {
+                        const value = parseInt(countDataForVariant(variant.key))
+                        if (value && value > best.value) {
+                            return { variant, value }
+                        }
+                        return best
+                    },
+                    { variant: { key: '', rollout_percentage: 0 }, value: 0 }
+                )
+                return bestVariant
+            },
+        ],
+        areCountResultsSignificant: [
+            (s) => [s.mdeGivenCountData, s.bestCountVariant, s.countDataForVariant],
+            (mdeGivenCountData, bestCountVariant, countDataForVariant): boolean => {
+                const targetCountData = bestCountVariant.value
+                const controlCountData = parseInt(countDataForVariant('control'))
+                // minimum detectable effect for variant determines significance
+                return Math.abs(targetCountData - controlCountData) > mdeGivenCountData(controlCountData)
+            },
+        ],
+        areConversionResultsSignificant: [
+            (s) => [
+                s.mdeGivenSampleSizeAndConversionRate,
+                s.bestConversionVariant,
+                s.conversionRateForVariant,
+                s.experimentResults,
+            ],
+            (
+                mdeGivenSampleSizeAndConversionRate,
+                bestConversionVariant,
+                conversionRateForVariant,
+                experimentResults
+            ): boolean => {
+                if (!experimentResults) {
+                    return false
+                }
+
+                const controlResults = (experimentResults?.insight as FunnelStep[][]).find(
+                    (variantFunnel: FunnelStep[]) => variantFunnel[0]?.breakdown_value?.[0] === 'control'
+                )
+                if (!controlResults) {
+                    return false
+                }
+                const sampleSizeForControl = controlResults[0].count
+                if (!sampleSizeForControl) {
+                    return false
+                }
+                const targetConversionRate = bestConversionVariant.value
+                const controlConversionRate = parseFloat(conversionRateForVariant('control'))
+                // minimum detectable effect for variant determines significance
+                return (
+                    Math.abs(targetConversionRate - controlConversionRate) >
+                    mdeGivenSampleSizeAndConversionRate(sampleSizeForControl, controlConversionRate)
+                )
+            },
+        ],
         recommendedExposureForCountData: [
             () => [],
             () =>
@@ -487,12 +569,14 @@ export const experimentLogic = kea<experimentLogicType>({
                     actions.createNewExperimentInsight()
                     actions.resetNewExperiment()
                 }
+
+                actions.setEditExperiment(false)
+
                 if (parsedId !== values.experimentId) {
                     actions.setExperimentId(parsedId)
                 }
                 if (parsedId !== 'new') {
                     actions.loadExperiment()
-                    actions.loadExperimentResults()
                 }
             }
         },

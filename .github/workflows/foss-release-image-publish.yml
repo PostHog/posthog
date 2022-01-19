@@ -3,10 +3,11 @@
 
 name: Docker FOSS release image
 
-on:
-    push:
-        tags:
-            - '*.**'
+# TODO: Don't sync until ee code relocation is done
+# on:
+#     push:
+#         tags:
+#             - '*.**'
 
 jobs:
     build-push:

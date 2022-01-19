@@ -15,7 +15,6 @@ import {
     GraphDataset,
 } from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { TrendActors } from 'scenes/trends/types'
@@ -129,6 +128,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         setSearchTerm: (term: string) => ({ term }),
         setCohortModalVisible: (visible: boolean) => ({ visible }),
         loadPeople: (peopleParams: PersonsModalParams) => ({ peopleParams }),
+        setUrl: (props: LoadPeopleFromUrlProps) => ({ props }),
         loadPeopleFromUrl: (props: LoadPeopleFromUrlProps) => props,
         switchToDataPoint: (seriesId: number) => ({ seriesId }), // Changes data point shown on PersonModal
         loadMorePeople: true,
@@ -232,6 +232,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
             null as LoadPeopleFromUrlProps | null,
             {
                 loadPeopleFromUrl: (_, props) => props,
+                setUrl: (_, { props }) => props,
             },
         ],
     }),
@@ -239,10 +240,6 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
         isInitialLoad: [
             (s) => [s.peopleLoading, s.loadingMorePeople],
             (peopleLoading, loadingMorePeople) => peopleLoading && !loadingMorePeople,
-        ],
-        clickhouseFeaturesEnabled: [
-            () => [preflightLogic.selectors.preflight],
-            (preflight) => !!preflight?.is_clickhouse_enabled,
         ],
         isGroupType: [(s) => [s.people], (people) => people?.people?.[0] && isGroupType(people.people[0])],
         actorLabel: [
@@ -326,7 +323,30 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                     actors = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
                 } else if (filters.insight === InsightType.PATHS) {
                     const cleanedParams = cleanFilters(filters)
-                    actors = await api.create(`api/person/path/?${searchTermParam}`, cleanedParams)
+                    const pathParams = toParams(cleanedParams)
+
+                    let includeRecordingsParam = ''
+                    if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_INSIGHTS]) {
+                        includeRecordingsParam = 'include_recordings=true&'
+                    }
+                    actors = await api.create(
+                        `api/person/path/?${includeRecordingsParam}${searchTermParam}`,
+                        cleanedParams
+                    )
+
+                    // Manually populate URL data so that cohort creation can use this information
+                    const pathsParams = {
+                        url: `api/person/path/paths/?${pathParams}`,
+                        funnelStep,
+                        breakdown_value,
+                        label,
+                        date_from,
+                        action,
+                        pathsDropoff,
+                        crossDataset,
+                        seriesId,
+                    }
+                    actions.setUrl(pathsParams)
                 } else {
                     actors = await api.actions.getPeople(
                         { label, action, date_from, date_to, breakdown_value },
@@ -368,7 +388,7 @@ export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProp
                 crossDataset,
                 seriesId,
             }) => {
-                if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_TRENDS_PERSON_MODAL]) {
+                if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_INSIGHTS]) {
                     // A bit hacky (doesn't account for hash params),
                     // but it works and only needed while we have this feature flag
                     url += '&include_recordings=true'

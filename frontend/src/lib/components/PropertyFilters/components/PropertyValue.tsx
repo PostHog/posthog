@@ -8,6 +8,8 @@ import { PropertyOperator } from '~/types'
 import dayjs, { Dayjs } from 'dayjs'
 import generatePicker from 'antd/lib/date-picker/generatePicker'
 import dayjsGenerateConfig from 'rc-picker/es/generate/dayjs'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { useValues } from 'kea'
 
 export const DatePicker = generatePicker<Dayjs>(dayjsGenerateConfig)
 
@@ -76,6 +78,8 @@ export function PropertyValue({
     const [options, setOptions] = useState({} as Record<string, Option>)
     const autoCompleteRef = useRef<HTMLElement>(null)
 
+    const { formatForDisplay } = useValues(propertyDefinitionsModel)
+
     // update the input field if passed a new `value` prop
     useEffect(() => {
         if (!value) {
@@ -143,7 +147,6 @@ export function PropertyValue({
 
     const commonInputProps = {
         style: { width: '100%', ...style },
-        loading: options[input]?.status === 'loading',
         onSearch: (newInput: string) => {
             setInput(newInput)
             if (!Object.keys(options).includes(newInput) && !(operator && isOperatorFlag(operator))) {
@@ -192,6 +195,8 @@ export function PropertyValue({
         <>
             {isMultiSelect ? (
                 <SelectGradientOverflow
+                    loading={options[propertyKey]?.status === 'loading'}
+                    propertyKey={propertyKey}
                     {...commonInputProps}
                     autoFocus={autoFocus}
                     value={value === null ? [] : value}
@@ -207,9 +212,9 @@ export function PropertyValue({
                         }
                     }}
                 >
-                    {input && !displayOptions.some(({ name }) => input === toString(name)) && (
+                    {input && !displayOptions.some(({ name }) => input.toLowerCase() === toString(name).toLowerCase()) && (
                         <Select.Option key="specify-value" value={input} className="ph-no-capture">
-                            Specify: {input}
+                            Specify: {formatForDisplay(propertyKey, input)}
                         </Select.Option>
                     )}
                     {displayOptions.map(({ name: _name }, index) => {
@@ -222,7 +227,7 @@ export function PropertyValue({
                                 className="ph-no-capture"
                                 title={name}
                             >
-                                {name === '' ? <i>(empty string)</i> : name}
+                                {name === '' ? <i>(empty string)</i> : formatForDisplay(propertyKey, name)}
                             </Select.Option>
                         )
                     })}

@@ -162,7 +162,10 @@ export async function startPluginsServer(
                 await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
             'drop-action': async (message) =>
                 await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
+            'plugins-alert': async (message) =>
+                await piscina?.run({ task: 'handleAlert', args: { alert: JSON.parse(message) } }),
         })
+
         await pubSub.start()
 
         if (hub.jobQueueManager) {

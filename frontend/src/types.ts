@@ -1,6 +1,4 @@
 import {
-    ACTION_TYPE,
-    EVENT_TYPE,
     OrganizationMembershipLevel,
     PluginsAccessLevel,
     ShownAsValue,
@@ -103,6 +101,10 @@ export interface OrganizationBasicType {
     membership_level: OrganizationMembershipLevel | null
 }
 
+interface OrganizationMetadata {
+    taxonomy_set_events_count: number
+    taxonomy_set_properties_count: number
+}
 export interface OrganizationType extends OrganizationBasicType {
     created_at: string
     updated_at: string
@@ -114,6 +116,7 @@ export interface OrganizationType extends OrganizationBasicType {
     available_features: AvailableFeature[]
     domain_whitelist: string[]
     is_member_join_email_enabled: boolean
+    metadata?: OrganizationMetadata
 }
 
 /** Member properties relevant at both organization and project level. */
@@ -423,30 +426,6 @@ export interface SessionRecordingsResponse {
     has_next: boolean
 }
 
-interface RecordingNotViewedFilter extends BasePropertyFilter {
-    type: 'recording'
-    key: 'unseen'
-}
-
-export type RecordingPropertyFilter = RecordingDurationFilter | RecordingNotViewedFilter
-
-export interface ActionTypePropertyFilter extends BasePropertyFilter {
-    type: typeof ACTION_TYPE
-    properties?: Array<EventPropertyFilter>
-}
-
-export interface EventTypePropertyFilter extends BasePropertyFilter {
-    type: typeof EVENT_TYPE
-    properties?: Array<EventPropertyFilter>
-}
-
-export type SessionsPropertyFilter =
-    | PersonPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | ActionTypePropertyFilter
-    | EventTypePropertyFilter
-
 export type EntityType = 'actions' | 'events' | 'new_entity'
 
 export interface Entity {
@@ -576,6 +555,9 @@ export enum StepOrderValue {
 export enum PersonsTabType {
     EVENTS = 'events',
     SESSION_RECORDINGS = 'sessionRecordings',
+    PROPERTIES = 'properties',
+    COHORTS = 'cohorts',
+    RELATED = 'related',
 }
 
 export enum LayoutView {
@@ -820,7 +802,6 @@ export enum ChartDisplayType {
     FunnelViz = 'FunnelViz',
 }
 
-export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
 export type BreakdownType = 'cohort' | 'person' | 'event' | 'group'
 export type IntervalType = 'hour' | 'day' | 'week' | 'month'
 
@@ -874,7 +855,8 @@ export interface FilterType {
     breakdowns?: Breakdown[]
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
-    shown_as?: ShownAsType
+    shown_as?: ShownAsValue
+    session?: string
     period?: string
 
     retention_type?: RetentionType
@@ -1261,10 +1243,6 @@ export interface PreflightStatus {
     /** Whether this is a managed demo environment. */
     demo: boolean
     celery: boolean
-    /** Whether EE code is available (but not necessarily a license). */
-    ee_available?: boolean
-    /** Is ClickHouse used as the analytics database instead of Postgres. */
-    is_clickhouse_enabled?: boolean
     realm: Realm
     db_backend?: 'postgres' | 'clickhouse'
     available_social_auth_providers: AuthBackends
@@ -1359,6 +1337,8 @@ export interface PropertyDefinition {
     updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
     is_event_property?: boolean // Indicates whether this property has been seen for a particular set of events (when `eventNames` query string is sent); calculated at query time, not stored in the db
+    property_type?: 'DateTime' | 'String' | 'Numeric' | 'Boolean'
+    property_type_format?: 'unix_timestamp' | 'YYYY-MM-DD hh:mm:ss' | 'YYYY-MM-DD'
 }
 
 export interface PersonProperty {
@@ -1444,6 +1424,7 @@ export interface AppContext {
     preflight: PreflightStatus
     default_event_name: string
     persisted_feature_flags?: string[]
+    anonymous: boolean
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -1578,4 +1559,12 @@ export interface GraphPointPayload {
 export enum CompareLabelType {
     Current = 'current',
     Previous = 'previous',
+}
+
+export interface InstanceSetting {
+    key: string
+    value: boolean | string | number
+    value_type: 'bool' | 'str' | 'int'
+    description?: string
+    editable: boolean
 }

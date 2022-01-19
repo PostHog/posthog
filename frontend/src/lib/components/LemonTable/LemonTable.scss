@@ -104,11 +104,16 @@
 
 .LemonTable__scroll {
     width: 100%;
-    overflow: auto hidden;
+    height: 100%;
+    overflow: auto;
 }
 
 .LemonTable__content {
     min-width: fit-content;
+}
+
+.LemonTable__empty-state {
+    color: var(--muted-alt);
 }
 
 .LemonTable__overlay {

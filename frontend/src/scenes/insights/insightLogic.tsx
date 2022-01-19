@@ -25,7 +25,6 @@ import { filterTrendsClientSideParams, keyForInsightLogicProps } from 'scenes/in
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { pollFunnel } from 'scenes/funnels/funnelUtils'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { extractObjectDiffKeys, findInsightFromMountedLogic, getInsightId } from './utils'
 import { teamLogic } from '../teamLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -65,7 +64,12 @@ export const insightLogic = kea<insightLogicType>({
         setActiveView: (type: InsightType) => ({ type }),
         updateActiveView: (type: InsightType) => ({ type }),
         setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode) => ({ filters, insightMode }),
-        reportInsightViewed: (filters: Partial<FilterType>, previousFilters?: Partial<FilterType>) => ({
+        reportInsightViewed: (
+            insightModel: Partial<InsightModel>,
+            filters: Partial<FilterType>,
+            previousFilters?: Partial<FilterType>
+        ) => ({
+            insightModel,
             filters,
             previousFilters,
         }),
@@ -130,13 +134,12 @@ export const insightLogic = kea<insightLogicType>({
             } as Partial<InsightModel>,
             {
                 loadInsight: async ({ shortId }) => {
-                    return (
-                        await api.get(
-                            `api/projects/${teamLogic.values.currentTeamId}/insights/?short_id=${encodeURIComponent(
-                                shortId
-                            )}`
-                        )
-                    ).results[0]
+                    const response = await api.get(
+                        `api/projects/${teamLogic.values.currentTeamId}/insights/?short_id=${encodeURIComponent(
+                            shortId
+                        )}`
+                    )
+                    return response.results[0]
                 },
                 updateInsight: async ({ insight, callback }, breakpoint) => {
                     if (!Object.entries(insight).length) {
@@ -436,10 +439,6 @@ export const insightLogic = kea<insightLogicType>({
             (s) => [s.insight, s.activeView],
             ({ filters }, activeView) => filters?.insight || activeView || InsightType.TRENDS,
         ],
-        clickhouseFeaturesEnabled: [
-            () => [preflightLogic.selectors.preflight],
-            (preflight) => !!preflight?.is_clickhouse_enabled,
-        ],
         filtersChanged: [
             (s) => [s.savedFilters, s.filters],
             (savedFilters, filters) =>
@@ -495,7 +494,7 @@ export const insightLogic = kea<insightLogicType>({
                 return
             }
 
-            actions.reportInsightViewed(filters, previousFilters)
+            actions.reportInsightViewed(values.insight, filters, previousFilters)
 
             const backendFilterChanged = !objectsEqual(
                 Object.assign({}, values.filters, {
@@ -523,6 +522,7 @@ export const insightLogic = kea<insightLogicType>({
                 previousFilters && extractObjectDiffKeys(previousFilters, filters)
 
             eventUsageLogic.actions.reportInsightViewed(
+                values.insight,
                 filters || {},
                 values.insightMode,
                 values.isFirstLoad,
@@ -534,6 +534,7 @@ export const insightLogic = kea<insightLogicType>({
             await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
 
             eventUsageLogic.actions.reportInsightViewed(
+                values.insight,
                 filters || {},
                 values.insightMode,
                 values.isFirstLoad,
@@ -676,7 +677,7 @@ export const insightLogic = kea<insightLogicType>({
             }
         },
         loadInsightSuccess: async ({ insight }) => {
-            actions.reportInsightViewed(insight?.filters || {})
+            actions.reportInsightViewed(insight, insight?.filters || {})
             // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query
             if (!insight.result && values.filters) {
                 actions.loadResults()

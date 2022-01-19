@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Type, Union
 
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
@@ -8,6 +8,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from ee.clickhouse.queries.experiments.funnel_experiment_result import ClickhouseFunnelExperimentResult
+from ee.clickhouse.queries.experiments.secondary_experiment_result import ClickhouseSecondaryExperimentResult
 from ee.clickhouse.queries.experiments.trend_experiment_result import ClickhouseTrendExperimentResult
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import StructuredViewSetMixin
@@ -46,12 +47,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-
-    def validate_feature_flag_key(self, value):
-        if FeatureFlag.objects.filter(key=value, team_id=self.context["team_id"], deleted=False).exists():
-            raise ValidationError("Feature Flag key already exists. Please select a unique key")
-
-        return value
 
     def validate_parameters(self, value):
         if not value:
@@ -113,18 +108,37 @@ class ExperimentSerializer(serializers.ModelSerializer):
         return experiment
 
     def update(self, instance: Experiment, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
+        has_start_date = "start_date" in validated_data
+        feature_flag = instance.feature_flag
 
-        expected_keys = set(["name", "description", "start_date", "end_date"])
+        expected_keys = set(["name", "description", "start_date", "end_date", "filters", "parameters"])
         given_keys = set(validated_data.keys())
-
         extra_keys = given_keys - expected_keys
+
+        if feature_flag.key == validated_data.get("get_feature_flag_key"):
+            extra_keys.remove("get_feature_flag_key")
 
         if extra_keys:
             raise ValidationError(f"Can't update keys: {', '.join(sorted(extra_keys))} on Experiment")
 
-        has_start_date = "start_date" in validated_data
+        if "feature_flag_variants" in validated_data.get("parameters", {}):
 
-        feature_flag = instance.feature_flag
+            if len(validated_data["parameters"]["feature_flag_variants"]) != len(feature_flag.variants):
+                raise ValidationError("Can't update feature_flag_variants on Experiment")
+
+            for variant in validated_data["parameters"]["feature_flag_variants"]:
+                if (
+                    len(
+                        [
+                            ff_variant
+                            for ff_variant in feature_flag.variants
+                            if ff_variant["key"] == variant["key"]
+                            and ff_variant["rollout_percentage"] == variant["rollout_percentage"]
+                        ]
+                    )
+                    != 1
+                ):
+                    raise ValidationError("Can't update feature_flag_variants on Experiment")
 
         if instance.is_draft and has_start_date:
             feature_flag.active = True
@@ -162,12 +176,45 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
             raise ValidationError("Experiment has no target metric")
 
         filter = Filter(experiment.filters)
-        experiment_class = (
+        experiment_class: Union[Type[ClickhouseTrendExperimentResult], Type[ClickhouseFunnelExperimentResult]] = (
             ClickhouseTrendExperimentResult if filter.insight == INSIGHT_TRENDS else ClickhouseFunnelExperimentResult
         )
 
         result = experiment_class(
             filter, self.team, experiment.feature_flag, experiment.start_date, experiment.end_date,
-        ).get_results()  # type: ignore # TODO: Fix type once I introduce base class
+        ).get_results()
+
+        return Response(result)
+
+    # ******************************************
+    # /projects/:id/experiments/:experiment_id/secondary_results?id=<secondary_metric_id>
+    #
+    # Returns values for secondary experiment metrics, broken down by variants
+    # ******************************************
+    @action(methods=["GET"], detail=True)
+    def secondary_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        experiment: Experiment = self.get_object()
+
+        if not experiment.parameters.get("secondary_metrics"):
+            raise ValidationError("Experiment has no secondary metrics")
+
+        metric_id = request.query_params.get("id")
+
+        if not metric_id:
+            raise ValidationError("Secondary metric id is required")
+
+        try:
+            parsed_id = int(metric_id)
+        except ValueError:
+            raise ValidationError("Secondary metric id must be an integer")
+
+        if parsed_id > len(experiment.parameters.get("secondary_metrics")):
+            raise ValidationError("Invalid metric ID")
+
+        filter = Filter(experiment.parameters["secondary_metrics"][parsed_id])
+
+        result = ClickhouseSecondaryExperimentResult(
+            filter, self.team, experiment.feature_flag, experiment.start_date, experiment.end_date,
+        ).get_results()
 
         return Response(result)

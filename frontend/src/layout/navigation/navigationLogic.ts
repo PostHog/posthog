@@ -31,8 +31,6 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
         openSitePopover: true,
         closeSitePopover: true,
         toggleSitePopover: true,
-        showInviteModal: true,
-        hideInviteModal: true,
         showCreateOrganizationModal: true,
         hideCreateOrganizationModal: true,
         showCreateProjectModal: true,
@@ -64,13 +62,6 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
                 openSitePopover: () => true,
                 closeSitePopover: () => false,
                 toggleSitePopover: (state) => !state,
-            },
-        ],
-        isInviteModalShown: [
-            false,
-            {
-                showInviteModal: () => true,
-                hideInviteModal: () => false,
             },
         ],
         isCreateOrganizationModalShown: [

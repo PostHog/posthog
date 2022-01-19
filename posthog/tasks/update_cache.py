@@ -18,7 +18,6 @@ from posthog.constants import (
     INSIGHT_FUNNELS,
     INSIGHT_PATHS,
     INSIGHT_RETENTION,
-    INSIGHT_SESSIONS,
     INSIGHT_STICKINESS,
     INSIGHT_TRENDS,
     TRENDS_STICKINESS,
@@ -30,49 +29,31 @@ from posthog.models import Dashboard, Filter, Insight, Team
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.types import FilterType
-from posthog.utils import generate_cache_key, is_clickhouse_enabled
+from posthog.utils import generate_cache_key
 
 PARALLEL_INSIGHT_CACHE = int(os.environ.get("PARALLEL_DASHBOARD_ITEM_CACHE", 5))
 
 logger = logging.getLogger(__name__)
 
-if is_clickhouse_enabled():
-    from ee.clickhouse.queries.funnels import (
-        ClickhouseFunnel,
-        ClickhouseFunnelBase,
-        ClickhouseFunnelStrict,
-        ClickhouseFunnelTimeToConvert,
-        ClickhouseFunnelTrends,
-        ClickhouseFunnelUnordered,
-    )
-    from ee.clickhouse.queries.paths import ClickhousePaths
-    from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
-    from ee.clickhouse.queries.sessions.clickhouse_sessions import ClickhouseSessions
-    from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
-    from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
+from ee.clickhouse.queries.funnels import (
+    ClickhouseFunnel,
+    ClickhouseFunnelBase,
+    ClickhouseFunnelStrict,
+    ClickhouseFunnelTimeToConvert,
+    ClickhouseFunnelTrends,
+    ClickhouseFunnelUnordered,
+)
+from ee.clickhouse.queries.paths import ClickhousePaths
+from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
+from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
+from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 
-    CACHE_TYPE_TO_INSIGHT_CLASS = {
-        CacheType.TRENDS: ClickhouseTrends,
-        CacheType.SESSION: ClickhouseSessions,
-        CacheType.STICKINESS: ClickhouseStickiness,
-        CacheType.RETENTION: ClickhouseRetention,
-        CacheType.PATHS: ClickhousePaths,
-    }
-else:
-    from posthog.queries.funnel import Funnel
-    from posthog.queries.paths import Paths
-    from posthog.queries.retention import Retention
-    from posthog.queries.sessions.sessions import Sessions
-    from posthog.queries.stickiness import Stickiness
-    from posthog.queries.trends import Trends
-
-    CACHE_TYPE_TO_INSIGHT_CLASS = {
-        CacheType.TRENDS: Trends,
-        CacheType.SESSION: Sessions,
-        CacheType.STICKINESS: Stickiness,
-        CacheType.RETENTION: Retention,
-        CacheType.PATHS: Paths,
-    }
+CACHE_TYPE_TO_INSIGHT_CLASS = {
+    CacheType.TRENDS: ClickhouseTrends,
+    CacheType.STICKINESS: ClickhouseStickiness,
+    CacheType.RETENTION: ClickhouseRetention,
+    CacheType.PATHS: ClickhousePaths,
+}
 
 
 def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Dict[str, Any]]:
@@ -117,8 +98,6 @@ def update_dashboard_item_cache(dashboard_item: Insight, dashboard: Optional[Das
 def get_cache_type(filter: FilterType) -> CacheType:
     if filter.insight == INSIGHT_FUNNELS:
         return CacheType.FUNNEL
-    elif filter.insight == INSIGHT_SESSIONS:
-        return CacheType.SESSION
     elif filter.insight == INSIGHT_PATHS:
         return CacheType.PATHS
     elif filter.insight == INSIGHT_RETENTION:
@@ -190,22 +169,17 @@ def _calculate_by_filter(filter: FilterType, key: str, team_id: int, cache_type:
 def _calculate_funnel(filter: Filter, key: str, team_id: int) -> List[Dict[str, Any]]:
     team = Team(pk=team_id)
 
-    if is_clickhouse_enabled():
-        funnel_order_class: Type[ClickhouseFunnelBase] = ClickhouseFunnel
-        if filter.funnel_order_type == FunnelOrderType.UNORDERED:
-            funnel_order_class = ClickhouseFunnelUnordered
-        elif filter.funnel_order_type == FunnelOrderType.STRICT:
-            funnel_order_class = ClickhouseFunnelStrict
+    funnel_order_class: Type[ClickhouseFunnelBase] = ClickhouseFunnel
+    if filter.funnel_order_type == FunnelOrderType.UNORDERED:
+        funnel_order_class = ClickhouseFunnelUnordered
+    elif filter.funnel_order_type == FunnelOrderType.STRICT:
+        funnel_order_class = ClickhouseFunnelStrict
 
-        if filter.funnel_viz_type == FunnelVizType.TRENDS:
-            result = ClickhouseFunnelTrends(team=team, filter=filter, funnel_order_class=funnel_order_class).run()
-        elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
-            result = ClickhouseFunnelTimeToConvert(
-                team=team, filter=filter, funnel_order_class=funnel_order_class
-            ).run()
-        else:
-            result = funnel_order_class(team=team, filter=filter).run()
+    if filter.funnel_viz_type == FunnelVizType.TRENDS:
+        result = ClickhouseFunnelTrends(team=team, filter=filter, funnel_order_class=funnel_order_class).run()
+    elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
+        result = ClickhouseFunnelTimeToConvert(team=team, filter=filter, funnel_order_class=funnel_order_class).run()
     else:
-        result = Funnel(filter=filter, team=team).run()
+        result = funnel_order_class(team=team, filter=filter).run()
 
     return result

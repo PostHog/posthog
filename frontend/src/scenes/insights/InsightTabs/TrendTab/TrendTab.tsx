@@ -10,7 +10,6 @@ import { trendsLogic } from '../../../trends/trendsLogic'
 import { FilterType, InsightType } from '~/types'
 import { Formula } from './Formula'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import './TrendTab.scss'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
@@ -27,19 +26,22 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const { insightProps, allEventNames } = useValues(insightLogic)
     const { filters } = useValues(trendsLogic(insightProps))
     const { setFilters, toggleLifecycle } = useActions(trendsLogic(insightProps))
-    const { preflight } = useValues(preflightLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const [isUsingFormulas, setIsUsingFormulas] = useState(filters.formula ? true : false)
     const lifecycles = [
-        { name: 'new', tooltip: 'Users that are new.' },
-        { name: 'resurrecting', tooltip: 'Users who were once active but became dormant, and are now active again.' },
-        { name: 'returning', tooltip: 'Users who consistently use the product.' },
-        { name: 'dormant', tooltip: 'Users who are inactive.' },
+        { name: 'new', tooltip: 'Users that are new within the selected date range.' },
+        {
+            name: 'resurrecting',
+            tooltip:
+                'Users who were once active but became dormant, and are now active again within the selected date range.',
+        },
+        { name: 'returning', tooltip: 'Users who consistently use the product within the selected date range.' },
+        { name: 'dormant', tooltip: 'Users who are inactive within the selected date range.' },
     ]
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
     const isTrends = !filters.insight || filters.insight === InsightType.TRENDS
-    const formulaAvailable = isTrends && preflight?.is_clickhouse_enabled
+    const formulaAvailable = isTrends
     const formulaEnabled = (filters.events?.length || 0) + (filters.actions?.length || 0) > 0
 
     return (

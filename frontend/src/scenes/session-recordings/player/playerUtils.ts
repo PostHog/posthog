@@ -114,7 +114,7 @@ export function getPlayerPositionFromEpochTime(
     windowId: string,
     startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
 ): PlayerPosition | null {
-    if (windowId in startAndEndTimesByWindowId) {
+    if (startAndEndTimesByWindowId && windowId in startAndEndTimesByWindowId) {
         const windowStartTime = startAndEndTimesByWindowId[windowId].startTimeEpochMs
         const windowEndTime = startAndEndTimesByWindowId[windowId].endTimeEpochMs
 

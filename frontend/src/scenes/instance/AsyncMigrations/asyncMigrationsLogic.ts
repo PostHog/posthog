@@ -4,6 +4,7 @@ import { kea } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 
 import { asyncMigrationsLogicType } from './asyncMigrationsLogicType'
+import { InstanceSetting } from '~/types'
 export type TabName = 'overview' | 'internal_metrics'
 
 // keep in sync with MigrationStatus in posthog/models/async_migration.py
@@ -45,18 +46,7 @@ export interface AsyncMigration {
     posthog_max_version: string
 }
 
-export interface AsyncMigrationsSettingApiResult {
-    value: any
-    description: string
-}
-
-export interface AsyncMigrationsSetting extends AsyncMigrationsSettingApiResult {
-    key: string
-}
-
-export const asyncMigrationsLogic = kea<
-    asyncMigrationsLogicType<AsyncMigration, AsyncMigrationsSetting, AsyncMigrationsTab>
->({
+export const asyncMigrationsLogic = kea<asyncMigrationsLogicType<AsyncMigration, AsyncMigrationsTab>>({
     path: ['scenes', 'instance', 'AsyncMigrations', 'asyncMigrationsLogic'],
     actions: {
         triggerMigration: (migrationId: number) => ({ migrationId }),
@@ -81,23 +71,14 @@ export const asyncMigrationsLogic = kea<
             },
         ],
         asyncMigrationSettings: [
-            [] as AsyncMigrationsSetting[],
+            [] as InstanceSetting[],
             {
-                loadAsyncMigrationSettings: async (): Promise<AsyncMigrationsSetting[]> => {
+                loadAsyncMigrationSettings: async (): Promise<InstanceSetting[]> => {
                     if (!userLogic.values.user?.is_staff) {
                         return []
                     }
-                    const settingsResult: Record<string, AsyncMigrationsSettingApiResult> = await api.get(
-                        'api/instance_settings'
-                    )
-                    const settings: AsyncMigrationsSetting[] = []
-                    for (const [key, config] of Object.entries(settingsResult)) {
-                        if (key.includes('ASYNC_MIGRATIONS')) {
-                            settings.push({ key, ...config })
-                        }
-                    }
-
-                    return settings
+                    const settings: InstanceSetting[] = (await api.get('api/instance_settings')).results
+                    return settings.filter((setting) => setting.key.includes('ASYNC_MIGRATIONS'))
                 },
             },
         ],
@@ -123,15 +104,14 @@ export const asyncMigrationsLogic = kea<
             }
         },
         updateSetting: async ({ settingKey, newValue }) => {
-            const res = await api.create(`/api/instance_settings/update_setting`, {
-                key: settingKey,
-                value: newValue,
-            })
-            if (res.status === 1) {
-                successToast('Setting updated successfully')
+            try {
+                await api.create(`/api/instance_settings/${settingKey}`, {
+                    value: newValue,
+                })
+                successToast('Setting updated successfully!', `Instance setting ${settingKey} has been updated.`)
                 actions.loadAsyncMigrationSettings()
-            } else {
-                errorToast('Failed to trigger migration', res.error)
+            } catch {
+                errorToast('Failed to trigger migration.', 'Please try again or contact support.')
             }
         },
     }),

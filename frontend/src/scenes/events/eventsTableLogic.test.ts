@@ -88,12 +88,6 @@ describe('eventsTableLogic', () => {
                 router.actions.push(urls.person('1'))
             },
         })
-
-        it('does not show as scene is events', async () => {
-            await expectLogic(logic).toMatchValues({
-                sceneIsEventsPage: false,
-            })
-        })
     })
 
     describe('when loaded on events page', () => {
@@ -101,11 +95,11 @@ describe('eventsTableLogic', () => {
             logic: eventsTableLogic,
             props: {
                 key: 'test-key',
-                sceneUrl: urls.LEGACY_events(),
+                sceneUrl: urls.events(),
             },
             onLogic: (l) => (logic = l),
             beforeLogic: () => {
-                router.actions.push(urls.LEGACY_events())
+                router.actions.push(urls.events())
             },
         })
 
@@ -126,7 +120,6 @@ describe('eventsTableLogic', () => {
                 newEvents: [],
                 highlightEvents: {},
                 automaticLoadEnabled: false,
-                sceneIsEventsPage: true,
             })
         })
 
@@ -235,12 +228,6 @@ describe('eventsTableLogic', () => {
                 }).toMatchValues({
                     selectedEvent: expect.objectContaining({ id: '4' }),
                 })
-            })
-
-            it('can check if scene is loaded when it is', async () => {
-                await expectLogic(logic, () => {
-                    router.actions.push(urls.LEGACY_events())
-                }).toMatchValues({ sceneIsEventsPage: true })
             })
 
             it('fetch events success can set hasNext (which is the URL of the next page of results, that we do not use)', async () => {
@@ -439,7 +426,7 @@ describe('eventsTableLogic', () => {
 
         it('reads properties from the URL', async () => {
             const propertyFilter = makePropertyFilter()
-            router.actions.push(urls.LEGACY_events(), { properties: [propertyFilter] })
+            router.actions.push(urls.events(), { properties: [propertyFilter] })
             await expectLogic(logic, () => {}).toMatchValues({ properties: [propertyFilter] })
         })
 
