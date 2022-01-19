@@ -240,6 +240,9 @@ export const InsightCard: Story = (args) => {
                         updateColor={setInsightColor}
                         removeItem={() => setWasItemRemoved(true)}
                         refresh={() => {}}
+                        rename={() => {}}
+                        duplicate={() => {}}
+                        moveTo={() => {}}
                     />
                 )}
                 <InsightCardComponent
@@ -256,6 +259,9 @@ export const InsightCard: Story = (args) => {
                     updateColor={() => {}}
                     removeItem={() => {}}
                     refresh={() => {}}
+                    rename={() => {}}
+                    duplicate={() => {}}
+                    moveTo={() => {}}
                 />
                 <InsightCardComponent
                     insight={{ ...EXAMPLE_TRENDS, name: '', description: '', tags: [] }}
@@ -265,6 +271,9 @@ export const InsightCard: Story = (args) => {
                     updateColor={() => {}}
                     removeItem={() => {}}
                     refresh={() => {}}
+                    rename={() => {}}
+                    duplicate={() => {}}
+                    moveTo={() => {}}
                 />
             </div>
         </KeaProvider>
