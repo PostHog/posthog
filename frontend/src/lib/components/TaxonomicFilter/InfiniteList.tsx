@@ -16,7 +16,7 @@ import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFi
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import ReactDOM from 'react-dom'
 import { usePopper } from 'react-popper'
-import { ActionType, CohortType, EventDefinition, KeyMapping, PropertyDefinition } from '~/types'
+import { ActionType, AvailableFeature, CohortType, EventDefinition, KeyMapping, PropertyDefinition } from '~/types'
 import { AimOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { ActionSelectInfo } from 'scenes/insights/ActionSelectInfo'
@@ -27,6 +27,7 @@ import { Tooltip } from '../Tooltip'
 import clsx from 'clsx'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { definitionPanelLogic } from 'lib/components/DefinitionPanel/definitionPanelLogic'
+import { userLogic } from 'scenes/userLogic'
 
 enum ListTooltip {
     None = 0,
@@ -136,11 +137,17 @@ const renderItemPopup = (
     item: EventDefinition | PropertyDefinition | CohortType | ActionType,
     listGroupType: TaxonomicFilterGroupType,
     group: TaxonomicFilterGroup,
-    onItemEdit?: () => void
+    onItemEnter?: () => void
 ): React.ReactNode => {
     const width = 265
     let data: KeyMapping | null = null
     const value = group.getValue(item)
+
+    console.log('ITEM', item, listGroupType, group, onItemEnter)
+
+    if (!value) {
+        return item.name ?? ''
+    }
 
     if (value) {
         if (listGroupType === TaxonomicFilterGroupType.Actions && 'id' in item) {
@@ -153,10 +160,10 @@ const renderItemPopup = (
                         <a
                             tabIndex={-1}
                             onClick={() => {
-                                onItemEdit?.()
+                                onItemEnter?.()
                             }}
                         >
-                            edit
+                            View details
                         </a>
                     </Row>
                     <br />
@@ -187,10 +194,10 @@ const renderItemPopup = (
                         <a
                             tabIndex={-1}
                             onClick={() => {
-                                onItemEdit?.()
+                                onItemEnter?.()
                             }}
                         >
-                            edit
+                            View details
                         </a>
                     </Row>
                     {data.description ? <hr /> : null}
@@ -279,8 +286,25 @@ const renderItemPopupWithoutTaxonomy = (
 const selectedItemHasPopup = (
     item?: PropertyDefinition | CohortType,
     listGroupType?: TaxonomicFilterGroupType,
-    group?: TaxonomicFilterGroup
+    group?: TaxonomicFilterGroup,
+    isTaxonomyEnabled: boolean = false
 ): boolean => {
+    if (isTaxonomyEnabled) {
+        return (
+            // NB: also update "renderItemPopup" above
+            !!item &&
+            !!group?.getValue(item) &&
+            !!listGroupType &&
+            [
+                TaxonomicFilterGroupType.Actions,
+                TaxonomicFilterGroupType.Elements,
+                TaxonomicFilterGroupType.Events,
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.PersonProperties,
+            ].includes(listGroupType)
+        )
+    }
+
     return (
         // NB: also update "renderItemPopup" above
         !!item &&
@@ -302,6 +326,7 @@ export function InfiniteList(): JSX.Element {
         useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { user } = useValues(userLogic)
 
     const { isLoading, results, totalCount, index, listGroupType, group, selectedItem, selectedItemInView } =
         useValues(infiniteListLogic)
@@ -310,6 +335,9 @@ export function InfiniteList(): JSX.Element {
 
     const isActiveTab = listGroupType === activeTab
     const showEmptyState = totalCount === 0 && !isLoading
+    const hasTaxonomyFeatures =
+        !!user?.organization?.available_features?.includes(AvailableFeature.INGESTION_TAXONOMY) &&
+        !!featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY]
 
     const [referenceElement, setReferenceElement] = useState<HTMLDivElement | null>(null)
     const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
@@ -398,7 +426,7 @@ export function InfiniteList(): JSX.Element {
             )}
             {isActiveTab &&
             selectedItemInView &&
-            selectedItemHasPopup(selectedItem, listGroupType, group) &&
+            selectedItemHasPopup(selectedItem, listGroupType, group, hasTaxonomyFeatures) &&
             tooltipDesiredState(referenceElement) !== ListTooltip.None
                 ? ReactDOM.createPortal(
                       <div
@@ -408,7 +436,7 @@ export function InfiniteList(): JSX.Element {
                           {...attributes.popper}
                       >
                           {selectedItem && group
-                              ? featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY]
+                              ? hasTaxonomyFeatures
                                   ? renderItemPopup(selectedItem, listGroupType, group, () => {
                                         openDrawer(selectedItem.id, listGroupType)
                                     })

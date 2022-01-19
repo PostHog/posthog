@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 
-const exceptions = ['.ant-select-dropdown *', '.click-outside-block', '.click-outside-block *']
+const exceptions = ['.ant-select-dropdown *', '.click-outside-block', '.click-outside-block *', '.ant-modal-root *']
 
 export function useOutsideClickHandler(
     refOrRefs: Element | null | (Element | null)[],
