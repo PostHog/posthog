@@ -14,6 +14,11 @@ import { Link } from 'lib/components/Link'
 import { LinkButton } from 'lib/components/LinkButton'
 import dayjs from 'dayjs'
 import { Tabs, Tag } from 'antd'
+import { More } from 'lib/components/LemonButton/More'
+import { LemonButton } from 'lib/components/LemonButton'
+import { LemonSpacer } from 'lib/components/LemonRow'
+import { deleteWithUndo } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -22,7 +27,8 @@ export const scene: SceneExport = {
 
 export function Experiments(): JSX.Element {
     const { experiments, experimentsLoading, tab } = useValues(experimentsLogic)
-    const { setExperimentsFilters } = useActions(experimentsLogic)
+    const { setExperimentsFilters, loadExperiments } = useActions(experimentsLogic)
+    const { currentTeamId } = useValues(teamLogic)
 
     const columns: LemonTableColumns<Experiment> = [
         {
@@ -50,8 +56,8 @@ export function Experiments(): JSX.Element {
                 const duration = experiment.end_date
                     ? dayjs(experiment.end_date).diff(dayjs(experiment.start_date), 'day')
                     : experiment.start_date
-                        ? dayjs().diff(dayjs(experiment.start_date), 'day')
-                        : undefined
+                    ? dayjs().diff(dayjs(experiment.start_date), 'day')
+                    : undefined
 
                 return <div>{duration !== undefined ? `${duration} day${duration > 1 ? 's' : ''}` : 'N.A'}</div>
             },
@@ -75,13 +81,44 @@ export function Experiments(): JSX.Element {
                 )
             },
         },
+        {
+            width: 0,
+            render: function Render(_, experiment: Experiment) {
+                return (
+                    <More
+                        overlay={
+                            <>
+                                <LemonButton type="stealth" to={urls.experiment(`${experiment.id}`)} compact fullWidth>
+                                    View
+                                </LemonButton>
+                                <LemonSpacer />
+                                <LemonButton
+                                    type="stealth"
+                                    style={{ color: 'var(--danger)' }}
+                                    onClick={() =>
+                                        deleteWithUndo({
+                                            object: experiment,
+                                            endpoint: `projects/${currentTeamId}/insights`,
+                                            callback: loadExperiments,
+                                        })
+                                    }
+                                    data-attr={`experiment-${experiment.id}-dropdown-remove`}
+                                    fullWidth
+                                >
+                                    Delete experiment
+                                </LemonButton>
+                            </>
+                        }
+                    />
+                )
+            },
+        },
     ]
 
     return (
         <div>
             <PageHeader
                 title="Experiments"
-                style={{ borderBottom: '1px solid var(--border)', marginBottom: '1rem' }}
                 buttons={
                     <LinkButton
                         type="primary"
