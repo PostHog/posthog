@@ -135,15 +135,15 @@ export const trendsLogic = kea<trendsLogicType>({
                 }
             },
         ],
-        aggregationGroupTypeIndex: [
+        labelGroupType: [
             (s) => [s.filters],
-            (filters): number | undefined | null => {
+            (filters): 'people' | 'none' | number => {
                 // Find the commonly shared aggregation group index if there is one.
                 const eventsAndActions = [...(filters.events ?? []), ...(filters.actions ?? [])]
                 const firstAggregationGroupTypeIndex = eventsAndActions?.[0]?.math_group_type_index
                 return eventsAndActions.every((eOrA) => eOrA?.math_group_type_index === firstAggregationGroupTypeIndex)
-                    ? firstAggregationGroupTypeIndex // if undefined, will resolve to 'people' label
-                    : null // mixed group types
+                    ? firstAggregationGroupTypeIndex ?? 'people' // if undefined, will resolve to 'people' label
+                    : 'none' // mixed group types
             },
         ],
     },
