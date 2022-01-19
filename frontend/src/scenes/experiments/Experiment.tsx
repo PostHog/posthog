@@ -535,13 +535,13 @@ export function Experiment(): JSX.Element {
                                     Stop experiment
                                 </Button>
                             )}
-                            {
-                                experimentData?.end_date && dayjs().isSameOrAfter(dayjs(experimentData.end_date), 'day') && !experimentData.parameters.archived && (
+                            {experimentData?.end_date &&
+                                dayjs().isSameOrAfter(dayjs(experimentData.end_date), 'day') &&
+                                !experimentData.parameters.archived && (
                                     <Button className="archive-experiment" onClick={() => archiveExperiment()}>
                                         <b>Archive experiment</b>
                                     </Button>
-                                )
-                            }
+                                )}
                         </Row>
                     </Row>
                     <Row className="mb">

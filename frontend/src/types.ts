@@ -319,7 +319,7 @@ export enum SavedInsightsTabs {
 export enum ExperimentsTabs {
     All = 'all',
     Yours = 'yours',
-    Archived = 'archived'
+    Archived = 'archived',
 }
 
 /** Sync with plugin-server/src/types.ts */

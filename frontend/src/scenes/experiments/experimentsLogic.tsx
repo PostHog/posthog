@@ -37,16 +37,17 @@ export const experimentsLogic = kea<experimentsLogicType>({
             ExperimentsTabs.All as ExperimentsTabs,
             {
                 setExperimentsFilters: async ({ tab }: { tab: ExperimentsTabs }) => {
-                    const tabFilter = tab === ExperimentsTabs.Yours ? toParams({ user: true }) : toParams({ archived: true })
+                    const tabFilter =
+                        tab === ExperimentsTabs.Yours ? toParams({ user: true }) : toParams({ archived: true })
                     if (tab === ExperimentsTabs.All) {
                         actions.loadExperiments()
                     } else {
                         actions.loadExperiments(tabFilter)
                     }
                     return tab
-                }
-            }
-        ]
+                },
+            },
+        ],
     }),
     events: ({ actions }) => ({
         afterMount: () => {
