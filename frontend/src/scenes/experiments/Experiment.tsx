@@ -506,10 +506,6 @@ export function Experiment(): JSX.Element {
                         </Row>
                     </Row>
                     <Row>
-                        {/* {[1].map(variant => {
-                            console.log(showWarning, experimentInsightType, areCountResultsSignificant, areConversionResultsSignificant, experimentResults)
-                            return (<div>k</div>)
-                            })} */}
                         {showWarning &&
                             experimentResults &&
                             ((experimentInsightType === InsightType.TRENDS && areCountResultsSignificant) ||
@@ -552,7 +548,7 @@ export function Experiment(): JSX.Element {
                                     trendCount={trendCount}
                                     exposure={experimentData?.parameters.recommended_running_time}
                                     sampleSize={experimentData?.parameters.recommended_sample_size}
-                                    runningTime={experimentData?.parameters.recommended_running_time}
+                                    runningTime={runningTime}
                                     conversionRate={conversionRate}
                                 />
                                 {experimentResults && (

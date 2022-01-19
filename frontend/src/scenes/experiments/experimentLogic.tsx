@@ -430,7 +430,6 @@ export const experimentLogic = kea<experimentLogicType>({
         bestCountVariant: [
             (s) => [s.variants, s.countDataForVariant],
             (variants, countDataForVariant): { variant: MultivariateFlagVariant; value: number } => {
-                console.log(variants)
                 const bestVariant = variants.reduce(
                     (best, variant) => {
                         const value = parseInt(countDataForVariant(variant.key))
@@ -449,7 +448,7 @@ export const experimentLogic = kea<experimentLogicType>({
             (mdeGivenCountData, bestCountVariant, countDataForVariant): boolean => {
                 const targetCountData = bestCountVariant.value
                 const controlCountData = parseInt(countDataForVariant('control'))
-                console.log(controlCountData, targetCountData, mdeGivenCountData(controlCountData))
+
                 // minimum detectable effect for variant determines significance
                 return Math.abs(targetCountData - controlCountData) > mdeGivenCountData(controlCountData)
             },
