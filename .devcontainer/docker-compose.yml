@@ -59,9 +59,9 @@ services:
             - '9009:9009'
         volumes:
             - ../ee/idl:/idl
-            - ../docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
-            - ../docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
-            - ../docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
+            - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ./docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
             - clickhouse-data:/var/lib/clickhouse/data
 
     # Needed for 1. clickhouse distributed queries 2. kafka replication

@@ -1,7 +1,8 @@
 import json
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Tuple
 from unittest.mock import MagicMock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from django.test import TestCase
 from django.utils import timezone
@@ -11,6 +12,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
+from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.clickhouse.queries.paths import ClickhousePaths, ClickhousePathsActors
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
@@ -41,10 +43,15 @@ def _create_all_events(all_events: List[Dict]):
     parsed = ""
     for event in all_events:
         data: Dict[str, Any] = {"properties": {}, "timestamp": timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f")}
+        event_uuid = str(uuid4())
+        try:
+            event_uuid = event.pop("uuid")
+        except:
+            pass
         data.update(event)
         mocked_event = MockEvent(**data)
         parsed += f"""
-        ('{str(uuid4())}', '{mocked_event.event}', '{json.dumps(mocked_event.properties)}', '{mocked_event.timestamp}', {mocked_event.team.pk}, '{mocked_event.distinct_id}', '', '{timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f")}', now(), 0)
+        ('{event_uuid}', '{mocked_event.event}', '{json.dumps(mocked_event.properties)}', '{mocked_event.timestamp}', {mocked_event.team.pk}, '{mocked_event.distinct_id}', '', '{timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f")}', now(), 0)
         """
 
     sync_execute(
@@ -70,6 +77,21 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={"industry": "technology"}
         )
         create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", properties={})
+
+    def _create_session_recording_event(
+        self, distinct_id, session_id, timestamp, window_id="", team_id=None, has_full_snapshot=True
+    ):
+        if team_id == None:
+            team_id = self.team.pk
+        create_session_recording_event(
+            uuid=uuid4(),
+            team_id=team_id,
+            distinct_id=distinct_id,
+            timestamp=timestamp,
+            session_id=session_id,
+            window_id=window_id,
+            snapshot_data={"timestamp": timestamp.timestamp(), "has_full_snapshot": has_full_snapshot,},
+        )
 
     def _get_people_at_path(self, filter, path_start=None, path_end=None, funnel_filter=None, path_dropoff=None):
         person_filter = filter.with_data(
@@ -2756,6 +2778,295 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                 {"source": "1_/custom1", "target": "2_/custom2", "value": 1, "average_conversion_time": ONE_MINUTE},
                 {"source": "2_/custom2", "target": "3_/custom3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
             ],
+        )
+
+    # Note: not using `@snapshot_clickhouse_queries` here because the ordering of the session_ids in the recording
+    # query is not guaranteed, so adding it would lead to a flaky test.
+    @test_with_materialized_columns(["$current_url", "$window_id", "$session_id"])
+    @freeze_time("2012-01-01T03:21:34.000Z")
+    def test_path_recording(self):
+        # User with 2 matching paths with recordings
+        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"])
+        events = [
+            _create_event(
+                properties={"$current_url": "/1", "$session_id": "s1", "$window_id": "w1"},
+                distinct_id="p1",
+                event="$pageview",
+                team=self.team,
+                timestamp=timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+                uuid="11111111-1111-1111-1111-111111111111",
+            ),
+            _create_event(
+                properties={"$current_url": "/2", "$session_id": "s1", "$window_id": "w1"},
+                distinct_id="p1",
+                event="$pageview",
+                team=self.team,
+                timestamp=(timezone.now() + timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                uuid="21111111-1111-1111-1111-111111111111",
+            ),
+            _create_event(
+                properties={"$current_url": "/1", "$session_id": "s2", "$window_id": "w2"},
+                distinct_id="p1",
+                event="$pageview",
+                team=self.team,
+                timestamp=(timezone.now() + timedelta(minutes=31)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                uuid="31111111-1111-1111-1111-111111111111",
+            ),
+            _create_event(
+                properties={"$current_url": "/2", "$session_id": "s3", "$window_id": "w3"},
+                distinct_id="p1",
+                event="$pageview",
+                team=self.team,
+                timestamp=(timezone.now() + timedelta(minutes=32)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                uuid="41111111-1111-1111-1111-111111111111",
+            ),
+        ]
+        self._create_session_recording_event("p1", "s1", timezone.now(), window_id="w1")
+        self._create_session_recording_event("p1", "s3", timezone.now(), window_id="w3")
+
+        # User with path matches, but no recordings
+        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"])
+        events += [
+            _create_event(
+                properties={"$current_url": "/1", "$session_id": "s5", "$window_id": "w1"},
+                distinct_id="p2",
+                event="$pageview",
+                team=self.team,
+                timestamp=timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+                uuid="51111111-1111-1111-1111-111111111111",
+            ),
+            _create_event(
+                properties={"$current_url": "/2", "$session_id": "s5", "$window_id": "w1"},
+                distinct_id="p2",
+                event="$pageview",
+                team=self.team,
+                timestamp=(timezone.now() + timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                uuid="61111111-1111-1111-1111-111111111111",
+            ),
+        ]
+        _create_all_events(events)
+        filter = PathFilter(
+            data={
+                "include_event_types": ["$pageview"],
+                "date_from": "2012-01-01 00:00:00",
+                "date_to": "2012-01-02 00:00:00",
+                "path_end_key": "2_/2",
+                "include_recordings": "true",
+            }
+        )
+        _, serialized_actors = ClickhousePathsActors(filter, self.team).get_actors()
+        self.assertEqual([p1.uuid, p2.uuid], [actor["id"] for actor in serialized_actors])
+        matched_recordings = [actor["matched_recordings"] for actor in serialized_actors]
+
+        self.assertCountEqual(
+            [
+                {
+                    "session_id": "s3",
+                    "events": [
+                        {
+                            "uuid": UUID("41111111-1111-1111-1111-111111111111"),
+                            "timestamp": timezone.now() + timedelta(minutes=32),
+                            "window_id": "w3",
+                        },
+                    ],
+                },
+                {
+                    "session_id": "s1",
+                    "events": [
+                        {
+                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                            "timestamp": timezone.now() + timedelta(minutes=1),
+                            "window_id": "w1",
+                        },
+                    ],
+                },
+            ],
+            matched_recordings[0],
+        )
+        self.assertEqual([], matched_recordings[1])
+
+    @snapshot_clickhouse_queries
+    @test_with_materialized_columns(["$current_url", "$window_id", "$session_id"])
+    @freeze_time("2012-01-01T03:21:34.000Z")
+    def test_path_recording_with_no_window_or_session_id(self):
+        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"])
+        events = [
+            _create_event(
+                properties={"$current_url": "/1"},
+                distinct_id="p1",
+                event="$pageview",
+                team=self.team,
+                timestamp=timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+                uuid="11111111-1111-1111-1111-111111111111",
+            ),
+            _create_event(
+                properties={"$current_url": "/2"},
+                distinct_id="p1",
+                event="$pageview",
+                team=self.team,
+                timestamp=(timezone.now() + timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                uuid="21111111-1111-1111-1111-111111111111",
+            ),
+        ]
+        _create_all_events(events)
+        filter = PathFilter(
+            data={
+                "include_event_types": ["$pageview"],
+                "date_from": "2012-01-01 00:00:00",
+                "date_to": "2012-01-02 00:00:00",
+                "path_end_key": "2_/2",
+                "include_recordings": "true",
+            }
+        )
+        _, serialized_actors = ClickhousePathsActors(filter, self.team).get_actors()
+        self.assertEqual([p1.uuid], [actor["id"] for actor in serialized_actors])
+        self.assertEqual(
+            [[]], [actor["matched_recordings"] for actor in serialized_actors],
+        )
+
+    @snapshot_clickhouse_queries
+    @test_with_materialized_columns(["$current_url", "$window_id", "$session_id"])
+    @freeze_time("2012-01-01T03:21:34.000Z")
+    def test_path_recording_with_start_and_end(self):
+        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"])
+        events = [
+            _create_event(
+                properties={"$current_url": "/1", "$session_id": "s1", "$window_id": "w1"},
+                distinct_id="p1",
+                event="$pageview",
+                team=self.team,
+                timestamp=timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+                uuid="11111111-1111-1111-1111-111111111111",
+            ),
+            _create_event(
+                properties={"$current_url": "/2", "$session_id": "s1", "$window_id": "w1"},
+                distinct_id="p1",
+                event="$pageview",
+                team=self.team,
+                timestamp=(timezone.now() + timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                uuid="21111111-1111-1111-1111-111111111111",
+            ),
+            _create_event(
+                properties={"$current_url": "/3", "$session_id": "s1", "$window_id": "w1"},
+                distinct_id="p1",
+                event="$pageview",
+                team=self.team,
+                timestamp=(timezone.now() + timedelta(minutes=2)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                uuid="31111111-1111-1111-1111-111111111111",
+            ),
+        ]
+        _create_all_events(events)
+        self._create_session_recording_event("p1", "s1", timezone.now(), window_id="w1")
+
+        filter = PathFilter(
+            data={
+                "include_event_types": ["$pageview"],
+                "date_from": "2012-01-01 00:00:00",
+                "date_to": "2012-01-02 00:00:00",
+                "path_end_key": "2_/2",
+                "start_point": "/1",
+                "end_point": "/3",
+                "include_recordings": "true",
+            }
+        )
+        _, serialized_actors = ClickhousePathsActors(filter, self.team).get_actors()
+        self.assertEqual([p1.uuid], [actor["id"] for actor in serialized_actors])
+        self.assertEqual(
+            [
+                [
+                    {
+                        "session_id": "s1",
+                        "events": [
+                            {
+                                "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                                "timestamp": timezone.now() + timedelta(minutes=1),
+                                "window_id": "w1",
+                            },
+                        ],
+                    },
+                ]
+            ],
+            [actor["matched_recordings"] for actor in serialized_actors],
+        )
+
+    @snapshot_clickhouse_queries
+    @test_with_materialized_columns(["$current_url", "$window_id", "$session_id"])
+    @freeze_time("2012-01-01T03:21:34.000Z")
+    def test_path_recording_for_dropoff(self):
+        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"])
+        events = [
+            _create_event(
+                properties={"$current_url": "/1", "$session_id": "s1", "$window_id": "w1"},
+                distinct_id="p1",
+                event="$pageview",
+                team=self.team,
+                timestamp=timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+                uuid="11111111-1111-1111-1111-111111111111",
+            ),
+            _create_event(
+                properties={"$current_url": "/2", "$session_id": "s1", "$window_id": "w1"},
+                distinct_id="p1",
+                event="$pageview",
+                team=self.team,
+                timestamp=(timezone.now() + timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                uuid="21111111-1111-1111-1111-111111111111",
+            ),
+            _create_event(
+                properties={"$current_url": "/3", "$session_id": "s1", "$window_id": "w1"},
+                distinct_id="p1",
+                event="$pageview",
+                team=self.team,
+                timestamp=(timezone.now() + timedelta(minutes=2)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                uuid="31111111-1111-1111-1111-111111111111",
+            ),
+        ]
+        _create_all_events(events)
+        self._create_session_recording_event("p1", "s1", timezone.now(), window_id="w1")
+
+        # No matching events for dropoff
+        filter = PathFilter(
+            data={
+                "include_event_types": ["$pageview"],
+                "date_from": "2012-01-01 00:00:00",
+                "date_to": "2012-01-02 00:00:00",
+                "path_dropoff_key": "2_/2",
+                "include_recordings": "true",
+            }
+        )
+        _, serialized_actors = ClickhousePathsActors(filter, self.team).get_actors()
+        self.assertEqual([], [actor["id"] for actor in serialized_actors])
+        self.assertEqual(
+            [], [actor["matched_recordings"] for actor in serialized_actors],
+        )
+
+        # Matching events for dropoff
+        filter = PathFilter(
+            data={
+                "include_event_types": ["$pageview"],
+                "date_from": "2012-01-01 00:00:00",
+                "date_to": "2012-01-02 00:00:00",
+                "path_dropoff_key": "3_/3",
+                "include_recordings": "true",
+            }
+        )
+        _, serialized_actors = ClickhousePathsActors(filter, self.team).get_actors()
+        self.assertEqual([p1.uuid], [actor["id"] for actor in serialized_actors])
+        self.assertEqual(
+            [
+                [
+                    {
+                        "session_id": "s1",
+                        "events": [
+                            {
+                                "uuid": UUID("31111111-1111-1111-1111-111111111111"),
+                                "timestamp": timezone.now() + timedelta(minutes=2),
+                                "window_id": "w1",
+                            },
+                        ],
+                    },
+                ]
+            ],
+            [actor["matched_recordings"] for actor in serialized_actors],
         )
 
 

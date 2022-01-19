@@ -20,9 +20,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
-import { EventsTab } from 'scenes/events/EventsTabs'
 import { urls } from 'scenes/urls'
-import { EventPageHeader } from './EventPageHeader'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { TableCellRepresentation } from 'lib/components/LemonTable/types'
 import { IconSync } from 'lib/components/icons'
@@ -80,7 +78,6 @@ export function EventsTable({
         automaticLoadEnabled,
         exportUrl,
         highlightEvents,
-        sceneIsEventsPage,
         months,
     } = useValues(logic)
     const { tableWidth, selectedColumns } = useValues(tableConfigLogic)
@@ -342,7 +339,6 @@ export function EventsTable({
     return (
         <div data-attr="manage-events-table">
             <div className="events" data-attr="events-table">
-                {!disableActions && <EventPageHeader activeTab={EventsTab.Events} hideTabs={!sceneIsEventsPage} />}
                 {!disableActions && (
                     <div
                         className="mb"

@@ -44,7 +44,7 @@ class TestRunner(BaseTest):
         self.assertEqual(sm.progress, 100)
         self.assertEqual(sm.last_error, "")
         self.assertTrue(UUIDT.is_valid_uuid(sm.current_query_id))
-        self.assertEqual(sm.current_operation_index, 4)
+        self.assertEqual(sm.current_operation_index, 7)
         self.assertEqual(sm.posthog_min_version, "1.0.0")
         self.assertEqual(sm.posthog_max_version, "100000.0.0")
         self.assertEqual(sm.finished_at.day, datetime.today().day)
@@ -72,7 +72,7 @@ class TestRunner(BaseTest):
         except Exception as e:
             exception = e
 
-        self.assertTrue('relation "test_async_migration" does not exist' in str(exception))
+        self.assertIn('relation "test_async_migration" does not exist', str(exception))
 
         self.assertEqual(sm.status, MigrationStatus.RolledBack)
         self.assertEqual(sm.progress, 0)
@@ -89,13 +89,15 @@ class TestRunner(BaseTest):
 
         sm.refresh_from_db()
         self.assertEqual(sm.current_operation_index, 1)
-        self.assertEqual(sm.progress, int(100 * 1 / 4))
+        self.assertEqual(sm.progress, int(100 * 1 / 7))
 
         run_async_migration_next_op("test", sm)
 
         sm.refresh_from_db()
         self.assertEqual(sm.current_operation_index, 2)
-        self.assertEqual(sm.progress, int(100 * 2 / 4))
+        self.assertEqual(sm.progress, int(100 * 2 / 7))
+
+        run_async_migration_next_op("test", sm)
 
         with connection.cursor() as cursor:
             cursor.execute("SELECT * FROM test_async_migration")
@@ -103,12 +105,11 @@ class TestRunner(BaseTest):
 
         self.assertEqual(res, ("a", "b"))
 
-        run_async_migration_next_op("test", sm)
-        run_async_migration_next_op("test", sm)
-        run_async_migration_next_op("test", sm)
+        for i in range(5):
+            run_async_migration_next_op("test", sm)
 
         sm.refresh_from_db()
-        self.assertEqual(sm.current_operation_index, 4)
+        self.assertEqual(sm.current_operation_index, 7)
         self.assertEqual(sm.progress, 100)
         self.assertEqual(sm.status, MigrationStatus.CompletedSuccessfully)
 
@@ -126,9 +127,12 @@ class TestRunner(BaseTest):
 
         run_async_migration_next_op("test", sm)
         run_async_migration_next_op("test", sm)
+        run_async_migration_next_op("test", sm)
+        run_async_migration_next_op("test", sm)
 
         sm.refresh_from_db()
-        self.assertEqual(sm.current_operation_index, 2)
+        self.assertEqual(sm.current_operation_index, 4)
+        self.assertEqual(self.migration.sec.side_effect_count, 1)
 
         with connection.cursor() as cursor:
             cursor.execute("SELECT * FROM test_async_migration")
@@ -149,3 +153,4 @@ class TestRunner(BaseTest):
         self.assertTrue('relation "test_async_migration" does not exist' in str(exception))
         self.assertEqual(sm.status, MigrationStatus.RolledBack)
         self.assertEqual(sm.progress, 0)
+        self.assertEqual(self.migration.sec.side_effect_rollback_count, 2)  # checking we ran current index rollback too

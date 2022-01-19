@@ -4,7 +4,6 @@ from django.urls.base import resolve
 from loginas.utils import is_impersonated_session
 
 from posthog.internal_metrics import incr
-from posthog.utils import is_clickhouse_enabled
 
 
 class CHQueries(object):
@@ -23,11 +22,7 @@ class CHQueries(object):
         route = resolve(request.path)
         route_id = f"{route.route} ({route.func.__name__})"
         client._request_information = {
-            "save": (
-                is_clickhouse_enabled()
-                and request.user.pk
-                and (request.user.is_staff or is_impersonated_session(request) or settings.DEBUG)
-            ),
+            "save": (request.user.pk and (request.user.is_staff or is_impersonated_session(request) or settings.DEBUG)),
             "user_id": request.user.pk,
             "kind": "request",
             "id": route_id,

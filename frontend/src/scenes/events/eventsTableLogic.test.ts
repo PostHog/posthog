@@ -87,12 +87,6 @@ describe('eventsTableLogic', () => {
                 router.actions.push(urls.person('1'))
             },
         })
-
-        it('does not show as scene is events', async () => {
-            await expectLogic(logic).toMatchValues({
-                sceneIsEventsPage: false,
-            })
-        })
     })
 
     describe('when loaded on events page', () => {
@@ -125,7 +119,6 @@ describe('eventsTableLogic', () => {
                 newEvents: [],
                 highlightEvents: {},
                 automaticLoadEnabled: false,
-                sceneIsEventsPage: true,
             })
         })
 
@@ -234,12 +227,6 @@ describe('eventsTableLogic', () => {
                 }).toMatchValues({
                     selectedEvent: expect.objectContaining({ id: '4' }),
                 })
-            })
-
-            it('can check if scene is loaded when it is', async () => {
-                await expectLogic(logic, () => {
-                    router.actions.push(urls.events())
-                }).toMatchValues({ sceneIsEventsPage: true })
             })
 
             it('fetch events success can set hasNext (which is the URL of the next page of results, that we do not use)', async () => {

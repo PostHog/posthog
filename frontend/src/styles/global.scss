@@ -103,20 +103,20 @@ body strong {
 }
 
 .page-title-row {
-    margin-top: 0.5rem;
+    margin: 1.5rem 0 0.75rem;
 }
 
 .page-title {
     font-size: 28px;
     line-height: 34px;
-    margin-top: 0.5em;
-    font-weight: bold;
+    margin: 0;
+    font-weight: 600;
 }
 
 .page-caption {
     @extend .text-default;
-    max-width: 640px;
-    margin-bottom: 16px;
+    max-width: 48rem;
+    margin-bottom: 1rem;
 }
 
 .subtitle-row {
@@ -774,6 +774,7 @@ code.code {
 }
 
 .main-app-content {
+    position: relative; // So that scene-level <Loading/> is positioned correctly.
     min-width: 0;
     padding: 0 2rem 4rem;
 

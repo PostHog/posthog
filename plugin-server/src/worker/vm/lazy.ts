@@ -53,6 +53,10 @@ export class LazyPluginVM {
         return (await this.resolveInternalVm)?.methods.processEvent || null
     }
 
+    public async getHandleAlert(): Promise<PluginConfigVMResponse['methods']['handleAlert'] | null> {
+        return (await this.resolveInternalVm)?.methods.handleAlert || null
+    }
+
     public async getTeardownPlugin(): Promise<PluginConfigVMResponse['methods']['teardownPlugin'] | null> {
         return (await this.resolveInternalVm)?.methods.teardownPlugin || null
     }

@@ -22,7 +22,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function RetentionTab(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { insightProps, clickhouseFeaturesEnabled, allEventNames } = useValues(insightLogic)
+    const { insightProps, allEventNames } = useValues(insightLogic)
     const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
     const { filters, actionFilterTargetEntity, actionFilterReturningEntity } = useValues(
         retentionTableLogic(insightProps)
@@ -173,8 +173,7 @@ export function RetentionTab(): JSX.Element {
                     />
                     <TestAccountFilter filters={filters} onChange={setFilters} />
 
-                    {clickhouseFeaturesEnabled &&
-                    featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
+                    {featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
                     filters.display !== ACTIONS_LINE_GRAPH_LINEAR ? (
                         <>
                             <hr />

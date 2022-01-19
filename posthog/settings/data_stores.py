@@ -105,12 +105,7 @@ KAFKA_HOSTS_LIST = [urlparse(host).netloc for host in KAFKA_URL.split(",")]
 KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
 KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bool)
 
-_primary_db = os.getenv("PRIMARY_DB", "postgres")
-PRIMARY_DB: AnalyticsDBMS
-try:
-    PRIMARY_DB = AnalyticsDBMS(_primary_db)
-except ValueError:
-    PRIMARY_DB = AnalyticsDBMS.POSTGRES
+PRIMARY_DB = AnalyticsDBMS.CLICKHOUSE
 
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
 if TEST or DEBUG or IS_COLLECT_STATIC:

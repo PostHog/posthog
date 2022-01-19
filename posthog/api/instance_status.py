@@ -7,10 +7,8 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.async_migrations.status import async_migrations_ok
 from posthog.gitsha import GIT_SHA
 from posthog.internal_metrics.team import get_internal_metrics_dashboards
-from posthog.models import Element, Event, SessionRecordingEvent
 from posthog.permissions import OrganizationAdminAnyPermissions, SingleTenancyOrAdmin
 from posthog.utils import (
     dict_from_cursor_fetchall,
@@ -19,9 +17,6 @@ from posthog.utils import (
     get_plugin_server_version,
     get_redis_info,
     get_redis_queue_depth,
-    get_table_approx_count,
-    get_table_size,
-    is_clickhouse_enabled,
     is_plugin_server_alive,
     is_postgres_alive,
     is_redis_alive,
@@ -58,11 +53,7 @@ class InstanceStatusViewSet(viewsets.ViewSet):
             )
 
         metrics.append(
-            {
-                "key": "analytics_database",
-                "metric": "Analytics database in use",
-                "value": "ClickHouse" if is_clickhouse_enabled() else "Postgres",
-            }
+            {"key": "analytics_database", "metric": "Analytics database in use", "value": "ClickHouse",}
         )
 
         metrics.append(
@@ -98,40 +89,9 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                 }
             )
 
-            # metrics.append(
-            #    {"key": "async_migrations_ok", "metric": "Async migrations up-to-date", "value": async_migrations_ok()}
-            # )
+        from ee.clickhouse.system_status import system_status
 
-            if not is_clickhouse_enabled():
-                event_table_count = get_table_approx_count(Event._meta.db_table)
-                event_table_size = get_table_size(Event._meta.db_table)
-
-                element_table_count = get_table_approx_count(Element._meta.db_table)
-                element_table_size = get_table_size(Element._meta.db_table)
-
-                session_recording_event_table_count = get_table_approx_count(SessionRecordingEvent._meta.db_table)
-                session_recording_event_table_size = get_table_size(SessionRecordingEvent._meta.db_table)
-
-                metrics.append(
-                    {
-                        "metric": "Postgres elements table size",
-                        "value": f"{element_table_count} rows (~{element_table_size})",
-                    }
-                )
-                metrics.append(
-                    {"metric": "Postgres events table size", "value": f"{event_table_count} rows (~{event_table_size})"}
-                )
-                metrics.append(
-                    {
-                        "metric": "Postgres session recording table size",
-                        "value": f"{session_recording_event_table_count} rows (~{session_recording_event_table_size})",
-                    }
-                )
-
-        if is_clickhouse_enabled():
-            from ee.clickhouse.system_status import system_status
-
-            metrics.extend(list(system_status()))
+        metrics.extend(list(system_status()))
 
         metrics.append({"key": "redis_alive", "metric": "Redis alive", "value": redis_alive})
         if redis_alive:
@@ -175,11 +135,10 @@ class InstanceStatusViewSet(viewsets.ViewSet):
     def queries(self, request: Request) -> Response:
         queries = {"postgres_running": self.get_postgres_running_queries()}
 
-        if is_clickhouse_enabled():
-            from ee.clickhouse.system_status import get_clickhouse_running_queries, get_clickhouse_slow_log
+        from ee.clickhouse.system_status import get_clickhouse_running_queries, get_clickhouse_slow_log
 
-            queries["clickhouse_running"] = get_clickhouse_running_queries()
-            queries["clickhouse_slow_log"] = get_clickhouse_slow_log()
+        queries["clickhouse_running"] = get_clickhouse_running_queries()
+        queries["clickhouse_slow_log"] = get_clickhouse_slow_log()
 
         return Response({"results": queries})
 
@@ -190,10 +149,10 @@ class InstanceStatusViewSet(viewsets.ViewSet):
     )
     def analyze_ch_query(self, request: Request) -> Response:
         response = {}
-        if is_clickhouse_enabled():
-            from ee.clickhouse.system_status import analyze_query
 
-            response["results"] = analyze_query(request.data["query"])
+        from ee.clickhouse.system_status import analyze_query
+
+        response["results"] = analyze_query(request.data["query"])
 
         return Response(response)
 
