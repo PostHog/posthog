@@ -282,15 +282,15 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             window.location.href = values.exportUrl
         },
         /**
-         * if the properties now include a $timestamp key it is possible to combine
+         * if the properties now include a timestamp ($time as the key) it is possible to combine
          * a date filter and the timestamp from an existing event to create an impossible condition
          *
          * see the `afterParam` selector
          */
         setProperties: ({ properties }: { properties: AnyPropertyFilter[] }) => {
-            const hasTimeFilter = (Array.isArray(properties) ? properties : [properties]).find((property) => {
-                return property.key === '$time'
-            })
+            const hasTimeFilter = (Array.isArray(properties) ? properties : [properties]).find(
+                (property) => property.key === '$time'
+            )
             const queryAfter = hasTimeFilter ? monthsBeforeNow(12) : null
             actions.fetchEvents(null, queryAfter)
         },
