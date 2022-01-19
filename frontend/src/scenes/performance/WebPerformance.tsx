@@ -237,7 +237,7 @@ export function WebPerformance(): JSX.Element {
                     <Row align="middle">
                         Web Performance
                         <LemonTag type="warning" style={{ marginLeft: 8 }}>
-                            Beta
+                            Early Preview
                         </LemonTag>
                     </Row>
                 }
