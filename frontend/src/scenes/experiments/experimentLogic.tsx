@@ -312,8 +312,8 @@ export const experimentLogic = kea<experimentLogicType>({
                         update
                     )
                     actions.setExperimentId(response.id || 'new')
-                    actions.loadExperiment()
-                }
+                    return response
+                },
             },
         ],
         experimentResults: [
