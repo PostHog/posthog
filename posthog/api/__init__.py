@@ -19,7 +19,6 @@ from . import (
     organization,
     organization_invite,
     organization_member,
-    paths,
     person,
     personal_api_key,
     plugin,
