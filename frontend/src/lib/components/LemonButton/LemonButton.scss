@@ -19,6 +19,21 @@
     }
 }
 
+.LemonButton--secondary {
+    border: 1px solid var(--border);
+    &:not(:disabled):hover,
+    &:not(:disabled):active {
+        background: inherit;
+        border-color: var(--primary);
+    }
+    .LemonRow__icon {
+        color: var(--muted-alt);
+        &:last-child {
+            margin-right: -0.5rem;
+        }
+    }
+}
+
 .LemonButton--primary {
     background: $primary;
     color: #fff;

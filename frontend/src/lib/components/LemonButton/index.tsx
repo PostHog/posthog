@@ -8,7 +8,7 @@ import './LemonButton.scss'
 
 export type LemonButtonPopup = Omit<PopupProps, 'children'>
 export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 'tag' | 'type' | 'ref'> {
-    type?: 'default' | 'primary' | 'stealth' | 'highlighted'
+    type?: 'default' | 'primary' | 'secondary' | 'stealth' | 'highlighted'
     /** URL to link to. */
     to?: string
     /** DEPRECATED: Use `LemonButtonWithPopup` instead. */
@@ -21,9 +21,21 @@ export interface LemonButtonProps extends LemonButtonPropsBase {
 
 /** Styled button. */
 function LemonButtonInternal(
-    { children, type = 'default', className, popup, to, ...buttonProps }: LemonButtonProps,
+    { children, type, className, popup, to, ...buttonProps }: LemonButtonProps,
     ref: React.Ref<JSX.IntrinsicElements['button']>
 ): JSX.Element {
+    const parentPopupId = useContext(PopupContext)
+    if (parentPopupId !== 0) {
+        // If this button is inside a popup, we use more menu-like default props
+        if (!('fullWidth' in buttonProps)) {
+            buttonProps.fullWidth = true
+        }
+        if (!type) {
+            type = 'stealth'
+        }
+    } else if (!type) {
+        type = 'default'
+    }
     const rowProps: LemonRowProps<'button'> = {
         tag: 'button',
         className: clsx('LemonButton', type !== 'default' && `LemonButton--${type}`, className),

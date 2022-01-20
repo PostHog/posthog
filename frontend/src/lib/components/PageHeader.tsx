@@ -1,6 +1,7 @@
 import { Row } from 'antd'
 import clsx from 'clsx'
 import React from 'react'
+import { LemonSpacer } from './LemonRow'
 
 interface PageHeaderProps {
     title: string | JSX.Element
@@ -8,19 +9,21 @@ interface PageHeaderProps {
     buttons?: JSX.Element | false
     style?: React.CSSProperties
     tabbedPage?: boolean // Whether the page has tabs for secondary navigation
+    delimited?: boolean
 }
 
-export function PageHeader({ title, caption, buttons, style, tabbedPage }: PageHeaderProps): JSX.Element {
+export function PageHeader({ title, caption, buttons, style, tabbedPage, delimited }: PageHeaderProps): JSX.Element {
     const row = (
         <Row className="page-title-row" justify={buttons ? 'space-between' : 'start'} align="middle" style={style}>
             <h1 className="page-title">{title}</h1>
-            {buttons}
+            <div className="page-buttons">{buttons}</div>
         </Row>
     )
-    return caption ? (
+    return caption || delimited ? (
         <>
             {row}
             <div className={clsx('page-caption', tabbedPage && 'tabbed')}>{caption}</div>
+            {delimited && <LemonSpacer large />}
         </>
     ) : (
         row

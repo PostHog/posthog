@@ -9,6 +9,8 @@ interface ObjectTagsPropsBase {
     saving?: boolean
     style?: CSSProperties
     id?: string
+    className?: string
+    'data-attr'?: string
 }
 
 type ObjectTagsProps =
@@ -44,6 +46,8 @@ export function ObjectTags({
     style = {},
     staticOnly = false,
     id, // For pages that allow multiple object tags
+    className,
+    'data-attr': dataAttr,
 }: ObjectTagsProps): JSX.Element {
     const [addingNewTag, setAddingNewTag] = useState(false)
     const [newTag, setNewTag] = useState('')
@@ -68,7 +72,7 @@ export function ObjectTags({
     }
 
     return (
-        <div style={style}>
+        <div style={style} className={className} data-attr={dataAttr}>
             {showPlaceholder
                 ? '—'
                 : tags
@@ -105,8 +109,9 @@ export function ObjectTags({
                             backgroundColor: '#ffffff',
                             display: addingNewTag ? 'none' : 'initial',
                         }}
+                        icon={<PlusOutlined />}
                     >
-                        <PlusOutlined /> New Tag
+                        Add tag
                     </Tag>
                     {addingNewTag && (
                         <SelectGradientOverflow
@@ -138,7 +143,7 @@ export function ObjectTags({
                                     className="ph-no-capture"
                                     data-attr="new-tag-option"
                                 >
-                                    New Tag: {newTag}
+                                    Add tag: {newTag}
                                 </Select.Option>
                             ) : (
                                 (!tagsAvailable || !tagsAvailable.length) && (

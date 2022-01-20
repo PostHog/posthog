@@ -119,6 +119,13 @@ body strong {
     margin-bottom: 1rem;
 }
 
+.page-buttons {
+    display: flex;
+    align-items: center;
+    justify-content: right;
+    gap: 0.5rem;
+}
+
 .subtitle-row {
     margin-top: 8px;
 }
