@@ -273,6 +273,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 actions.setNewExperimentData({ ...experimentData })
                 actions.createNewExperimentInsight(experimentData?.filters)
             } else {
+                actions.resetNewExperiment()
                 actions.loadExperimentResults()
             }
         },
@@ -362,6 +363,10 @@ export const experimentLogic = kea<experimentLogicType>({
         variants: [
             (s) => [s.newExperimentData, s.experimentData],
             (newExperimentData, experimentData): MultivariateFlagVariant[] => {
+                if (experimentData?.start_date) {
+                    return experimentData?.parameters?.feature_flag_variants || []
+                }
+
                 return (
                     newExperimentData?.parameters?.feature_flag_variants ||
                     experimentData?.parameters?.feature_flag_variants ||
@@ -441,6 +446,7 @@ export const experimentLogic = kea<experimentLogicType>({
             (mdeGivenCountData, bestCountVariant, countDataForVariant): boolean => {
                 const targetCountData = bestCountVariant.value
                 const controlCountData = parseInt(countDataForVariant('control'))
+
                 // minimum detectable effect for variant determines significance
                 return Math.abs(targetCountData - controlCountData) > mdeGivenCountData(controlCountData)
             },

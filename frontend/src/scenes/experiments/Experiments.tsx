@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { Link } from 'lib/components/Link'
 import { LinkButton } from 'lib/components/LinkButton'
-import dayjs from 'dayjs'
+import { dayjs } from 'lib/dayjs'
 import { Tabs, Tag } from 'antd'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -53,8 +53,8 @@ export function Experiments(): JSX.Element {
                 const duration = experiment.end_date
                     ? dayjs(experiment.end_date).diff(dayjs(experiment.start_date), 'day')
                     : experiment.start_date
-                    ? dayjs().diff(dayjs(experiment.start_date), 'day')
-                    : undefined
+                        ? dayjs().diff(dayjs(experiment.start_date), 'day')
+                        : undefined
 
                 return <div>{duration !== undefined ? `${duration} day${duration > 1 ? 's' : ''}` : 'N.A'}</div>
             },

@@ -1,10 +1,8 @@
-import { BuiltLogic } from 'kea'
 import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic, truth } from 'kea-test-utils'
 import { initKeaTestLogic } from '~/test/init'
-import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import _dashboardJson from './__mocks__/dashboard.json'
-import { dashboardLogicType } from 'scenes/dashboard/dashboardLogicType'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -15,7 +13,7 @@ const dashboardJson = _dashboardJson as any as DashboardType
 jest.mock('lib/api')
 
 describe('dashboardLogic', () => {
-    let logic: BuiltLogic<dashboardLogicType<DashboardLogicProps>>
+    let logic: ReturnType<typeof dashboardLogic.build>
 
     mockAPI(async ({ pathname }) => {
         if (pathname === `api/projects/${MOCK_TEAM_ID}/dashboards/5/`) {

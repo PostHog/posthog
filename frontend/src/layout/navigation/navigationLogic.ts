@@ -1,4 +1,4 @@
-import dayjs from 'dayjs'
+import { dayjs } from 'lib/dayjs'
 import { kea } from 'kea'
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'

@@ -520,11 +520,28 @@ export function Experiment(): JSX.Element {
                                 (experimentInsightType === InsightType.FUNNELS && areConversionResultsSignificant)) && (
                                 <Row align="middle" className="significant-results">
                                     <Col span={19} style={{ color: '#497342' }}>
-                                        Experiment results are significant. You can end your experiment now or let it
-                                        run until completion.
+                                        Your results are <b>statistically significant</b>. You can end this experiment
+                                        now or let it run to completion.
                                     </Col>
                                     <Col span={5}>
                                         <Button style={{ color: '#497342' }} onClick={() => setShowWarning(false)}>
+                                            Dismiss
+                                        </Button>
+                                    </Col>
+                                </Row>
+                            )}
+                        {showWarning &&
+                            experimentResults &&
+                            ((experimentInsightType === InsightType.TRENDS && !areCountResultsSignificant) ||
+                                (experimentInsightType === InsightType.FUNNELS &&
+                                    !areConversionResultsSignificant)) && (
+                                <Row align="middle" className="not-significant-results">
+                                    <Col span={19} style={{ color: '#f96132' }}>
+                                        Your results are <b>not statistically significant</b>. We don't recommend ending
+                                        this experiment yet.
+                                    </Col>
+                                    <Col span={5}>
+                                        <Button style={{ color: '#f96132' }} onClick={() => setShowWarning(false)}>
                                             Dismiss
                                         </Button>
                                     </Col>
@@ -539,7 +556,7 @@ export function Experiment(): JSX.Element {
                                     trendCount={trendCount}
                                     exposure={experimentData?.parameters.recommended_running_time}
                                     sampleSize={experimentData?.parameters.recommended_sample_size}
-                                    runningTime={experimentData?.parameters.recommended_running_time}
+                                    runningTime={runningTime}
                                     conversionRate={conversionRate}
                                 />
                                 {experimentResults && (
