@@ -4,15 +4,14 @@ from typing import Any, Dict, Type
 from django.core.cache import cache
 from django.db.models import QuerySet
 from django.db.models.query_utils import Q
-from django.forms import BooleanField
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiResponse
-from pytest import param
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from sentry_sdk import capture_exception
 
 from posthog.api.documentation import extend_schema
 from posthog.api.insight_serializers import (
@@ -251,8 +250,11 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     )
     @action(methods=["GET", "POST"], detail=False)
     def trend(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        serializer = TrendSerializer(request=request)
-        serializer.is_valid(raise_exception=True)
+        serializer = TrendSerializer(data={**request.data, **request.GET})
+        try:
+            serializer.is_valid(raise_exception=True)
+        except Exception as e:
+            capture_exception(e)
 
         result = self.calculate_trends(request)
         filter = Filter(request=request, team=self.team)
@@ -298,8 +300,11 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     )
     @action(methods=["GET", "POST"], detail=False)
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        serializer = FunnelSerializer(request=request)
-        serializer.is_valid(raise_exception=True)
+        serializer = FunnelSerializer(data={**request.data, **request.GET})
+        try:
+            serializer.is_valid(raise_exception=True)
+        except Exception as e:
+            capture_exception(e)
 
         funnel = self.calculate_funnel(request)
 

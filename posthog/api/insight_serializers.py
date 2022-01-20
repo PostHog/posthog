@@ -55,7 +55,7 @@ class ResultsMixin(serializers.Serializer):
 
 
 class TrendResultSerializer(serializers.Serializer):
-    data = serializers.ListField(child=serializers.IntegerField(), help_text="The requested counts.")
+    data = serializers.ListField(child=serializers.IntegerField(), help_text="The requested counts.")  #  type: ignore
     days = serializers.ListField(
         child=serializers.DateField(), help_text="The dates corresponding to the data field above."
     )
@@ -65,7 +65,7 @@ class TrendResultSerializer(serializers.Serializer):
     filter = GenericInsightsSerializer(help_text="The insight that's being returned.")
     label = serializers.CharField(
         help_text="A label describing this result. Will include\n- The event or action\n- Breakdown value\n- If `compare:true`, whether it's `current` or `previous`"
-    )
+    )  # type: ignore
 
 
 class TrendResultsSerializer(ResultsMixin):

@@ -1,5 +1,5 @@
 import re
-from typing import get_args
+from typing import Dict, get_args
 
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from numpy import require  # for export
@@ -91,14 +91,15 @@ def custom_postprocessing_hook(result, generator, request, public):
     #     }
 
     all_tags = []
-    paths = {}
+    paths: Dict[str, Dict] = {}
     for path, methods in result["paths"].items():
         paths[path] = {}
         for method, definition in methods.items():
-            match = re.search(r"((\/api\/(organizations|projects)/{(.*?)}\/)|(\/api\/))(?P<one>[a-zA-Z0-9-_]*)\/", path)
             definition["tags"] = [d for d in definition["tags"] if d not in ["projects"]]
-            definition["tags"].append(match.group("one"))
-            all_tags.append(match.group("one"))
+            match = re.search(r"((\/api\/(organizations|projects)/{(.*?)}\/)|(\/api\/))(?P<one>[a-zA-Z0-9-_]*)\/", path)
+            if match:
+                definition["tags"].append(match.group("one"))
+                all_tags.append(match.group("one"))
             definition["operationId"] = (
                 definition["operationId"].replace("organizations_", "", 1).replace("projects_", "", 1)
             )
