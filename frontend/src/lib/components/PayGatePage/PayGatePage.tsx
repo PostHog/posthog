@@ -46,7 +46,7 @@ export function PayGatePage({
                         data-attr={`${featureKey}-learn-more`}
                         className="LemonLinkButton pay-action-btn"
                     >
-                        Learn how to track groups in PostHog <IconOpenInNew style={{ marginLeft: 8 }} />
+                        Check the docs. Learn how to use <IconOpenInNew style={{ marginLeft: 8 }} />
                     </LinkButton>
                 )}
             </div>

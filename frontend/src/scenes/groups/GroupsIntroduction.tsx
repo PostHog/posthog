@@ -1,6 +1,5 @@
 import React from 'react'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
-import './GroupsIntroduction.scss'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
 
 interface Props {
