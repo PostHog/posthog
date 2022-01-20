@@ -45,10 +45,7 @@ def authorize_and_redirect(request):
     return render_template(
         "authorize_and_redirect.html",
         request=request,
-        context={
-            "domain": urlparse(url).hostname,
-            "redirect_url": url,
-        },
+        context={"domain": urlparse(url).hostname, "redirect_url": url,},
     )
 
 
