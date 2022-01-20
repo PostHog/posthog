@@ -1,8 +1,9 @@
-import logging
 import re
 from collections import defaultdict
 from datetime import timedelta
 from typing import Dict, Generator, List, Optional, Set, Tuple
+
+import structlog
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import (
@@ -25,7 +26,7 @@ from posthog.models.team import Team
 
 Suggestion = Tuple[TableWithProperties, PropertyName, int]
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class TeamManager:

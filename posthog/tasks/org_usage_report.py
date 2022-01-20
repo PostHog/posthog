@@ -1,9 +1,9 @@
-import logging
 import os
 import time
 from datetime import datetime
 from typing import Dict, List, Literal, Optional, TypedDict, Union, cast
 
+import structlog
 from django.conf import settings
 from django.db.models.manager import BaseManager
 from sentry_sdk import capture_exception
@@ -14,7 +14,7 @@ from posthog.tasks.status_report import get_instance_licenses
 from posthog.utils import get_instance_realm, get_previous_day
 from posthog.version import VERSION
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 Period = TypedDict("Period", {"start_inclusive": str, "end_inclusive": str})
 
