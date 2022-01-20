@@ -127,7 +127,7 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                 onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeader)}
                                 tabIndex={10}
                             >
-                                Finish rearranging
+                                Done editing
                             </LemonButton>
                         ) : dashboardMode === DashboardMode.Fullscreen ? (
                             <LemonButton
@@ -162,7 +162,7 @@ export function LemonDashboardHeader(): JSX.Element | null {
                                                     )
                                                 }
                                             >
-                                                Rearrange items (E)
+                                                Edit layout (E)
                                             </LemonButton>
                                             <LemonButton
                                                 onClick={() =>
