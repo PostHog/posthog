@@ -38,7 +38,7 @@ import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { IconJavascript, IconOpenInNew } from 'lib/components/icons'
-import { CaretDownOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons'
+import { CaretDownOutlined, PlusOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
@@ -758,7 +758,7 @@ export function ExperimentPreview({
     return (
         <Card className="experiment-preview">
             <Row>
-                <Col span={experimentId === 'new' ? 24 : 12}>
+                <Col span={experimentId === 'new' || editingExistingExperiment ? 24 : 12}>
                     <Row className="experiment-preview-row">
                         {experimentId !== 'new' ? (
                             <Col>
@@ -780,8 +780,10 @@ export function ExperimentPreview({
                             </Col>
                         ) : (
                             <div>
-                                <div> Experiment preview </div>
                                 <div>
+                                    <b>Experiment preview</b>
+                                </div>
+                                <div className="text-muted">
                                     Here are the baseline metrics for your experiment. Adjust your minimum detectible
                                     threshold to adjust for the smallest conversion value you’ll accept, and the
                                     experiment duration.{' '}
@@ -789,11 +791,20 @@ export function ExperimentPreview({
                             </div>
                         )}
                     </Row>
-                    <Row>
+                    <Row className="mb">
                         <Col span={24}>
-                            <div>Minimum acceptable improvement</div>
+                            <div>
+                                <b>Minimum acceptable improvement</b>
+                                <Tooltip
+                                    title={
+                                        'Minimum acceptable improvement is a calculation that estimates the smallest significant improvement you are willing to accept.'
+                                    }
+                                >
+                                    <InfoCircleOutlined style={{ marginLeft: 4 }} />
+                                </Tooltip>
+                            </div>
                             <Row className="mde-slider">
-                                <Col span={12}>
+                                <Col span={8}>
                                     <Slider
                                         defaultValue={5}
                                         value={experiment?.parameters.minimum_detectable_effect}
