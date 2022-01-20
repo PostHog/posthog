@@ -1,5 +1,6 @@
 from rest_framework import decorators, exceptions
 
+from posthog import settings
 from posthog.api.routing import DefaultRouterPlusPlus
 
 from . import (
@@ -131,3 +132,12 @@ projects_router.register(r"experiments", ClickhouseExperimentsViewSet, "project_
 projects_router.register(
     r"session_recordings", ClickhouseSessionRecordingViewSet, "project_session_recordings", ["team_id"],
 )
+
+if settings.EE_AVAILABLE:
+    from ee.clickhouse.views.insights import ClickhouseInsightsViewSet
+
+    projects_router.register(r"insights", ClickhouseInsightsViewSet, "project_insights", ["team_id"])
+else:
+    from posthog.api.insight import InsightViewSet
+
+    projects_router.register(r"insights", InsightViewSet, "project_insights", ["team_id"])
