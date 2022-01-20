@@ -73,14 +73,25 @@
     }
 }
 
-.LemonRow--compact {
+.LemonRow--symbolic {
     display: block;
     min-height: 1.5rem;
     padding: 0;
 }
 
+.LemonRow--compact {
+    min-height: 2rem;
+    &.LemonRow--symbolic {
+        min-height: 1.25rem;
+        padding: 0;
+    }
+    .LemonRow__icon {
+        font-size: 1.25rem;
+    }
+}
+
 .LemonRow__icon {
-    width: 1.5rem;
+    width: 1em;
     transition: background-color 200ms ease, color 200ms ease;
     display: flex;
     font-size: 1.5rem;

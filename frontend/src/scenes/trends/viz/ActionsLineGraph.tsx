@@ -17,7 +17,7 @@ export function ActionsLineGraph({
 }: ChartParams): JSX.Element | null {
     const { insightProps, isViewedOnDashboard, insight } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
-    const { filters, indexedResults, incompletenessOffsetFromEnd, hiddenLegendKeys } = useValues(logic)
+    const { filters, indexedResults, incompletenessOffsetFromEnd, hiddenLegendKeys, labelGroupType } = useValues(logic)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
 
     return indexedResults &&
@@ -36,6 +36,7 @@ export function ActionsLineGraph({
             labels={(indexedResults[0] && indexedResults[0].labels) || []}
             insightId={insight.id}
             inSharedMode={inSharedMode}
+            labelGroupType={labelGroupType}
             interval={filters.interval}
             showPersonsModal={showPersonsModal}
             tooltipPreferAltTitle={filters.insight === InsightType.STICKINESS}

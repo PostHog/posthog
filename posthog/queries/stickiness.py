@@ -16,6 +16,7 @@ from posthog.models.event import Event, EventManager
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person import Person
 from posthog.queries import base
+from posthog.utils import encode_get_request_params
 
 from .base import BaseQuery, filter_events, filter_persons, handle_compare, process_entity_for_events
 
@@ -94,7 +95,7 @@ class Stickiness(BaseQuery):
                 "entity_type": entity.type,
                 "entity_math": entity.math,
             }
-            parsed_params: Dict[str, Union[Any, int, str]] = {**filter_params, **extra_params}
+            parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
             persons_url.append(
                 {"filter": extra_params, "url": f"api/person/stickiness/?{urllib.parse.urlencode(parsed_params)}",}
             )

@@ -365,7 +365,3 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     return TestSessionRecordings
-
-
-class TestSessionRecordingsAPI(factory_test_session_recordings_api(SessionRecordingEvent.objects.create)):  # type: ignore
-    pass
