@@ -132,270 +132,266 @@ describe('eventsTableLogic', () => {
             })
         })
 
-        describe('limiting the loaded data size with URL params', () => {
-            const firstEvent = makeEvent('1', 'the first timestamp')
-            const secondEvent = makeEvent('1', 'the second timestamp')
-            const eventsUrlWithIsDateAfterFilter = `api/projects/${MOCK_TEAM_ID}/events/?properties=%5B%7B%22key%22%3A%22%24time%22%2C%22operator%22%3A%22is_date_after%22%2C%22type%22%3A%22event%22%2C%22value%22%3A%22-365d%22%7D%5D&orderBy=%5B%22-timestamp%22%5D`
+        const firstEvent = makeEvent('1', 'the first timestamp')
+        const secondEvent = makeEvent('1', 'the second timestamp')
 
-            describe('when the QUERY_EVENTS_BY_DATETIME flag is on', () => {
-                let dateFlagOnLogic: ReturnType<typeof eventsTableLogic.build>
-                initKeaTestLogic({
-                    logic: eventsTableLogic,
-                    props: {
-                        key: 'test-key-date-querying-flagged-on',
-                        sceneUrl: urls.events(),
-                    },
-                    onLogic: (l) => (dateFlagOnLogic = l),
-                    beforeLogic: () => {
-                        featureFlagLogic.mount()
-                        const variants = {}
-                        variants[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME] = true
-                        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME], variants)
-                        router.actions.push(urls.events())
-                    },
-                })
+        const baseEventsUrl = `api/projects/${MOCK_TEAM_ID}/events/`
+        const beforeLastEventsTimestamp = '&before=the%20second%20timestamp'
+        const afterTheFirstEvent = '&after=the%20first%20timestamp'
+        const afterOneYearAgo = '&after=2020-05-05T00%3A00%3A00.000Z'
+        const orderByTimestamp = '&orderBy=%5B%22-timestamp%22%5D'
+        const propertiesAfterOneYearAgo =
+            '?properties=%5B%7B%22key%22%3A%22%24time%22%2C%22operator%22%3A%22is_date_after%22%2C%22type%22%3A%22event%22%2C%22value%22%3A%22-365d%22%7D%5D'
+        const propertiesWithFilterValue =
+            '?properties=%5B%7B%22key%22%3A%22%24time%22%2C%22operator%22%3A%22is_date_after%22%2C%22type%22%3A%22event%22%2C%22value%22%3A%22-365d%22%7D%2C%7B%22key%22%3A%22fixed%20value%22%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22t%22%2C%22value%22%3A%22v%22%7D%5D'
+        const emptyProperties = '?properties=%5B%5D'
 
-                it('starts a year before "now"', async () => {
-                    await expectLogic(dateFlagOnLogic)
-                        .toFinishAllListeners()
-                        .toMatchValues({
-                            properties: [filterAfterOneYearAgo],
-                        })
-                })
+        describe('when the QUERY_EVENTS_BY_DATETIME flag is on', () => {
+            let dateFlagOnLogic: ReturnType<typeof eventsTableLogic.build>
+            initKeaTestLogic({
+                logic: eventsTableLogic,
+                props: {
+                    key: 'test-key-date-querying-flagged-on',
+                    sceneUrl: urls.events(),
+                },
+                onLogic: (l) => (dateFlagOnLogic = l),
+                beforeLogic: () => {
+                    featureFlagLogic.mount()
+                    const variants = {}
+                    variants[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME] = true
+                    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME], variants)
+                    router.actions.push(urls.events())
+                },
+            })
 
-                it('adds property filter not the after parameter when polling against an empty set of events', async () => {
-                    await expectLogic(dateFlagOnLogic, () => {})
-                        .toFinishAllListeners()
-                        .toMatchValues({ events: [] })
-                    ;(api.get as jest.Mock).mockClear()
-
-                    dateFlagOnLogic.actions.pollEvents()
-
-                    expect(api.get).toHaveBeenCalledWith(eventsUrlWithIsDateAfterFilter)
-                })
-
-                it('does not remove one year time restriction when setting empty properties', async () => {
-                    await expectLogic(dateFlagOnLogic, () => {
-                        dateFlagOnLogic.actions.setProperties([])
-                    }).toMatchValues({
+            it('starts a year before "now"', async () => {
+                await expectLogic(dateFlagOnLogic)
+                    .toFinishAllListeners()
+                    .toMatchValues({
                         properties: [filterAfterOneYearAgo],
                     })
+            })
 
-                    await expectLogic(dateFlagOnLogic, () => {
-                        dateFlagOnLogic.actions.setProperties([{} as any])
-                    }).toMatchValues({ properties: [filterAfterOneYearAgo] })
+            it('adds property filter not the after parameter when polling against an empty set of events', async () => {
+                await expectLogic(dateFlagOnLogic, () => {})
+                    .toFinishAllListeners()
+                    .toMatchValues({ events: [] })
+                ;(api.get as jest.Mock).mockClear()
+
+                dateFlagOnLogic.actions.pollEvents()
+
+                expect(api.get).toHaveBeenCalledWith(baseEventsUrl)
+            })
+
+            it('does not remove one year time restriction when setting empty properties', async () => {
+                await expectLogic(dateFlagOnLogic, () => {
+                    dateFlagOnLogic.actions.setProperties([])
+                }).toMatchValues({
+                    properties: [filterAfterOneYearAgo],
                 })
 
-                it('sets the after parameter to the first timestamp when polling and holding events', async () => {
-                    await expectLogic(dateFlagOnLogic, () => {
-                        dateFlagOnLogic.actions.fetchEventsSuccess({
-                            events: [firstEvent, secondEvent],
-                            hasNext: false,
-                            isNext: false,
-                        })
-                    }).toMatchValues({ events: [firstEvent, secondEvent] })
-                    ;(api.get as jest.Mock).mockClear()
+                await expectLogic(dateFlagOnLogic, () => {
+                    dateFlagOnLogic.actions.setProperties([{} as any])
+                }).toMatchValues({ properties: [filterAfterOneYearAgo] })
+            })
 
-                    dateFlagOnLogic.actions.pollEvents()
-
-                    expect(api.get).toHaveBeenCalledWith(
-                        'api/projects/997/events/' +
-                            '?properties=%5B%7B%22key%22%3A%22%24time%22%2C%22operator%22%3A%22is_date_after%22%2C%22type%22%3A%22event%22%2C%22value%22%3A%22-365d%22%7D%5D' +
-                            '&orderBy=%5B%22-timestamp%22%5D' +
-                            '&after=the%20first%20timestamp'
-                    )
-                })
-
-                it('does not set the before parameter when fetching next events and holding no events', async () => {
-                    await expectLogic(dateFlagOnLogic, () => {})
-                        .toFinishAllListeners()
-                        .toMatchValues({ events: [] })
-                    ;(api.get as jest.Mock).mockClear()
-
-                    dateFlagOnLogic.actions.fetchNextEvents()
-
-                    expect(api.get).toHaveBeenCalledWith(
-                        'api/projects/997/events/' +
-                            '?properties=%5B%7B%22key%22%3A%22%24time%22%2C%22operator%22%3A%22is_date_after%22%2C%22type%22%3A%22event%22%2C%22value%22%3A%22-365d%22%7D%5D' +
-                            '&orderBy=%5B%22-timestamp%22%5D'
-                    )
-                })
-
-                it('sets the before parameter to the last event timestamp when fetching next events and holding events', async () => {
-                    await expectLogic(dateFlagOnLogic, () => {
-                        dateFlagOnLogic.actions.fetchEventsSuccess({
-                            events: [firstEvent, secondEvent],
-                            hasNext: false,
-                            isNext: false,
-                        })
-                    }).toMatchValues({ events: [firstEvent, secondEvent] })
-                    ;(api.get as jest.Mock).mockClear()
-
-                    dateFlagOnLogic.actions.fetchNextEvents()
-
-                    expect(api.get).toHaveBeenCalledWith(
-                        'api/projects/997/events/' +
-                            '?properties=%5B%7B%22key%22%3A%22%24time%22%2C%22operator%22%3A%22is_date_after%22%2C%22type%22%3A%22event%22%2C%22value%22%3A%22-365d%22%7D%5D' +
-                            '&orderBy=%5B%22-timestamp%22%5D' +
-                            '&before=the%20second%20timestamp'
-                    )
-                })
-
-                it('can build the export URL when there are no properties or filters', async () => {
-                    await expectLogic(dateFlagOnLogic, () => {}).toMatchValues({
-                        exportUrl:
-                            `/api/projects/${MOCK_TEAM_ID}/events.csv` +
-                            '?properties=%5B%7B%22key%22%3A%22%24time%22%2C%22operator%22%3A%22is_date_after%22%2C%22type%22%3A%22event%22%2C%22value%22%3A%22-365d%22%7D%5D' +
-                            '&orderBy=%5B%22-timestamp%22%5D' +
-                            '&after=2020-05-05T00%3A00%3A00.000Z',
+            it('sets the after parameter to the first timestamp when polling and holding events', async () => {
+                await expectLogic(dateFlagOnLogic, () => {
+                    dateFlagOnLogic.actions.fetchEventsSuccess({
+                        events: [firstEvent, secondEvent],
+                        hasNext: false,
+                        isNext: false,
                     })
-                })
+                }).toMatchValues({ events: [firstEvent, secondEvent] })
+                ;(api.get as jest.Mock).mockClear()
 
-                it('can build the export URL when there are properties or filters', async () => {
-                    await expectLogic(dateFlagOnLogic, () => {
-                        dateFlagOnLogic.actions.setProperties([makePropertyFilter('fixed value')])
-                    }).toMatchValues({
-                        exportUrl:
-                            `/api/projects/${MOCK_TEAM_ID}/events.csv` +
-                            '?properties=%5B%7B%22key%22%3A%22%24time%22%2C%22operator%22%3A%22is_date_after%22%2C%22type%22%3A%22event%22%2C%22value%22%3A%22-365d%22%7D%2C%7B%22key%22%3A%22fixed%20value%22%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22t%22%2C%22value%22%3A%22v%22%7D%5D' +
-                            '&orderBy=%5B%22-timestamp%22%5D' +
-                            '&after=2020-05-05T00%3A00%3A00.000Z',
-                    })
-                })
+                dateFlagOnLogic.actions.pollEvents()
 
-                it('can not pinned property', async () => {
-                    const firstFilter = makePropertyFilter('fixed value')
-                    const secondFilter = makePropertyFilter('another value')
-                    await expectLogic(dateFlagOnLogic, () => {
-                        dateFlagOnLogic.actions.setProperties([firstFilter])
-                        dateFlagOnLogic.actions.setProperties([firstFilter, secondFilter])
-                        dateFlagOnLogic.actions.setProperties([secondFilter])
-                        dateFlagOnLogic.actions.setProperties([])
-                    }).toMatchValues({
-                        properties: [filterAfterOneYearAgo],
+                expect(api.get).toHaveBeenCalledWith(
+                    baseEventsUrl + propertiesAfterOneYearAgo + orderByTimestamp + afterTheFirstEvent
+                )
+            })
+
+            it('does not set the before parameter when fetching next events and holding no events', async () => {
+                await expectLogic(dateFlagOnLogic, () => {})
+                    .toFinishAllListeners()
+                    .toMatchValues({ events: [] })
+                ;(api.get as jest.Mock).mockClear()
+
+                dateFlagOnLogic.actions.fetchNextEvents()
+
+                expect(api.get).toHaveBeenCalledWith(baseEventsUrl + propertiesAfterOneYearAgo + orderByTimestamp)
+            })
+
+            it('sets the before parameter to the last event timestamp when fetching next events and holding events', async () => {
+                await expectLogic(dateFlagOnLogic, () => {
+                    dateFlagOnLogic.actions.fetchEventsSuccess({
+                        events: [firstEvent, secondEvent],
+                        hasNext: false,
+                        isNext: false,
                     })
+                }).toMatchValues({ events: [firstEvent, secondEvent] })
+                ;(api.get as jest.Mock).mockClear()
+
+                dateFlagOnLogic.actions.fetchNextEvents()
+
+                expect(api.get).toHaveBeenCalledWith(
+                    baseEventsUrl + propertiesAfterOneYearAgo + orderByTimestamp + beforeLastEventsTimestamp
+                )
+            })
+
+            it('can build the export URL when there are no properties or filters', async () => {
+                await expectLogic(dateFlagOnLogic, () => {}).toMatchValues({
+                    exportUrl:
+                        `/api/projects/${MOCK_TEAM_ID}/events.csv` +
+                        propertiesAfterOneYearAgo +
+                        orderByTimestamp +
+                        afterOneYearAgo,
                 })
             })
 
-            describe('when the QUERY_EVENTS_BY_DATETIME flag is off', () => {
-                let dateFlagOffLogic: ReturnType<typeof eventsTableLogic.build>
-                initKeaTestLogic({
-                    logic: eventsTableLogic,
-                    props: {
-                        key: 'test-key-date-querying-flagged-off',
-                        sceneUrl: urls.events(),
-                    },
-                    onLogic: (l) => (dateFlagOffLogic = l),
-                    beforeLogic: () => {
-                        featureFlagLogic.mount()
-                        const variants = {}
-                        variants[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME] = false
-                        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME], variants)
-                        router.actions.push(urls.events())
-                    },
+            it('can build the export URL when there are properties or filters', async () => {
+                await expectLogic(dateFlagOnLogic, () => {
+                    dateFlagOnLogic.actions.setProperties([makePropertyFilter('fixed value')])
+                }).toMatchValues({
+                    exportUrl:
+                        `/api/projects/${MOCK_TEAM_ID}/events.csv` +
+                        propertiesWithFilterValue +
+                        orderByTimestamp +
+                        afterOneYearAgo,
                 })
+            })
 
-                it('starts a year before "now"', async () => {
-                    await expectLogic(dateFlagOffLogic).toFinishAllListeners().toMatchValues({
-                        properties: [],
+            it('can not pinned property', async () => {
+                const firstFilter = makePropertyFilter('fixed value')
+                const secondFilter = makePropertyFilter('another value')
+                await expectLogic(dateFlagOnLogic, () => {
+                    dateFlagOnLogic.actions.setProperties([firstFilter])
+                    dateFlagOnLogic.actions.setProperties([firstFilter, secondFilter])
+                    dateFlagOnLogic.actions.setProperties([secondFilter])
+                    dateFlagOnLogic.actions.setProperties([])
+                }).toMatchValues({
+                    properties: [filterAfterOneYearAgo],
+                })
+            })
+        })
+
+        describe('when the QUERY_EVENTS_BY_DATETIME flag is off', () => {
+            let dateFlagOffLogic: ReturnType<typeof eventsTableLogic.build>
+            initKeaTestLogic({
+                logic: eventsTableLogic,
+                props: {
+                    key: 'test-key-date-querying-flagged-off',
+                    sceneUrl: urls.events(),
+                },
+                onLogic: (l) => (dateFlagOffLogic = l),
+                beforeLogic: () => {
+                    featureFlagLogic.mount()
+                    const variants = {}
+                    variants[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME] = false
+                    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME], variants)
+                    router.actions.push(urls.events())
+                },
+            })
+
+            it('starts a year before "now"', async () => {
+                await expectLogic(dateFlagOffLogic).toFinishAllListeners().toMatchValues({
+                    properties: [],
+                })
+            })
+
+            it('sets the after parameter to a year ago when polling against an empty set of events', async () => {
+                await expectLogic(dateFlagOffLogic, () => {})
+                    .toFinishAllListeners()
+                    .toMatchValues({ events: [] })
+                ;(api.get as jest.Mock).mockClear()
+
+                dateFlagOffLogic.actions.pollEvents()
+
+                expect(api.get).toHaveBeenCalledWith(
+                    baseEventsUrl + emptyProperties + orderByTimestamp + afterOneYearAgo
+                )
+            })
+
+            it('sets the after parameter to the first timestamp when polling and holding events', async () => {
+                await expectLogic(dateFlagOffLogic, () => {
+                    dateFlagOffLogic.actions.fetchEventsSuccess({
+                        events: [firstEvent, secondEvent],
+                        hasNext: false,
+                        isNext: false,
                     })
-                })
+                }).toMatchValues({ events: [firstEvent, secondEvent] })
+                ;(api.get as jest.Mock).mockClear()
 
-                it('sets the after parameter to a year ago when polling against an empty set of events', async () => {
-                    await expectLogic(dateFlagOffLogic, () => {})
-                        .toFinishAllListeners()
-                        .toMatchValues({ events: [] })
-                    ;(api.get as jest.Mock).mockClear()
+                dateFlagOffLogic.actions.pollEvents()
 
-                    dateFlagOffLogic.actions.pollEvents()
+                expect(api.get).toHaveBeenCalledWith(
+                    baseEventsUrl + emptyProperties + orderByTimestamp + afterTheFirstEvent
+                )
+            })
 
-                    expect(api.get).toHaveBeenCalledWith(
-                        'api/projects/997/events/?properties=%5B%5D&orderBy=%5B%22-timestamp%22%5D' +
-                            '&after=2020-05-05T00%3A00%3A00.000Z'
-                    )
-                })
+            it('does not set the before parameter when fetching next events and holding no events', async () => {
+                await expectLogic(dateFlagOffLogic, () => {})
+                    .toFinishAllListeners()
+                    .toMatchValues({ events: [] })
+                ;(api.get as jest.Mock).mockClear()
 
-                it('sets the after parameter to the first timestamp when polling and holding events', async () => {
-                    await expectLogic(dateFlagOffLogic, () => {
-                        dateFlagOffLogic.actions.fetchEventsSuccess({
-                            events: [firstEvent, secondEvent],
-                            hasNext: false,
-                            isNext: false,
-                        })
-                    }).toMatchValues({ events: [firstEvent, secondEvent] })
-                    ;(api.get as jest.Mock).mockClear()
+                dateFlagOffLogic.actions.fetchNextEvents()
 
-                    dateFlagOffLogic.actions.pollEvents()
+                expect(api.get).toHaveBeenCalledWith(
+                    baseEventsUrl + emptyProperties + orderByTimestamp + afterOneYearAgo
+                )
+            })
 
-                    expect(api.get).toHaveBeenCalledWith(
-                        'api/projects/997/events/?properties=%5B%5D&orderBy=%5B%22-timestamp%22%5D' +
-                            '&after=the%20first%20timestamp'
-                    )
-                })
-
-                it('does not set the before parameter when fetching next events and holding no events', async () => {
-                    await expectLogic(dateFlagOffLogic, () => {})
-                        .toFinishAllListeners()
-                        .toMatchValues({ events: [] })
-                    ;(api.get as jest.Mock).mockClear()
-
-                    dateFlagOffLogic.actions.fetchNextEvents()
-
-                    expect(api.get).toHaveBeenCalledWith(
-                        'api/projects/997/events/?properties=%5B%5D&orderBy=%5B%22-timestamp%22%5D' +
-                            '&after=2020-05-05T00%3A00%3A00.000Z'
-                    )
-                })
-
-                it('sets the before parameter to the last event timestamp when fetching next events and holding events', async () => {
-                    await expectLogic(dateFlagOffLogic, () => {
-                        dateFlagOffLogic.actions.fetchEventsSuccess({
-                            events: [firstEvent, secondEvent],
-                            hasNext: false,
-                            isNext: false,
-                        })
-                    }).toMatchValues({ events: [firstEvent, secondEvent] })
-                    ;(api.get as jest.Mock).mockClear()
-
-                    dateFlagOffLogic.actions.fetchNextEvents()
-
-                    expect(api.get).toHaveBeenCalledWith(
-                        'api/projects/997/events/?properties=%5B%5D&orderBy=%5B%22-timestamp%22%5D' +
-                            '&before=the%20second%20timestamp' +
-                            '&after=the%20first%20timestamp'
-                    )
-                })
-
-                it('can build the export URL when there are no properties or filters', async () => {
-                    await expectLogic(dateFlagOffLogic, () => {}).toMatchValues({
-                        exportUrl:
-                            `/api/projects/${MOCK_TEAM_ID}/events.csv` +
-                            '?properties=%5B%5D&orderBy=%5B%22-timestamp%22%5D&after=2020-05-05T00%3A00%3A00.000Z',
+            it('sets the before parameter to the last event timestamp when fetching next events and holding events', async () => {
+                await expectLogic(dateFlagOffLogic, () => {
+                    dateFlagOffLogic.actions.fetchEventsSuccess({
+                        events: [firstEvent, secondEvent],
+                        hasNext: false,
+                        isNext: false,
                     })
-                })
+                }).toMatchValues({ events: [firstEvent, secondEvent] })
+                ;(api.get as jest.Mock).mockClear()
 
-                it('can build the export URL when there are properties or filters', async () => {
-                    await expectLogic(dateFlagOffLogic, () => {
-                        dateFlagOffLogic.actions.setProperties([makePropertyFilter('fixed value')])
-                    }).toMatchValues({
-                        exportUrl:
-                            `/api/projects/${MOCK_TEAM_ID}/events.csv` +
-                            '?properties=%5B%7B%22key%22%3A%22fixed%20value%22%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22t%22%2C%22value%22%3A%22v%22%7D%5D&orderBy=%5B%22-timestamp%22%5D' +
-                            '&after=2020-05-05T00%3A00%3A00.000Z',
-                    })
-                })
+                dateFlagOffLogic.actions.fetchNextEvents()
 
-                it('can remove all properties', async () => {
-                    const firstFilter = makePropertyFilter('fixed value')
-                    const secondFilter = makePropertyFilter('another value')
-                    await expectLogic(dateFlagOffLogic, () => {
-                        dateFlagOffLogic.actions.setProperties([firstFilter])
-                        dateFlagOffLogic.actions.setProperties([firstFilter, secondFilter])
-                        dateFlagOffLogic.actions.setProperties([secondFilter])
-                        dateFlagOffLogic.actions.setProperties([])
-                    }).toMatchValues({
-                        properties: [],
-                    })
+                expect(api.get).toHaveBeenCalledWith(
+                    baseEventsUrl + emptyProperties + orderByTimestamp + beforeLastEventsTimestamp + afterTheFirstEvent
+                )
+            })
+
+            it('can build the export URL when there are no properties or filters', async () => {
+                await expectLogic(dateFlagOffLogic, () => {}).toMatchValues({
+                    exportUrl:
+                        `/api/projects/${MOCK_TEAM_ID}/events.csv` +
+                        emptyProperties +
+                        orderByTimestamp +
+                        afterOneYearAgo,
+                })
+            })
+
+            it('can build the export URL when there are properties or filters', async () => {
+                await expectLogic(dateFlagOffLogic, () => {
+                    dateFlagOffLogic.actions.setProperties([makePropertyFilter('fixed value')])
+                }).toMatchValues({
+                    exportUrl:
+                        `/api/projects/${MOCK_TEAM_ID}/events.csv` +
+                        propertiesWithFilterValue +
+                        orderByTimestamp +
+                        afterOneYearAgo,
+                })
+            })
+
+            it('can remove all properties', async () => {
+                const firstFilter = makePropertyFilter('fixed value')
+                const secondFilter = makePropertyFilter('another value')
+                await expectLogic(dateFlagOffLogic, () => {
+                    dateFlagOffLogic.actions.setProperties([firstFilter])
+                    dateFlagOffLogic.actions.setProperties([firstFilter, secondFilter])
+                    dateFlagOffLogic.actions.setProperties([secondFilter])
+                    dateFlagOffLogic.actions.setProperties([])
+                }).toMatchValues({
+                    properties: [],
                 })
             })
         })
