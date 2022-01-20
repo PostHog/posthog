@@ -30,6 +30,13 @@ export const experimentsLogic = kea<experimentsLogicType>({
                     )
                     return values.experiments.filter((experiment) => experiment.id !== id)
                 },
+                // addExperiment: (state, experiment) => {
+                //     return [...state, experiment]
+                // },
+                // updateExperiment: (state, experiment) => {
+                //     const experiments = [...state.experiments]
+                //     // if updating existing experiment, update the list
+                // }
             },
         ],
     }),
