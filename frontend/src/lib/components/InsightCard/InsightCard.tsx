@@ -16,6 +16,7 @@ import { More } from '../LemonButton/More'
 import { LemonSpacer } from '../LemonRow'
 import { Link } from '../Link'
 import { ObjectTags } from '../ObjectTags'
+import { ResizeHandle1D, ResizeHandle2D } from './handles'
 import './InsightCard.scss'
 
 export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -27,6 +28,8 @@ export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     apiError: boolean
     /** Whether the card should be highlighted. */
     highlighted: boolean
+    /** Whether resize handles should be shown. */
+    resizable: boolean
     /** Layout of the card on a grid. */
     layout?: Layout
     updateColor: (newColor: InsightModel['color']) => void
@@ -190,6 +193,7 @@ function InsightCardInternal(
         loading,
         apiError,
         highlighted,
+        resizable,
         updateColor,
         removeFromDashboard,
         refresh,
@@ -230,6 +234,13 @@ function InsightCardInternal(
             <BindLogic logic={insightLogic} props={insightLogicProps}>
                 <InsightViz insight={insight} loading={loading} apiError={apiError} />
             </BindLogic>
+            {resizable && (
+                <>
+                    <ResizeHandle1D orientation="vertical" />
+                    <ResizeHandle1D orientation="horizontal" />
+                    <ResizeHandle2D />
+                </>
+            )}
             {children /* Extras, such as resize handles */}
         </div>
     )

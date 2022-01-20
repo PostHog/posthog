@@ -105,6 +105,7 @@ export function DashboardItems(): JSX.Element {
                             loading={isRefreshing(item.short_id)}
                             apiError={refreshStatus[item.short_id]?.error || false}
                             highlighted={highlightedInsightId && item.short_id === highlightedInsightId}
+                            resizable={dashboardMode === DashboardMode.Edit}
                             updateColor={(color) => updateItemColor(item.id, color)}
                             removeFromDashboard={() => removeItem(item.id)}
                             refresh={() => refreshAllDashboardItems([item])}
