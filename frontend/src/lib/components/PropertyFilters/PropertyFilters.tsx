@@ -4,7 +4,7 @@ import { propertyFilterLogic } from './propertyFilterLogic'
 import { FilterRow } from './components/FilterRow'
 import '../../../scenes/actions/Actions.scss'
 import { TooltipPlacement } from 'antd/lib/tooltip'
-import { AnyPropertyFilter } from '~/types'
+import { AnyPropertyFilter, PropertyFilter } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Placement } from '@popperjs/core'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
@@ -12,7 +12,7 @@ import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/componen
 interface PropertyFiltersProps {
     endpoint?: string | null
     propertyFilters?: AnyPropertyFilter[] | null
-    onChange?: null | ((filters: AnyPropertyFilter[]) => void)
+    onChange: (filters: PropertyFilter[]) => void
     pageKey: string
     showConditionBadge?: boolean
     disablePopover?: boolean
@@ -27,7 +27,7 @@ interface PropertyFiltersProps {
 
 export function PropertyFilters({
     propertyFilters = null,
-    onChange = null,
+    onChange,
     pageKey,
     showConditionBadge = false,
     disablePopover = false, // use bare PropertyFilter without popover

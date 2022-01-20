@@ -1,4 +1,4 @@
-import { AnyPropertyFilter } from '~/types'
+import { AnyPropertyFilter, PropertyFilter } from '~/types'
 import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
@@ -12,7 +12,7 @@ export interface PropertyFilterBaseProps {
 
 export interface PropertyFilterLogicProps extends PropertyFilterBaseProps {
     propertyFilters?: AnyPropertyFilter[] | null
-    onChange?: null | ((filters: AnyPropertyFilter[]) => void)
+    onChange?: null | ((filters: PropertyFilter[]) => void)
     urlOverride?: string
 }
 
