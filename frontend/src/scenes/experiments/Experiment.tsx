@@ -115,8 +115,9 @@ export function Experiment(): JSX.Element {
     const experimentProgressPercent =
         experimentInsightType === InsightType.FUNNELS
             ? ((funnelResultsPersonsTotal || 0) / experimentData?.parameters?.recommended_sample_size || 1) * 100
-            : (dayjs().diff(experimentData?.start_date, 'day') / experimentData?.parameters?.recommended_running_time ||
-                  1) * 100
+            : (dayjs().diff(experimentData?.start_date, 'day') /
+                  (experimentData?.parameters?.recommended_running_time || 1)) *
+              100
 
     const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
     const status = (): string => {
