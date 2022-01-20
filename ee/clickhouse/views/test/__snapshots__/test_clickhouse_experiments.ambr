@@ -272,15 +272,17 @@
   SELECT groupArray(value)
   FROM
     (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(properties, '$feature/a-b-test')) AS value,
+                 FROM JSONExtractRaw(properties, '$feature_flag_response')) AS value,
             count(*) as count
      FROM events e
      WHERE team_id = 2
-       AND event = '$pageview'
+       AND event = '$feature_flag_called'
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-01-06 23:59:59'
        AND has(['control', 'test'], trim(BOTH '"'
-                                         FROM JSONExtractRaw(e.properties, '$feature/a-b-test')))
+                                         FROM JSONExtractRaw(e.properties, '$feature_flag_response')))
+       AND has(['a-b-test'], trim(BOTH '"'
+                                  FROM JSONExtractRaw(e.properties, '$feature_flag')))
      GROUP BY value
      ORDER BY count DESC
      LIMIT 25
@@ -325,7 +327,7 @@
                 (SELECT person_id,
                         timestamp,
                         trim(BOTH '"'
-                             FROM JSONExtractRaw(properties, '$feature/a-b-test')) as breakdown_value
+                             FROM JSONExtractRaw(properties, '$feature_flag_response')) as breakdown_value
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
@@ -335,13 +337,15 @@
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
                  WHERE e.team_id = 2
-                   AND event = '$pageview'
+                   AND event = '$feature_flag_called'
                    AND has(['control', 'test'], trim(BOTH '"'
-                                                     FROM JSONExtractRaw(e.properties, '$feature/a-b-test')))
+                                                     FROM JSONExtractRaw(e.properties, '$feature_flag_response')))
+                   AND has(['a-b-test'], trim(BOTH '"'
+                                              FROM JSONExtractRaw(e.properties, '$feature_flag')))
                    AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
                    AND timestamp <= '2020-01-06 23:59:59'
                    AND trim(BOTH '"'
-                            FROM JSONExtractRaw(properties, '$feature/a-b-test')) in (['test', 'control']) )
+                            FROM JSONExtractRaw(properties, '$feature_flag_response')) in (['test', 'control']) )
               GROUP BY person_id,
                        breakdown_value)
            GROUP BY day_start,
@@ -429,15 +433,17 @@
   SELECT groupArray(value)
   FROM
     (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(properties, '$feature/a-b-test')) AS value,
+                 FROM JSONExtractRaw(properties, '$feature_flag_response')) AS value,
             count(*) as count
      FROM events e
      WHERE team_id = 2
-       AND event = '$pageview'
+       AND event = '$feature_flag_called'
        AND timestamp >= '2020-01-01 00:00:00'
        AND timestamp <= '2020-01-06 23:59:59'
        AND has(['control', 'test_1', 'test_2', 'test'], trim(BOTH '"'
-                                                             FROM JSONExtractRaw(e.properties, '$feature/a-b-test')))
+                                                             FROM JSONExtractRaw(e.properties, '$feature_flag_response')))
+       AND has(['a-b-test'], trim(BOTH '"'
+                                  FROM JSONExtractRaw(e.properties, '$feature_flag')))
      GROUP BY value
      ORDER BY count DESC
      LIMIT 25

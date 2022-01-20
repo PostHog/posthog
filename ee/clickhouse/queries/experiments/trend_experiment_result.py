@@ -4,7 +4,6 @@ from functools import lru_cache
 from math import exp, lgamma, log
 from typing import List, Optional, Type
 
-from numpy import absolute
 from numpy.random import default_rng
 from rest_framework.exceptions import ValidationError
 
@@ -69,21 +68,38 @@ class ClickhouseTrendExperimentResult:
                 # :TRICKY: We don't use properties set on filters, instead using experiment variant options
             }
         )
+
+        exposure_filter = filter.with_data(
+            {
+                "date_from": experiment_start_date,
+                "date_to": experiment_end_date,
+                ACTIONS: [],
+                EVENTS: [
+                    {
+                        "id": "$feature_flag_called",
+                        "name": "$feature_flag_called",
+                        "order": 0,
+                        "type": "events",
+                        "math": "dau",
+                    }
+                ],
+                "breakdown_type": "event",
+                "breakdown": "$feature_flag_response",
+                "properties": [
+                    {"key": "$feature_flag_response", "value": variants, "operator": "exact", "type": "event"},
+                    {"key": "$feature_flag", "value": [feature_flag.key], "operator": "exact", "type": "event"},
+                ],
+            }
+        )
+
         self.query_filter = query_filter
+        self.exposure_filter = exposure_filter
         self.team = team
         self.insight = trend_class()
 
     def get_results(self):
         insight_results = self.insight.run(self.query_filter, self.team)
-        exposure_results = self.insight.run(
-            self.query_filter.with_data(
-                {
-                    ACTIONS: [],
-                    EVENTS: [{"id": "$pageview", "name": "$pageview", "order": 0, "type": "events", "math": "dau"}],
-                }
-            ),
-            self.team,
-        )
+        exposure_results = self.insight.run(self.exposure_filter, self.team,)
         control_variant, test_variants = self.get_variants(insight_results, exposure_results)
 
         probabilities = self.calculate_results(control_variant, test_variants)
