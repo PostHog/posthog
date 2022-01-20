@@ -1,4 +1,4 @@
-import React, { CSSProperties, useEffect } from 'react'
+import React, { CSSProperties } from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 import { FilterRow } from './components/FilterRow'
@@ -41,11 +41,7 @@ export function PropertyFilters({
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filters } = useValues(propertyFilterLogic(logicProps))
-    const { remove, setFilters } = useActions(propertyFilterLogic(logicProps))
-
-    useEffect(() => {
-        setFilters(propertyFilters ?? [])
-    }, [propertyFilters])
+    const { remove } = useActions(propertyFilterLogic(logicProps))
 
     return (
         <div className="property-filters" style={style}>
