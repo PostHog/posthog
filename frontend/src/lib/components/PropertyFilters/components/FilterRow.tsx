@@ -30,6 +30,18 @@ interface FilterRowProps {
     greyBadges?: boolean
 }
 
+const isFirstMatchingPinnedFilter = (
+    pinnedFilters: string[] | undefined,
+    filters: AnyPropertyFilter[],
+    currentFilterIndex: number,
+    currentFilter: AnyPropertyFilter
+): boolean =>
+    (pinnedFilters || []).some(
+        (pinnedFilter) =>
+            pinnedFilter === currentFilter.key &&
+            filters.findIndex((f) => f.key === pinnedFilter) === currentFilterIndex
+    )
+
 export const FilterRow = React.memo(function FilterRow({
     item,
     index,
@@ -63,7 +75,7 @@ export const FilterRow = React.memo(function FilterRow({
                 <>
                     {filterComponent(() => setOpen(false))}
                     {!!Object.keys(filters[index]).length &&
-                        !pinnedFilters.some((filterName) => filterName === filters[index].key) && (
+                        !isFirstMatchingPinnedFilter(pinnedFilters, filters, index, filters[index]) && (
                             <CloseButton
                                 onClick={() => onRemove(index)}
                                 style={{
@@ -100,7 +112,12 @@ export const FilterRow = React.memo(function FilterRow({
                                             item={item}
                                             setRef={setRef}
                                             greyBadges={greyBadges}
-                                            pinned={pinnedFilters?.some((pinnedKey) => item.key === pinnedKey)}
+                                            pinned={isFirstMatchingPinnedFilter(
+                                                pinnedFilters,
+                                                filters,
+                                                index,
+                                                filters[index]
+                                            )}
                                         />
                                     ) : isValidPathCleanFilter(item) ? (
                                         <FilterButton onClick={() => setOpen(!open)} setRef={setRef}>
@@ -125,7 +142,7 @@ export const FilterRow = React.memo(function FilterRow({
                         }}
                     </Popup>
                     {!!Object.keys(filters[index]).length &&
-                        !pinnedFilters.some((filterName) => filterName === filters[index].key) && (
+                        !isFirstMatchingPinnedFilter(pinnedFilters, filters, index, filters[index]) && (
                             <CloseButton
                                 className="ml-1"
                                 onClick={() => onRemove(index)}
