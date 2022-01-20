@@ -512,8 +512,8 @@ export function Experiment(): JSX.Element {
                                 (experimentInsightType === InsightType.FUNNELS && areConversionResultsSignificant)) && (
                                 <Row align="middle" className="significant-results">
                                     <Col span={19} style={{ color: '#497342' }}>
-                                        Experiment results are <b>significant</b>. You can end your experiment now or
-                                        let it run until completion.
+                                        Your results are <b>statistically significant</b>. You can end this experiment
+                                        now or let it run to completion.
                                     </Col>
                                     <Col span={5}>
                                         <Button style={{ color: '#497342' }} onClick={() => setShowWarning(false)}>
@@ -529,8 +529,8 @@ export function Experiment(): JSX.Element {
                                     !areConversionResultsSignificant)) && (
                                 <Row align="middle" className="not-significant-results">
                                     <Col span={19} style={{ color: '#f96132' }}>
-                                        Experiment results are <b>not significant</b>. You shouldn't end your experiment
-                                        yet.
+                                        Your results are <b>not statistically significant</b>. We don't recommend ending
+                                        this experiment yet.
                                     </Col>
                                     <Col span={5}>
                                         <Button style={{ color: '#f96132' }} onClick={() => setShowWarning(false)}>
