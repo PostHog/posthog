@@ -2,20 +2,24 @@ import { kea } from 'kea'
 import { api } from 'lib/api.mock'
 import { experimentsLogicType } from './experimentsLogicType'
 import { teamLogic } from 'scenes/teamLogic'
-import { Experiment } from '~/types'
+import { AvailableFeature, Experiment } from '~/types'
 import { CheckCircleOutlined } from '@ant-design/icons'
 import { toast } from 'react-toastify'
 import React from 'react'
+import { userLogic } from 'scenes/userLogic'
 
 export const experimentsLogic = kea<experimentsLogicType>({
     path: ['scenes', 'experiments', 'experimentsLogic'],
-    connect: { values: [teamLogic, ['currentTeamId']] },
+    connect: { values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature']] },
     actions: {},
     loaders: ({ values }) => ({
         experiments: [
             [] as Experiment[],
             {
                 loadExperiments: async () => {
+                    if (!values.hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
+                        return []
+                    }
                     const response = await api.get(`api/projects/${values.currentTeamId}/experiments`)
                     return response.results as Experiment[]
                 },
