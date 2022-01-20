@@ -113,9 +113,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         instance = super().create(validated_data)
 
         report_user_action(
-            request.user,
-            "feature flag created",
-            instance.get_analytics_metadata(),
+            request.user, "feature flag created", instance.get_analytics_metadata(),
         )
 
         return instance
@@ -129,9 +127,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         instance = super().update(instance, validated_data)
 
         report_user_action(
-            request.user,
-            "feature flag updated",
-            instance.get_analytics_metadata(),
+            request.user, "feature flag updated", instance.get_analytics_metadata(),
         )
         return instance
 
@@ -229,15 +225,11 @@ class FeatureFlagOverrideSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         if created:
             report_user_action(
-                request.user,
-                self._analytics_created_event_name,
-                feature_flag_override.get_analytics_metadata(),
+                request.user, self._analytics_created_event_name, feature_flag_override.get_analytics_metadata(),
             )
         else:
             report_user_action(
-                request.user,
-                self._analytics_updated_event_name,
-                feature_flag_override.get_analytics_metadata(),
+                request.user, self._analytics_updated_event_name, feature_flag_override.get_analytics_metadata(),
             )
         return feature_flag_override
 
@@ -273,8 +265,7 @@ class FeatureFlagOverrideViewset(StructuredViewSetMixin, AnalyticsDestroyModelMi
         if request.method == "POST":
             user = request.user
             serializer = FeatureFlagOverrideSerializer(
-                data={**request.data, "user": user.id},
-                context={**self.get_serializer_context()},
+                data={**request.data, "user": user.id}, context={**self.get_serializer_context()},
             )
             serializer.is_valid(raise_exception=True)
             serializer.save()
