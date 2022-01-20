@@ -315,30 +315,6 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             return {"result": funnel_order_class(team=team, filter=filter).run()}
 
     # ******************************************
-    # /projects/:id/insights/funnel/correlation
-    #
-    # params:
-    # - params are the same as for funnel
-    #
-    # Returns significant events, i.e. those that are correlated with a person
-    # making it through a funnel
-    # ******************************************
-    @action(methods=["GET", "POST"], url_path="funnel/correlation", detail=False)
-    def funnel_correlation(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        result = self.calculate_funnel_correlation(request)
-        return Response(result)
-
-    @cached_function
-    def calculate_funnel_correlation(self, request: request.Request) -> Dict[str, Any]:
-        team = self.team
-        filter = Filter(request=request)
-
-        base_uri = request.build_absolute_uri("/")
-        result = FunnelCorrelation(filter=filter, team=team, base_uri=base_uri).run()
-
-        return {"result": result}
-
-    # ******************************************
     # /projects/:id/insights/retention
     # params:
     # - start_entity: (dict) specifies id and type of the entity to focus retention on
