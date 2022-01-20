@@ -379,6 +379,7 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
             let postgresQuery: jest.SpyInstance
             beforeEach(() => {
                 postgresQuery = jest.spyOn(teamManager.db, 'postgresQuery')
+                jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2015-04-04T04:04:04.000Z').getTime())
             })
 
             it('adds no type for objects', async () => {
@@ -401,8 +402,8 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                             teamId,
                             null,
                             null,
-                            expect.any(String),
-                            expect.any(String),
+                            '2015-04-04T04:04:04.000Z',
+                            '2015-04-04T04:04:04.000Z',
                         ],
                     },
                     postgresQuery
@@ -427,8 +428,8 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                             teamId,
                             'Numeric',
                             null,
-                            expect.any(String),
-                            expect.any(String),
+                            '2015-04-04T04:04:04.000Z',
+                            '2015-04-04T04:04:04.000Z',
                         ],
                     },
                     postgresQuery
@@ -453,8 +454,8 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                             teamId,
                             'String',
                             null,
-                            expect.any(String),
-                            expect.any(String),
+                            '2015-04-04T04:04:04.000Z',
+                            '2015-04-04T04:04:04.000Z',
                         ],
                     },
                     postgresQuery
@@ -548,8 +549,8 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                                 teamId,
                                 testcase.expectedPropertyType,
                                 testcase.expectedPropertyTypeFormat,
-                                expect.any(String),
-                                expect.any(String),
+                                '2015-04-04T04:04:04.000Z',
+                                '2015-04-04T04:04:04.000Z',
                             ],
                         },
                         postgresQuery
@@ -698,8 +699,8 @@ DO UPDATE SET property_type=$5, property_type_format=$6 WHERE posthog_propertyde
                                 teamId,
                                 PropertyType.DateTime,
                                 testcase.patternDescription,
-                                expect.any(String),
-                                expect.any(String),
+                                '2015-04-04T04:04:04.000Z',
+                                '2015-04-04T04:04:04.000Z',
                             ],
                         },
                         postgresQuery
