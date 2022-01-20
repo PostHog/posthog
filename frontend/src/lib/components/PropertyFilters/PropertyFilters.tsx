@@ -23,6 +23,7 @@ interface PropertyFiltersProps {
     showNestedArrow?: boolean
     greyBadges?: boolean
     eventNames?: string[]
+    pinnedFilters?: string[]
 }
 
 export function PropertyFilters({
@@ -38,6 +39,7 @@ export function PropertyFilters({
     showNestedArrow = false,
     greyBadges = false,
     eventNames = [],
+    pinnedFilters = [],
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filters } = useValues(propertyFilterLogic(logicProps))
@@ -55,6 +57,7 @@ export function PropertyFilters({
                                 index={index}
                                 totalCount={filters.length - 1} // empty state
                                 filters={filters}
+                                pinnedFilters={pinnedFilters}
                                 pageKey={pageKey}
                                 showConditionBadge={showConditionBadge}
                                 disablePopover={disablePopover}

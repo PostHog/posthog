@@ -33,6 +33,8 @@ import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilt
 import { teamLogic } from 'scenes/teamLogic'
 import { createActionFromEvent } from './createActionFromEvent'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface FixedFilters {
     action_id?: ActionType['id']
@@ -89,7 +91,7 @@ export function EventsTable({
     const { fetchNextEvents, prependNewEvents, setEventFilter, toggleAutomaticLoad, startDownload, setPollingActive } =
         useActions(logic)
     const { filters } = useValues(propertyFilterLogic({ pageKey }))
-
+    const { featureFlags } = useValues(featureFlagsLogic)
     const showLinkToPerson = !fixedFilters?.person_id
 
     usePageVisibility(setPollingActive)
@@ -360,7 +362,7 @@ export function EventsTable({
                                 pageKey={pageKey}
                                 style={{ marginBottom: 0 }}
                                 eventNames={eventFilter ? [eventFilter] : []}
-                                greyBadges={true}
+                                pinnedFilters={featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME] ? ['$time'] : []}
                             />
                         </div>
 

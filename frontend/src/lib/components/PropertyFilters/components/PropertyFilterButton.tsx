@@ -7,15 +7,17 @@ import { AnyPropertyFilter } from '~/types'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import clsx from 'clsx'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { PushpinOutlined } from '@ant-design/icons'
 
-export interface Props {
+export interface PropertyFilterButtonProps {
     item: AnyPropertyFilter
     greyBadges?: boolean
     onClick?: () => void
     setRef?: (ref: HTMLElement) => void
+    pinned?: boolean
 }
 
-export function PropertyFilterButton({ item, ...props }: Props): JSX.Element {
+export function PropertyFilterButton({ item, ...props }: PropertyFilterButtonProps): JSX.Element {
     const { cohorts } = useValues(cohortsModel)
     const { formatForDisplay } = useValues(propertyDefinitionsModel)
 
@@ -31,9 +33,10 @@ interface FilterRowProps {
     onClick?: () => void
     setRef?: (ref: HTMLElement) => void
     children: string | JSX.Element
+    pinned?: boolean
 }
 
-export function FilterButton({ greyBadges, onClick, setRef, children }: FilterRowProps): JSX.Element {
+export function FilterButton({ greyBadges, onClick, setRef, children, pinned }: FilterRowProps): JSX.Element {
     return (
         <Button
             type="primary"
@@ -41,13 +44,14 @@ export function FilterButton({ greyBadges, onClick, setRef, children }: FilterRo
             style={{ overflow: 'hidden' }}
             onClick={onClick}
             ref={setRef}
-            className={clsx('property-filter', greyBadges && 'property-filter-grey')}
+            className={clsx('property-filter', (greyBadges || pinned) && 'property-filter-grey')}
         >
             <span
                 className="ph-no-capture property-filter-button-label"
                 style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}
             >
                 {children}
+                {pinned && <PushpinOutlined style={{ marginLeft: '.5em' }} />}
             </span>
         </Button>
     )
