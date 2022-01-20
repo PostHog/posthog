@@ -1,10 +1,18 @@
 @import '~/vars';
 
 .EditableField {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    white-space: pre-wrap;
+    .EditableField--highlight {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        white-space: pre-wrap;
+        padding: 0.25rem; // Some padding to give the focus outline more breathing space
+        margin: -0.25rem;
+    }
+    &--editing .EditableField--highlight {
+        outline: 1px solid var(--border);
+        border-radius: var(--radius);
+    }
     &--multiline .input-area {
         width: 100%;
     }
@@ -14,15 +22,11 @@
         background: transparent;
         font: inherit;
         color: var(--text-default);
-    }
-    input {
-        padding: 0.25rem; // Some padding to give the focus outline more breathing space
-        margin: -0.25rem;
+        outline: none;
+        padding: 0;
     }
     textarea {
         width: 100%;
-        padding: 0 0.25rem; // Since the text area is height-controlled, only the sides are padded
-        margin: 0 -0.25rem;
     }
     button {
         &:first-of-type {

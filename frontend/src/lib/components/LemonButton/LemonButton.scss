@@ -24,7 +24,7 @@
     &:not(:disabled):hover,
     &:not(:disabled):active {
         background: inherit;
-        border-color: var(--primary);
+        border-color: currentColor;
     }
     .LemonRow__icon {
         color: var(--muted-alt);

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import './EditableField.scss'
-import { IconClose, IconEdit, IconSave } from '../icons'
+import { IconEdit } from '../icons'
 import { LemonButton } from '../LemonButton'
 import AutosizeInput from 'react-input-autosize'
 import TextareaAutosize from 'react-textarea-autosize'
@@ -52,76 +52,92 @@ export function EditableField({
         setIsEditing(false)
     }
 
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLElement>): void => {
+        if (isEditing) {
+            // Cmd/Ctrl are required in addition to Enter if newlines are permitted
+            if (isSaveable && e.key === 'Enter' && (!multiline || e.metaKey || e.ctrlKey)) {
+                save() // Save on Enter press
+                e.stopPropagation()
+                e.preventDefault()
+            } else if (e.key === 'Escape') {
+                cancel()
+                e.stopPropagation()
+                e.preventDefault()
+            }
+        }
+    }
+
     return (
-        <div className={clsx('EditableField', multiline && 'EditableField--multiline', className)} data-attr={dataAttr}>
-            {isEditing ? (
-                <>
-                    {multiline ? (
-                        <TextareaAutosize
-                            name={name}
-                            value={tentativeValue}
-                            onChange={(e) => {
-                                onChange?.(e.target.value)
-                                setTentativeValue(e.target.value)
-                            }}
-                            onKeyDown={(e) => {
-                                if (isSaveable && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                                    save() // Save on Cmd/Ctrl + Enter press (Cmd/Ctrl required because of newlines)
-                                }
-                            }}
-                            placeholder={placeholder}
-                            minLength={minLength}
-                            autoFocus
-                        />
-                    ) : (
-                        <AutosizeInput
-                            name={name}
-                            value={tentativeValue}
-                            onChange={(e) => {
-                                onChange?.(e.target.value)
-                                setTentativeValue(e.target.value)
-                            }}
-                            onKeyDown={(e) => {
-                                if (isSaveable && e.key === 'Enter') {
-                                    save() // Save on Enter press
-                                }
-                            }}
-                            placeholder={placeholder}
-                            minLength={minLength}
-                            autoFocus
-                            injectStyles={false}
-                        />
-                    )}
-                    <LemonButton
-                        title="Cancel editing"
-                        icon={<IconClose />}
-                        status="danger"
-                        compact={compactButtons}
-                        onClick={cancel}
-                    />
-                    <LemonButton
-                        title={
-                            !minLength
-                                ? 'Save'
-                                : `Save (at least ${pluralize(minLength, 'character', 'characters')} required)`
-                        }
-                        icon={<IconSave />}
-                        compact={compactButtons}
-                        disabled={!isSaveable}
-                        onClick={save}
-                    />
-                </>
-            ) : (
-                <>
-                    {value || <i>{placeholder}</i>}
-                    <LemonButton
-                        title="Edit"
-                        icon={<IconEdit />}
-                        compact={compactButtons}
-                        onClick={() => setIsEditing(true)}
-                    />
-                </>
+        <div
+            className={clsx(
+                'EditableField',
+                multiline && 'EditableField--multiline',
+                isEditing && 'EditableField--editing',
+                className
             )}
+            data-attr={dataAttr}
+        >
+            <div className="EditableField--highlight">
+                {isEditing ? (
+                    <>
+                        {multiline ? (
+                            <TextareaAutosize
+                                name={name}
+                                value={tentativeValue}
+                                onChange={(e) => {
+                                    onChange?.(e.target.value)
+                                    setTentativeValue(e.target.value)
+                                }}
+                                onKeyDown={handleKeyDown}
+                                placeholder={placeholder}
+                                minLength={minLength}
+                                autoFocus
+                            />
+                        ) : (
+                            <AutosizeInput
+                                name={name}
+                                value={tentativeValue}
+                                onChange={(e) => {
+                                    onChange?.(e.target.value)
+                                    setTentativeValue(e.target.value)
+                                }}
+                                onKeyDown={handleKeyDown}
+                                placeholder={placeholder}
+                                minLength={minLength}
+                                autoFocus
+                                injectStyles={false}
+                            />
+                        )}
+                        <LemonButton title="Cancel editing" compact onClick={cancel} type="secondary">
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            title={
+                                !minLength
+                                    ? 'Save'
+                                    : `Save (at least ${pluralize(minLength, 'character', 'characters')} required)`
+                            }
+                            compact
+                            disabled={!isSaveable}
+                            onClick={save}
+                            type="primary"
+                        >
+                            Save
+                        </LemonButton>
+                    </>
+                ) : (
+                    <>
+                        {value || <i>{placeholder}</i>}
+                        <LemonButton
+                            title="Edit"
+                            icon={<IconEdit />}
+                            compact={compactButtons}
+                            onClick={() => setIsEditing(true)}
+                            data-attr={`edit-prop-${name}`}
+                        />
+                    </>
+                )}
+            </div>
         </div>
     )
 }
